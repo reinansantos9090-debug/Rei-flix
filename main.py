@@ -2,87 +2,82 @@ import flet as ft
 import requests
 
 def main(page: ft.Page):
-    page.title = "OtakuHub Python"
+    page.title = "Rei-flix"
     page.theme_mode = ft.ThemeMode.DARK
-    page.padding = 20
+    page.padding = 10
 
+    # Título do App
+    title = ft.Text("Rei-Flix Anime", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_ACCENT)
+
+    # Campo de busca
     search_input = ft.TextField(
-        hint_text="Digite o nome do anime...",
+        hint_text="Buscar animes...",
         expand=True,
-        autofocus=True
+        border_radius=10
     )
-    
-    results_list = ft.ListView(expand=True, spacing=10)
-    loading_indicator = ft.ProgressRing(visible=False)
+
+    results_grid = ft.GridView(
+        expand=True,
+        runs_count=3,
+        max_extent=160,
+        child_aspect_ratio=0.7,
+        spacing=10,
+        run_spacing=10,
+    )
 
     def search_anime(e):
-        query = search_input.value.strip()
+        query = search_input.value
         if not query:
             return
-
-        loading_indicator.visible = True
-        results_list.controls.clear()
+        
+        results_grid.controls.clear()
         page.update()
 
-        graphql_query = '''
+        # Consumindo API pública do AniList para buscar animes
+        url = "https://graphql.anilist.co"
+        graphql_query = """
         query ($search: String) {
-          Page(perPage: 10) {
+          Page(perPage: 12) {
             media(search: $search, type: ANIME) {
               id
               title { romaji english }
               coverImage { large }
-              episodes
-              status
             }
           }
         }
-        '''
+        """
+        response = requests.post(url, json={'query': graphql_query, 'variables': {'search': query}})
         
-        try:
-            response = requests.post(
-                'https://graphql.anilist.co',
-                json={'query': graphql_query, 'variables': {'search': query}},
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                media_list = data['data']['Page']['media']
-
-                for anime in media_list:
-                    title = anime['title']['english'] or anime['title']['romaji']
-                    img_url = anime['coverImage']['large']
-                    episodes = anime['episodes'] or '?'
-                    status = anime['status']
-
-                    card = ft.Card(
-                        content=ft.ListTile(
-                            leading=ft.Image(src=img_url, width=50, fit=ft.ImageFit.COVER),
-                            title=ft.Text(title, weight=ft.FontWeight.BOLD),
-                            subtitle=ft.Text(f"Episódios: {episodes} | Status: {status}")
-                        )
+        if response.status_code == 200:
+            data = response.json()
+            animes = data['data']['Page']['media']
+            for anime in animes:
+                title_text = anime['title']['romaji'] or anime['title']['english']
+                cover_url = anime['coverImage']['large']
+                
+                card = ft.Card(
+                    content=ft.Container(
+                        content=ft.Column([
+                            ft.Image(src=cover_url, fit=ft.ImageFit.COVER, height=140, border_radius=8),
+                            ft.Text(title_text, size=12, weight=ft.FontWeight.BOLD, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS)
+                        ], alignment=ft.MainAxisAlignment.START),
+                        padding=5
                     )
-                    results_list.controls.append(card)
-            else:
-                results_list.controls.append(ft.Text("Erro ao buscar dados."))
-        except Exception as err:
-            results_list.controls.append(ft.Text(f"Erro de conexão: {err}"))
-        finally:
-            loading_indicator.visible = False
-            page.update()
+                )
+                results_grid.controls.append(card)
+        page.update()
 
     search_button = ft.IconButton(
-        icon=ft.icons.SEARCH,
-        icon_color=ft.colors.PURPLE_ACCENT,
-        on_pressed=search_anime
+        icon=ft.Icons.SEARCH,
+        on_click=search_anime,
+        icon_color=ft.Colors.WHITE
     )
 
     page.add(
-        ft.Text("🎌 OtakuHub Python", size=24, weight=ft.FontWeight.BOLD, color=ft.colors.PURPLE_200),
+        title,
         ft.Row([search_input, search_button]),
-        loading_indicator,
-        results_list
+        ft.Divider(),
+        results_grid
     )
 
 ft.app(target=main)
-

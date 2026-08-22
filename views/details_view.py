@@ -15,18 +15,31 @@ class DetailView:
 
         episodes_column = ft.Column(spacing=8)
 
+        def play_with_next_context(episodes_list, index):
+            current_ep = episodes_list[index]
+            has_next = (index + 1) < len(episodes_list)
+
+            def play_next_callback():
+                if has_next:
+                    play_with_next_context(episodes_list, index + 1)
+
+            on_play_episode(
+                current_ep.get('path', ''),
+                current_ep.get('title', 'Episódio'),
+                on_next=play_next_callback if has_next else None
+            )
+
         def update_episodes_list():
             episodes_column.controls.clear()
             active_season = seasons[current_season_idx[0]]
+            episodes_list = active_season.get('episodes', [])
             
-            for ep in active_season.get('episodes', []):
+            for idx, ep in enumerate(episodes_list):
                 ep_title = ep.get('title', 'Episódio')
                 ep_path = ep.get('path', '')
                 
-                # Dados de progresso
                 prog = HistoryManager.get_progress_data(ep_path)
                 
-                # Ícone de status (Verde se concluído, Vermelho se em andamento)
                 if prog["completed"]:
                     leading_icon = ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN_ACCENT, size=24)
                     status_text = "Concluído"
@@ -37,7 +50,6 @@ class DetailView:
                     leading_icon = ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE, color=ft.Colors.GREY_500, size=24)
                     status_text = "Não assistido"
 
-                # Barra de progresso visual
                 progress_bar = ft.ProgressBar(
                     value=prog["ratio"],
                     color=ft.Colors.RED_ACCENT,
@@ -62,7 +74,7 @@ class DetailView:
                         padding=10,
                         border_radius=8,
                         bgcolor=ft.Colors.GREY_900,
-                        on_click=lambda _, path=ep_path, t=ep_title: on_play_episode(path, t)
+                        on_click=lambda _, i=idx: play_with_next_context(episodes_list, i)
                     )
                 )
             page.update()
@@ -103,3 +115,4 @@ class DetailView:
 
         update_episodes_list()
         return ft.Container(content=layout, padding=15)
+

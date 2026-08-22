@@ -1,22 +1,20 @@
 import flet as ft
-from core.scraper import AnimeScraper
 
 class PlayerView:
     @staticmethod
-    def build(page: ft.Page, anime_title: str, on_back):
-        # Busca a URL do vídeo no scraper
-        video_url = AnimeScraper.get_episode_stream_url(anime_title)
-
-        # Botão de Voltar
+    def build(page: ft.Page, video_url: str, ep_title: str, on_back):
         back_button = ft.IconButton(
             icon=ft.Icons.ARROW_BACK,
             icon_color=ft.Colors.WHITE,
             on_click=lambda _: on_back()
         )
 
-        title_text = ft.Text(f"Reproduzindo: {anime_title} - Ep. 1", size=16, weight=ft.FontWeight.BOLD)
+        header = ft.Row([
+            back_button,
+            ft.Text(ep_title, size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
+        ], alignment=ft.MainAxisAlignment.START)
 
-        # Player de Vídeo Nativo do Flet
+        # Componente Nativo do Flet para Reprodução de Vídeo
         video_player = ft.Video(
             playlist=[ft.VideoMedia(video_url)],
             playlist_mode=ft.PlaylistMode.LOOP,
@@ -26,14 +24,15 @@ class PlayerView:
             filter_quality=ft.FilterQuality.HIGH,
         )
 
-        return ft.Column([
-            ft.Row([back_button, title_text]),
-            ft.Divider(),
+        layout = ft.Column([
+            header,
+            ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
             ft.Container(
                 content=video_player,
                 alignment=ft.alignment.center,
-                border_radius=10,
-                clip_behavior=ft.ClipBehavior.ANTI_ALIAS
+                bgcolor=ft.Colors.BLACK,
+                expand=True
             )
         ], expand=True)
 
+        return ft.Container(content=layout, padding=10, bgcolor=ft.Colors.BLACK)

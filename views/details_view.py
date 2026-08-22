@@ -2,7 +2,7 @@ import flet as ft
 
 class DetailsView:
     @staticmethod
-    def build(page: ft.Page, anime: dict, on_back):
+    def build(page: ft.Page, anime: dict, on_back, on_play):
         title = anime.get('title', {}).get('english') or anime.get('title', {}).get('romaji') or "Detalhes"
         cover = anime.get('coverImage', {}).get('extraLarge', '')
         description = anime.get('description', 'Sem sinopse disponível.').replace('<br>', '\n').replace('<i>', '').replace('</i>', '')
@@ -19,7 +19,12 @@ class DetailsView:
             ft.Image(src=cover, width=120, height=170, fit=ft.ImageFit.COVER, border_radius=8),
             ft.Column([
                 ft.Text(title, size=18, weight=ft.FontWeight.BOLD, max_lines=3, overflow=ft.TextOverflow.ELLIPSIS, width=200),
-                ft.ElevatedButton("▶ Assistir Ep. 1", bgcolor=ft.Colors.RED_600, color=ft.Colors.WHITE)
+                ft.ElevatedButton(
+                    "▶ Assistir Ep. 1", 
+                    bgcolor=ft.Colors.RED_600, 
+                    color=ft.Colors.WHITE,
+                    on_click=lambda _: on_play(title)
+                )
             ], spacing=10)
         ], spacing=15)
 
@@ -35,4 +40,3 @@ class DetailsView:
             ft.Divider(height=20),
             synopsis
         ], expand=True)
-

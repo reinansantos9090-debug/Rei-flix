@@ -4,6 +4,11 @@ class AnimeAPI:
     @staticmethod
     def get_trending():
         url = "https://graphql.anilist.co"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
         query = """
         query {
           Page(perPage: 15) {
@@ -11,15 +16,14 @@ class AnimeAPI:
               id
               title { romaji english }
               coverImage { extraLarge }
-              bannerImage
-              description
             }
           }
         }
         """
         try:
-            res = requests.post(url, json={'query': query})
-            return res.json()['data']['Page']['media']
+            res = requests.post(url, json={'query': query}, headers=headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()['data']['Page']['media']
+            return []
         except Exception:
             return []
-

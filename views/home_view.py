@@ -9,31 +9,30 @@ class HomeView:
         loading = ft.ProgressRing(visible=True)
 
         layout = ft.Column([
-            ft.Text("🍿 Rei-Flix (Biblioteca Local)", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_ACCENT),
+            ft.Text("🍿 Rei-Flix (Biblioteca Agrupada)", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_ACCENT),
             ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
             loading,
             grid
         ], expand=True)
 
         def load_catalog():
-            local_animes = LocalScanner.get_local_animes()
+            grouped_animes = LocalScanner.get_local_animes_grouped()
             grid.controls.clear()
 
-            if not local_animes:
-                grid.controls.append(ft.Text("Nenhuma pasta de anime encontrada em /Download/Animes", color=ft.Colors.GREY_400))
+            if not grouped_animes:
+                grid.controls.append(ft.Text("Nenhuma pasta de anime encontrada.", color=ft.Colors.GREY_400))
             else:
-                for anime in local_animes:
-                    # Busca metadados/capa para a pasta local
-                    meta = MetadataManager.fetch_anime_info(anime['title'])
-                    anime['meta'] = meta
+                for anime_group in grouped_animes:
+                    meta = MetadataManager.fetch_anime_info(anime_group['main_title'])
+                    anime_group['meta'] = meta
 
-                    title = meta.get('title_official') or anime['title']
+                    title = meta.get('title_official') or anime_group['main_title']
                     cover = meta.get('cover', '')
 
                     card_content = ft.Image(src=cover, fit=ft.ImageFit.COVER, border_radius=8) if cover else ft.Container(bgcolor=ft.Colors.GREY_800, border_radius=8, alignment=ft.alignment.center, content=ft.Text(title, size=10, color=ft.Colors.WHITE, text_align=ft.TextAlign.CENTER))
 
                     card = ft.GestureDetector(
-                        on_tap=lambda _, a=anime: on_select_anime(a),
+                        on_tap=lambda _, a=anime_group: on_select_anime(a),
                         content=ft.Column([
                             ft.Container(content=card_content, height=150, border_radius=8),
                             ft.Text(title, size=11, weight=ft.FontWeight.BOLD, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, color=ft.Colors.WHITE)
@@ -44,8 +43,5 @@ class HomeView:
             loading.visible = False
             page.update()
 
-        # Carrega o catálogo local
         page.run_thread(load_catalog)
-
         return ft.Container(content=layout, padding=15)
-

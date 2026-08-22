@@ -11,13 +11,14 @@ def main(page: ft.Page):
 
     current_anime = [None]
 
-    def play_episode(video_path, ep_title):
+    def play_episode(video_path, ep_title, on_next=None):
         page.clean()
         player_ui = PlayerView.build(
             page, 
             video_path=video_path, 
             ep_title=ep_title, 
-            on_back=lambda: navigate_to_details(current_anime[0])
+            on_back=lambda: navigate_to_details(current_anime[0]),
+            on_next_episode=on_next
         )
         page.add(player_ui)
         page.update()
@@ -27,7 +28,7 @@ def main(page: ft.Page):
         page.clean()
         detail_ui = DetailView.build(
             page, 
-            anime_data=anime, 
+            anime_group=anime, 
             on_play_episode=play_episode, 
             on_back=navigate_to_home
         )

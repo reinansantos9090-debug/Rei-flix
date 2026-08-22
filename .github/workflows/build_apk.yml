@@ -12,12 +12,12 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Java JDK
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
 
       - name: Set up Flutter
@@ -25,6 +25,9 @@ jobs:
         with:
           flutter-version: '3.19.x'
           channel: 'stable'
+
+      - name: Create Android Project Files
+        run: flutter create --platforms=android .
 
       - name: Install Dependencies
         run: flutter pub get
@@ -37,4 +40,3 @@ jobs:
         with:
           name: OtakuHub-App
           path: build/app/outputs/flutter-apk/app-release.apk
-

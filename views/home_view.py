@@ -5,40 +5,94 @@ class HomeView:
     @staticmethod
     def build(page: ft.Page, on_select_anime):
         trending_list = ft.Row(scroll=ft.ScrollMode.ALWAYS, spacing=12)
-        loading = ft.ProgressRing(visible=True)
+        search_results_grid = ft.Row(scroll=ft.ScrollMode.ALWAYS, spacing=12)
+        
+        loading_trending = ft.ProgressRing(visible=True)
+        loading_search = ft.ProgressRing(visible=False)
+        
+        section_search_title = ft.Text("🔍 Resultados da Busca", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_ACCENT, visible=False)
+        search_results_container = ft.Column([
+            section_search_title,
+            loading_search,
+            search_results_grid
+        ], visible=False)
+
+        def create_card(anime):
+            title_data = anime.get('title', {})
+            title = title_data.get('english') or title_data.get('romaji') or "Anime"
+            cover = anime.get('coverImage', {}).get('extraLarge', '')
+            
+            return ft.GestureDetector(
+                on_tap=lambda _, a=anime: on_select_anime(a),
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Image(src=cover, width=130, height=180, fit=ft.ImageFit.COVER, border_radius=8),
+                        ft.Text(title, size=12, weight=ft.FontWeight.BOLD, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, width=130)
+                    ]),
+                    padding=5
+                )
+            )
+
+        def fetch_trending():
+            animes = AnimeAPI.get_trending()
+            trending_list.controls.clear()
+            if animes:
+                for anime in animes:
+                    trending_list.controls.append(create_card(anime))
+            else:
+                trending_list.controls.append(ft.Text("Erro ao carregar animes.", color=ft.Colors.RED))
+            loading_trending.visible = False
+            page.update()
+
+        def do_search(e):
+            search_term = search_input.value.strip()
+            if not search_term:
+                search_results_container.visible = False
+                page.update()
+                return
+
+            search_results_container.visible = True
+            section_search_title.visible = True
+            loading_search.visible = True
+            search_results_grid.controls.clear()
+            page.update()
+
+            def fetch_search():
+                results = AnimeAPI.search_anime(search_term)
+                search_results_grid.controls.clear()
+                if results:
+                    for anime in results:
+                        search_results_grid.controls.append(create_card(anime))
+                else:
+                    search_results_grid.controls.append(ft.Text("Nenhum anime encontrado.", color=ft.Colors.GREY_400))
+                loading_search.visible = False
+                page.update()
+
+            page.run_thread(fetch_search)
+
+        # Campo e Botão de Pesquisa
+        search_input = ft.TextField(
+            hint_text="Buscar anime (ex: One Piece, Naruto)...",
+            expand=True,
+            on_submit=do_search,
+            border_color=ft.Colors.RED_ACCENT,
+            text_size=14
+        )
+        search_button = ft.IconButton(
+            icon=ft.Icons.SEARCH,
+            icon_color=ft.Colors.RED_ACCENT,
+            on_click=do_search
+        )
+        search_bar = ft.Row([search_input, search_button], spacing=5)
 
         container_layout = ft.Column([
-            ft.Text("🔥 Animes em Alta", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_ACCENT),
-            loading,
+            search_bar,
+            ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
+            search_results_container,
+            ft.Text("🔥 Animes em Alta", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_ACCENT),
+            loading_trending,
             trending_list
         ], expand=True)
 
-        def fetch_data():
-            animes = AnimeAPI.get_trending()
-            trending_list.controls.clear()
-            
-            if animes:
-                for anime in animes:
-                    title_data = anime.get('title', {})
-                    title = title_data.get('english') or title_data.get('romaji') or "Anime"
-                    cover = anime.get('coverImage', {}).get('extraLarge', '')
-                    
-                    card = ft.GestureDetector(
-                        on_tap=lambda _, a=anime: on_select_anime(a),
-                        content=ft.Container(
-                            content=ft.Column([
-                                ft.Image(src=cover, width=130, height=180, fit=ft.ImageFit.COVER, border_radius=8),
-                                ft.Text(title, size=12, weight=ft.FontWeight.BOLD, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, width=130)
-                            ]),
-                            padding=5
-                        )
-                    )
-                    trending_list.controls.append(card)
-            else:
-                trending_list.controls.append(ft.Text("Erro ao carregar animes.", color=ft.Colors.RED))
-
-            loading.visible = False
-            page.update()
-
-        page.run_thread(fetch_data)
+        page.run_thread(fetch_trending)
         return container_layout

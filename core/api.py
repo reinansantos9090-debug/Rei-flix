@@ -22,6 +22,8 @@ class AnimeAPI:
         try:
             with urllib.request.urlopen(req, timeout=10) as response:
                 res_data = json.loads(response.read().decode('utf-8'))
+                if 'Media' in res_data.get('data', {}):
+                    return res_data['data']['Media']
                 return res_data['data']['Page']['media']
         except Exception:
             return []
@@ -36,6 +38,7 @@ class AnimeAPI:
               title { romaji english }
               coverImage { extraLarge }
               description
+              episodes
             }
           }
         }
@@ -44,19 +47,13 @@ class AnimeAPI:
         if result:
             return result
         
-        # Fallback de segurança se falhar a rede
         return [
             {
                 "id": 1,
                 "title": {"romaji": "One Piece", "english": "One Piece"},
                 "coverImage": {"extraLarge": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/nx21-rhAsR9GI0FuA.jpg"},
-                "description": "Monkey D. Luffy explora os mares em busca do tesouro lendário."
-            },
-            {
-                "id": 2,
-                "title": {"romaji": "Jujutsu Kaisen", "english": "Jujutsu Kaisen"},
-                "coverImage": {"extraLarge": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx113415-bbBWL4qK233z.png"},
-                "description": "Estudantes enfrentam maldições no mundo das feitiçarias."
+                "description": "Monkey D. Luffy explora os mares em busca do tesouro lendário.",
+                "episodes": 1100
             }
         ]
 
@@ -70,8 +67,38 @@ class AnimeAPI:
               title { romaji english }
               coverImage { extraLarge }
               description
+              episodes
             }
           }
         }
         """
         return AnimeAPI._fetch_graphql(query, variables={'search': term})
+
+    @staticmethod
+    def get_anime_details(anime_id: int):
+        query = """
+        query ($id: Int) {
+          Media(id: $id, type: ANIME) {
+            id
+            title { romaji english }
+            episodes
+            streamingEpisodes {
+              title
+              url
+              site
+            }
+          }
+        }
+        """
+        url = "https://graphql.anilist.co"
+        payload = {'query': query, 'variables': {'id': anime_id}}
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            url, data=data, headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                return res_data.get('data', {}).get('Media', {})
+        except Exception:
+            return {}

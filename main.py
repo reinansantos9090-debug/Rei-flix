@@ -1,5 +1,6 @@
 import flet as ft
 from views.home_view import HomeView
+from views.details_view import DetailsView
 
 def main(page: ft.Page):
     page.title = "Rei-Flix"
@@ -7,22 +8,25 @@ def main(page: ft.Page):
     page.padding = 15
     page.scroll = ft.ScrollMode.AUTO
 
-    # Barra Superior
-    app_bar = ft.Row(
-        controls=[
-            ft.Text("🎌 Rei-Flix", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_ACCENT),
-            ft.IconButton(icon=ft.Icons.SEARCH, icon_color=ft.Colors.WHITE)
-        ],
-        alignment=ft.MainAxisAlignment.SPACE_BETWEEN
-    )
+    content_area = ft.Container(expand=True)
 
-    # Carrega a Tela Inicial
-    home_content = HomeView.build(page)
+    def show_home():
+        content_area.content = HomeView.build(page, on_select_anime=show_details)
+        page.update()
+
+    def show_details(anime):
+        content_area.content = DetailsView.build(page, anime, on_back=show_home)
+        page.update()
+
+    # Inicializa na Home
+    show_home()
 
     page.add(
-        app_bar,
-        ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
-        home_content
+        ft.Row([
+            ft.Text("🎌 Rei-Flix", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_ACCENT)
+        ]),
+        ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
+        content_area
     )
 
 ft.app(target=main)

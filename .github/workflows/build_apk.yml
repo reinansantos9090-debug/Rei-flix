@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Python Android APK
 
 on:
   push:
@@ -14,29 +14,22 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up Java JDK
-        uses: actions/setup-java@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          python-version: '3.10'
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.19.x'
-          channel: 'stable'
+      - name: Install Flet CLI and Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flet flet-cli requests
 
-      - name: Create Android Project Files
-        run: flutter create --platforms=android .
-
-      - name: Install Dependencies
-        run: flutter pub get
-
-      - name: Build APK
-        run: flutter build apk --release
+      - name: Build Android APK
+        run: |
+          flet build apk --no-analytics
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OtakuHub-App
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: OtakuHub-Python-App
+          path: build/apk/*.apk

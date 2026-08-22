@@ -1,6 +1,6 @@
 import flet as ft
 from views.home_view import HomeView
-from views.detail_view import DetailView
+from views.details_view import DetailView
 
 def main(page: ft.Page):
     page.title = "Rei-Flix"
@@ -20,7 +20,6 @@ def main(page: ft.Page):
         page.add(home_ui)
         page.update()
 
-    # Inicializa o app na Home
     navigate_to_home()
 
 ft.app(target=main)

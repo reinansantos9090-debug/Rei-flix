@@ -1,16 +1,17 @@
-import requests
+import urllib.request
+from bs4 import BeautifulSoup
 
-class AnimeScraper:
+class BaseScraper:
     @staticmethod
-    def get_episode_stream_url(anime_title: str, episode_number: int = 1):
-        """
-        Retorna a URL do vídeo/stream MP4/M3U8 do episódio.
-        """
-        # Exemplo de stream MP4 público para testes de reprodução
-        sample_stream = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-        
-        # Estrutura pronta para conectar fontes externas de vídeo
+    def get_html(url: str) -> BeautifulSoup:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        req = urllib.request.Request(url, headers=headers)
         try:
-            return sample_stream
-        except Exception:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                html = response.read().decode('utf-8')
+                return BeautifulSoup(html, 'html.parser')
+        except Exception as e:
+            print(f"Erro ao acessar {url}: {e}")
             return None

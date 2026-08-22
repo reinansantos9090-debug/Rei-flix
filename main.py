@@ -1,6 +1,7 @@
 import flet as ft
 from views.home_view import HomeView
 from views.details_view import DetailsView
+from views.player_view import PlayerView
 
 def main(page: ft.Page):
     page.title = "Rei-Flix"
@@ -15,7 +16,20 @@ def main(page: ft.Page):
         page.update()
 
     def show_details(anime):
-        content_area.content = DetailsView.build(page, anime, on_back=show_home)
+        content_area.content = DetailsView.build(
+            page, 
+            anime, 
+            on_back=show_home, 
+            on_play=lambda title: show_player(title, anime)
+        )
+        page.update()
+
+    def show_player(anime_title, anime_obj):
+        content_area.content = PlayerView.build(
+            page, 
+            anime_title, 
+            on_back=lambda: show_details(anime_obj)
+        )
         page.update()
 
     # Inicializa na Home

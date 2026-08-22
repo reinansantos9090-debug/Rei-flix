@@ -4,17 +4,21 @@ from core.api import AnimeAPI
 class HomeView:
     @staticmethod
     def build(page: ft.Page, on_select_anime):
+        # Listas para cada categoria
         trending_list = ft.Row(scroll=ft.ScrollMode.ALWAYS, spacing=12)
+        watching_list = ft.Row(scroll=ft.ScrollMode.ALWAYS, spacing=12)
+        favorites_list = ft.Row(scroll=ft.ScrollMode.ALWAYS, spacing=12)
         search_results_grid = ft.Row(scroll=ft.ScrollMode.ALWAYS, spacing=12)
         
         loading_trending = ft.ProgressRing(visible=True)
         loading_search = ft.ProgressRing(visible=False)
         
-        section_search_title = ft.Text("🔍 Resultados da Busca", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_ACCENT, visible=False)
-        search_results_container = ft.Column([
-            section_search_title,
+        # Containers das seções
+        section_search_container = ft.Column([
+            ft.Text("🔍 Resultados da Busca", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_ACCENT),
             loading_search,
-            search_results_grid
+            search_results_grid,
+            ft.Divider(height=20, color=ft.Colors.TRANSPARENT)
         ], visible=False)
 
         def create_card(anime):
@@ -33,26 +37,36 @@ class HomeView:
                 )
             )
 
-        def fetch_trending():
+        def fetch_data():
+            # Carrega animes em alta da API Online
             animes = AnimeAPI.get_trending()
             trending_list.controls.clear()
+            watching_list.controls.clear()
+            favorites_list.controls.clear()
+
             if animes:
-                for anime in animes:
-                    trending_list.controls.append(create_card(anime))
+                for i, anime in enumerate(animes):
+                    card = create_card(anime)
+                    trending_list.controls.append(card)
+                    # Simulando categorias para demonstração inicial com dados online
+                    if i % 2 == 0:
+                        watching_list.controls.append(create_card(anime))
+                    else:
+                        favorites_list.controls.append(create_card(anime))
             else:
                 trending_list.controls.append(ft.Text("Erro ao carregar animes.", color=ft.Colors.RED))
+
             loading_trending.visible = False
             page.update()
 
         def do_search(e):
             search_term = search_input.value.strip()
             if not search_term:
-                search_results_container.visible = False
+                section_search_container.visible = False
                 page.update()
                 return
 
-            search_results_container.visible = True
-            section_search_title.visible = True
+            section_search_container.visible = True
             loading_search.visible = True
             search_results_grid.controls.clear()
             page.update()
@@ -70,9 +84,9 @@ class HomeView:
 
             page.run_thread(fetch_search)
 
-        # Campo e Botão de Pesquisa
+        # Barra de Pesquisa Superior
         search_input = ft.TextField(
-            hint_text="Buscar anime (ex: One Piece, Naruto)...",
+            hint_text="Buscar anime online (ex: Naruto, One Piece)...",
             expand=True,
             on_submit=do_search,
             border_color=ft.Colors.RED_ACCENT,
@@ -85,14 +99,27 @@ class HomeView:
         )
         search_bar = ft.Row([search_input, search_button], spacing=5)
 
+        # Layout Principal com as Categorias Organizadas
         container_layout = ft.Column([
             search_bar,
             ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
-            search_results_container,
+            section_search_container,
+            
+            # Categoria 1: Assistindo
+            ft.Text("📺 Assistindo", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_ACCENT),
+            watching_list,
+            ft.Divider(height=15, color=ft.Colors.TRANSPARENT),
+
+            # Categoria 2: Em Alta (Online AniList)
             ft.Text("🔥 Animes em Alta", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_ACCENT),
             loading_trending,
-            trending_list
-        ], expand=True)
+            trending_list,
+            ft.Divider(height=15, color=ft.Colors.TRANSPARENT),
 
-        page.run_thread(fetch_trending)
-        return container_layout
+            # Categoria 3: Favoritos
+            ft.Text("⭐ Favoritos", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.YELLOW_ACCENT),
+            favorites_list,
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
+
+        page.run_thread(fetch_data)
+        return ft.Container(content=container_layout, padding=15)

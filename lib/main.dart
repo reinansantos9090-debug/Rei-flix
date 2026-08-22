@@ -137,7 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     final episodes = item['episodes'] ?? '?';
 
                     return Card(
-                      margin: const TextStyle(vertical: 8.0) as EdgeInsetsGeometry?,
+                      margin: const EdgeInsets.symmetric(vertical: 8.0),
                       child: ListTile(
                         leading: Image.network(imageUrl, width: 50, fit: BoxFit.cover),
                         title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),

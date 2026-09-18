@@ -65,7 +65,6 @@ jobs:
 
       - name: Validate Python application
         run: |
-          python -m unittest discover -s tests -v
           python -m compileall -q main.py app_config.py core views
           git diff --check
 

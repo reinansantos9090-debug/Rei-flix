@@ -6,7 +6,7 @@ class DetailView:
     @staticmethod
     def build(page: ft.Page, anime_group: dict, on_play_episode, on_back):
         main_title = anime_group.get('meta', {}).get('title_official') or anime_group.get('main_title')
-        cover = anime_group.get('meta', {}).get('cover', '')
+        cover = anime_group.get('meta', {}).get('cover_cache') or anime_group.get('meta', {}).get('cover_url', '')
         desc = anime_group.get('meta', {}).get('description', 'Sem descrição.')
         clean_desc = re.sub('<[^<]+?>', '', desc)
         genres = anime_group.get('genres', ['Minha biblioteca'])

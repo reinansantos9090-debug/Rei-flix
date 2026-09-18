@@ -1,0 +1,16 @@
+[project]
+name = "reiflix-local"
+version = "0.2.0"
+requires-python = ">=3.10"
+dependencies = ["flet==0.86.5"]
+
+[tool.flet]
+org = "com.reiflix"
+product = "ReiFlix Local"
+company = "ReiFlix"
+
+# INTERNET is a normal permission, used only for AniList metadata, cached cover
+# downloads, and the configured OAuth/OIDC flow. Folder access is delegated to
+# the user-selected directory; no broad storage permission is requested.
+[tool.flet.android.permission]
+"android.permission.INTERNET" = true

@@ -7,3 +7,6 @@ secret neste arquivo.
 
 GOOGLE_CLIENT_ID = ""
 GOOGLE_REDIRECT_URL = ""
+
+# OAuth 2.0 Web client ID used by Credential Manager. Public, never a secret.
+GOOGLE_WEB_CLIENT_ID = ""

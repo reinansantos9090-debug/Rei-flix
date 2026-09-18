@@ -17,6 +17,7 @@ REQUIRED_CLASSES = (
     b"Lcom/reiflix/reiflix_local/NativeMailbox;",
     b"Lcom/reiflix/reiflix_local/SafScanner;",
     b"Lcom/reiflix/reiflix_local/NativePlayerActivity;",
+    b"Lcom/reiflix/reiflix_local/GoogleIdentity;",
 )
 
 

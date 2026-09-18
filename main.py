@@ -23,10 +23,11 @@ async def main(page: ft.Page):
     data_dir=os.getenv('FLET_APP_STORAGE_DATA') or os.path.join(os.path.dirname(__file__),'.reiflix-data')
     store=LibraryStore(data_dir); library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]
     def show(control): page.clean(); page.add(control); page.update()
-    def navigate_home(): show(HomeView.build(page,library,navigate_details,navigate_settings))
-    def play_episode(path,title,on_next=None): show(PlayerView.build(page,path,title,lambda:navigate_details(current[0]),on_next,bridge.play))
+    def navigate_home(): show(HomeView.build(page,library,navigate_details,navigate_settings,play_episode))
+    def play_episode(path, title, on_next=None, progress_seconds=0):
+        show(PlayerView.build(page, path, title, lambda: navigate_details(current[0]), on_next, bridge.play, progress_seconds))
     def navigate_details(anime):
-        current[0]=anime; show(DetailView.build(page,anime,play_episode,navigate_home))
+        current[0]=anime; show(DetailView.build(page,anime,play_episode,navigate_home,store.toggle_favorite))
     def on_catalog_changed():
         # The active screen owns rendering; returning home always reads the SQLite catalog again.
         return None
@@ -39,7 +40,7 @@ async def main(page: ft.Page):
             page.snack_bar=ft.SnackBar(ft.Text(str(exc))); page.snack_bar.open=True; page.update()
     async def refresh_library(_=None):
         for folder in store.folders():
-            if folder.get('kind') == 'saf':
+            if folder.get('kind') == 'saf' and bridge.available:
                 bridge.rescan_tree(folder['path'])
         library.scan()
     async def login(_=None):
@@ -65,12 +66,19 @@ async def main(page: ft.Page):
             for event in bridge.drain():
                 event_type=event.get('type'); payload=event.get('payload') or {}
                 if event_type == 'saf_scan':
-                    catalog=library.ingest_documents(payload.get('treeUri',''), payload.get('documents',[]))
+                    stats = payload.get('stats') or {}
+                    catalog=library.ingest_documents(payload.get('treeUri',''), payload.get('documents',[]), folder_name=payload.get('name'), scan_errors=stats.get('errors', []))
                     page.snack_bar=ft.SnackBar(ft.Text(f"Biblioteca atualizada: {len(catalog)} animes.")); page.snack_bar.open=True; page.update()
+                    # The scanner event arrives after the settings view initiated
+                    # the Android picker. Rebuild Home from SQLite so the newly
+                    # ingested local documents are immediately visible.
+                    navigate_home()
                 elif event_type == 'player_progress':
                     store.save_progress(payload.get('uri',''), payload.get('positionMs',0)/1000, payload.get('durationMs',0)/1000)
                 elif event_type == 'google_account':
                     store.save_account(payload); page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update()
+                elif event_type == 'saf_cancelled':
+                    page.snack_bar=ft.SnackBar(ft.Text('Seleção de pasta cancelada.')); page.snack_bar.open=True; page.update()
                 elif event_type in {'saf_error','google_error'}:
                     page.snack_bar=ft.SnackBar(ft.Text(event.get('message','Operação Android não concluída.'))); page.snack_bar.open=True; page.update()
             await asyncio.sleep(1)

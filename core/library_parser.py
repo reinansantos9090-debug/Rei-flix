@@ -17,6 +17,7 @@ class ParsedEpisode:
     season: int
     episode: float | None
     display_title: str
+    extension: str
 
 
 def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisode:
@@ -25,7 +26,8 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
     O diretório mais próximo que não é marcador de temporada é preferido quando
     o arquivo contém somente ``E03``/``03``.
     """
-    stem = os.path.splitext(os.path.basename(path))[0]
+    file_name = os.path.basename(path)
+    stem, extension = os.path.splitext(file_name)
     parent = os.path.basename(os.path.dirname(path))
     relative_parts = []
     if library_root:
@@ -58,4 +60,4 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
     # A pasta Anime/S04/E03 deve resultar em Anime, não S04.
     if re.fullmatch(r"(?:s|season)\d+", title_source, re.I) and relative_parts:
         title_source = relative_parts[-2] if len(relative_parts) > 1 else parent
-    return ParsedEpisode(title_source or "Anime não identificado", season, episode, stem)
+    return ParsedEpisode(title_source or "Anime não identificado", season, episode, stem, extension.lower())

@@ -14,7 +14,15 @@ object NativeMailbox {
         val target = File(context.filesDir, FILE)
         val list = try { JSONArray(target.readText()) } catch (_: Exception) { JSONArray() }
         list.put(event.put("createdAt", System.currentTimeMillis()))
-        target.writeText(list.toString())
+        // Publish a complete JSON document. The Python bridge consumes this
+        // file by renaming it, so it must never observe a partially written
+        // event queue.
+        val temporary = File(context.filesDir, "$FILE.tmp")
+        temporary.writeText(list.toString())
+        if (!temporary.renameTo(target)) {
+            temporary.copyTo(target, overwrite = true)
+            temporary.delete()
+        }
         Log.i(TAG, "Native event queued: ${event.optString("type")}")
     }
 }

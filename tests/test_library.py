@@ -6,6 +6,8 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.error import URLError
 from core.android_bridge import AndroidBridge
+from core.anilist import AniListClient
+from core.google_account import normalize_google_profile
 from core.library_parser import parse_video_path
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
@@ -276,14 +278,53 @@ class AndroidBridgeTests(unittest.TestCase):
             self.assertIn('tree_uri=content%3A%2F%2F', page.urls[1])
             self.assertIn('action=scan_tree', page.urls[2])
 
-    def test_mailbox_ignores_unknown_and_corrupted_entries_and_cleans_consumed_file(self):
+    def test_player_bridge_rejects_remote_urls_but_keeps_local_references(self):
+        class Page:
+            platform = 'android'
+            def __init__(self): self.urls = []
+            def launch_url(self, value): self.urls.append(value)
+
+        with tempfile.TemporaryDirectory() as d:
+            bridge = AndroidBridge(d, Page())
+            self.assertTrue(bridge.is_local_media_reference('content://provider/document/1'))
+            self.assertTrue(bridge.is_local_media_reference('/local/video.mkv'))
+            self.assertTrue(bridge.is_local_media_reference('file:///local/video.mkv'))
+            self.assertFalse(bridge.is_local_media_reference('https://example.invalid/video.m3u8'))
+            with self.assertRaisesRegex(ValueError, 'somente arquivos locais'):
+                bridge.play('https://example.invalid/video.m3u8', 'Remote')
+            self.assertEqual(bridge.page.urls, [])
+
+    def test_mailbox_acknowledges_only_after_the_claimed_batch_is_processed(self):
         with tempfile.TemporaryDirectory() as d:
             bridge = AndroidBridge(d)
             bridge.mailbox.write_text(json.dumps([{'type': 'unknown'}, 'bad', 3]), encoding='utf-8')
             self.assertEqual(bridge.drain(), [{'type': 'unknown'}])
+            self.assertTrue(bridge.mailbox.with_suffix('.consumed').exists())
+            self.assertEqual(bridge.drain(), [])
+            bridge.acknowledge()
             self.assertFalse(bridge.mailbox.with_suffix('.consumed').exists())
             bridge.mailbox.write_text('{bad json', encoding='utf-8')
             self.assertEqual(bridge.drain(), [])
+            self.assertFalse(bridge.mailbox.with_suffix('.consumed').exists())
+
+    def test_unacknowledged_mailbox_batch_is_replayed_after_bridge_restart(self):
+        with tempfile.TemporaryDirectory() as d:
+            first = AndroidBridge(d)
+            first.mailbox.write_text(json.dumps([{'type': 'saf_scan', 'payload': {'treeUri': 'content://tree/anime'}}]), encoding='utf-8')
+            self.assertEqual(first.drain()[0]['type'], 'saf_scan')
+            self.assertTrue(first.mailbox.with_suffix('.consumed').exists())
+            restarted = AndroidBridge(d)
+            self.assertEqual(restarted.drain()[0]['type'], 'saf_scan')
+            restarted.acknowledge()
+            self.assertFalse(restarted.mailbox.with_suffix('.consumed').exists())
+
+    def test_scalar_only_mailbox_batch_can_be_acknowledged_safely(self):
+        with tempfile.TemporaryDirectory() as d:
+            bridge = AndroidBridge(d)
+            bridge.mailbox.write_text(json.dumps(["bad", 3]), encoding="utf-8")
+            self.assertEqual(bridge.drain(), [])
+            self.assertTrue(bridge.mailbox.with_suffix('.consumed').exists())
+            bridge.acknowledge()
             self.assertFalse(bridge.mailbox.with_suffix('.consumed').exists())
 
     def test_native_saf_documents_are_persisted_as_uris(self):
@@ -350,6 +391,36 @@ class AndroidBridgeTests(unittest.TestCase):
                 count, progress, duration = con.execute('SELECT COUNT(*), progress, duration FROM episodes').fetchone()
             self.assertEqual((count, progress, duration), (1, 30, 60))
             self.assertEqual((store.last_scan()['files'], store.last_scan()['videos']), (3, 1))
+
+
+class GoogleProfileTests(unittest.TestCase):
+    def test_profile_whitelists_only_token_free_identity_fields(self):
+        profile = normalize_google_profile({
+            'id': 'google-subject', 'email': 'user@example.com', 'name': 'User',
+            'picture': 'https://example.invalid/picture', 'id_token': 'must-not-persist',
+        })
+        self.assertEqual(profile, {
+            'id': 'google-subject', 'email': 'user@example.com', 'name': 'User',
+            'picture': 'https://example.invalid/picture',
+        })
+
+    def test_profile_rejects_missing_subject_or_invalid_email(self):
+        self.assertIsNone(normalize_google_profile({'email': 'user@example.com'}))
+        self.assertIsNone(normalize_google_profile({'id': 'subject', 'email': 'not-an-email'}))
+
+
+class AniListResilienceTests(unittest.TestCase):
+    def test_incomplete_metadata_is_safe_without_anilist_id_or_cover(self):
+        with tempfile.TemporaryDirectory() as d:
+            client = AniListClient(d)
+            metadata = client.metadata_from_media('Arquivo local', {
+                'title': {'romaji': 'Arquivo local'}, 'studios': {'nodes': ['invalid']},
+                'genres': None,
+            })
+        self.assertEqual(metadata['title'], 'Arquivo local')
+        self.assertNotIn('anilist_id', metadata)
+        self.assertEqual(metadata['cover_cache'], '')
+        self.assertEqual(metadata['genres'], '[]')
 
 
 class IdentificationTests(unittest.TestCase):
@@ -562,6 +633,29 @@ class LibraryBrowseTests(unittest.TestCase):
             view = HomeView.build(FakePage(), LibraryService(LibraryStore(d)), lambda _: None, lambda: None, lambda *args, **kwargs: None)
         self.assertEqual(view.content.controls[0].__class__.__name__, 'Row')
 
+    def test_home_reuses_query_filter_and_sort_state_after_a_round_trip(self):
+        class FakePage:
+            def update(self): pass
+            def run_thread(self, work): work()
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('attack', {'title': 'Attack', 'genres': '["Ação"]'})
+            store.upsert_episode(anime, '/attack.mkv', 'Attack - 01.mkv', 1, 1)
+            store.toggle_favorite(anime)
+            state = {'state': 'Favoritos', 'genre': 'Ação', 'sort': 'Nome Z-A',
+                     'search_visible': True, 'query': 'attack'}
+            view = HomeView.build(FakePage(), LibraryService(store), lambda _: None, lambda: None,
+                                  lambda *args, **kwargs: None, view_state=state)
+            def walk(control):
+                yield control
+                for child in getattr(control, 'controls', []) or []:
+                    yield from walk(child)
+                if getattr(control, 'content', None) is not None:
+                    yield from walk(control.content)
+            search = next(control for control in walk(view) if control.__class__.__name__ == 'TextField')
+            sort = next(control for control in walk(view) if control.__class__.__name__ == 'Dropdown')
+            self.assertEqual((search.value, search.visible, sort.value), ('attack', True, 'Nome Z-A'))
+
 
 class DetailsDomainTests(unittest.TestCase):
     def _store_with_episodes(self, directory):
@@ -746,6 +840,23 @@ class OrganizeTests(unittest.TestCase):
             grid = next(item for item in walk(view) if item.__class__.__name__ == 'GridView')
             grid.controls[0].on_click(None)
             self.assertEqual(selected[0]['id'], action)
+
+    def test_organize_reopens_the_same_collection_state_after_details(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, action, *_ = self._catalog(d)
+            state = {'genre': 'Ação', 'state': 'Todos', 'sort': 'Nome A-Z', 'mode': 'collection'}
+            view = OrganizeView.build(self.FakePage(), LibraryService(store), lambda _: None,
+                                     lambda: None, lambda: None, view_state=state)
+            def walk(control):
+                yield control
+                for child in getattr(control, 'controls', []) or []:
+                    yield from walk(child)
+                if getattr(control, 'content', None) is not None:
+                    yield from walk(control.content)
+            grid = next(item for item in walk(view) if item.__class__.__name__ == 'GridView')
+            sort = next(item for item in walk(view) if item.__class__.__name__ == 'Dropdown')
+            self.assertEqual(grid.controls[0].content.controls[1].value, 'Action')
+            self.assertEqual(sort.value, 'Nome A-Z')
 
 
 if __name__ == '__main__':

@@ -7,6 +7,7 @@ from core.android_bridge import AndroidBridge
 from core.navigation import NavigationController, SafSelectionState
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
+from core.google_account import normalize_google_profile
 from views.home_view import HomeView
 from views.details_view import DetailView
 from views.organize_view import OrganizeView
@@ -25,14 +26,20 @@ async def main(page: ft.Page):
     account_state=["connected" if store.account().get("email") else "disconnected"]
     scan_in_progress=[False]
     pending_native_scans=[0]
+    # View-local query/filter state survives Details/Player round-trips while
+    # the catalog itself is still read afresh from SQLite on each view entry.
+    home_state = {}
+    organize_state = {}
     navigation = NavigationController()
     saf_selection = SafSelectionState()
     def show(control): page.clean(); page.add(control); page.update()
     def render_current():
         if navigation.current == "home":
-            show(HomeView.build(page, library, navigate_details, navigate_settings, play_episode, navigate_organize))
+            show(HomeView.build(page, library, navigate_details, navigate_settings, play_episode, navigate_organize,
+                                view_state=home_state))
         elif navigation.current == "organize":
-            show(OrganizeView.build(page, library, navigate_details, navigate_back, navigate_settings))
+            show(OrganizeView.build(page, library, navigate_details, navigate_back, navigate_settings,
+                                    view_state=organize_state))
         elif navigation.current == "details":
             show(DetailView.build(page, current[0], play_episode, navigate_back,
                                   store.toggle_favorite, library.playback_target))
@@ -160,7 +167,8 @@ async def main(page: ft.Page):
                 scan_in_progress[0] = False
 
         while True:
-            for event in bridge.drain():
+            events = bridge.drain()
+            for event in events:
                 event_type=event.get('type'); payload=event.get('payload') or {}
                 if event_type == 'saf_scan':
                     try:
@@ -194,8 +202,20 @@ async def main(page: ft.Page):
                         start_native_player(target['path'], target['file_name'], 0)
                 elif event_type == 'player_error':
                     page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível reproduzir este arquivo.'))); page.snack_bar.open=True; page.update()
+                    # Invalid/unreadable URIs can fail before Media3 creates a
+                    # player, so there may be no player_exited event to dismiss
+                    # the Flet transition screen.
+                    if navigation.current == 'player':
+                        navigate_back()
+                elif event_type == 'google_sign_in_started':
+                    account_state[0] = 'awaiting_google'; refresh_settings_if_active()
                 elif event_type == 'google_account':
-                    store.save_account(payload); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
+                    profile = normalize_google_profile(payload)
+                    if profile is None:
+                        account_state[0] = 'error'
+                        page.snack_bar=ft.SnackBar(ft.Text('A resposta da conta Google é inválida. Tente novamente.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
+                    else:
+                        store.save_account(profile); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
                 elif event_type == 'saf_cancelled':
                     saf_selection.finish()
                     page.snack_bar=ft.SnackBar(ft.Text('Seleção de pasta cancelada.')); page.snack_bar.open=True; page.update()
@@ -217,11 +237,20 @@ async def main(page: ft.Page):
                         tree_uri = payload.get('treeUri')
                         if tree_uri:
                             store.update_folder_status(tree_uri, 'revoked', event.get('message', 'Não foi possível acessar a pasta.'))
+                        # A re-scan has no successful result event to clear
+                        # its lock.  Without this, Settings can remain on its
+                        # disabled loading button after one revoked grant.
+                        if scan_in_progress[0]:
+                            finish_native_scan()
                     if event_type == 'google_error': account_state[0] = 'error'
                     page.snack_bar=ft.SnackBar(ft.Text(event.get('message','Operação Android não concluída.'))); page.snack_bar.open=True; page.update()
                     if event_type == 'saf_error': refresh_settings_if_active()
                 elif event_type == 'android_back':
                     navigate_back()
+            # NativeMailbox retains the atomically claimed batch until this
+            # point, after SQLite/UI handling has completed. A process restart
+            # before acknowledgement replays the complete batch safely.
+            bridge.acknowledge()
             await asyncio.sleep(1)
     page.on_login=login_done
     page.run_task(poll_native_bridge)

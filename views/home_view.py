@@ -6,10 +6,18 @@ class HomeView:
     """Local-library home. Data is loaded once, then filtered in memory."""
 
     @staticmethod
-    def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode, on_open_organize=None):
+    def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode, on_open_organize=None,
+              view_state=None):
         catalog, continuing = [], []
-        selected_state, selected_genre, selected_sort = ["Todos"], ["Todos"], ["Mais recentes"]
-        search_visible = [False]
+        view_state = view_state if view_state is not None else {}
+        selected_state = [view_state.get("state", "Todos")]
+        selected_genre = [view_state.get("genre", "Todos")]
+        selected_sort = [view_state.get("sort", "Mais recentes")]
+        search_visible = [bool(view_state.get("search_visible", False))]
+
+        def save_view_state():
+            view_state.update(state=selected_state[0], genre=selected_genre[0], sort=selected_sort[0],
+                              search_visible=search_visible[0], query=search.value or "")
 
         grid = ft.GridView(
             expand=True, max_extent=168, child_aspect_ratio=.57, spacing=14,
@@ -21,12 +29,12 @@ class HomeView:
         library_label = ft.Text("MINHA BIBLIOTECA", size=13, weight=ft.FontWeight.BOLD, color="#AAA7B6")
         feedback = ft.Container(visible=False)
         search = ft.TextField(
-            visible=False, hint_text="Buscar na sua biblioteca", prefix_icon=ft.Icons.SEARCH,
+            value=view_state.get("query", ""), visible=search_visible[0], hint_text="Buscar na sua biblioteca", prefix_icon=ft.Icons.SEARCH,
             border_radius=RADIUS, border_width=0, bgcolor=SURFACE,
             color=TEXT, content_padding=12, text_size=14,
         )
         sort = ft.Dropdown(
-            value="Mais recentes", width=185, dense=True, text_size=12, color="#F5F5F7",
+            value=selected_sort[0], width=185, dense=True, text_size=12, color="#F5F5F7",
             bgcolor=SURFACE, border_color="#39364B", border_radius=RADIUS,
             options=[ft.dropdown.Option(key=value, text=value) for value in
                      ["Mais recentes", "Assistidos recentemente", "Nome A-Z", "Nome Z-A"]],
@@ -81,7 +89,8 @@ class HomeView:
 
         def render_genres():
             genres_row.controls.clear()
-            for genre in ["Todos", *sorted({genre for anime in catalog for genre in anime.get("genres", [])})]:
+            genres = {str(genre) for anime in catalog for genre in anime.get("genres", []) if genre}
+            for genre in ["Todos", *sorted(genres, key=str.casefold)]:
                 genres_row.controls.append(chip(genre, genre == selected_genre[0], lambda _, value=genre: select_genre(value)))
 
         def card(anime):
@@ -127,10 +136,12 @@ class HomeView:
 
         def select_state(value):
             selected_state[0] = value
+            save_view_state()
             render_states(); render_library()
 
         def select_genre(value):
             selected_genre[0] = value
+            save_view_state()
             render_genres(); render_library()
 
         def render_states():
@@ -143,15 +154,18 @@ class HomeView:
             search.visible = search_visible[0]
             if not search_visible[0]:
                 search.value = ""
+            save_view_state()
             render_library()
 
         def on_search(event):
             if event.control.value == "":
                 search.value = ""
+            save_view_state()
             render_library()
 
         def on_sort(event):
             selected_sort[0] = event.control.value or "Mais recentes"
+            save_view_state()
             render_library()
 
         def load_catalog():
@@ -169,7 +183,11 @@ class HomeView:
                     status.visible = False
                 except Exception as exc:
                     catalog, continuing = [], []
-                    status.controls = [ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FFB4AB", size=18), ft.Text("Não foi possível carregar sua biblioteca local.", color="#FFB4AB", size=12)]
+                    status.controls = [
+                        ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FFB4AB", size=18),
+                        ft.Text("Não foi possível carregar sua biblioteca local.", color="#FFB4AB", size=12),
+                        ft.TextButton("Tentar novamente", on_click=lambda _: load_catalog()),
+                    ]
                     status.visible = True
                 render_genres(); render_states(); render_continue(); render_library()
             page.run_thread(work)

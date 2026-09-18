@@ -79,4 +79,35 @@ class AndroidHostVerificationTests(unittest.TestCase):
                                          cwd=rendered.parents[1], capture_output=True, text=True)
             self.assertEqual(hook_result.returncode, 0, hook_result.stderr)
             self.assertIn("NativePlayerActivity", (rendered / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8"))
+            self.assertIn("@style/ReiFlixTheme", (rendered / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8"))
             self.assertIn("media3-exoplayer:1.5.1", (rendered / "build.gradle").read_text(encoding="utf-8"))
+
+    def test_native_host_keeps_system_bars_for_flet_and_fullscreen_for_player_only(self):
+        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, true)", main)
+        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", main)
+        self.assertIn("hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())", player)
+
+    def test_player_exit_is_not_suppressed_after_normal_completion(self):
+        player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("private var suppressExitEvent = false", player)
+        self.assertIn("suppressExitEvent = true", player)
+        self.assertIn("if (!suppressExitEvent) saveProgress(\"player_exited\", force = true)", player)
+
+    def test_native_mailbox_uses_the_flet_application_data_subdirectory(self):
+        mailbox = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativeMailbox.kt").read_text(encoding="utf-8")
+        self.assertIn('File(context.filesDir, "data")', mailbox)
+        self.assertIn('val target = File(dataDirectory, FILE)', mailbox)
+
+    def test_native_player_entry_rejects_non_local_deep_link_uris(self):
+        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn('localUri.scheme !in setOf("content", "file")', main)
+        self.assertIn('"A reprodução aceita somente arquivos locais autorizados."', main)
+
+    def test_google_identity_emits_only_token_free_validated_profile_fields(self):
+        source = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "GoogleIdentity.kt").read_text(encoding="utf-8")
+        self.assertIn('"google_sign_in_started"', source)
+        self.assertIn('validatedSubject(credential.idToken, serverClientId)', source)
+        self.assertIn('.put("id", subject)', source)
+        self.assertNotIn('.put("idToken"', source)

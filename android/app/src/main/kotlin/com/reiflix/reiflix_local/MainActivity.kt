@@ -41,7 +41,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        configureImmersiveContent()
+        configureSystemBars()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 // Flet owns screen history.  Do not let FlutterActivity finish
@@ -90,6 +90,12 @@ class MainActivity : FlutterActivity() {
     }
     private fun openPlayer(data: Uri?) {
         val episodeUri = data?.getQueryParameter("uri") ?: return
+        val localUri = Uri.parse(episodeUri)
+        if (localUri.scheme !in setOf("content", "file")) {
+            NativeMailbox.write(this, JSONObject().put("type", "player_error")
+                .put("message", "A reprodução aceita somente arquivos locais autorizados."))
+            return
+        }
         startActivity(Intent(this, NativePlayerActivity::class.java)
             .putExtra("uri", episodeUri).putExtra("title", data.getQueryParameter("title") ?: "Episódio")
             .putExtra("positionMs", data.getQueryParameter("position_ms")?.toLongOrNull() ?: 0L)
@@ -103,13 +109,15 @@ class MainActivity : FlutterActivity() {
     }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) configureImmersiveContent()
+        if (hasFocus) configureSystemBars()
     }
-    private fun configureImmersiveContent() {
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+    private fun configureSystemBars() {
+        // The Flet host is a normal application screen.  Keeping decor fitted
+        // prevents its header and controls from being drawn below the status
+        // bar on targetSdk 35.  Only NativePlayerActivity is immersive.
+        WindowCompat.setDecorFitsSystemWindows(window, true)
         WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            show(WindowInsetsCompat.Type.systemBars())
         }
     }
     private fun signInWithGoogle(serverClientId: String?) {

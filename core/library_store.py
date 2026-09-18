@@ -68,6 +68,8 @@ class LibraryStore:
             for column, definition in {"mime_type": "TEXT", "file_size": "INTEGER", "modified_at": "REAL", "source_folder": "TEXT", "last_played_at": "REAL"}.items():
                 if column not in episode_columns:
                     c.execute(f"ALTER TABLE episodes ADD COLUMN {column} {definition}")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_anime_playback ON episodes(anime_id, missing, watched, last_played_at)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_source_folder ON episodes(source_folder)")
             # Version records make the additive Phase 10 migration auditable
             # while CREATE IF NOT EXISTS keeps all earlier databases intact.
             c.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?,?)", (self.SCHEMA_VERSION, time.time()))
@@ -318,23 +320,31 @@ class LibraryStore:
     def continue_watching(self, limit=12):
         """One playable continuation per anime, ordered by latest playback."""
         with self._conn() as c:
-            recent = c.execute("""SELECT DISTINCT anime_id FROM episodes WHERE last_played_at IS NOT NULL
-                ORDER BY last_played_at DESC""").fetchall()
+            rows = c.execute("""SELECT e.*, a.title AS anime_title, a.cover_cache, a.cover_url
+                FROM episodes e JOIN anime a ON a.id=e.anime_id
+                ORDER BY e.anime_id, e.season, e.number, e.file_name""").fetchall()
+        groups = {}
+        for row in rows:
+            groups.setdefault(row["anime_id"], []).append(dict(row))
         items = []
-        for row in recent:
-            episode = self.current_episode(row["anime_id"])
-            if not episode or episode["missing"]:
+        for anime_id, episodes in groups.items():
+            latest_played = max((episode.get("last_played_at") or 0 for episode in episodes), default=0)
+            if not latest_played:
                 continue
-            if not episode["watched"] and episode["progress"] <= 0:
-                # A finished episode may advance to an unstarted next item; it
-                # is still a valid continuation, ordered by the completion time.
-                latest = episode
-                with self._conn() as c:
-                    latest = c.execute("SELECT last_played_at FROM episodes WHERE anime_id=? ORDER BY last_played_at DESC LIMIT 1", (row["anime_id"],)).fetchone()
-                episode["last_played_at"] = latest["last_played_at"] if latest else None
-            with self._conn() as c:
-                anime = c.execute("SELECT id,title,cover_cache,cover_url FROM anime WHERE id=?", (row["anime_id"],)).fetchone()
-            items.append({"anime_id": anime["id"], "anime_title": anime["title"], "cover": anime["cover_cache"] or anime["cover_url"], **episode})
+            available = [episode for episode in episodes if not episode["missing"]]
+            active = [episode for episode in available if episode["progress"] > 0 and not episode["watched"]]
+            if active:
+                episode = max(active, key=lambda entry: entry.get("last_played_at") or 0)
+            else:
+                completed = [episode for episode in episodes if episode["watched"]]
+                episode = self._adjacent_from_rows(max(completed, key=lambda entry: entry.get("last_played_at") or 0), available, 1) if completed else None
+            if not episode:
+                continue
+            episode = dict(episode)
+            episode["last_played_at"] = latest_played
+            first = episodes[0]
+            items.append({"anime_id": anime_id, "anime_title": first["anime_title"],
+                          "cover": first["cover_cache"] or first["cover_url"], **episode})
         return sorted(items, key=lambda item: item.get("last_played_at") or 0, reverse=True)[:limit]
 
     def playback_history(self, limit=50):

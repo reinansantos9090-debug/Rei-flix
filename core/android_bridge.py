@@ -19,6 +19,7 @@ class AndroidBridge:
     def __init__(self, data_dir: str, page=None):
         self.data_dir = Path(data_dir); self.page = page
         self.mailbox = self.data_dir / MAILBOX
+        self._claimed = False
 
     @property
     def available(self) -> bool:
@@ -40,24 +41,61 @@ class AndroidBridge:
     def verify_tree(self, tree_uri: str): self._launch("verify_tree", tree_uri=tree_uri)
     def sign_in(self, server_client_id: str): self._launch("google_sign_in", server_client_id=server_client_id)
     def play(self, uri: str, title: str, position_ms: int = 0, *, can_next=False, can_previous=False):
+        # The bridge is deliberately incapable of opening a remote stream.
+        # SAF produces content:// references; desktop development may use a
+        # local path or file:// URI. Everything else is rejected before an
+        # Android intent is created.
+        if not self.is_local_media_reference(uri):
+            raise ValueError("A reprodução aceita somente arquivos locais ou URIs content://.")
         self._launch("play", uri=uri, title=title, position_ms=max(0, int(position_ms)),
                      can_next=str(bool(can_next)).lower(), can_previous=str(bool(can_previous)).lower())
 
+    @staticmethod
+    def is_local_media_reference(uri: str) -> bool:
+        return bool(uri) and (uri.startswith(("content://", "file://")) or "://" not in uri)
+
     def drain(self) -> list[dict]:
-        """Atomically consume events. Native events contain no tokens/secrets."""
+        """Claim a complete native batch; call :meth:`acknowledge` after handling it.
+
+        A claimed file survives a Python restart. This is important for SAF:
+        SQLite ingestion can take time and a valid result must not disappear
+        merely because the process exits between reading and persisting it.
+        """
         consumed = self.mailbox.with_suffix(".consumed")
+        if self._claimed:
+            return []
         try:
-            if not self.mailbox.exists(): return []
-            self.mailbox.replace(consumed)
+            if consumed.exists():
+                # A previous process claimed this complete publication but did
+                # not acknowledge it. Replay is safe because SQLite upserts
+                # document URIs and preserves progress.
+                pass
+            elif self.mailbox.exists():
+                self.mailbox.replace(consumed)
+            else:
+                return []
             events = json.loads(consumed.read_text(encoding="utf-8"))
             # Ignore malformed/unknown payload shapes; the event loop must not
             # be able to crash because a native queue contains one bad entry.
-            return [event for event in events if isinstance(event, dict)] if isinstance(events, list) else []
+            if not isinstance(events, list):
+                consumed.unlink(missing_ok=True)
+                return []
+            self._claimed = True
+            return [event for event in events if isinstance(event, dict)]
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("[ANDROID] Failed to read native bridge events: %s", exc)
-            return []
-        finally:
             try:
                 consumed.unlink(missing_ok=True)
-            except OSError as exc:
-                logger.warning("[ANDROID] Failed to remove consumed mailbox: %s", exc)
+            except OSError:
+                pass
+            return []
+
+    def acknowledge(self) -> None:
+        """Delete a claimed batch only after its events have been processed."""
+        if not self._claimed:
+            return
+        try:
+            self.mailbox.with_suffix(".consumed").unlink(missing_ok=True)
+            self._claimed = False
+        except OSError as exc:
+            logger.warning("[ANDROID] Failed to acknowledge native events: %s", exc)

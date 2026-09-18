@@ -49,6 +49,9 @@ application = manifest.find("application")
 if application is None:
     raise RuntimeError("Rendered Flet AndroidManifest has no application element")
 name = f"{{{ANDROID}}}name"
+# Use the normal, non-fullscreen ReiFlix theme for the Flet host.  The native
+# player declares its own immersive theme below.
+application.set(f"{{{ANDROID}}}theme", "@style/ReiFlixTheme")
 activities = application.findall("activity")
 main = next((activity for activity in activities if activity.get(name) in {".MainActivity", "com.reiflix.reiflix_local.MainActivity"}), None)
 if main is None:

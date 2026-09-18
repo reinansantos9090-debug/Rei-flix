@@ -3,10 +3,13 @@ from __future__ import annotations
 import os
 import time
 import json
+import logging
 from dataclasses import dataclass, field
 from core.anilist import AniListClient
 from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
 from core.organizer_ai import AnimeOrganizer
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ScanResult:
@@ -87,7 +90,13 @@ class LibraryService:
                     for name in files:
                         result.files += 1
                         if os.path.splitext(name)[1].lower() in VIDEO_EXTENSIONS:
-                            path=os.path.join(root,name); seen.append(path); parsed.append((path,parse_video_path(path,reference),reference)); result.videos += 1
+                            path = os.path.join(root, name)
+                            try:
+                                item = parse_video_path(path, reference)
+                            except (OSError, ValueError, UnicodeError) as exc:
+                                result.errors.append(f"{folder['name']}: não foi possível ler {name}: {exc}")
+                                continue
+                            seen.append(path); parsed.append((path, item, reference)); result.videos += 1
                 # A successful scan may legitimately find no videos.  Limit the
                 # missing update to this folder so another unavailable folder
                 # cannot hide its saved episodes.
@@ -98,7 +107,13 @@ class LibraryService:
         for path,item,source_folder in parsed:
             key=item.anime_title.casefold()
             if key not in metadata:
-                metadata[key] = self._identify(key, item.anime_title, on_status)
+                try:
+                    metadata[key] = self._identify(key, item.anime_title, on_status)
+                except Exception as exc:
+                    # Metadata must never make a locally readable file vanish.
+                    metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
+                    result.errors.append(f"{item.anime_title}: AniList indisponível ({exc})")
+                    logger.warning("Metadata lookup failed for local title %s: %s", item.anime_title, exc)
             anime_id=self.store.upsert_anime(key,metadata[key]); self.store.upsert_episode(anime_id,path,os.path.basename(path),item.season,item.episode,source_folder=source_folder)
         result.catalog=self.store.catalog(); result.animes=len(result.catalog); result.episodes=sum(len(s['episodes']) for a in result.catalog for s in a['seasons'])
         self.store.finish_scan(run_id, result.__dict__); on_status(result.message()); return result
@@ -111,10 +126,18 @@ class LibraryService:
             uri, name = document.get("uri"), document.get("name")
             if not uri or not name: continue
             seen.append(uri)
-            item = parse_video_path(name)
+            try:
+                item = parse_video_path(name)
+            except (OSError, ValueError, UnicodeError) as exc:
+                scan_errors = (scan_errors or []) + [f"Não foi possível ler {name}: {exc}"]
+                continue
             key = item.anime_title.casefold()
             if key not in metadata:
-                metadata[key] = self._identify(key, item.anime_title, on_status)
+                try:
+                    metadata[key] = self._identify(key, item.anime_title, on_status)
+                except Exception as exc:
+                    metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
+                    logger.warning("Metadata lookup failed for SAF title %s: %s", item.anime_title, exc)
             anime_id = self.store.upsert_anime(key, metadata[key])
             self.store.upsert_episode(anime_id, uri, name, item.season, item.episode, document.get("mimeType"), document.get("size"), document.get("modifiedAt"), tree_uri)
         # Do not infer removals from a partial SAF scan: a SecurityException in
@@ -136,6 +159,24 @@ class LibraryService:
     def playback_target(self, anime_id): return self.store.playback_target(anime_id)
     def next_episode(self, path): return self.store.next_episode(path)
     def previous_episode(self, path): return self.store.previous_episode(path)
+
+    def clear_anilist_cache(self):
+        """Clear only refreshable AniList artifacts, never local library state.
+
+        Confirmed ``associations`` are intentionally retained so a later scan
+        refreshes the same manually chosen AniList record.  Metadata rows stay
+        attached to their local anime and are merely marked stale.
+        """
+        removed = 0
+        try:
+            for entry in os.scandir(self.store.cache_dir):
+                if entry.is_file():
+                    os.unlink(entry.path)
+                    removed += 1
+        except OSError as exc:
+            raise RuntimeError("Não foi possível limpar o cache de capas.") from exc
+        self.store.clear_anilist_metadata_cache()
+        return removed
 
     @staticmethod
     def organize_summary(catalog):

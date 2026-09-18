@@ -44,9 +44,13 @@ class AniListClient:
         name=hashlib.sha256(url.encode()).hexdigest()+os.path.splitext(url.split('?')[0])[1][:5]
         target=os.path.join(self.cache_dir,name)
         if os.path.exists(target): return target
+        temporary = target + ".tmp"
         try:
-            with urllib.request.urlopen(url,timeout=15) as r, open(target,'wb') as f: f.write(r.read())
+            with urllib.request.urlopen(url,timeout=15) as r, open(temporary,'wb') as f: f.write(r.read())
+            os.replace(temporary, target)
             return target
         except Exception as exc:
+            try: os.unlink(temporary)
+            except OSError as cleanup_error: logger.warning("Não foi possível remover capa temporária: %s", cleanup_error)
             logger.warning("Não foi possível baixar capa AniList: %s", exc)
             return ''

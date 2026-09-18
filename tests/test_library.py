@@ -1,7 +1,11 @@
 import tempfile
 import unittest
+import sqlite3
+import json
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import URLError
+from core.android_bridge import AndroidBridge
 from core.library_parser import parse_video_path
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
@@ -150,7 +154,115 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(sum(len(season['episodes']) for season in catalog[0]['seasons']), 2)
 
 
+class SettingsPersistenceTests(unittest.TestCase):
+    def test_preferences_create_read_update_default_and_remove(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            self.assertEqual(store.get_preference('resume_playback', 'true'), 'true')
+            store.set_preference('resume_playback', 'false')
+            self.assertEqual(store.get_preference('resume_playback'), 'false')
+            store.set_preference('resume_playback', 'true')
+            self.assertEqual(store.get_preference('resume_playback'), 'true')
+            store.remove_preference('resume_playback')
+            self.assertIsNone(store.get_preference('resume_playback'))
+
+    def test_phase_10_migration_preserves_existing_library_rows(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'library.sqlite3'
+            with sqlite3.connect(path) as con:
+                con.executescript("""
+                    CREATE TABLE folders (path TEXT PRIMARY KEY, added_at REAL NOT NULL);
+                    CREATE TABLE anime (id INTEGER PRIMARY KEY, lookup_title TEXT UNIQUE NOT NULL, anilist_id INTEGER, title TEXT NOT NULL, romaji TEXT, english TEXT, native TEXT, description TEXT, cover_url TEXT, cover_cache TEXT, banner_url TEXT, genres TEXT, year INTEGER, season TEXT, status TEXT, episodes_count INTEGER, duration INTEGER, studio TEXT, added_at REAL NOT NULL);
+                    CREATE TABLE episodes (id INTEGER PRIMARY KEY, anime_id INTEGER NOT NULL, path TEXT UNIQUE NOT NULL, file_name TEXT NOT NULL, season INTEGER NOT NULL, number REAL, duration REAL DEFAULT 0, progress REAL DEFAULT 0, watched INTEGER DEFAULT 0, missing INTEGER DEFAULT 0);
+                    INSERT INTO anime(id,lookup_title,title,genres,added_at) VALUES(1,'naruto','Naruto','[]',1);
+                    INSERT INTO episodes(anime_id,path,file_name,season,number) VALUES(1,'/n.mkv','Naruto - 001.mkv',1,1);
+                """)
+            store = LibraryStore(d)
+            self.assertEqual(store.catalog()[0]['main_title'], 'Naruto')
+            self.assertEqual(store.get_preference('missing', 'default'), 'default')
+            with store._conn() as con:
+                self.assertEqual(con.execute('SELECT version FROM schema_migrations').fetchone()[0], 10)
+
+    def test_clear_anilist_cache_preserves_library_favorite_progress_history_and_association(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d); service = LibraryService(store)
+            anime = store.upsert_anime('naruto', {'title': 'Naruto', 'genres': '[]', 'anilist_id': 20})
+            store.upsert_episode(anime, '/n.mkv', 'Naruto - 001.mkv', 1, 1)
+            store.toggle_favorite(anime); store.save_progress('/n.mkv', 20, 100)
+            store.set_association('naruto', 20)
+            cover = Path(store.cache_dir) / 'cover.jpg'; cover.write_bytes(b'cover')
+            with store._conn() as con:
+                con.execute("UPDATE anime SET cover_cache=?,metadata_updated_at=1 WHERE id=?", (str(cover), anime))
+            self.assertEqual(service.clear_anilist_cache(), 1)
+            item = store.catalog()[0]
+            episode = item['seasons'][0]['episodes'][0]
+            self.assertTrue(item['favorite'])
+            self.assertEqual((episode['progress'], episode['duration']), (20, 100))
+            self.assertTrue(store.playback_history())
+            self.assertEqual(store.association('naruto'), 20)
+            self.assertFalse(cover.exists())
+            self.assertIsNone(store.anime_metadata('naruto')['metadata_updated_at'])
+
+    def test_account_logout_and_folder_state_do_not_remove_library(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('naruto', {'title': 'Naruto', 'genres': '[]'})
+            store.upsert_episode(anime, '/n.mkv', 'Naruto - 001.mkv', 1, 1)
+            store.add_folder('content://tree/private', name='Anime', kind='saf')
+            store.save_account({'id': '123', 'email': 'user@example.com'})
+            store.clear_account()
+            self.assertEqual(store.account(), {})
+            self.assertEqual(store.folders()[0]['name'], 'Anime')
+            self.assertEqual(store.library_summary()['animes'], 1)
+
+    def test_clear_anilist_cache_reports_storage_error_without_touching_library(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d); service = LibraryService(store)
+            anime = store.upsert_anime('naruto', {'title': 'Naruto', 'genres': '[]'})
+            store.upsert_episode(anime, '/n.mkv', 'Naruto - 001.mkv', 1, 1)
+            with patch('core.library_service.os.scandir', side_effect=OSError('read-only')):
+                with self.assertRaisesRegex(RuntimeError, 'cache de capas'):
+                    service.clear_anilist_cache()
+            self.assertEqual(store.library_summary()['episodes'], 1)
+
+    def test_reopening_database_does_not_repeat_phase_10_migration(self):
+        with tempfile.TemporaryDirectory() as d:
+            LibraryStore(d)
+            LibraryStore(d)
+            with LibraryStore(d)._conn() as con:
+                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=10').fetchone()[0], 1)
+
+    def test_invalid_progress_is_rejected_and_overflow_is_normalized(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d); anime = store.upsert_anime('naruto', {'title': 'Naruto', 'genres': '[]'})
+            store.upsert_episode(anime, '/n.mkv', 'Naruto - 001.mkv', 1, 1)
+            self.assertFalse(store.save_progress('/n.mkv', -1, 100))
+            self.assertFalse(store.save_progress('/n.mkv', 1, -10))
+            self.assertTrue(store.save_progress('/n.mkv', 500, 100))
+            episode = store.catalog()[0]['seasons'][0]['episodes'][0]
+            self.assertEqual((episode['progress'], episode['duration'], episode['watched']), (100, 100, True))
+
+    def test_repeated_progress_updates_keep_one_history_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d); anime = store.upsert_anime('naruto', {'title': 'Naruto', 'genres': '[]'})
+            store.upsert_episode(anime, '/n.mkv', 'Naruto - 001.mkv', 1, 1)
+            store.save_progress('/n.mkv', 10, 100); store.save_progress('/n.mkv', 20, 100)
+            history = store.playback_history()
+            self.assertEqual(len(history), 1)
+            self.assertEqual(history[0]['progress'], 20)
+
+
 class AndroidBridgeTests(unittest.TestCase):
+    def test_mailbox_ignores_unknown_and_corrupted_entries_and_cleans_consumed_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            bridge = AndroidBridge(d)
+            bridge.mailbox.write_text(json.dumps([{'type': 'unknown'}, 'bad', 3]), encoding='utf-8')
+            self.assertEqual(bridge.drain(), [{'type': 'unknown'}])
+            self.assertFalse(bridge.mailbox.with_suffix('.consumed').exists())
+            bridge.mailbox.write_text('{bad json', encoding='utf-8')
+            self.assertEqual(bridge.drain(), [])
+            self.assertFalse(bridge.mailbox.with_suffix('.consumed').exists())
+
     def test_native_saf_documents_are_persisted_as_uris(self):
         with tempfile.TemporaryDirectory() as d:
             store=LibraryStore(d); service=LibraryService(store)
@@ -259,6 +371,25 @@ class IdentificationTests(unittest.TestCase):
             self.assertEqual(search.call_count, 1)
             self.assertEqual([season['season_name'] for season in second[0]['seasons']], ['Temporada 1', 'Temporada 2'])
             self.assertEqual(sum(len(s['episodes']) for s in first[0]['seasons']), 2)
+
+    def test_expired_cached_metadata_is_preserved_when_refresh_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, service = self._service(d)
+            store.upsert_anime('naruto', {'title': 'Naruto antigo', 'genres': '[]', 'anilist_id': 1, 'metadata_updated_at': 1})
+            store.set_association('naruto', 1)
+            with patch.object(service.anilist, 'by_id', return_value=None) as by_id:
+                metadata = service._identify('naruto', 'Naruto', lambda _: None)
+            by_id.assert_called_once_with(1)
+            self.assertEqual(metadata['title'], 'Naruto antigo')
+
+    def test_scan_survives_anilist_timeout_and_records_completion(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / 'Anime'; root.mkdir(); (root / 'Naruto - 001.mkv').write_bytes(b'')
+            store = LibraryStore(str(Path(d) / 'data')); store.add_folder(str(root)); service = LibraryService(store)
+            with patch.object(service.anilist, 'search', side_effect=URLError('offline')):
+                result = service.scan()
+            self.assertEqual(result.catalog[0]['main_title'], 'Naruto')
+            self.assertIsNotNone(store.last_scan()['finished_at'])
 
 
 class LibraryStateTests(unittest.TestCase):

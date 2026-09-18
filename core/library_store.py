@@ -8,6 +8,7 @@ import time
 
 
 class LibraryStore:
+    SCHEMA_VERSION = 10
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -44,6 +45,8 @@ class LibraryStore:
             CREATE TABLE IF NOT EXISTS associations (lookup_title TEXT PRIMARY KEY, anilist_id INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS pending_matches (lookup_title TEXT PRIMARY KEY, display_title TEXT NOT NULL, candidates TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS account (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS scan_runs (
               id INTEGER PRIMARY KEY, started_at REAL NOT NULL, finished_at REAL, folders INTEGER DEFAULT 0,
               files INTEGER DEFAULT 0, videos INTEGER DEFAULT 0, animes INTEGER DEFAULT 0,
@@ -65,6 +68,40 @@ class LibraryStore:
             for column, definition in {"mime_type": "TEXT", "file_size": "INTEGER", "modified_at": "REAL", "source_folder": "TEXT", "last_played_at": "REAL"}.items():
                 if column not in episode_columns:
                     c.execute(f"ALTER TABLE episodes ADD COLUMN {column} {definition}")
+            # Version records make the additive Phase 10 migration auditable
+            # while CREATE IF NOT EXISTS keeps all earlier databases intact.
+            c.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?,?)", (self.SCHEMA_VERSION, time.time()))
+
+    def get_preference(self, key, default=None):
+        with self._conn() as c:
+            row = c.execute("SELECT value FROM preferences WHERE key=?", (key,)).fetchone()
+            return row["value"] if row else default
+
+    def set_preference(self, key, value):
+        value = str(value)
+        with self._conn() as c:
+            c.execute("""INSERT INTO preferences(key,value,updated_at) VALUES (?,?,?)
+                         ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
+                      (key, value, time.time()))
+
+    def remove_preference(self, key):
+        with self._conn() as c:
+            c.execute("DELETE FROM preferences WHERE key=?", (key,))
+
+    def library_summary(self):
+        """Small settings projection; it never loads the full catalog."""
+        with self._conn() as c:
+            return {
+                "folders": c.execute("SELECT COUNT(*) FROM folders").fetchone()[0],
+                "animes": c.execute("SELECT COUNT(*) FROM anime").fetchone()[0],
+                "episodes": c.execute("SELECT COUNT(*) FROM episodes").fetchone()[0],
+                "history": c.execute("SELECT COUNT(*) FROM episodes WHERE last_played_at IS NOT NULL").fetchone()[0],
+            }
+
+    def clear_anilist_metadata_cache(self):
+        """Expire metadata and cover paths, preserving library rows and associations."""
+        with self._conn() as c:
+            c.execute("UPDATE anime SET metadata_updated_at=NULL, cover_cache=''")
 
     def folders(self):
         with self._conn() as c:
@@ -166,19 +203,65 @@ class LibraryStore:
         with self._conn() as c:
             animes = []
             query = "SELECT * FROM anime" + (" WHERE favorite=1" if favorites_only else "") + " ORDER BY added_at DESC, title COLLATE NOCASE"
-            for a in c.execute(query):
-                eps = c.execute("SELECT * FROM episodes WHERE anime_id=? ORDER BY season, number, file_name", (a["id"],)).fetchall()
-                if not eps: continue
+            anime_rows = c.execute(query).fetchall()
+            # One episode query avoids a growing N+1 cost on Home/Organizar.
+            episode_rows = c.execute("SELECT * FROM episodes ORDER BY anime_id, season, number, file_name").fetchall()
+            episodes_by_anime = {}
+            for episode in episode_rows:
+                episodes_by_anime.setdefault(episode["anime_id"], []).append(dict(episode))
+            for a in anime_rows:
+                eps = episodes_by_anime.get(a["id"], [])
+                if not eps:
+                    continue
                 seasons = {}
-                for ep in eps: seasons.setdefault(ep["season"], []).append(dict(ep))
-                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": json.loads(a["genres"] or "[]"), "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"]} for e in values]} for s, values in seasons.items()]})
+                for ep in eps:
+                    seasons.setdefault(ep["season"], []).append(ep)
+                try:
+                    genres = json.loads(a["genres"] or "[]")
+                except (TypeError, json.JSONDecodeError):
+                    genres = []
+                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"]} for e in values]} for s, values in seasons.items()]})
             for anime in animes:
-                anime["current_episode"] = self.current_episode(anime["id"])
+                rows = episodes_by_anime[anime["id"]]
+                available = [episode for episode in rows if not episode["missing"]]
+                active = [episode for episode in available if episode["progress"] > 0 and not episode["watched"]]
+                if active:
+                    anime["current_episode"] = max(active, key=lambda episode: episode["last_played_at"] or 0)
+                    continue
+                completed = [episode for episode in rows if episode["watched"]]
+                last_completed = max(completed, key=lambda episode: episode["last_played_at"] or 0) if completed else None
+                anime["current_episode"] = self._adjacent_from_rows(last_completed, available, 1) if last_completed else None
             return animes
 
     def save_progress(self, path, position, duration):
+        try:
+            position, duration = float(position), float(duration)
+        except (TypeError, ValueError):
+            return False
+        if position < 0 or duration < 0:
+            return False
+        if duration == 0:
+            position = 0
+        else:
+            position = min(position, duration)
         watched = int(duration > 0 and position / duration >= .9)
-        with self._conn() as c: c.execute("UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?", (position, duration, watched, time.time(), path))
+        with self._conn() as c:
+            updated = c.execute("UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?", (position, duration, watched, time.time(), path)).rowcount
+        return bool(updated)
+
+    @staticmethod
+    def _adjacent_from_rows(current, available, direction):
+        if not current:
+            return None
+        current_key = (current["season"], current["number"] if current["number"] is not None else -1)
+        ordered = sorted(available, key=lambda episode: (episode["season"], episode["number"] if episode["number"] is not None else -1, episode["file_name"]))
+        if direction < 0:
+            ordered.reverse()
+        for episode in ordered:
+            key = (episode["season"], episode["number"] if episode["number"] is not None else -1)
+            if (direction > 0 and key > current_key) or (direction < 0 and key < current_key):
+                return episode
+        return None
 
     def adjacent_episode(self, path, direction=1):
         """Return the adjacent playable local episode in catalog order.

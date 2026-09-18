@@ -15,7 +15,13 @@ import org.json.JSONObject
 object GoogleIdentity {
     private const val TAG = "[REIFLIX][AUTH]"
     suspend fun signIn(context: Context, serverClientId: String) {
+        if (serverClientId.isBlank()) {
+            Log.w(TAG, "Google sign-in requested without a Web client ID")
+            NativeMailbox.write(context, JSONObject().put("type", "google_error").put("message", "O login Google ainda não foi configurado neste APK."))
+            return
+        }
         try {
+            Log.i(TAG, "Google Credential Manager sign-in requested")
             val option = GetGoogleIdOption.Builder().setServerClientId(serverClientId).setFilterByAuthorizedAccounts(false).setAutoSelectEnabled(false).build()
             val response = CredentialManager.create(context).getCredential(context, GetCredentialRequest.Builder().addCredentialOption(option).build())
             val credential = GoogleIdTokenCredential.createFrom(response.credential.data)
@@ -24,6 +30,7 @@ object GoogleIdentity {
                 .put("picture", credential.profilePictureUri?.toString() ?: "")))
             Log.i(TAG, "Google account selected")
         } catch (cancelled: GetCredentialCancellationException) {
+            Log.i(TAG, "Google sign-in cancelled")
             NativeMailbox.write(context, JSONObject().put("type", "google_cancelled"))
         } catch (exception: Exception) {
             Log.e(TAG, "Google identity failed", exception)

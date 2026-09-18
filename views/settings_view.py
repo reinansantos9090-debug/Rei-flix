@@ -16,7 +16,7 @@ class SettingsView:
     def build(page, store, library, on_back, on_catalog_changed, on_add_folder,
               on_refresh_library, on_login, on_logout, account, account_state="disconnected"):
         status = ft.Text("", color="#9DA3B4", size=12)
-        busy = {"scan": False, "login": False, "logout": False, "cache": False}
+        busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False}
 
         def notice(message, error=False):
             status.value = message
@@ -56,12 +56,21 @@ class SettingsView:
         if not folder_lines:
             folder_lines = [ft.Text("Nenhuma pasta foi selecionada.", color="#AAA7B6", size=12)]
 
+        add_folder_button = ft.OutlinedButton("Adicionar pasta", icon=ft.Icons.CREATE_NEW_FOLDER)
         async def add_folder(_):
+            if busy["folder"] or busy["scan"]:
+                return
+            busy["folder"] = True
+            add_folder_button.disabled = True
             try:
                 await on_add_folder()
                 notice("Abrindo seletor Android para autorizar a pasta…")
             except Exception:
+                busy["folder"] = False
+                add_folder_button.disabled = False
                 notice("Não foi possível abrir o seletor de pasta.", error=True)
+            page.update()
+        add_folder_button.on_click = add_folder
 
         scan_button = ft.FilledButton("Atualizar biblioteca", icon=ft.Icons.REFRESH)
         async def scan(_):
@@ -110,7 +119,11 @@ class SettingsView:
         connected = bool(account.get("email"))
         account_text = account.get("name") or account.get("email") or "Você não está conectado."
         account_details = account.get("email", "")
-        account_button = ft.FilledButton("Entrar com Google", icon=ft.Icons.LOGIN)
+        google_needs_configuration = account_state == "configuration_required"
+        account_button = ft.FilledButton(
+            "Configurar login Google" if google_needs_configuration else "Entrar com Google",
+            icon=ft.Icons.SETTINGS if google_needs_configuration else ft.Icons.LOGIN,
+        )
         async def login(_):
             if busy["login"]:
                 return
@@ -137,7 +150,7 @@ class SettingsView:
         def ask_logout(_):
             confirm("Sair da conta Google?", "A sessão local será removida. Biblioteca, favoritos, progresso e histórico não serão alterados.", "Sair", do_logout)
         logout_button.on_click = ask_logout
-        state_labels = {"connecting": "Conectando…", "connected": "Conectada", "error": "Erro ao conectar", "disconnecting": "Saindo…"}
+        state_labels = {"connecting": "Conectando…", "connected": "Conectada", "error": "Erro ao conectar", "disconnecting": "Saindo…", "configuration_required": "Configuração necessária"}
         account_status = state_labels.get(account_state, "Conectada" if connected else "Não conectada")
 
         last = store.last_scan()
@@ -158,7 +171,7 @@ class SettingsView:
             section("CONTA", ft.Icons.PERSON_OUTLINE, account_content),
             section("BIBLIOTECA", ft.Icons.VIDEO_LIBRARY_OUTLINED, ft.Column(folder_lines + [
                 ft.Text(f"{summary['animes']} animes • {summary['episodes']} episódios locais", color="#C7C5D0", size=12),
-                ft.Row([ft.OutlinedButton("Alterar pasta", icon=ft.Icons.CREATE_NEW_FOLDER, on_click=add_folder), scan_button], wrap=True),
+                ft.Row([add_folder_button, scan_button], wrap=True),
                 ft.Text(diagnostic, color="#AAA7B6", size=11),
             ], spacing=8)),
             section("REPRODUÇÃO", ft.Icons.PLAY_CIRCLE_OUTLINE, ft.Column([

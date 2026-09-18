@@ -253,6 +253,14 @@ class SettingsPersistenceTests(unittest.TestCase):
 
 
 class AndroidBridgeTests(unittest.TestCase):
+    def test_flet_page_platform_enum_is_recognized_on_real_android(self):
+        class Platform:
+            value = 'android'
+        class Page:
+            platform = Platform()
+        with tempfile.TemporaryDirectory() as d:
+            self.assertTrue(AndroidBridge(d, Page()).available)
+
     def test_native_saf_actions_use_only_encoded_content_uris(self):
         class Page:
             platform = 'android'

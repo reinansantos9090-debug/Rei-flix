@@ -62,7 +62,7 @@ jobs:
           git diff --check
 
       - name: Build APK
-        run: flet build apk --template android --yes -v
+        run: flet build apk --yes -v
 
       - name: Locate and verify APK host integration
         id: apk

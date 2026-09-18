@@ -100,7 +100,7 @@ class DetailView:
         poster = ft.Image(src=cover, width=130, height=190, fit=ft.ImageFit.COVER, border_radius=8) if cover else ft.Container(width=130, height=190, bgcolor=ft.Colors.GREY_800, border_radius=8)
 
         genre_chips = ft.Row([ft.Container(ft.Text(genre, size=11, color="#FFFFFF"), bgcolor="#39364B", border_radius=14,
-                                            padding=ft.padding.symmetric(horizontal=11, vertical=5)) for genre in genres], wrap=True)
+                                            padding=ft.Padding.symmetric(horizontal=11, vertical=5)) for genre in genres], wrap=True)
 
         play_first = ft.FilledButton(
             "Assistir", icon=ft.Icons.PLAY_ARROW,

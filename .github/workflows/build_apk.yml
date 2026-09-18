@@ -34,7 +34,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flet flet-cli requests
+          pip install -r requirements.txt flet-cli==0.86.5
 
       - name: Build Android APK
         run: |

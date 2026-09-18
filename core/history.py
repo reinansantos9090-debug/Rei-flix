@@ -2,7 +2,9 @@ import json
 import os
 
 class HistoryManager:
-    DATA_FILE = "/storage/emulated/0/Download/reiflix_history.json"
+    # Dados de usuário ficam no armazenamento privado do aplicativo, nunca em
+    # armazenamento externo público (que exige permissões amplas no Android moderno).
+    DATA_FILE = os.path.join(os.getenv("FLET_APP_STORAGE_DATA", ".reiflix-data"), "history.json")
 
     @staticmethod
     def _load_data() -> dict:
@@ -17,6 +19,7 @@ class HistoryManager:
     @staticmethod
     def _save_data(data: dict):
         try:
+            os.makedirs(os.path.dirname(HistoryManager.DATA_FILE) or ".", exist_ok=True)
             with open(HistoryManager.DATA_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
         except Exception:

@@ -43,14 +43,25 @@ class PlayerView:
             next_button
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
-        video_player = ft.Video(
-            playlist=[ft.VideoMedia(video_path)],
-            playlist_mode=ft.PlaylistMode.NONE,
-            fill_color=ft.Colors.BLACK,
-            aspect_ratio=16/9,
-            autoplay=True,
-            filter_quality=ft.FilterQuality.HIGH,
-            show_controls=True,
+        # O controle Video foi removido do pacote Flet 0.86. O botão abaixo usa
+        # o resolvedor nativo do Android para abrir o mesmo arquivo local; não
+        # há URL de streaming ou provedor externo envolvido.
+        def open_local_player(_):
+            try:
+                page.launch_url(f"file://{video_path}")
+            except Exception:
+                page.snack_bar = ft.SnackBar(ft.Text("Não foi possível abrir este arquivo local."))
+                page.snack_bar.open = True
+                page.update()
+
+        video_player = ft.Container(
+            bgcolor=ft.Colors.BLACK,
+            alignment=ft.alignment.center,
+            content=ft.Column([
+                ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE, color=ft.Colors.WHITE, size=64),
+                ft.Text("Abrir no player local do dispositivo", color=ft.Colors.WHITE),
+                ft.FilledButton("Reproduzir arquivo local", icon=ft.Icons.PLAY_ARROW, on_click=open_local_player),
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
         )
 
         layout = ft.Column([

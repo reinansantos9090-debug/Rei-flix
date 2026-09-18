@@ -1,54 +1,88 @@
 # ReiFlix Local
 
-ReiFlix é um catálogo para **arquivos de anime que já estão no dispositivo**. Ele não pesquisa streams, não contém plugins de fontes externas e não usa o AniList para episódios: o AniList fornece somente capa e metadados.
+ReiFlix é uma biblioteca para vídeos de anime que o usuário já possui no
+Android. Os arquivos não são enviados para servidor algum; AniList é usado
+somente para metadados/capas.
 
-## Requisitos e execução
-
-* Python 3.10+ (o CI Android usa 3.10).
-* Flet `0.86.5`, fixado em `requirements.txt`.
+## Execução Python
 
 ```bash
 python -m pip install -r requirements.txt
 flet run main.py
+python -m unittest discover -s tests -v
 ```
 
-Os dados ficam no diretório privado indicado por `FLET_APP_STORAGE_DATA` quando o Flet o disponibiliza (SQLite em `library.sqlite3`, cache em `covers/` e histórico em `history.json`). Em desenvolvimento local, o fallback é `.reiflix-data/`, que não deve ser versionado.
+O banco SQLite e o cache de capas ficam no diretório privado definido por
+`FLET_APP_STORAGE_DATA` (ou `.reiflix-data/` no desenvolvimento).
 
-## Biblioteca local e Android
+## Bridge Android: SAF, player e Google
 
-Em **Configurações → Adicionar pasta**, o `FilePicker.get_directory_path()` do Flet abre o seletor de diretório nativo. A pasta retornada é armazenada no SQLite e é varrida recursivamente para `.mp4`, `.mkv`, `.webm`, `.avi`, `.mov` e `.m4v`. Não há acesso automático a `/storage/emulated/0` e o app não solicita permissão ampla de armazenamento.
+O diretório [`android/`](android/README.md) contém a implementação nativa que
+deve ser mesclada ao template Android usado pelo Flet:
 
-O Flet 0.86 expõe um caminho, mas não expõe uma API Python para persistir uma URI de *Storage Access Framework* (document tree). Por isso, o acesso persistente a diretórios que o Android não traduz para caminho acessível depende do seletor/implementação Flutter do Flet. Para suporte SAF integral em todas as versões Android, é necessária uma extensão Flutter Android pequena que devolva e retenha a URI de árvore; esta extensão não foi inventada neste repositório porque não há infraestrutura de plugin nativo existente. O aplicativo apresenta o erro do seletor de forma amigável em vez de afirmar que a autorização foi concedida.
+* `MainActivity` abre `ACTION_OPEN_DOCUMENT_TREE` e pede as flags de leitura,
+  escrita, prefixo e persistência; `SafScanner` chama
+  `takePersistableUriPermission()` e enumera recursivamente `DocumentFile`.
+  O resultado conserva URI, nome, MIME type, tamanho e data, sem criar caminho
+  `/storage/...` fictício.
+* `NativePlayerActivity` usa **Media3 ExoPlayer** diretamente sobre a URI SAF.
+  Ele usa controles nativos sobrepostos, seek, play/pause, duração, timeout de
+  controles, orientação horizontal e barras imersivas. Erro de codec/container
+  resulta em mensagem amigável; arquivos não são copiados.
+* `GoogleIdentity` usa **Credential Manager / Google Identity** com
+  `GetGoogleIdOption`, sem Gmail API e sem escopos de caixa de entrada,
+  contatos ou Drive. Tokens não são persistidos; apenas id, nome, email e foto
+  retornam para o armazenamento privado.
 
-## AniList
+A comunicação é feita pelo `reiflix://native` e por uma fila JSON privada
+(`NativeMailbox`/`AndroidBridge`). O Python insere documentos recebidos no
+SQLite e salva o progresso emitido pelo player. Consulte a integração de
+template e dependências em [`android/README.md`](android/README.md).
 
-Não é necessária chave de API. O cliente usa `https://graphql.anilist.co` e consulta título, títulos alternativos, sinopse, capa/banner, gêneros, ano, temporada, status, episódios, duração e estúdio. Falhas de rede deixam o anime na biblioteca, com placeholder, e a atualização posterior tenta novamente. Capas bem-sucedidas são cacheadas pelo hash da URL.
+> **Estado de build:** os fontes nativos foram implementados, mas o workflow
+> atual ainda invoca o cliente Android padrão do Flet. Antes de distribuir um
+> APK, configure o template Flet para mesclar `android/app` e substituir a
+> activity gerada por `com.reiflix.reiflix_local.MainActivity`; sem isso o
+> cliente stock não conhecerá a bridge. Não há como uma aplicação Python
+> injetar `ContentResolver`/Credential Manager/ExoPlayer em um APK já gerado.
 
-## Google Login
+## Google Cloud
 
-O login é OAuth/OpenID Connect oficial pelo provedor de autenticação do Flet, com somente `openid`, `email` e `profile`; não há Gmail API nem escopo de e-mail. Antes de habilitá-lo, crie um cliente OAuth no Google Cloud, registre a URL de redirecionamento usada pelo Flet e forneça em tempo de execução:
+Copie `.env.example` para o ambiente e forneça somente IDs públicos:
 
 ```bash
-# Para desenvolvimento:
-export REIFLIX_GOOGLE_CLIENT_ID='...apps.googleusercontent.com'
-export REIFLIX_GOOGLE_REDIRECT_URL='https://seu-redirecionamento-autorizado'
-# Para o APK: preencha os mesmos valores públicos em app_config.py antes do build.
+REIFLIX_GOOGLE_WEB_CLIENT_ID='...apps.googleusercontent.com'
+REIFLIX_GOOGLE_CLIENT_ID='...apps.googleusercontent.com' # fallback OAuth desktop
+REIFLIX_GOOGLE_REDIRECT_URL='https://redirect-autorizado.example/callback'
 ```
 
-Não coloque um client secret no APK: clientes móveis são públicos. Para validação de tokens no servidor, crie um backend próprio posteriormente e valide `id_token` lá; este projeto não inventa um backend. O fluxo configurado abre o provedor oficial e persiste somente id, nome, e-mail e foto no SQLite privado. Em Android, uma experiência nativa Credential Manager exige uma extensão Flutter específica; enquanto ela não existir, o fluxo OAuth do Flet é usado apenas depois que os valores acima forem configurados.
+No Google Cloud Console configure a tela de consentimento, o **Web client ID**
+passado a `REIFLIX_GOOGLE_WEB_CLIENT_ID`, e um Android client para o package
+`com.reiflix.reiflix_local` com SHA-1/SHA-256 do certificado de assinatura. Não
+inclua client secret no APK.
 
-## Organizador inteligente local
+## AniList, scanner e organização
 
-O organizador compara de forma local e explicável o título encontrado no arquivo com títulos romaji, inglês e nativos devolvidos pelo AniList. Correspondências fortes são associadas automaticamente; quando a confiança não é suficiente, a tela **Configurações → Organizador inteligente** apresenta os candidatos e permite salvar a escolha. Não há envio de nomes de arquivos para uma IA de terceiros além da pesquisa AniList já necessária para metadados.
+O scanner Python atende caminhos reais em desktop. No Android, a camada SAF
+entrega documentos autorizados e `LibraryService.ingest_documents()` os agrupa
+por anime/temporada/episódio, persistindo a URI em vez de caminho POSIX.
+AniList GraphQL pesquisa o título e mantém título, gêneros, sinopse e cache
+local de capas. Sem internet, a biblioteca/URI e capas cacheadas permanecem
+utilizáveis. A Home filtra os títulos por gêneros devolvidos pelo AniList.
 
-## APK
+## Permissões
+
+Somente `INTERNET` é declarada para AniList/OAuth. O acesso a vídeos é a
+concessão por pasta do SAF, não `READ_MEDIA_VIDEO` amplo. Não são solicitadas
+permissões de notificações, contatos, SMS, telefone, localização, câmera,
+microfone, Gmail ou Drive.
+
+## Build
 
 ```bash
 flet build apk --yes
 ```
 
-O workflow `.github/workflows/build_apk.yml` instala as dependências fixadas e publica `build/apk/*.apk`.
-
-## Limitação conhecida do player
-
-O controle `ft.Video` usado pelo projeto antigo não existe no Flet 0.86.5. Para evitar um crash ao abrir um episódio, a tela preserva a navegação/estado e envia o arquivo `file://` ao resolvedor de mídia local do dispositivo. Uma reprodução embutida requer adicionar uma extensão de vídeo compatível com a versão atual do Flet e validá-la no APK; o projeto não declara uma dependência de vídeo não verificada.
+O build requer Java 17, Flutter e dependências Android acessíveis. Depois de
+configurar a mesclagem do overlay, valide em aparelho a seleção SAF, a conta
+Google e arquivos/codec reais, especialmente MKV.

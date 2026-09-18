@@ -33,14 +33,14 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
             relative_parts = os.path.relpath(path, library_root).split(os.sep)[:-1]
         except ValueError:
             pass
-    season_match = re.search(r"(?:\bS|season[ ._-]*)(\d{1,2})\b", stem, re.I)
+    season_match = re.search(r"(?:\bS|season[ ._-]*)(\d{1,2})(?=\b|E)", stem, re.I)
     if not season_match:
         for part in reversed(relative_parts + [parent]):
             season_match = re.search(r"(?:\bS|season[ ._-]*)(\d{1,2})\b", part, re.I)
             if season_match:
                 break
     season = int(season_match.group(1)) if season_match else 1
-    episode_match = re.search(r"(?:\bE(?:P(?:ISODE)?)?[ ._-]*|[ ._-])(\d{1,4})(?:v\d+)?\b", stem, re.I)
+    episode_match = re.search(r"(?:\bS\d{1,2}[ ._-]*E|\bE(?:P(?:ISODE)?)?[ ._-]*|[ ._-])(\d{1,4})(?:v\d+)?\b", stem, re.I)
     if not episode_match:
         # "One Piece 1100" and an isolated "001" are common local names.
         candidates = list(re.finditer(r"\b(\d{1,4})(?:v\d+)?\b", stem))
@@ -49,7 +49,7 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
     title_source = stem
     if episode_match:
         title_source = title_source[:episode_match.start()].strip(" ._-[]()")
-    title_source = re.sub(r"\bS\d{1,2}\b", "", title_source, flags=re.I)
+    title_source = re.sub(r"\bS\d{1,2}(?:[ ._-]*E\d{1,4})?\b", "", title_source, flags=re.I)
     title_source = _NOISE.sub("", title_source)
     title_source = re.sub(r"[._]+", " ", title_source)
     title_source = re.sub(r"\s+", " ", title_source).strip(" -")

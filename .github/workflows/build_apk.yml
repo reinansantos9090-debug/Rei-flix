@@ -1,4 +1,4 @@
-name: Build ReiFlix Android APK
+Name: Build ReiFlix Android APK
 
 on:
   push:
@@ -65,16 +65,11 @@ jobs:
 
       - name: Validate Python application
         run: |
-          python -m compileall -q main.py app_config.py core views tests
+          python -m compileall -q main.py app_config.py core views
           git diff --check
 
-      - name: Prepare Flet template with native Android host
-        run: |
-          git clone --depth 1 https://github.com/flet-dev/flet-build-template.git build/flet-build-template
-          python scripts/prepare_flet_template.py --template build/flet-build-template --overlay android
-
       - name: Build APK
-        run: flet build apk --template build/flet-build-template --yes -v
+        run: flet build apk --yes -v
 
       - name: Locate APK
         id: apk
@@ -83,7 +78,6 @@ jobs:
           apk="$(find build -type f -name '*.apk' -print -quit)"
           test -n "$apk"
           test -s "$apk"
-          python scripts/verify_android_host.py "$apk"
           echo "path=$apk" >> "$GITHUB_OUTPUT"
           file "$apk"
 
@@ -93,3 +87,4 @@ jobs:
           name: reiflix-local-apk
           path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
+

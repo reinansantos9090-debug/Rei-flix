@@ -1,3 +1,2 @@
-# A API de vídeo usada pelo player está disponível na linha 0.x do Flet.
-flet>=0.25,<1.0
-requests
+# APIs usadas no código foram verificadas contra esta versão.
+flet==0.86.5

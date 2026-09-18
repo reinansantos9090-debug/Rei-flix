@@ -1,0 +1,4 @@
+.reiflix-data/
+__pycache__/
+*.pyc
+build/

@@ -64,13 +64,14 @@ jobs:
       - name: Build APK
         run: flet build apk --yes -v
 
-      - name: Locate APK
+      - name: Locate and verify APK host integration
         id: apk
         shell: bash
         run: |
           apk="$(find build -type f -name '*.apk' -print -quit)"
           test -n "$apk"
           test -s "$apk"
+          python scripts/verify_android_host.py "$apk"
           echo "path=$apk" >> "$GITHUB_OUTPUT"
           file "$apk"
 
@@ -80,4 +81,3 @@ jobs:
           name: reiflix-local-apk
           path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
-

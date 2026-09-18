@@ -23,6 +23,7 @@ async def main(page: ft.Page):
     store=LibraryStore(data_dir); library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]; details_back=[None]
     account_state=["connected" if store.account().get("email") else "disconnected"]
     scan_in_progress=[False]
+    pending_native_scans=[0]
     active_view=["home"]
     def show(control): page.clean(); page.add(control); page.update()
     def navigate_home():
@@ -64,9 +65,15 @@ async def main(page: ft.Page):
         if active_view[0] == "settings":
             navigate_settings()
     async def add_folder(_=None):
+        if scan_in_progress[0]:
+            return
+        scan_in_progress[0] = True
+        pending_native_scans[0] = 1
         try:
             bridge.select_tree()
         except RuntimeError as exc:
+            scan_in_progress[0] = False
+            pending_native_scans[0] = 0
             page.snack_bar=ft.SnackBar(ft.Text(str(exc))); page.snack_bar.open=True; page.update()
     async def refresh_library(_=None):
         if scan_in_progress[0]:
@@ -74,14 +81,14 @@ async def main(page: ft.Page):
         scan_in_progress[0] = True
         try:
             saf_folders = [folder for folder in store.folders() if folder.get('kind') == 'saf']
-            for folder in saf_folders:
-                if bridge.available:
-                    bridge.rescan_tree(folder['path'])
-            result = await asyncio.to_thread(library.scan)
             if saf_folders and bridge.available:
                 # Native SAF scans finish through the mailbox; retain the lock
                 # until their result/error event arrives.
+                pending_native_scans[0] = len(saf_folders)
+                for folder in saf_folders:
+                    bridge.rescan_tree(folder['path'])
                 return "Atualização iniciada. Verificando as pastas autorizadas…", True
+            result = await asyncio.to_thread(library.scan)
             return result.message(), False
         except Exception:
             scan_in_progress[0] = False
@@ -121,6 +128,11 @@ async def main(page: ft.Page):
             account_state[0] = 'connected'
         navigate_settings()
     async def poll_native_bridge():
+        def finish_native_scan():
+            pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
+            if pending_native_scans[0] == 0:
+                scan_in_progress[0] = False
+
         while True:
             for event in bridge.drain():
                 event_type=event.get('type'); payload=event.get('payload') or {}
@@ -130,12 +142,16 @@ async def main(page: ft.Page):
                         tree_uri = payload.get('treeUri', '')
                         if not tree_uri:
                             raise ValueError('Resultado SAF sem pasta de origem.')
-                        catalog=library.ingest_documents(tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []))
-                        page.snack_bar=ft.SnackBar(ft.Text(f"Biblioteca atualizada: {len(catalog)} animes.")); page.snack_bar.open=True; page.update()
+                        catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats)
+                        videos = int(stats.get('videos') or 0)
+                        partial = bool(payload.get('partial') or stats.get('errors'))
+                        message = ("Scan concluído parcialmente. Alguns diretórios não puderam ser acessados. " if partial else "")
+                        message += f"Encontramos {videos} vídeo(s) em {len(catalog)} anime(s)." if videos else "Não encontramos vídeos compatíveis nesta pasta."
+                        page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; page.update()
                     except Exception:
                         page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar a atualização da biblioteca.')); page.snack_bar.open=True; page.update()
                     finally:
-                        scan_in_progress[0] = False
+                        finish_native_scan()
                         refresh_settings_if_active()
                 elif event_type in {'player_progress', 'player_paused', 'player_exited', 'player_completed'}:
                     uri = payload.get('uri', '')
@@ -152,22 +168,36 @@ async def main(page: ft.Page):
                 elif event_type == 'google_account':
                     store.save_account(payload); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
                 elif event_type == 'saf_cancelled':
-                    scan_in_progress[0] = False
+                    finish_native_scan()
                     page.snack_bar=ft.SnackBar(ft.Text('Seleção de pasta cancelada.')); page.snack_bar.open=True; page.update()
+                    refresh_settings_if_active()
+                elif event_type == 'saf_permission':
+                    tree_uri = payload.get('treeUri')
+                    if tree_uri:
+                        if payload.get('granted'):
+                            store.update_folder_status(tree_uri, 'granted')
+                        else:
+                            store.update_folder_status(tree_uri, 'revoked', 'A permissão desta pasta foi removida.')
+                        refresh_settings_if_active()
                 elif event_type == 'google_cancelled':
                     account_state[0] = 'disconnected'
                     page.snack_bar=ft.SnackBar(ft.Text('Entrada com Google cancelada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
                 elif event_type in {'saf_error','google_error'}:
                     if event_type == 'saf_error':
-                        scan_in_progress[0] = False
+                        finish_native_scan()
                         tree_uri = payload.get('treeUri')
                         if tree_uri:
                             store.update_folder_status(tree_uri, 'revoked', event.get('message', 'Não foi possível acessar a pasta.'))
                     if event_type == 'google_error': account_state[0] = 'error'
                     page.snack_bar=ft.SnackBar(ft.Text(event.get('message','Operação Android não concluída.'))); page.snack_bar.open=True; page.update()
+                    if event_type == 'saf_error': refresh_settings_if_active()
             await asyncio.sleep(1)
     page.on_login=login_done
     page.run_task(poll_native_bridge)
+    if bridge.available:
+        for folder in store.folders():
+            if folder.get('kind') == 'saf':
+                bridge.verify_tree(folder['path'])
     navigate_home()
 
 if __name__ == "__main__":

@@ -117,8 +117,11 @@ class LibraryService:
             anime_id=self.store.upsert_anime(key,metadata[key]); self.store.upsert_episode(anime_id,path,os.path.basename(path),item.season,item.episode,source_folder=source_folder)
         result.catalog=self.store.catalog(); result.animes=len(result.catalog); result.episodes=sum(len(s['episodes']) for a in result.catalog for s in a['seasons'])
         self.store.finish_scan(run_id, result.__dict__); on_status(result.message()); return result
-    def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *, folder_name=None, scan_errors=None):
+    def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *, folder_name=None, scan_errors=None, scan_stats=None):
         """Persist video document URIs enumerated by Android's ContentResolver."""
+        run_id = self.store.begin_scan()
+        scan_errors = list(scan_errors or [])
+        scan_stats = scan_stats or {}
         self.store.add_folder(tree_uri, name=folder_name or tree_uri.rsplit("/", 1)[-1], kind="saf", authorization="granted")
         metadata = {}
         seen = []
@@ -129,7 +132,7 @@ class LibraryService:
             try:
                 item = parse_video_path(name)
             except (OSError, ValueError, UnicodeError) as exc:
-                scan_errors = (scan_errors or []) + [f"Não foi possível ler {name}: {exc}"]
+                scan_errors.append(f"Não foi possível ler {name}: {exc}")
                 continue
             key = item.anime_title.casefold()
             if key not in metadata:
@@ -144,13 +147,23 @@ class LibraryService:
         # one subdirectory means its previous documents may simply be unreadable.
         # On a complete scan, absent documents become missing while keeping their
         # SQLite progress so they can be restored later.
-        scan_errors = scan_errors or []
         if scan_errors:
             self.store.update_folder_status(tree_uri, "granted", "; ".join(map(str, scan_errors)))
         else:
             self.store.mark_missing(tree_uri, seen)
             self.store.update_folder_status(tree_uri, "granted")
-        return self.store.catalog()
+        catalog = self.store.catalog()
+        result = ScanResult(
+            catalog=catalog,
+            folders=1,
+            files=int(scan_stats.get("files") or len(documents)),
+            videos=int(scan_stats.get("videos") or len(documents)),
+            animes=len(catalog),
+            episodes=sum(len(season["episodes"]) for anime in catalog for season in anime["seasons"]),
+            errors=scan_errors,
+        )
+        self.store.finish_scan(run_id, result.__dict__)
+        return catalog
 
     def resolve_match(self, lookup_title, anilist_id): self.store.resolve_match(lookup_title, anilist_id)
     def catalog(self, favorites_only=False): return self.store.catalog(favorites_only)

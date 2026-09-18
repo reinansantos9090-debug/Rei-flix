@@ -62,11 +62,12 @@ jobs:
           git diff --check
 
       - name: Build APK
-        # Flet's supported template hook is evaluated before Gradle compiles
-        # the Android project. The repository root is the template because it
-        # contains the ReiFlix android/ host overlay; omitting this flag builds
-        # Flet's stock client and drops the native SAF/player classes.
-        run: flet build apk --template . --yes -v
+        # ``--template`` expects a Cookiecutter repository. This repository is
+        # an application plus an Android overlay, not a Cookiecutter template;
+        # passing ``.`` makes Flet fail before it can generate the project.
+        # The native-host gate below remains mandatory and will reject a stock
+        # APK until a complete Flet build template is supplied.
+        run: flet build apk --yes -v
 
       - name: Locate and verify APK host integration
         id: apk

@@ -42,7 +42,8 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Native ReiFlix host was not packaged", result.stderr)
 
-    def test_workflow_uses_template_before_building_and_keeps_host_gate(self):
+    def test_workflow_does_not_pass_an_overlay_as_a_cookiecutter_template_and_keeps_host_gate(self):
         workflow = (ROOT / ".github" / "workflows" / "build_apk.yml").read_text(encoding="utf-8")
-        self.assertIn("flet build apk --template . --yes -v", workflow)
+        self.assertIn("flet build apk --yes -v", workflow)
+        self.assertNotIn("flet build apk --template .", workflow)
         self.assertIn('python scripts/verify_android_host.py "$apk"', workflow)

@@ -133,6 +133,33 @@ class LibraryService:
     def catalog(self, favorites_only=False): return self.store.catalog(favorites_only)
     def continue_watching(self, limit=12): return self.store.continue_watching(limit)
     def playback_history(self, limit=50): return self.store.playback_history(limit)
+    def playback_target(self, anime_id): return self.store.playback_target(anime_id)
+    def next_episode(self, path): return self.store.next_episode(path)
+    def previous_episode(self, path): return self.store.previous_episode(path)
+
+    @staticmethod
+    def organize_summary(catalog):
+        """Summarize one loaded local catalog for the Organizar landing page.
+
+        This is deliberately an in-memory projection: it makes no database or
+        network requests, and all state counts reuse ``browse_catalog`` so Home
+        and Organizar cannot disagree about favorite/progress semantics.
+        """
+        genres = {}
+        for anime in catalog:
+            cover = (anime.get("meta") or {}).get("cover_cache") or (anime.get("meta") or {}).get("cover_url")
+            for genre in anime.get("genres") or []:
+                if not genre:
+                    continue
+                entry = genres.setdefault(genre, {"name": genre, "count": 0, "cover": cover or ""})
+                entry["count"] += 1
+                if not entry["cover"] and cover:
+                    entry["cover"] = cover
+        states = [
+            {"name": state, "count": len(LibraryService.browse_catalog(catalog, state=state))}
+            for state in ("Todos", "Favoritos", "Em andamento", "Concluídos")
+        ]
+        return {"genres": sorted(genres.values(), key=lambda item: item["name"].casefold()), "states": states}
 
     @staticmethod
     def browse_catalog(catalog, query="", state="Todos", genre="Todos", sort="Mais recentes"):

@@ -3,9 +3,24 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-android { namespace = "com.reiflix.reiflix_local"; compileSdk = 35
-    defaultConfig { applicationId = "com.reiflix.reiflix_local"; minSdk = 23; targetSdk = 35; versionCode = 2; versionName = "0.3.0" }
+android {
+    namespace = "com.reiflix.reiflix_local"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.reiflix.reiflix_local"
+        minSdk = 23
+        targetSdk = 35
+        versionCode = 2
+        versionName = "0.3.0"
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 }
+
+kotlin { jvmToolchain(17) }
 
 dependencies {
     // These are merged into the Flet Flutter host by the custom Android template.

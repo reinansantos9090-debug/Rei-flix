@@ -15,36 +15,31 @@ python -m unittest discover -s tests -v
 O banco SQLite e o cache de capas ficam no diretório privado definido por
 `FLET_APP_STORAGE_DATA` (ou `.reiflix-data/` no desenvolvimento).
 
-## Bridge Android: SAF, player e Google
+## Android e APK
 
-O diretório [`android/`](android/README.md) contém a implementação nativa que
-deve ser mesclada ao template Android usado pelo Flet:
+O projeto fixa `flet==0.86.5`. A própria distribuição instalada declara
+**Flutter 3.44.8**; Java 17 e Android SDK 35 são o contrato de build. O código
+em [`android/`](android/README.md) é um overlay do host Flutter gerado pelo
+Flet, não um aplicativo Android independente.
 
-* `MainActivity` abre `ACTION_OPEN_DOCUMENT_TREE` e pede as flags de leitura,
-  escrita, prefixo e persistência; `SafScanner` chama
-  `takePersistableUriPermission()` e enumera recursivamente `DocumentFile`.
-  O resultado conserva URI, nome, MIME type, tamanho e data, sem criar caminho
-  `/storage/...` fictício.
-* `NativePlayerActivity` usa **Media3 ExoPlayer** diretamente sobre a URI SAF.
-  Ele usa controles nativos sobrepostos, seek, play/pause, duração, timeout de
-  controles, orientação horizontal e barras imersivas. Erro de codec/container
-  resulta em mensagem amigável; arquivos não são copiados.
-* `GoogleIdentity` usa **Credential Manager / Google Identity** com
-  `GetGoogleIdOption`, sem Gmail API e sem escopos de caixa de entrada,
-  contatos ou Drive. Tokens não são persistidos; apenas id, nome, email e foto
-  retornam para o armazenamento privado.
+```bash
+python -m unittest discover -s tests -v
+python -m compileall -q main.py app_config.py core views
+git diff --check
+flet build apk --yes
+python scripts/verify_android_host.py build/apk/<arquivo>.apk
+```
 
-A comunicação é feita pelo `reiflix://native` e por uma fila JSON privada
-(`NativeMailbox`/`AndroidBridge`). O Python insere documentos recebidos no
-SQLite e salva o progresso emitido pelo player. Consulte a integração de
-template e dependências em [`android/README.md`](android/README.md).
+A última verificação é obrigatória: ela procura no DEX as classes
+`MainActivity`, `NativeMailbox`, `SafScanner` e `NativePlayerActivity`. Caso
+elas não estejam presentes, o APK é o cliente Flet stock e **não** deve ser
+distribuído, pois a bridge `reiflix://native`, SAF e Media3 não estarão
+integrados. O workflow GitHub Actions reproduz essas etapas, configura Python,
+Java 17, Flutter 3.44.8 e Android SDK 35, e publica apenas o APK verificado.
 
-> **Estado de build:** os fontes nativos foram implementados, mas o workflow
-> atual ainda invoca o cliente Android padrão do Flet. Antes de distribuir um
-> APK, configure o template Flet para mesclar `android/app` e substituir a
-> activity gerada por `com.reiflix.reiflix_local.MainActivity`; sem isso o
-> cliente stock não conhecerá a bridge. Não há como uma aplicação Python
-> injetar `ContentResolver`/Credential Manager/ExoPlayer em um APK já gerado.
+Não há APK comitado no repositório e não são incluídos secrets de Google. O
+acesso aos vídeos continua exclusivamente pela concessão SAF da pasta escolhida
+pelo usuário; não se solicita permissão ampla de armazenamento.
 
 ## Google Cloud
 

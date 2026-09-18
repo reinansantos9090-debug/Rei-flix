@@ -104,6 +104,9 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun requestEpisode(eventType: String) {
         saveProgress("player_progress", force = true)
+        // The incoming replacement player owns the next screen state; avoid
+        // emitting a misleading normal-exit event while changing episodes.
+        terminalEventSent = true
         NativeMailbox.write(this, JSONObject().put("type", eventType).put("payload", JSONObject().put("uri", uri.toString())))
         finish()
     }

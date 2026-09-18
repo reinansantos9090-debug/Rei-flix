@@ -1,16 +1,10 @@
 <resources>
-  <!--
-    The Flet/Flutter host is a regular Android screen.  Do not make its
-    content fullscreen: on Android 15, opting out of enforced edge-to-edge
-    lets the platform apply the status/navigation-bar insets to the host
-    normally, rather than drawing Flet controls beneath system UI.
-  -->
+  <!-- Insets are controlled with WindowInsetsControllerCompat in MainActivity. -->
   <style name="ReiFlixTheme" parent="android:style/Theme.Material.NoActionBar">
     <item name="android:fontFamily">sans</item>
     <item name="android:windowActionModeOverlay">true</item>
     <item name="android:windowNoTitle">true</item>
     <item name="android:windowFullscreen">false</item>
-    <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
   </style>
 
   <!-- The native Media3 activity owns the only immersive/fullscreen state. -->

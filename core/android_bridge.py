@@ -22,7 +22,12 @@ class AndroidBridge:
 
     @property
     def available(self) -> bool:
-        return bool(self.page and getattr(self.page, "platform", None) and str(self.page.platform).lower() == "android")
+        # Flet supplies a PagePlatform enum on Android.  ``str(enum)`` is
+        # ``PagePlatform.ANDROID`` (not ``android``), which previously made the
+        # real APK report the native bridge as unavailable.
+        platform = getattr(self.page, "platform", None) if self.page else None
+        value = getattr(platform, "value", platform)
+        return str(value).lower() == "android"
 
     def _launch(self, action: str, **params):
         if not self.available:

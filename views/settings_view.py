@@ -14,7 +14,8 @@ from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEX
 class SettingsView:
     @staticmethod
     def build(page, store, library, on_back, on_catalog_changed, on_add_folder,
-              on_refresh_library, on_login, on_logout, account, account_state="disconnected"):
+              on_refresh_library, on_login, on_logout, account, account_state="disconnected",
+              folder_selection_pending=lambda: False):
         status = ft.Text("", color="#9DA3B4", size=12)
         busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False}
 
@@ -56,9 +57,10 @@ class SettingsView:
         if not folder_lines:
             folder_lines = [ft.Text("Nenhuma pasta foi selecionada.", color="#AAA7B6", size=12)]
 
-        add_folder_button = ft.OutlinedButton("Adicionar pasta", icon=ft.Icons.CREATE_NEW_FOLDER)
+        add_folder_button = ft.OutlinedButton("Adicionar pasta", icon=ft.Icons.CREATE_NEW_FOLDER,
+                                              disabled=bool(folder_selection_pending()))
         async def add_folder(_):
-            if busy["folder"] or busy["scan"]:
+            if busy["folder"] or busy["scan"] or folder_selection_pending():
                 return
             busy["folder"] = True
             add_folder_button.disabled = True

@@ -119,7 +119,11 @@ class SettingsView:
         connected = bool(account.get("email"))
         account_text = account.get("name") or account.get("email") or "Você não está conectado."
         account_details = account.get("email", "")
-        account_button = ft.FilledButton("Entrar com Google", icon=ft.Icons.LOGIN)
+        google_needs_configuration = account_state == "configuration_required"
+        account_button = ft.FilledButton(
+            "Configurar login Google" if google_needs_configuration else "Entrar com Google",
+            icon=ft.Icons.SETTINGS if google_needs_configuration else ft.Icons.LOGIN,
+        )
         async def login(_):
             if busy["login"]:
                 return
@@ -146,7 +150,7 @@ class SettingsView:
         def ask_logout(_):
             confirm("Sair da conta Google?", "A sessão local será removida. Biblioteca, favoritos, progresso e histórico não serão alterados.", "Sair", do_logout)
         logout_button.on_click = ask_logout
-        state_labels = {"connecting": "Conectando…", "connected": "Conectada", "error": "Erro ao conectar", "disconnecting": "Saindo…"}
+        state_labels = {"connecting": "Conectando…", "connected": "Conectada", "error": "Erro ao conectar", "disconnecting": "Saindo…", "configuration_required": "Configuração necessária"}
         account_status = state_labels.get(account_state, "Conectada" if connected else "Não conectada")
 
         last = store.last_scan()

@@ -62,7 +62,11 @@ jobs:
           git diff --check
 
       - name: Build APK
-        run: flet build apk --yes -v
+        # Flet's supported template hook is evaluated before Gradle compiles
+        # the Android project. The repository root is the template because it
+        # contains the ReiFlix android/ host overlay; omitting this flag builds
+        # Flet's stock client and drops the native SAF/player classes.
+        run: flet build apk --template . --yes -v
 
       - name: Locate and verify APK host integration
         id: apk

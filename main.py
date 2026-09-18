@@ -97,12 +97,13 @@ async def main(page: ft.Page):
             if not (bridge.available and any(f.get('kind') == 'saf' for f in store.folders())):
                 scan_in_progress[0] = False
     async def login(_=None):
-        account_state[0] = 'connecting'; navigate_settings()
         if bridge.available:
             if not GOOGLE_WEB_CLIENT_ID:
-                account_state[0] = 'error'; navigate_settings()
-                page.snack_bar=ft.SnackBar(ft.Text('Configure REIFLIX_GOOGLE_WEB_CLIENT_ID para entrar com Google.')); page.snack_bar.open=True; page.update(); return
+                account_state[0] = 'configuration_required'; navigate_settings()
+                page.snack_bar=ft.SnackBar(ft.Text('Login Google não configurado neste APK. Configure um Web Client ID público antes de tentar novamente.')); page.snack_bar.open=True; page.update(); return
+            account_state[0] = 'connecting'; navigate_settings()
             bridge.sign_in(GOOGLE_WEB_CLIENT_ID); return
+        account_state[0] = 'connecting'; navigate_settings()
         if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URL:
             account_state[0] = 'error'; navigate_settings()
             page.snack_bar=ft.SnackBar(ft.Text('Configure REIFLIX_GOOGLE_CLIENT_ID e REIFLIX_GOOGLE_REDIRECT_URL para entrar com Google.'))

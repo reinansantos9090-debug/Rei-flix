@@ -6,8 +6,9 @@ from views.player_view import PlayerView
 def main(page: ft.Page):
     page.title = "Rei-Flix Local"
     page.theme_mode = ft.ThemeMode.DARK
-    page.bgcolor = ft.Colors.BLACK
+    page.bgcolor = "#16151F"
     page.padding = 0
+    page.theme = ft.Theme(color_scheme_seed="#E50914", font_family="Roboto")
 
     current_anime = [None]
 

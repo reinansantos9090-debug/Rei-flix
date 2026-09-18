@@ -38,7 +38,8 @@ class PlayerView:
         ) if on_next_episode else ft.Container()
 
         header = ft.Row([
-            ft.Row([back_button, ft.Text(ep_title, size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)]),
+            ft.Row([back_button, ft.Column([ft.Text(ep_title, size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                                              ft.Text("Reprodução local", size=11, color="#9DA3B4")], spacing=1)]),
             next_button
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
@@ -49,6 +50,7 @@ class PlayerView:
             aspect_ratio=16/9,
             autoplay=True,
             filter_quality=ft.FilterQuality.HIGH,
+            show_controls=True,
         )
 
         layout = ft.Column([
@@ -62,4 +64,4 @@ class PlayerView:
             )
         ], expand=True)
 
-        return ft.Container(content=layout, padding=10, bgcolor=ft.Colors.BLACK)
+        return ft.Container(content=layout, padding=12, bgcolor="#0E0D13")

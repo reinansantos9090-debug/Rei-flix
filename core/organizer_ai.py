@@ -21,7 +21,7 @@ class AnimeOrganizer:
         local = normalize(local_title)
         ranked = []
         for candidate in candidates:
-            titles = (candidate.get("title") or {}).values()
+            titles = list((candidate.get("title") or {}).values()) + list(candidate.get("synonyms") or [])
             score = max((SequenceMatcher(None, local, normalize(title or "")).ratio() for title in titles), default=0)
             item = dict(candidate)
             item["match_score"] = round(score, 3)

@@ -171,7 +171,7 @@ class LibraryStore:
                 if not eps: continue
                 seasons = {}
                 for ep in eps: seasons.setdefault(ep["season"], []).append(dict(ep))
-                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": json.loads(a["genres"] or "[]"), "seasons": [{"season_name": f"Temporada {s}", "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"]} for e in values]} for s, values in seasons.items()]})
+                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": json.loads(a["genres"] or "[]"), "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"]} for e in values]} for s, values in seasons.items()]})
             for anime in animes:
                 anime["current_episode"] = self.current_episode(anime["id"])
             return animes
@@ -180,15 +180,33 @@ class LibraryStore:
         watched = int(duration > 0 and position / duration >= .9)
         with self._conn() as c: c.execute("UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?", (position, duration, watched, time.time(), path))
 
-    def next_episode(self, path):
+    def adjacent_episode(self, path, direction=1):
+        """Return the adjacent playable local episode in catalog order.
+
+        Missing rows deliberately remain in SQLite but are never playback
+        destinations.  Keeping this policy here makes the Android bridge a
+        transport layer rather than a second episode-ordering implementation.
+        """
+        if direction not in (-1, 1):
+            raise ValueError("direction must be -1 or 1")
+        comparison = "<" if direction < 0 else ">"
+        ordering = "DESC" if direction < 0 else "ASC"
         with self._conn() as c:
             current = c.execute("SELECT anime_id,season,number FROM episodes WHERE path=?", (path,)).fetchone()
             if not current:
                 return None
-            row = c.execute("""SELECT * FROM episodes WHERE anime_id=? AND missing=0
-                AND (season>? OR (season=? AND number>?))
-                ORDER BY season, number, file_name LIMIT 1""", (current["anime_id"], current["season"], current["season"], current["number"] if current["number"] is not None else -1)).fetchone()
+            number = current["number"] if current["number"] is not None else (-1 if direction > 0 else float("inf"))
+            row = c.execute(f"""SELECT * FROM episodes WHERE anime_id=? AND missing=0
+                AND (season {comparison} ? OR (season=? AND number {comparison} ?))
+                ORDER BY season {ordering}, number {ordering}, file_name {ordering} LIMIT 1""",
+                (current["anime_id"], current["season"], current["season"], number)).fetchone()
             return dict(row) if row else None
+
+    def next_episode(self, path):
+        return self.adjacent_episode(path, 1)
+
+    def previous_episode(self, path):
+        return self.adjacent_episode(path, -1)
 
     def current_episode(self, anime_id):
         with self._conn() as c:
@@ -199,6 +217,20 @@ class LibraryStore:
             completed = c.execute("""SELECT * FROM episodes WHERE anime_id=? AND watched=1
                 ORDER BY last_played_at DESC LIMIT 1""", (anime_id,)).fetchone()
         return self.next_episode(completed["path"]) if completed else None
+
+    def playback_target(self, anime_id):
+        """Return the single local episode the Details primary action should play.
+
+        This intentionally owns the continuation policy so the UI does not need
+        to reproduce ordering, completion, or missing-file rules.
+        """
+        current = self.current_episode(anime_id)
+        if current:
+            return current
+        with self._conn() as c:
+            first = c.execute("""SELECT * FROM episodes WHERE anime_id=? AND missing=0
+                ORDER BY season, number, file_name LIMIT 1""", (anime_id,)).fetchone()
+        return dict(first) if first else None
 
     def continue_watching(self, limit=12):
         """One playable continuation per anime, ordered by latest playback."""

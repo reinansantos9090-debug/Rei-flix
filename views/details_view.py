@@ -1,155 +1,246 @@
-import flet as ft
+"""Details presentation for one locally indexed anime.
+
+This module deliberately receives an already loaded local catalog entry.  It
+never contacts AniList and delegates playback selection to LibraryService.
+"""
+from __future__ import annotations
+
+import html
 import re
+
+import flet as ft
+
 
 class DetailView:
     @staticmethod
-    def build(page: ft.Page, anime_group: dict, on_play_episode, on_back, on_toggle_favorite):
-        main_title = anime_group.get('meta', {}).get('title_official') or anime_group.get('main_title')
-        metadata = anime_group.get('meta', {})
-        cover = anime_group.get('meta', {}).get('cover_cache') or anime_group.get('meta', {}).get('cover_url', '')
-        desc = anime_group.get('meta', {}).get('description', 'Sem descrição.')
-        clean_desc = re.sub('<[^<]+?>', '', desc)
-        genres = anime_group.get('genres', ['Minha biblioteca'])
-        facts = [str(value) for value in (metadata.get('year'), metadata.get('status')) if value]
+    def build(page: ft.Page, anime_group: dict, on_play_episode, on_back,
+              on_toggle_favorite, get_playback_target=None):
+        metadata = anime_group.get("meta") or {}
+        title = metadata.get("title_official") or anime_group.get("main_title") or "Anime local"
+        alternate_titles = [metadata.get(key) for key in ("english", "romaji", "native")]
+        alternate_title = next((value for value in alternate_titles if value and value != title), None)
+        seasons = anime_group.get("seasons") or []
+        episodes = [episode for season in seasons for episode in season.get("episodes", [])]
+        available = [episode for episode in episodes if not episode.get("missing")]
+        missing_count = len(episodes) - len(available)
+        favorite = [bool(anime_group.get("favorite"))]
+        selected_season = [0]
+        expanded_description = [False]
+        current = anime_group.get("current_episode") or {}
+        primary_target = get_playback_target(anime_group["id"]) if get_playback_target else (current or next((item for item in available), None))
 
-        seasons = anime_group.get('seasons', [])
-        current_season_idx = [0]
-        favorite = [bool(anime_group.get('favorite'))]
+        def ratio(episode):
+            duration = float(episode.get("duration") or 0)
+            return min(float(episode.get("progress") or 0) / duration, 1.0) if duration > 0 else None
 
-        episodes_column = ft.Column(spacing=8)
+        def placeholder(height=198):
+            return ft.Container(
+                width=132, height=height, border_radius=14, bgcolor="#292737",
+                alignment=ft.Alignment(0, 0),
+                content=ft.Column([
+                    ft.Icon(ft.Icons.MOVIE_OUTLINED, color="#AAA7B6", size=38),
+                    ft.Text("Sem capa", color="#AAA7B6", size=11),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
+            )
 
-        def play_with_next_context(episodes_list, index):
-            current_ep = episodes_list[index]
-            if current_ep.get('missing'):
-                page.snack_bar = ft.SnackBar(ft.Text("Este arquivo não está disponível na pasta autorizada."))
+        cover = metadata.get("cover_cache") or metadata.get("cover_url")
+        poster = ft.Image(
+            src=cover, width=132, height=198, fit=ft.ImageFit.COVER, border_radius=14,
+            error_content=placeholder(),
+        ) if cover else placeholder()
+
+        def meta_chip(label, icon=None):
+            return ft.Container(
+                content=ft.Row(([ft.Icon(icon, size=14, color="#D8D4E3")] if icon else []) + [
+                    ft.Text(str(label), size=11, color="#D8D4E3")
+                ], tight=True, spacing=4),
+                padding=ft.Padding.symmetric(horizontal=9, vertical=5), bgcolor="#292737", border_radius=14,
+            )
+
+        facts = []
+        if metadata.get("year"):
+            facts.append(meta_chip(metadata["year"], ft.Icons.CALENDAR_TODAY_OUTLINED))
+        if metadata.get("status"):
+            facts.append(meta_chip(metadata["status"], ft.Icons.INFO_OUTLINE))
+        if available:
+            facts.append(meta_chip(f"{len(available)} episódio local" if len(available) == 1 else f"{len(available)} episódios locais", ft.Icons.VIDEO_LIBRARY_OUTLINED))
+        if metadata.get("episodes_count"):
+            facts.append(meta_chip(f"{metadata['episodes_count']} no total", ft.Icons.FORMAT_LIST_NUMBERED))
+        if metadata.get("duration"):
+            facts.append(meta_chip(f"{metadata['duration']} min", ft.Icons.SCHEDULE_OUTLINED))
+        if metadata.get("score") is not None:
+            facts.append(meta_chip(f"{float(metadata['score']) / 10:g}", ft.Icons.STAR_OUTLINED))
+
+        genres = anime_group.get("genres") or []
+        genre_controls = [
+            ft.Container(ft.Text(genre, size=11, color="#F5F3F8"), bgcolor="#39364B", border_radius=14,
+                         padding=ft.Padding.symmetric(horizontal=10, vertical=5))
+            for genre in genres if genre
+        ]
+
+        description = html.unescape(re.sub(r"<[^>]+>", "", metadata.get("description") or "")).strip()
+        description_text = ft.Text(description, size=13, color="#C7C5D0", max_lines=5,
+                                   overflow=ft.TextOverflow.ELLIPSIS, visible=bool(description))
+        expand_button = ft.TextButton("Ler mais", visible=len(description) > 300)
+
+        def toggle_description(_):
+            expanded_description[0] = not expanded_description[0]
+            description_text.max_lines = None if expanded_description[0] else 5
+            description_text.overflow = None if expanded_description[0] else ft.TextOverflow.ELLIPSIS
+            expand_button.content = "Mostrar menos" if expanded_description[0] else "Ler mais"
+            page.update()
+
+        expand_button.on_click = toggle_description
+        favorite_button = ft.IconButton(
+            icon=ft.Icons.STAR if favorite[0] else ft.Icons.STAR_BORDER,
+            icon_color="#FFD54F" if favorite[0] else "#FFFFFF",
+            tooltip="Remover dos favoritos" if favorite[0] else "Adicionar aos favoritos",
+        )
+
+        def toggle_favorite(_):
+            favorite[0] = bool(on_toggle_favorite(anime_group["id"]))
+            anime_group["favorite"] = favorite[0]
+            favorite_button.icon = ft.Icons.STAR if favorite[0] else ft.Icons.STAR_BORDER
+            favorite_button.icon_color = "#FFD54F" if favorite[0] else "#FFFFFF"
+            favorite_button.tooltip = "Remover dos favoritos" if favorite[0] else "Adicionar aos favoritos"
+            page.update()
+
+        favorite_button.on_click = toggle_favorite
+
+        def play(episode):
+            if not episode or episode.get("missing") or not episode.get("path"):
+                page.snack_bar = ft.SnackBar(ft.Text("Nenhum episódio local disponível para reprodução."))
                 page.snack_bar.open = True
                 page.update()
                 return
-            has_next = (index + 1) < len(episodes_list)
+            on_play_episode(episode["path"], episode.get("title") or "Episódio",
+                            progress_seconds=episode.get("progress") or 0)
 
-            def play_next_callback():
-                if has_next:
-                    play_with_next_context(episodes_list, index + 1)
+        primary_ratio = ratio(primary_target) if primary_target else None
+        if primary_target and primary_ratio and primary_ratio > 0 and not primary_target.get("watched"):
+            primary_label = "Continuar assistindo"
+        elif primary_target and current and current.get("watched"):
+            primary_label = "Próximo episódio"
+        elif primary_target and available and all(item.get("watched") for item in available):
+            primary_label = "Reassistir episódio"
+        elif primary_target:
+            primary_label = "Assistir episódio"
+        else:
+            primary_label = "Sem episódios disponíveis"
+        primary_button = ft.FilledButton(
+            primary_label, icon=ft.Icons.PLAY_ARROW, disabled=not bool(primary_target),
+            on_click=lambda _: play(primary_target),
+            style=ft.ButtonStyle(bgcolor="#E50914", color="#FFFFFF", shape=ft.RoundedRectangleBorder(radius=12)),
+        )
 
-            on_play_episode(
-                current_ep.get('path', ''),
-                current_ep.get('title', 'Episódio'),
-                progress_seconds=current_ep.get('progress', 0),
-                on_next=play_next_callback if has_next else None
+        episode_column = ft.Column(spacing=8)
+
+        def episode_item(episode):
+            episode_ratio = ratio(episode)
+            number = episode.get("number")
+            number_label = f"EP {int(number):02d}" if isinstance(number, (int, float)) else "EP —"
+            if episode.get("missing"):
+                icon, status, color = ft.Icons.ERROR_OUTLINE, "Arquivo indisponível", "#F2B84B"
+            elif episode.get("watched"):
+                icon, status, color = ft.Icons.CHECK_CIRCLE, "Assistido", "#50B982"
+            elif episode_ratio is not None and episode_ratio > 0:
+                icon, status, color = ft.Icons.PLAY_CIRCLE_FILL, f"Em andamento • {int(episode_ratio * 100)}%", "#E50914"
+            else:
+                icon, status, color = ft.Icons.PLAY_CIRCLE_OUTLINE, "Disponível localmente", "#AAA7B6"
+            details = ft.Column([
+                ft.Row([
+                    ft.Text(number_label, size=10, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
+                    ft.Icon(icon, size=17, color=color),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Text(episode.get("title") or "Episódio", size=13, color="#F7F5FA", weight=ft.FontWeight.BOLD,
+                        max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                ft.Text(status, size=11, color=color),
+            ], spacing=4, expand=True)
+            if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing"):
+                details.controls.append(ft.ProgressBar(value=episode_ratio, color="#E50914", bgcolor="#454252", bar_height=4))
+            return ft.Container(
+                content=details, padding=12, border_radius=12, bgcolor="#252331",
+                opacity=.58 if episode.get("missing") else 1, ink=not episode.get("missing"),
+                on_click=None if episode.get("missing") else lambda _, item=episode: play(item),
             )
 
-        def update_episodes_list():
-            episodes_column.controls.clear()
-            active_season = seasons[current_season_idx[0]]
-            episodes_list = active_season.get('episodes', [])
-            
-            for idx, ep in enumerate(episodes_list):
-                ep_title = ep.get('title', 'Episódio')
-                
-                # Progress is returned by LibraryStore with the catalog.  Keeping
-                # the detail screen on that source of truth is essential: the
-                # Android player writes its updates to SQLite through the native
-                # bridge, not to a second JSON history file.
-                position = float(ep.get('progress') or 0)
-                duration = float(ep.get('duration') or 0)
-                ratio = min(position / duration, 1.0) if duration > 0 else 0.0
-                completed = bool(ep.get('watched')) or ratio >= 0.9
-                
-                if ep.get('missing'):
-                    leading_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, color=ft.Colors.AMBER_ACCENT, size=24)
-                    status_text = "Arquivo indisponível"
-                elif completed:
-                    leading_icon = ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN_ACCENT, size=24)
-                    status_text = "Concluído"
-                elif ratio > 0:
-                    leading_icon = ft.Icon(ft.Icons.PLAY_CIRCLE_FILL, color=ft.Colors.RED_ACCENT, size=24)
-                    status_text = f"Em andamento ({int(ratio * 100)}%)"
-                else:
-                    leading_icon = ft.Icon(ft.Icons.PLAY_CIRCLE_OUTLINE, color=ft.Colors.GREY_500, size=24)
-                    status_text = "Não assistido"
-
-                progress_bar = ft.ProgressBar(
-                    value=ratio,
-                    color=ft.Colors.RED_ACCENT,
-                    bgcolor=ft.Colors.GREY_800,
-                    height=3
-                ) if ratio > 0 else ft.Container()
-
-                item_content = ft.Column([
-                    ft.Row([
-                        leading_icon,
-                        ft.Column([
-                            ft.Text(ep_title, color=ft.Colors.WHITE, size=13, weight=ft.FontWeight.BOLD),
-                            ft.Text(status_text, color=ft.Colors.GREY_400, size=11)
-                        ], expand=True)
-                    ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    progress_bar
-                ], spacing=4)
-
-                episodes_column.controls.append(
-                    ft.Container(
-                        content=item_content,
-                        padding=10,
-                        border_radius=8,
-                        bgcolor="#252836",
-                        on_click=lambda _, i=idx: play_with_next_context(episodes_list, i),
-                    )
-                )
+        def render_episodes():
+            episode_column.controls.clear()
+            if not seasons:
+                episode_column.controls.append(ft.Container(
+                    content=ft.Text("Nenhum episódio foi indexado para este anime.", color="#AAA7B6", size=13),
+                    padding=14, bgcolor="#252331", border_radius=12,
+                ))
+            else:
+                episode_column.controls.extend(episode_item(item) for item in seasons[selected_season[0]].get("episodes", []))
             page.update()
 
-        def on_season_change(e):
-            current_season_idx[0] = int(e.control.value)
-            update_episodes_list()
+        def change_season(event):
+            selected_season[0] = int(event.control.value)
+            render_episodes()
 
-        season_options = [ft.dropdown.Option(key=str(i), text=s['season_name']) for i, s in enumerate(seasons)]
-        season_dropdown = ft.Dropdown(
-            value="0",
-            options=season_options,
-            on_change=on_season_change,
-            border_color=ft.Colors.RED_ACCENT,
-            color=ft.Colors.WHITE,
-            text_size=13
-        ) if len(seasons) > 1 else ft.Container()
+        season_picker = ft.Dropdown(
+            value="0", options=[ft.dropdown.Option(key=str(index), text=season.get("season_name") or f"Temporada {index + 1}")
+                                for index, season in enumerate(seasons)],
+            color="#F7F5FA", text_size=13, bgcolor="#252331",
+            border_color="#39364B", border_radius=12, visible=len(seasons) > 1,
+        )
+        season_picker.on_select = change_season
 
-        back_button = ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=ft.Colors.WHITE, on_click=lambda _: on_back())
-        favorite_button = ft.IconButton(icon=ft.Icons.STAR if favorite[0] else ft.Icons.STAR_BORDER, icon_color="#FFD54F" if favorite[0] else ft.Colors.WHITE, tooltip="Remover dos favoritos" if favorite[0] else "Adicionar aos favoritos")
-        def toggle_favorite(_):
-            favorite[0] = on_toggle_favorite(anime_group['id'])
-            anime_group['favorite'] = favorite[0]
-            favorite_button.icon = ft.Icons.STAR if favorite[0] else ft.Icons.STAR_BORDER
-            favorite_button.icon_color = "#FFD54F" if favorite[0] else ft.Colors.WHITE
-            favorite_button.tooltip = "Remover dos favoritos" if favorite[0] else "Adicionar aos favoritos"
-            page.update()
-        favorite_button.on_click = toggle_favorite
-        header = ft.Row([back_button, ft.Text("Detalhes", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), favorite_button], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        progress_section = []
+        if current:
+            current_ratio = ratio(current)
+            season = current.get("season")
+            number = current.get("number")
+            progress_label = "Concluído" if current.get("watched") else (f"{int(current_ratio * 100)}% assistido" if current_ratio is not None else "Em andamento")
+            progress_section = [
+                ft.Text("CONTINUAR", size=12, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
+                ft.Container(content=ft.Column([
+                    ft.Text(f"Temporada {season or '—'} • Episódio {number if number is not None else '—'}", color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD),
+                    ft.Text(progress_label, color="#B9B5C4", size=11),
+                    ft.ProgressBar(value=current_ratio, color="#E50914", bgcolor="#454252", bar_height=4,
+                                   visible=current_ratio is not None and not current.get("watched")),
+                ], spacing=6), padding=12, bgcolor="#252331", border_radius=12),
+            ]
 
-        poster = ft.Image(src=cover, width=130, height=190, fit=ft.ImageFit.COVER, border_radius=8) if cover else ft.Container(width=130, height=190, bgcolor=ft.Colors.GREY_800, border_radius=8)
+        additional = []
+        for label, value in (("Estúdio", metadata.get("studio")), ("Temporada", metadata.get("season")), ("Título alternativo", alternate_title)):
+            if value:
+                additional.append(ft.Row([
+                    ft.Text(label, color="#AAA7B6", size=12, width=120),
+                    ft.Text(str(value), color="#F7F5FA", size=12, expand=True, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                ], vertical_alignment=ft.CrossAxisAlignment.START))
 
-        genre_chips = ft.Row([ft.Container(ft.Text(genre, size=11, color="#FFFFFF"), bgcolor="#39364B", border_radius=14,
-                                            padding=ft.Padding.symmetric(horizontal=11, vertical=5)) for genre in genres], wrap=True)
+        header = ft.Row([
+            ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#FFFFFF", tooltip="Voltar", on_click=lambda _: on_back()),
+            ft.Text("Detalhes", size=17, weight=ft.FontWeight.BOLD, color="#F7F5FA", expand=True),
+            favorite_button,
+        ])
+        hero_text = ft.Column([
+            ft.Text(title, size=22, weight=ft.FontWeight.BOLD, color="#F7F5FA", max_lines=4, overflow=ft.TextOverflow.ELLIPSIS),
+            ft.Text(alternate_title, size=12, color="#AAA7B6", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, visible=bool(alternate_title)),
+            ft.Row(facts, wrap=True, spacing=6, run_spacing=6),
+            ft.Row(genre_controls, wrap=True, spacing=6, run_spacing=6, visible=bool(genre_controls)),
+            primary_button,
+            ft.Text(f"{missing_count} indisponível{'is' if missing_count != 1 else ''} na biblioteca local", size=11, color="#D5A84A", visible=missing_count > 0),
+        ], spacing=9, expand=True)
 
-        play_first = ft.FilledButton(
-            "Assistir", icon=ft.Icons.PLAY_ARROW,
-            on_click=lambda _: play_with_next_context(seasons[0].get('episodes', []), 0) if seasons and seasons[0].get('episodes') else None,
-            style=ft.ButtonStyle(bgcolor="#E50914", color="#FFFFFF", shape=ft.RoundedRectangleBorder(radius=10)))
-
-        layout = ft.Column([
+        layout_controls = [
             header,
-            ft.Row([poster, ft.Column([
-                ft.Text(main_title, size=20, weight=ft.FontWeight.BOLD, color="#F5F5F7", max_lines=3),
-                ft.Text(" • ".join(facts) or f"{len(seasons)} temporada(s) • Arquivos locais", size=12, color="#9DA3B4"),
-                genre_chips,
-                play_first
-            ], expand=True)], spacing=15),
-            ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
-            ft.Text("Sinopse", size=16, weight=ft.FontWeight.BOLD, color="#F5F5F7"),
-            ft.Text(clean_desc, size=13, color="#C7C5D0", max_lines=5, overflow=ft.TextOverflow.ELLIPSIS),
-            ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
-            ft.Text("EPISÓDIOS", size=12, weight=ft.FontWeight.BOLD, color="#9DA3B4"),
-            season_dropdown,
-            ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
-            episodes_column
-        ], scroll=ft.ScrollMode.AUTO, expand=True)
+            ft.Row([poster, hero_text], spacing=14, vertical_alignment=ft.CrossAxisAlignment.START),
+        ]
+        if description:
+            layout_controls.extend([ft.Text("SINOPSE", size=12, weight=ft.FontWeight.BOLD, color="#AAA7B6"), description_text, expand_button])
+        layout_controls.extend(progress_section)
+        layout_controls.extend([
+            ft.Text("EPISÓDIOS", size=12, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
+            season_picker,
+            episode_column,
+        ])
+        if additional:
+            layout_controls.extend([ft.Text("INFORMAÇÕES ADICIONAIS", size=12, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
+                                    ft.Container(ft.Column(additional, spacing=9), padding=12, bgcolor="#252331", border_radius=12)])
 
-        update_episodes_list()
-        return ft.Container(content=layout, padding=16, bgcolor="#16151F")
+        layout = ft.Column(layout_controls, scroll=ft.ScrollMode.AUTO, expand=True, spacing=14)
+        render_episodes()
+        return ft.Container(content=layout, padding=ft.Padding(left=16, right=16, top=14, bottom=18), bgcolor="#16151F")

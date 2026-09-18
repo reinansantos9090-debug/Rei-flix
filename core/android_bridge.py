@@ -33,7 +33,9 @@ class AndroidBridge:
     def select_tree(self): self._launch("select_tree")
     def rescan_tree(self, tree_uri: str): self._launch("scan_tree", tree_uri=tree_uri)
     def sign_in(self, server_client_id: str): self._launch("google_sign_in", server_client_id=server_client_id)
-    def play(self, uri: str, title: str, position_ms: int = 0): self._launch("play", uri=uri, title=title, position_ms=position_ms)
+    def play(self, uri: str, title: str, position_ms: int = 0, *, can_next=False, can_previous=False):
+        self._launch("play", uri=uri, title=title, position_ms=max(0, int(position_ms)),
+                     can_next=str(bool(can_next)).lower(), can_previous=str(bool(can_previous)).lower())
 
     def drain(self) -> list[dict]:
         """Atomically consume events. Native events contain no tokens/secrets."""

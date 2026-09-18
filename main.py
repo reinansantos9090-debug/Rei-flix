@@ -8,6 +8,7 @@ from core.library_store import LibraryStore
 from core.library_service import LibraryService
 from views.home_view import HomeView
 from views.details_view import DetailView
+from views.organize_view import OrganizeView
 from views.player_view import PlayerView
 from views.settings_view import SettingsView
 
@@ -18,16 +19,30 @@ GOOGLE_WEB_CLIENT_ID = os.getenv('REIFLIX_GOOGLE_WEB_CLIENT_ID', CONFIG_GOOGLE_W
 async def main(page: ft.Page):
     page.title='Rei-Flix Local'; page.theme_mode=ft.ThemeMode.DARK; page.bgcolor='#16151F'; page.padding=0
     page.theme=ft.Theme(color_scheme_seed='#E50914',font_family='Roboto')
-    # Flet maps this to the host window; Android builds receive the immersive app window when supported.
-    page.window.full_screen=True
     data_dir=os.getenv('FLET_APP_STORAGE_DATA') or os.path.join(os.path.dirname(__file__),'.reiflix-data')
-    store=LibraryStore(data_dir); library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]
+    store=LibraryStore(data_dir); library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]; details_back=[None]
     def show(control): page.clean(); page.add(control); page.update()
-    def navigate_home(): show(HomeView.build(page,library,navigate_details,navigate_settings,play_episode))
+    def navigate_home(): show(HomeView.build(page, library, navigate_details, navigate_settings, play_episode, navigate_organize))
+    def navigate_organize():
+        show(OrganizeView.build(page, library, lambda anime: navigate_details(anime, navigate_organize), navigate_home, navigate_settings))
+    def start_native_player(path, title, position_ms=0):
+        # Sequence decisions stay in LibraryStore; Android receives only the
+        # selected local URI and booleans for the native controls.
+        bridge.play(path, title, position_ms,
+                    can_next=library.next_episode(path) is not None,
+                    can_previous=library.previous_episode(path) is not None)
+
     def play_episode(path, title, on_next=None, progress_seconds=0):
-        show(PlayerView.build(page, path, title, lambda: navigate_details(current[0]), on_next, bridge.play, progress_seconds))
-    def navigate_details(anime):
-        current[0]=anime; show(DetailView.build(page,anime,play_episode,navigate_home,store.toggle_favorite))
+        show(PlayerView.build(page, path, title, lambda: navigate_details(current[0], details_back[0]),
+                              on_next, start_native_player, progress_seconds))
+    def navigate_details(anime, on_back=None):
+        # Refresh once from SQLite so Details always presents the durable
+        # favorite/progress state without triggering a scan or network call.
+        anime_id = anime.get('id') if anime else None
+        details_back[0] = on_back or navigate_home
+        current[0] = next((item for item in library.catalog() if item['id'] == anime_id), anime)
+        show(DetailView.build(page, current[0], play_episode, details_back[0],
+                              store.toggle_favorite, library.playback_target))
     def on_catalog_changed():
         # The active screen owns rendering; returning home always reads the SQLite catalog again.
         return None
@@ -73,8 +88,18 @@ async def main(page: ft.Page):
                     # the Android picker. Rebuild Home from SQLite so the newly
                     # ingested local documents are immediately visible.
                     navigate_home()
-                elif event_type == 'player_progress':
-                    store.save_progress(payload.get('uri',''), payload.get('positionMs',0)/1000, payload.get('durationMs',0)/1000)
+                elif event_type in {'player_progress', 'player_paused', 'player_exited', 'player_completed'}:
+                    uri = payload.get('uri', '')
+                    if uri:
+                        store.save_progress(uri, payload.get('positionMs', 0) / 1000,
+                                            payload.get('durationMs', 0) / 1000)
+                elif event_type in {'player_next_request', 'player_previous_request'}:
+                    uri = payload.get('uri', '')
+                    target = library.next_episode(uri) if event_type == 'player_next_request' else library.previous_episode(uri)
+                    if target:
+                        start_native_player(target['path'], target['file_name'], 0)
+                elif event_type == 'player_error':
+                    page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível reproduzir este arquivo.'))); page.snack_bar.open=True; page.update()
                 elif event_type == 'google_account':
                     store.save_account(payload); page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update()
                 elif event_type == 'saf_cancelled':

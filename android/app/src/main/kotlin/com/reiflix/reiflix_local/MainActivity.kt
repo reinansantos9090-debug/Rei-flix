@@ -50,7 +50,9 @@ class MainActivity : FlutterActivity() {
         val episodeUri = data?.getQueryParameter("uri") ?: return
         startActivity(Intent(this, NativePlayerActivity::class.java)
             .putExtra("uri", episodeUri).putExtra("title", data.getQueryParameter("title") ?: "Episódio")
-            .putExtra("positionMs", data.getQueryParameter("position_ms")?.toLongOrNull() ?: 0L))
+            .putExtra("positionMs", data.getQueryParameter("position_ms")?.toLongOrNull() ?: 0L)
+            .putExtra("canNext", data.getQueryParameter("can_next")?.toBoolean() ?: false)
+            .putExtra("canPrevious", data.getQueryParameter("can_previous")?.toBoolean() ?: false))
     }
     private fun openTreePicker() {
         treePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(

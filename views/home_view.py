@@ -5,7 +5,7 @@ class HomeView:
     """Local-library home. Data is loaded once, then filtered in memory."""
 
     @staticmethod
-    def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode):
+    def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode, on_open_organize=None):
         catalog, continuing = [], []
         selected_state, selected_genre, selected_sort = ["Todos"], ["Todos"], ["Mais recentes"]
         search_visible = [False]
@@ -197,7 +197,7 @@ class HomeView:
         sort.on_select = on_sort
         header = ft.Row([
             ft.Row([ft.Container(content=ft.Icon(ft.Icons.PLAY_CIRCLE_FILLED, color="#E50914", size=31), bgcolor="#292737", border_radius=12, padding=5), ft.Text("ReiFlix", size=23, weight=ft.FontWeight.BOLD, color="#F7F5FA")], spacing=9),
-            ft.Row([ft.IconButton(icon=ft.Icons.SEARCH, icon_color="#FFFFFF", tooltip="Pesquisar", on_click=toggle_search), ft.IconButton(icon=ft.Icons.SETTINGS_OUTLINED, icon_color="#FFFFFF", tooltip="Configurações", on_click=lambda _: on_open_settings())], spacing=0),
+            ft.Row([ft.IconButton(icon=ft.Icons.SEARCH, icon_color="#FFFFFF", tooltip="Pesquisar", on_click=toggle_search), ft.IconButton(icon=ft.Icons.DASHBOARD_OUTLINED, icon_color="#FFFFFF", tooltip="Organizar", visible=on_open_organize is not None, on_click=lambda _: on_open_organize() if on_open_organize else None), ft.IconButton(icon=ft.Icons.SETTINGS_OUTLINED, icon_color="#FFFFFF", tooltip="Configurações", on_click=lambda _: on_open_settings())], spacing=0),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
         layout = ft.Column([
             header, search,

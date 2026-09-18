@@ -7,6 +7,7 @@ from core.library_store import LibraryStore
 from core.library_service import LibraryService
 from core.organizer_ai import AnimeOrganizer, normalize
 from views.home_view import HomeView
+from views.organize_view import OrganizeView
 
 
 def anilist_media(anilist_id=1, english='Jujutsu Kaisen', romaji=None, synonyms=None):
@@ -314,6 +315,15 @@ class LibraryStateTests(unittest.TestCase):
                 con.execute('UPDATE episodes SET missing=1 WHERE path=?', (paths[2],))
             self.assertEqual(store.next_episode(paths[1])['path'], paths[3])
 
+    def test_previous_episode_crosses_season_and_skips_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d); _, paths = self._episodes(store)
+            self.assertEqual(store.previous_episode(paths[2])['path'], paths[1])
+            with store._conn() as con:
+                con.execute('UPDATE episodes SET missing=1 WHERE path=?', (paths[1],))
+            self.assertEqual(store.previous_episode(paths[2])['path'], paths[0])
+            self.assertIsNone(store.previous_episode(paths[0]))
+
     def test_completed_episode_continues_with_next_available(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d); anime, paths = self._episodes(store)
@@ -373,4 +383,191 @@ class LibraryBrowseTests(unittest.TestCase):
             view = HomeView.build(FakePage(), LibraryService(LibraryStore(d)), lambda _: None, lambda: None, lambda *args, **kwargs: None)
         self.assertEqual(view.content.controls[0].__class__.__name__, 'Row')
 
-if __name__ == '__main__': unittest.main()
+
+class DetailsDomainTests(unittest.TestCase):
+    def _store_with_episodes(self, directory):
+        store = LibraryStore(directory)
+        anime = store.upsert_anime('details', {'title': 'Details', 'genres': '[]'})
+        paths = []
+        for season, number in ((1, 1), (1, 2), (2, 1)):
+            path = f'/library/details-{season}-{number}.mkv'
+            store.upsert_episode(anime, path, Path(path).name, season, number, source_folder='/library')
+            paths.append(path)
+        return store, anime, paths
+
+    def test_playback_target_starts_first_available_and_returns_none_without_episodes(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            empty = store.upsert_anime('empty', {'title': 'Empty', 'genres': '[]'})
+            self.assertIsNone(store.playback_target(empty))
+            store, anime, paths = self._store_with_episodes(d)
+            self.assertEqual(store.playback_target(anime)['path'], paths[0])
+
+    def test_playback_target_prefers_partial_then_next_available_after_completion(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, anime, paths = self._store_with_episodes(d)
+            store.save_progress(paths[1], 20, 100)
+            self.assertEqual(store.playback_target(anime)['path'], paths[1])
+            store.save_progress(paths[1], 95, 100)
+            self.assertEqual(store.playback_target(anime)['path'], paths[2])
+            with store._conn() as con:
+                con.execute('UPDATE episodes SET missing=1 WHERE path=?', (paths[2],))
+            self.assertEqual(store.playback_target(anime)['path'], paths[0])
+
+    def test_catalog_details_fields_keep_local_and_anilist_counts_distinct(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('metadata', {
+                'title': 'Metadata', 'genres': '["Drama"]', 'episodes_count': 12,
+                'year': 2024, 'score': 84, 'status': 'RELEASING',
+            })
+            store.upsert_episode(anime, '/library/metadata-1.mkv', 'Metadata - 01.mkv', 1, 1)
+            catalog = store.catalog()[0]
+            self.assertEqual(catalog['meta']['episodes_count'], 12)
+            self.assertEqual(len(catalog['seasons'][0]['episodes']), 1)
+            self.assertEqual(catalog['seasons'][0]['episodes'][0]['number'], 1)
+            self.assertEqual(catalog['seasons'][0]['season'], 1)
+
+
+class DetailsViewTests(unittest.TestCase):
+    class FakePage:
+        def __init__(self):
+            self.updates = 0
+            self.snack_bar = None
+        def update(self):
+            self.updates += 1
+
+    def _build(self, anime, target=None):
+        from views.details_view import DetailView
+        played = []
+        page = self.FakePage()
+        view = DetailView.build(
+            page, anime,
+            lambda path, title, **kwargs: played.append((path, title, kwargs)),
+            lambda: None, lambda _: True, lambda _: target,
+        )
+        return page, view, played
+
+    def test_builds_for_anime_without_metadata_or_episodes(self):
+        _, view, _ = self._build({'id': 1, 'main_title': 'Arquivo local', 'meta': {}, 'seasons': []})
+        self.assertEqual(view.content.controls[0].__class__.__name__, 'Row')
+        self.assertIn('Nenhum episódio', view.content.controls[-1].controls[0].content.value)
+
+    def test_builds_complete_metadata_and_uses_local_episode_uri(self):
+        episode = {'path': 'content://document/episode-1', 'title': 'Anime - 01.mkv', 'season': 1,
+                   'number': 1, 'progress': 30, 'duration': 100, 'watched': False, 'missing': False}
+        anime = {
+            'id': 2, 'main_title': 'Anime', 'favorite': False, 'genres': ['Ação'],
+            'meta': {'title': 'Anime', 'english': 'Anime English', 'year': 2024, 'status': 'RELEASING',
+                     'episodes_count': 12, 'score': 84, 'description': 'Descrição local em cache.'},
+            'current_episode': episode, 'seasons': [{'season_name': 'Temporada 1', 'season': 1, 'episodes': [episode]}],
+        }
+        _, view, played = self._build(anime, episode)
+        def walk(control):
+            yield control
+            for child in getattr(control, 'controls', []) or []:
+                yield from walk(child)
+            content = getattr(control, 'content', None)
+            if content is not None:
+                yield from walk(content)
+
+        primary = next(item for item in walk(view) if item.__class__.__name__ == 'FilledButton')
+        primary.on_click(None)
+        self.assertEqual(played[0][0], 'content://document/episode-1')
+        self.assertEqual(played[0][2]['progress_seconds'], 30)
+        self.assertEqual(anime['meta']['episodes_count'], 12)
+        self.assertEqual(len(anime['seasons'][0]['episodes']), 1)
+
+    def test_missing_episode_is_not_clickable(self):
+        missing = {'path': '/library/missing.mkv', 'title': 'Missing', 'season': 1, 'number': 1,
+                   'progress': 20, 'duration': 100, 'watched': False, 'missing': True}
+        anime = {'id': 3, 'main_title': 'Missing', 'meta': {}, 'seasons': [{'season_name': 'Temporada 1', 'episodes': [missing]}]}
+        _, view, _ = self._build(anime)
+        self.assertIsNone(view.content.controls[-1].controls[0].on_click)
+
+
+class OrganizeTests(unittest.TestCase):
+    class FakePage:
+        def update(self): pass
+        def run_thread(self, work): work()
+
+    def _catalog(self, directory):
+        store = LibraryStore(directory)
+        action = store.upsert_anime('action', {'title': 'Action', 'genres': '["Ação", "Fantasia"]'})
+        comedy = store.upsert_anime('comedy', {'title': 'Comedy', 'genres': '["Comédia", "Fantasia"]'})
+        plain = store.upsert_anime('plain', {'title': 'Plain', 'genres': '[]'})
+        paths = []
+        for anime, name in ((action, 'action'), (comedy, 'comedy'), (plain, 'plain')):
+            path = f'/library/{name}.mkv'
+            store.upsert_episode(anime, path, f'{name} - 01.mkv', 1, 1)
+            paths.append(path)
+        return store, action, comedy, plain, paths
+
+    def test_organize_summary_empty_and_uses_only_real_genres(self):
+        self.assertEqual(LibraryService.organize_summary([]), {
+            'genres': [],
+            'states': [{'name': 'Todos', 'count': 0}, {'name': 'Favoritos', 'count': 0},
+                       {'name': 'Em andamento', 'count': 0}, {'name': 'Concluídos', 'count': 0}],
+        })
+        with tempfile.TemporaryDirectory() as d:
+            store, *_ = self._catalog(d)
+            genres = LibraryService.organize_summary(store.catalog())['genres']
+            self.assertEqual([(item['name'], item['count']) for item in genres],
+                             [('Ação', 1), ('Comédia', 1), ('Fantasia', 2)])
+            self.assertNotIn('Drama', [item['name'] for item in genres])
+
+    def test_organize_filters_reuse_favorites_progress_and_missing_rules(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, action, comedy, plain, paths = self._catalog(d)
+            store.toggle_favorite(action)
+            store.save_progress(paths[0], 20, 100)
+            store.save_progress(paths[1], 95, 100)
+            with store._conn() as con:
+                con.execute('UPDATE episodes SET missing=1 WHERE path=?', (paths[2],))
+            catalog = store.catalog()
+            service = LibraryService(store)
+            self.assertEqual({a['id'] for a in service.browse_catalog(catalog, genre='Fantasia')}, {action, comedy})
+            self.assertEqual([a['id'] for a in service.browse_catalog(catalog, state='Favoritos', genre='Ação')], [action])
+            self.assertEqual([a['id'] for a in service.browse_catalog(catalog, state='Em andamento', genre='Ação')], [action])
+            self.assertEqual([a['id'] for a in service.browse_catalog(catalog, state='Concluídos', genre='Comédia')], [comedy])
+            self.assertEqual(service.browse_catalog(catalog, genre='Drama'), [])
+            self.assertEqual(service.continue_watching()[0]['anime_id'], action)
+
+    def test_organize_summary_persists_and_matches_home_catalog_rules(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, action, *_ = self._catalog(d)
+            store.toggle_favorite(action)
+            reopened = LibraryStore(d)
+            catalog = reopened.catalog()
+            summary = LibraryService.organize_summary(catalog)
+            self.assertEqual(summary['states'][1]['count'], len(LibraryService.browse_catalog(catalog, state='Favoritos')))
+            self.assertEqual(summary['states'][0]['count'], len(catalog))
+            self.assertEqual([item['name'] for item in summary['genres']], ['Ação', 'Comédia', 'Fantasia'])
+
+    def test_organize_view_builds_empty_catalog_and_navigates_selected_anime(self):
+        with tempfile.TemporaryDirectory() as d:
+            empty = OrganizeView.build(self.FakePage(), LibraryService(LibraryStore(d)), lambda _: None, lambda: None, lambda: None)
+            self.assertEqual(empty.content.controls[0].__class__.__name__, 'Row')
+        with tempfile.TemporaryDirectory() as d:
+            store, action, *_ = self._catalog(d)
+            selected = []
+            view = OrganizeView.build(self.FakePage(), LibraryService(store), selected.append, lambda: None, lambda: None)
+
+            def walk(control):
+                yield control
+                for child in getattr(control, 'controls', []) or []:
+                    yield from walk(child)
+                content = getattr(control, 'content', None)
+                if content is not None:
+                    yield from walk(content)
+
+            genre = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
+                         item.on_click and item.content.__class__.__name__ == 'Stack')
+            genre.on_click(None)
+            grid = next(item for item in walk(view) if item.__class__.__name__ == 'GridView')
+            grid.controls[0].on_click(None)
+            self.assertEqual(selected[0]['id'], action)
+
+
+if __name__ == '__main__':
+    unittest.main()

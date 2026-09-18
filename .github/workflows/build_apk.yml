@@ -32,8 +32,11 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools build-tools;35.0.0 platforms;android-35'
+          packages: 'platform-tools build-tools;35.0.0 platforms;android-35 cmdline-tools;latest'
 
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Install Android platform
         run: sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
@@ -61,7 +64,7 @@ jobs:
           git diff --check
 
       - name: Build APK
-        run: flet build apk --yes
+        run: flet build apk --template . --yes -v
 
       - name: Locate and verify APK host integration
         id: apk
@@ -81,3 +84,4 @@ jobs:
           name: reiflix-local-apk
           path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
+

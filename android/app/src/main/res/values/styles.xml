@@ -5,6 +5,10 @@
     <item name="android:windowActionModeOverlay">true</item>
     <item name="android:windowNoTitle">true</item>
     <item name="android:windowFullscreen">false</item>
+    <item name="android:statusBarColor">#16151F</item>
+    <item name="android:navigationBarColor">#16151F</item>
+    <item name="android:windowLightStatusBar">false</item>
+    <item name="android:windowLightNavigationBar">false</item>
   </style>
 
   <!-- The native Media3 activity owns the only immersive/fullscreen state. -->

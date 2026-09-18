@@ -138,7 +138,7 @@ class SettingsView:
                 # The Android/OAuth callback owns the final connected/error state.
                 busy["login"] = False; account_button.disabled = False; page.update()
         account_button.on_click = login
-        account_button.disabled = account_state == "connecting"
+        account_button.disabled = account_state in {"connecting", "awaiting_google"}
         logout_button = ft.OutlinedButton("Sair da conta", icon=ft.Icons.LOGOUT)
         def do_logout():
             if busy["logout"]:
@@ -152,13 +152,16 @@ class SettingsView:
         def ask_logout(_):
             confirm("Sair da conta Google?", "A sessão local será removida. Biblioteca, favoritos, progresso e histórico não serão alterados.", "Sair", do_logout)
         logout_button.on_click = ask_logout
-        state_labels = {"connecting": "Conectando…", "connected": "Conectada", "error": "Erro ao conectar", "disconnecting": "Saindo…", "configuration_required": "Configuração necessária"}
+        state_labels = {"connecting": "Conectando…", "awaiting_google": "Aguardando Google…", "connected": "Conectada", "error": "Erro ao conectar", "disconnecting": "Saindo…", "configuration_required": "Configuração necessária"}
         account_status = state_labels.get(account_state, "Conectada" if connected else "Não conectada")
 
         last = store.last_scan()
         diagnostic = "Ainda não houve varredura."
         if last:
-            errors = json.loads(last["errors"] or "[]")
+            try:
+                errors = json.loads(last["errors"] or "[]")
+            except (TypeError, json.JSONDecodeError):
+                errors = ["diagnóstico inválido"]
             diagnostic = f"Última varredura: {last['videos']} vídeos, {last['animes']} animes, {last['episodes']} episódios."
             if errors:
                 diagnostic += " Há itens que precisam de atenção."

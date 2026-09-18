@@ -27,7 +27,10 @@ class NativePlayerActivity : ComponentActivity() {
     private lateinit var uri: Uri
     private val handler = Handler(Looper.getMainLooper())
     private var lastSavedPosition = -1L
-    private var terminalEventSent = false
+    // Episode replacement suppresses a normal exit only because Python opens
+    // the next native activity from the mailbox request. Completion and errors
+    // must still publish an exit when the user closes this activity.
+    private var suppressExitEvent = false
     private var initialSeekApplied = false
     private val title get() = intent.getStringExtra("title") ?: "Episódio"
     private val progressReporter = object : Runnable {
@@ -72,7 +75,6 @@ class NativePlayerActivity : ComponentActivity() {
                     handler.postDelayed(progressReporter, PROGRESS_INTERVAL_MS)
                 } else if (state == Player.STATE_ENDED) {
                     saveProgress("player_completed", force = true)
-                    terminalEventSent = true
                 }
             }
             override fun onPlayerError(error: PlaybackException) {
@@ -106,7 +108,7 @@ class NativePlayerActivity : ComponentActivity() {
         saveProgress("player_progress", force = true)
         // The incoming replacement player owns the next screen state; avoid
         // emitting a misleading normal-exit event while changing episodes.
-        terminalEventSent = true
+        suppressExitEvent = true
         NativeMailbox.write(this, JSONObject().put("type", eventType).put("payload", JSONObject().put("uri", uri.toString())))
         finish()
     }
@@ -122,7 +124,7 @@ class NativePlayerActivity : ComponentActivity() {
     override fun onDestroy() {
         handler.removeCallbacks(progressReporter)
         if (::player.isInitialized) {
-            if (!terminalEventSent) saveProgress("player_exited", force = true)
+            if (!suppressExitEvent) saveProgress("player_exited", force = true)
             player.release()
         }
         super.onDestroy()

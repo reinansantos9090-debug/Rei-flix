@@ -9,10 +9,16 @@ class OrganizeView:
     """Organize one loaded SQLite catalog without scanning or contacting AniList."""
 
     @staticmethod
-    def build(page: ft.Page, library, on_select_anime, on_back, on_open_settings):
+    def build(page: ft.Page, library, on_select_anime, on_back, on_open_settings, view_state=None):
         catalog = []
-        selected_genre, selected_state, selected_sort = ["Todos"], ["Todos"], ["Mais recentes"]
-        mode = ["overview"]
+        view_state = view_state if view_state is not None else {}
+        selected_genre = [view_state.get("genre", "Todos")]
+        selected_state = [view_state.get("state", "Todos")]
+        selected_sort = [view_state.get("sort", "Mais recentes")]
+        mode = [view_state.get("mode", "overview")]
+
+        def save_view_state():
+            view_state.update(genre=selected_genre[0], state=selected_state[0], sort=selected_sort[0], mode=mode[0])
 
         content = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=14)
         status = ft.Row([ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT), ft.Text("Carregando sua biblioteca local…", color=TEXT_MUTED, size=12)], spacing=8)
@@ -101,10 +107,12 @@ class OrganizeView:
 
         def open_collection(genre, state):
             selected_genre[0], selected_state[0], mode[0] = genre, state, "collection"
+            save_view_state()
             render()
 
         def back_to_overview():
             mode[0] = "overview"
+            save_view_state()
             render()
 
         def filter_chip(label):
@@ -147,6 +155,7 @@ class OrganizeView:
                                         ("Mais recentes", "Assistidos recentemente", "Nome A-Z", "Nome Z-A")])
             def change_sort(event):
                 selected_sort[0] = event.control.value or "Mais recentes"
+                save_view_state()
                 render()
             sort.on_select = change_sort
             content.controls.append(sort)

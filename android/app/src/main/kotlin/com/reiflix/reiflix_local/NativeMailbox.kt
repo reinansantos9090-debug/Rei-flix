@@ -14,12 +14,20 @@ object NativeMailbox {
 
     @Synchronized
     fun write(context: Context, event: JSONObject) {
-        val target = File(context.filesDir, FILE)
+        // Flet exports FLET_APP_STORAGE_DATA as the "data" child of its
+        // application-support directory. On Android that support directory is
+        // filesDir, so writing at filesDir itself made native events invisible
+        // to the embedded Python process (which polls filesDir/data).
+        val dataDirectory = File(context.filesDir, "data")
+        check(dataDirectory.isDirectory || dataDirectory.mkdirs()) {
+            "Could not create Flet application data directory"
+        }
+        val target = File(dataDirectory, FILE)
         // Python drains by renaming the queue. If it wins that race, start a
         // fresh queue rather than treating an in-flight consumed file as an error.
         val list = try { JSONArray(target.readText()) } catch (_: Exception) { JSONArray() }
         list.put(event.put("createdAt", System.currentTimeMillis()))
-        val temporary = File(context.filesDir, "$FILE.tmp")
+        val temporary = File(dataDirectory, "$FILE.tmp")
         try {
             FileOutputStream(temporary).use { stream ->
                 stream.write(list.toString().toByteArray(Charsets.UTF_8))

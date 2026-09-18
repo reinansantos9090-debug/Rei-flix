@@ -253,6 +253,21 @@ class SettingsPersistenceTests(unittest.TestCase):
 
 
 class AndroidBridgeTests(unittest.TestCase):
+    def test_native_saf_actions_use_only_encoded_content_uris(self):
+        class Page:
+            platform = 'android'
+            def __init__(self): self.urls = []
+            def launch_url(self, value): self.urls.append(value)
+
+        with tempfile.TemporaryDirectory() as d:
+            page = Page(); bridge = AndroidBridge(d, page)
+            tree = 'content://com.android.providers.media.documents/tree/video%3AAnime'
+            bridge.select_tree(); bridge.verify_tree(tree); bridge.rescan_tree(tree)
+            self.assertEqual(page.urls[0], 'reiflix://native?action=select_tree')
+            self.assertIn('action=verify_tree', page.urls[1])
+            self.assertIn('tree_uri=content%3A%2F%2F', page.urls[1])
+            self.assertIn('action=scan_tree', page.urls[2])
+
     def test_mailbox_ignores_unknown_and_corrupted_entries_and_cleans_consumed_file(self):
         with tempfile.TemporaryDirectory() as d:
             bridge = AndroidBridge(d)
@@ -302,6 +317,31 @@ class AndroidBridgeTests(unittest.TestCase):
             episode = store.catalog()[0]['seasons'][0]['episodes'][0]
             self.assertFalse(episode['missing'])
             self.assertIn('Sem acesso', store.folders()[0]['last_error'])
+
+    def test_saf_empty_scan_records_zero_videos_without_breaking_library(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d); service = LibraryService(store)
+            catalog = service.ingest_documents(
+                'content://tree/empty', [], folder_name='Vazia',
+                scan_stats={'files': 0, 'videos': 0, 'directories': 2},
+            )
+            self.assertEqual(catalog, [])
+            self.assertEqual(store.folders()[0]['name'], 'Vazia')
+            self.assertEqual(store.last_scan()['videos'], 0)
+            self.assertEqual(store.last_scan()['files'], 0)
+
+    def test_saf_duplicate_uri_preserves_progress_and_records_native_counts(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d); service = LibraryService(store)
+            document = {'uri': 'content://document/naruto-1', 'name': 'Naruto S01E01.mkv'}
+            with patch.object(service.anilist, 'search', return_value=[]):
+                service.ingest_documents('content://tree/anime', [document], scan_stats={'files': 3, 'videos': 1})
+                store.save_progress(document['uri'], 30, 60)
+                service.ingest_documents('content://tree/anime', [document], scan_stats={'files': 3, 'videos': 1})
+            with store._conn() as con:
+                count, progress, duration = con.execute('SELECT COUNT(*), progress, duration FROM episodes').fetchone()
+            self.assertEqual((count, progress, duration), (1, 30, 60))
+            self.assertEqual((store.last_scan()['files'], store.last_scan()['videos']), (3, 1))
 
 
 class IdentificationTests(unittest.TestCase):

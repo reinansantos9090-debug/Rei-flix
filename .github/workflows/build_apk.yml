@@ -1,4 +1,4 @@
-name: Build ReiFlix Android APK
+Name: Build ReiFlix Android APK
 
 on:
   push:

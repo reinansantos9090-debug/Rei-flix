@@ -17,7 +17,6 @@ class MetadataManager:
               extraLarge
             }
             description
-            bannerImage
           }
         }
         '''
@@ -42,9 +41,10 @@ class MetadataManager:
                 if media:
                     return {
                         'cover': media.get('coverImage', {}).get('extraLarge', ''),
-                        'banner': media.get('bannerImage', ''),
                         'description': media.get('description', 'Sem sinopse disponível.'),
-                        'title_official': media.get('title', {}).get('english') or media.get('title', {}).get('romaji') or folder_name
+                        # O nome da pasta continua sendo a fonte de verdade. A rede é
+                        # usada somente para complementar a capa e a sinopse.
+                        'title_official': folder_name
                     }
         except Exception:
             pass
@@ -52,8 +52,6 @@ class MetadataManager:
         # Retorno padronizado caso esteja sem internet ou não encontre o anime
         return {
             'cover': '',
-            'banner': '',
             'description': 'Anime armazenado localmente.',
             'title_official': folder_name
         }
-

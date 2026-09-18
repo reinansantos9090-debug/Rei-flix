@@ -9,6 +9,7 @@ class DetailView:
         cover = anime_group.get('meta', {}).get('cover', '')
         desc = anime_group.get('meta', {}).get('description', 'Sem descrição.')
         clean_desc = re.sub('<[^<]+?>', '', desc)
+        genres = anime_group.get('genres', ['Minha biblioteca'])
 
         seasons = anime_group.get('seasons', [])
         current_season_idx = [0]
@@ -73,7 +74,7 @@ class DetailView:
                         content=item_content,
                         padding=10,
                         border_radius=8,
-                        bgcolor=ft.Colors.GREY_900,
+                        bgcolor="#252836",
                         on_click=lambda _, i=idx: play_with_next_context(episodes_list, i)
                     )
                 )
@@ -98,21 +99,31 @@ class DetailView:
 
         poster = ft.Image(src=cover, width=130, height=190, fit=ft.ImageFit.COVER, border_radius=8) if cover else ft.Container(width=130, height=190, bgcolor=ft.Colors.GREY_800, border_radius=8)
 
+        genre_chips = ft.Row([ft.Container(ft.Text(genre, size=11, color="#FFFFFF"), bgcolor="#39364B", border_radius=14,
+                                            padding=ft.padding.symmetric(horizontal=11, vertical=5)) for genre in genres], wrap=True)
+
+        play_first = ft.FilledButton(
+            "Assistir", icon=ft.Icons.PLAY_ARROW,
+            on_click=lambda _: play_with_next_context(seasons[0].get('episodes', []), 0) if seasons and seasons[0].get('episodes') else None,
+            style=ft.ButtonStyle(bgcolor="#E50914", color="#FFFFFF", shape=ft.RoundedRectangleBorder(radius=10)))
+
         layout = ft.Column([
             header,
             ft.Row([poster, ft.Column([
-                ft.Text(main_title, size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_ACCENT),
-                ft.Text(f"{len(seasons)} Temporada(s)", size=12, color=ft.Colors.GREEN_ACCENT)
+                ft.Text(main_title, size=20, weight=ft.FontWeight.BOLD, color="#F5F5F7", max_lines=3),
+                ft.Text(f"{len(seasons)} temporada(s) • Arquivos locais", size=12, color="#9DA3B4"),
+                genre_chips,
+                play_first
             ], expand=True)], spacing=15),
             ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
-            ft.Text("Sinopse", size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_ACCENT),
-            ft.Text(clean_desc, size=12, color=ft.Colors.GREY_300, max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
+            ft.Text("Sinopse", size=16, weight=ft.FontWeight.BOLD, color="#F5F5F7"),
+            ft.Text(clean_desc, size=13, color="#C7C5D0", max_lines=5, overflow=ft.TextOverflow.ELLIPSIS),
             ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
+            ft.Text("EPISÓDIOS", size=12, weight=ft.FontWeight.BOLD, color="#9DA3B4"),
             season_dropdown,
             ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
             episodes_column
         ], scroll=ft.ScrollMode.AUTO, expand=True)
 
         update_episodes_list()
-        return ft.Container(content=layout, padding=15)
-
+        return ft.Container(content=layout, padding=16, bgcolor="#16151F")

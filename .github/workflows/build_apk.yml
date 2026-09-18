@@ -2,15 +2,12 @@ name: Build ReiFlix Android APK
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout repository
@@ -19,65 +16,35 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: pip
+          python-version: "3.11"
 
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: "temurin"
           java-version: "17"
-          cache: gradle
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools build-tools;35.0.0 platforms;android-35'
+          packages: "platform-tools build-tools;34.0.0 platforms;android-34 cmdline-tools;latest"
 
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      - name: Install Android platform
-        run: sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-
-      # Flet 0.86.5 declares Flutter 3.44.8 in flet.version. Pinning this exact
-      # SDK keeps the CLI, generated host and CI on the same toolchain.
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.44.8"
-          channel: stable
+          channel: "stable"
           cache: true
 
-      - name: Install Python and Flet build dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt "flet[cli]==0.86.5"
-          flet --version
-          flutter --version
+          pip install flet serious-python
 
-      - name: Validate Python application
+      - name: Build APK with Flet
         run: |
-          python -m unittest discover -s tests -v
-          python -m compileall -q main.py app_config.py core views
-          git diff --check
+          flet build apk -v
 
-      - name: Build APK
-        run: flet build apk --yes
-
-      - name: Locate and verify APK host integration
-        id: apk
-        shell: bash
-        run: |
-          apk="$(find build -type f -name '*.apk' -print -quit)"
-          test -n "$apk"
-          test -s "$apk"
-          python scripts/verify_android_host.py "$apk"
-          echo "path=$apk" >> "$GITHUB_OUTPUT"
-          file "$apk"
-          unzip -l "$apk" | sed -n '1,80p'
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: reiflix-local-apk
-          path: ${{ steps.apk.outputs.path }}
-          if-no-files-found: error

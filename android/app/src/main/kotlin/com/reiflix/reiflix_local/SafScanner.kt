@@ -43,9 +43,11 @@ object SafScanner {
                     }
                 }
             }
-        } catch (exception: SecurityException) {
-            stats.getJSONArray("errors").put("Sem acesso a ${directory.uri}: ${exception.message}")
-            Log.w(TAG, "Permission revoked for ${directory.uri}", exception)
+        } catch (exception: Exception) {
+            // A failed subtree makes this a partial scan. Python preserves the
+            // previous rows instead of marking unseen documents as missing.
+            stats.getJSONArray("errors").put("Não foi possível ler uma subpasta: ${exception.message}")
+            Log.w(TAG, "Could not read SAF directory", exception)
         }
     }
 }

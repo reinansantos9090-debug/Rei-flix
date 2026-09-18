@@ -26,7 +26,8 @@ class MainActivity : FlutterActivity() {
             NativeMailbox.write(this, JSONObject().put("type", "saf_scan").put("payload", payload))
         } catch (exception: Exception) {
             Log.e(tag, "SAF selection failed", exception)
-            NativeMailbox.write(this, JSONObject().put("type", "saf_error").put("message", exception.message ?: "Não foi possível acessar a pasta."))
+            NativeMailbox.write(this, JSONObject().put("type", "saf_error").put("message", exception.message ?: "Não foi possível acessar a pasta.")
+                .put("payload", JSONObject().put("treeUri", uri.toString())))
         }
     }
 
@@ -44,7 +45,8 @@ class MainActivity : FlutterActivity() {
     private fun scanTree(reference: String?) {
         if (reference.isNullOrBlank()) return
         try { NativeMailbox.write(this, JSONObject().put("type", "saf_scan").put("payload", SafScanner.scan(this, Uri.parse(reference)))) }
-        catch (exception: Exception) { NativeMailbox.write(this, JSONObject().put("type", "saf_error").put("message", exception.message ?: "Não foi possível atualizar a pasta.")) }
+        catch (exception: Exception) { NativeMailbox.write(this, JSONObject().put("type", "saf_error").put("message", exception.message ?: "Não foi possível atualizar a pasta.")
+            .put("payload", JSONObject().put("treeUri", reference))) }
     }
     private fun openPlayer(data: Uri?) {
         val episodeUri = data?.getQueryParameter("uri") ?: return

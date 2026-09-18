@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import flet as ft
+from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title
 
 
 class OrganizeView:
@@ -14,15 +15,10 @@ class OrganizeView:
         mode = ["overview"]
 
         content = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=14)
-        status = ft.Text("Carregando sua biblioteca local…", color="#AAA7B6", size=12)
+        status = ft.Row([ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT), ft.Text("Carregando sua biblioteca local…", color=TEXT_MUTED, size=12)], spacing=8)
 
         def artwork(source, height, icon_size=28):
-            fallback = ft.Container(
-                height=height, bgcolor="#292737", border_radius=14, alignment=ft.Alignment(0, 0),
-                content=ft.Icon(ft.Icons.MOVIE_OUTLINED, color="#AAA7B6", size=icon_size),
-            )
-            return ft.Image(src=source, height=height, fit=ft.ImageFit.COVER, border_radius=14,
-                            error_content=fallback) if source else fallback
+            return media_artwork(source, height, icon_size=icon_size)
 
         def episodes(anime):
             return [episode for season in anime.get("seasons", []) for episode in season.get("episodes", [])]
@@ -72,13 +68,13 @@ class OrganizeView:
             icons = {"Todos": ft.Icons.GRID_VIEW, "Favoritos": ft.Icons.STAR,
                      "Em andamento": ft.Icons.PLAY_CIRCLE_OUTLINE, "Concluídos": ft.Icons.CHECK_CIRCLE_OUTLINE}
             return ft.Container(
-                width=155, padding=12, bgcolor="#252331", border_radius=14, ink=True,
+                width=155, padding=12, bgcolor=SURFACE, border_radius=RADIUS, ink=True,
                 on_click=lambda _, value=label: open_collection("Todos", value),
                 content=ft.Column([
-                    ft.Icon(icons[label], color="#E50914", size=23),
-                    ft.Text(label, color="#F7F5FA", size=12, weight=ft.FontWeight.BOLD, max_lines=1,
+                    ft.Icon(icons[label], color=ACCENT, size=23),
+                    ft.Text(label, color=TEXT, size=12, weight=ft.FontWeight.BOLD, max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS),
-                    ft.Text(f"{count} anime{'s' if count != 1 else ''}", color="#AAA7B6", size=10),
+                    ft.Text(f"{count} anime{'s' if count != 1 else ''}", color=TEXT_MUTED, size=10),
                 ], spacing=5),
             )
 
@@ -86,7 +82,7 @@ class OrganizeView:
             label, count, cover = item["name"], item["count"], item.get("cover")
             visual = artwork(cover, 104, 30)
             return ft.Container(
-                width=170, height=142, border_radius=14, clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                width=170, height=142, border_radius=RADIUS, clip_behavior=ft.ClipBehavior.HARD_EDGE,
                 bgcolor="#292737", ink=True, on_click=lambda _, value=label: open_collection(value, "Todos"),
                 content=ft.Stack([
                     ft.Container(visual, height=142, opacity=.55),
@@ -101,13 +97,7 @@ class OrganizeView:
             )
 
         def empty_catalog():
-            return ft.Column([
-                ft.Icon(ft.Icons.VIDEO_LIBRARY_OUTLINED, color="#AAA7B6", size=46),
-                ft.Text("Seu catálogo está vazio", color="#F7F5FA", size=17, weight=ft.FontWeight.BOLD),
-                ft.Text("Adicione uma pasta com animes nas configurações para começar.", color="#AAA7B6", size=12,
-                        text_align=ft.TextAlign.CENTER),
-                ft.FilledButton("Abrir configurações", icon=ft.Icons.SETTINGS, on_click=lambda _: on_open_settings()),
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8)
+            return empty_state(ft.Icons.VIDEO_LIBRARY_OUTLINED, "Seu catálogo está vazio", "Adicione uma pasta com animes nas configurações para começar.", ft.FilledButton("Abrir configurações", icon=ft.Icons.SETTINGS, on_click=lambda _: on_open_settings()))
 
         def open_collection(genre, state):
             selected_genre[0], selected_state[0], mode[0] = genre, state, "collection"
@@ -121,10 +111,7 @@ class OrganizeView:
             active = label == selected_state[0]
             return ft.OutlinedButton(
                 label, on_click=lambda _, value=label: open_collection(selected_genre[0], value),
-                style=ft.ButtonStyle(color="#FFFFFF", bgcolor="#E50914" if active else "#252836",
-                                     side=ft.BorderSide(0, "#00000000"),
-                                     shape=ft.RoundedRectangleBorder(radius=18),
-                                     padding=ft.Padding(left=13, right=13, top=2, bottom=2)),
+                style=chip_style(active),
             )
 
         def render_overview():
@@ -134,13 +121,13 @@ class OrganizeView:
                 content.controls.append(empty_catalog())
                 return
             content.controls.extend([
-                ft.Text("CATEGORIAS", size=12, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
+                section_title("Categorias", ft.Icons.DASHBOARD_OUTLINED),
                 ft.Row([state_button(item["name"], item["count"]) for item in summary["states"]],
                        scroll=ft.ScrollMode.AUTO, spacing=10),
             ])
             if summary["genres"]:
                 content.controls.extend([
-                    ft.Text("GÊNEROS", size=12, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
+                    section_title("Gêneros", ft.Icons.LOCAL_OFFER_OUTLINED),
                     ft.Row([genre_card(item) for item in summary["genres"]], wrap=True, spacing=12, run_spacing=12),
                 ])
             else:
@@ -170,10 +157,7 @@ class OrganizeView:
                                                     padding=ft.Padding.only(bottom=24)))
             else:
                 content.controls.append(ft.Container(
-                    content=ft.Column([
-                        ft.Icon(ft.Icons.FILTER_LIST_OFF, color="#AAA7B6", size=38),
-                        ft.Text("Nenhum anime nesta categoria.", color="#AAA7B6", size=13),
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6), alignment=ft.Alignment(0, 0), height=170,
+                content=empty_state(ft.Icons.FILTER_LIST_OFF, "Nenhum anime nesta categoria", "Altere o filtro ou volte para explorar a biblioteca."), alignment=ft.Alignment(0, 0), height=190,
                 ))
 
         def render():
@@ -188,10 +172,10 @@ class OrganizeView:
             nonlocal catalog
             try:
                 catalog = library.catalog()
-                status.value = ""
+                status.visible = False
             except Exception as exc:
-                status.value = f"Não foi possível carregar a biblioteca: {exc}"
+                status.controls = [ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FFB4AB", size=18), ft.Text("Não foi possível carregar sua biblioteca local.", color="#FFB4AB", size=12)]
             render()
 
         page.run_thread(load_catalog)
-        return ft.Container(content=content, padding=ft.Padding(left=16, right=16, top=18, bottom=8), bgcolor="#16151F")
+        return ft.Container(content=content, padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=18, bottom=8), bgcolor=BACKGROUND)

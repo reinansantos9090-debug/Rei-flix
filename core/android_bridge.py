@@ -39,12 +39,19 @@ class AndroidBridge:
 
     def drain(self) -> list[dict]:
         """Atomically consume events. Native events contain no tokens/secrets."""
+        consumed = self.mailbox.with_suffix(".consumed")
         try:
             if not self.mailbox.exists(): return []
-            consumed = self.mailbox.with_suffix(".consumed")
             self.mailbox.replace(consumed)
-            events = json.loads(consumed.read_text(encoding="utf-8")); consumed.unlink(missing_ok=True)
-            return events if isinstance(events, list) else []
+            events = json.loads(consumed.read_text(encoding="utf-8"))
+            # Ignore malformed/unknown payload shapes; the event loop must not
+            # be able to crash because a native queue contains one bad entry.
+            return [event for event in events if isinstance(event, dict)] if isinstance(events, list) else []
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("[ANDROID] Failed to read native bridge events: %s", exc)
             return []
+        finally:
+            try:
+                consumed.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("[ANDROID] Failed to remove consumed mailbox: %s", exc)

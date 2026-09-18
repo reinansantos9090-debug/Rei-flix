@@ -9,6 +9,7 @@ import html
 import re
 
 import flet as ft
+from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, media_artwork, section_title
 
 
 class DetailView:
@@ -34,27 +35,17 @@ class DetailView:
             return min(float(episode.get("progress") or 0) / duration, 1.0) if duration > 0 else None
 
         def placeholder(height=198):
-            return ft.Container(
-                width=132, height=height, border_radius=14, bgcolor="#292737",
-                alignment=ft.Alignment(0, 0),
-                content=ft.Column([
-                    ft.Icon(ft.Icons.MOVIE_OUTLINED, color="#AAA7B6", size=38),
-                    ft.Text("Sem capa", color="#AAA7B6", size=11),
-                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
-            )
+            return media_artwork(None, height, width=132, icon_size=38)
 
         cover = metadata.get("cover_cache") or metadata.get("cover_url")
-        poster = ft.Image(
-            src=cover, width=132, height=198, fit=ft.ImageFit.COVER, border_radius=14,
-            error_content=placeholder(),
-        ) if cover else placeholder()
+        poster = media_artwork(cover, 198, width=132, icon_size=38)
 
         def meta_chip(label, icon=None):
             return ft.Container(
                 content=ft.Row(([ft.Icon(icon, size=14, color="#D8D4E3")] if icon else []) + [
                     ft.Text(str(label), size=11, color="#D8D4E3")
                 ], tight=True, spacing=4),
-                padding=ft.Padding.symmetric(horizontal=9, vertical=5), bgcolor="#292737", border_radius=14,
+                padding=ft.Padding.symmetric(horizontal=9, vertical=5), bgcolor="#2D2A3B", border_radius=RADIUS,
             )
 
         facts = []
@@ -140,11 +131,11 @@ class DetailView:
             number = episode.get("number")
             number_label = f"EP {int(number):02d}" if isinstance(number, (int, float)) else "EP —"
             if episode.get("missing"):
-                icon, status, color = ft.Icons.ERROR_OUTLINE, "Arquivo indisponível", "#F2B84B"
+                icon, status, color = ft.Icons.ERROR_OUTLINE, "Arquivo indisponível", WARNING
             elif episode.get("watched"):
-                icon, status, color = ft.Icons.CHECK_CIRCLE, "Assistido", "#50B982"
+                icon, status, color = ft.Icons.CHECK_CIRCLE, "Assistido", SUCCESS
             elif episode_ratio is not None and episode_ratio > 0:
-                icon, status, color = ft.Icons.PLAY_CIRCLE_FILL, f"Em andamento • {int(episode_ratio * 100)}%", "#E50914"
+                icon, status, color = ft.Icons.PLAY_CIRCLE_FILL, f"Em andamento • {int(episode_ratio * 100)}%", ACCENT
             else:
                 icon, status, color = ft.Icons.PLAY_CIRCLE_OUTLINE, "Disponível localmente", "#AAA7B6"
             details = ft.Column([
@@ -159,7 +150,7 @@ class DetailView:
             if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing"):
                 details.controls.append(ft.ProgressBar(value=episode_ratio, color="#E50914", bgcolor="#454252", bar_height=4))
             return ft.Container(
-                content=details, padding=12, border_radius=12, bgcolor="#252331",
+                content=details, padding=12, border_radius=RADIUS, bgcolor=SURFACE,
                 opacity=.58 if episode.get("missing") else 1, ink=not episode.get("missing"),
                 on_click=None if episode.get("missing") else lambda _, item=episode: play(item),
             )
@@ -169,7 +160,7 @@ class DetailView:
             if not seasons:
                 episode_column.controls.append(ft.Container(
                     content=ft.Text("Nenhum episódio foi indexado para este anime.", color="#AAA7B6", size=13),
-                    padding=14, bgcolor="#252331", border_radius=12,
+                    padding=14, bgcolor=SURFACE, border_radius=RADIUS,
                 ))
             else:
                 episode_column.controls.extend(episode_item(item) for item in seasons[selected_season[0]].get("episodes", []))
@@ -200,7 +191,7 @@ class DetailView:
                     ft.Text(progress_label, color="#B9B5C4", size=11),
                     ft.ProgressBar(value=current_ratio, color="#E50914", bgcolor="#454252", bar_height=4,
                                    visible=current_ratio is not None and not current.get("watched")),
-                ], spacing=6), padding=12, bgcolor="#252331", border_radius=12),
+                ], spacing=6), padding=12, bgcolor=SURFACE, border_radius=RADIUS),
             ]
 
         additional = []
@@ -213,11 +204,11 @@ class DetailView:
 
         header = ft.Row([
             ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#FFFFFF", tooltip="Voltar", on_click=lambda _: on_back()),
-            ft.Text("Detalhes", size=17, weight=ft.FontWeight.BOLD, color="#F7F5FA", expand=True),
+            ft.Text("Detalhes", size=17, weight=ft.FontWeight.BOLD, color=TEXT, expand=True),
             favorite_button,
         ])
         hero_text = ft.Column([
-            ft.Text(title, size=22, weight=ft.FontWeight.BOLD, color="#F7F5FA", max_lines=4, overflow=ft.TextOverflow.ELLIPSIS),
+            ft.Text(title, size=22, weight=ft.FontWeight.BOLD, color=TEXT, max_lines=4, overflow=ft.TextOverflow.ELLIPSIS),
             ft.Text(alternate_title, size=12, color="#AAA7B6", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, visible=bool(alternate_title)),
             ft.Row(facts, wrap=True, spacing=6, run_spacing=6),
             ft.Row(genre_controls, wrap=True, spacing=6, run_spacing=6, visible=bool(genre_controls)),
@@ -230,17 +221,17 @@ class DetailView:
             ft.Row([poster, hero_text], spacing=14, vertical_alignment=ft.CrossAxisAlignment.START),
         ]
         if description:
-            layout_controls.extend([ft.Text("SINOPSE", size=12, weight=ft.FontWeight.BOLD, color="#AAA7B6"), description_text, expand_button])
+            layout_controls.extend([section_title("Sinopse", ft.Icons.SUBJECT_OUTLINED), description_text, expand_button])
         layout_controls.extend(progress_section)
         layout_controls.extend([
-            ft.Text("EPISÓDIOS", size=12, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
+            section_title("Episódios", ft.Icons.FORMAT_LIST_NUMBERED),
             season_picker,
             episode_column,
         ])
         if additional:
-            layout_controls.extend([ft.Text("INFORMAÇÕES ADICIONAIS", size=12, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
-                                    ft.Container(ft.Column(additional, spacing=9), padding=12, bgcolor="#252331", border_radius=12)])
+            layout_controls.extend([section_title("Informações adicionais", ft.Icons.INFO_OUTLINE),
+                                    ft.Container(ft.Column(additional, spacing=9), padding=12, bgcolor=SURFACE, border_radius=RADIUS)])
 
         layout = ft.Column(layout_controls, scroll=ft.ScrollMode.AUTO, expand=True, spacing=14)
         render_episodes()
-        return ft.Container(content=layout, padding=ft.Padding(left=16, right=16, top=14, bottom=18), bgcolor="#16151F")
+        return ft.Container(content=layout, padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=14, bottom=18), bgcolor=BACKGROUND)

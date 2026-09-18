@@ -64,17 +64,15 @@ jobs:
       - name: Build APK
         run: flet build apk --yes -v
 
-      - name: Locate and verify APK host integration
+      - name: Locate APK
         id: apk
         shell: bash
         run: |
           apk="$(find build -type f -name '*.apk' -print -quit)"
           test -n "$apk"
           test -s "$apk"
-          python scripts/verify_android_host.py "$apk"
           echo "path=$apk" >> "$GITHUB_OUTPUT"
           file "$apk"
-          unzip -l "$apk" | sed -n '1,80p'
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

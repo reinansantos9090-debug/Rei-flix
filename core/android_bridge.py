@@ -19,10 +19,16 @@ class AndroidBridge:
     def __init__(self, data_dir: str, page=None):
         self.data_dir = Path(data_dir); self.page = page
         self.mailbox = self.data_dir / MAILBOX
+        self.consumed = self.mailbox.with_suffix(".consumed")
 
     @property
     def available(self) -> bool:
-        return bool(self.page and getattr(self.page, "platform", None) and str(self.page.platform).lower() == "android")
+        # Flet supplies a PagePlatform enum on Android.  ``str(enum)`` is
+        # ``PagePlatform.ANDROID`` (not ``android``), which previously made the
+        # real APK report the native bridge as unavailable.
+        platform = getattr(self.page, "platform", None) if self.page else None
+        value = getattr(platform, "value", platform)
+        return str(value).lower() == "android"
 
     def _launch(self, action: str, **params):
         if not self.available:
@@ -39,20 +45,27 @@ class AndroidBridge:
                      can_next=str(bool(can_next)).lower(), can_previous=str(bool(can_previous)).lower())
 
     def drain(self) -> list[dict]:
-        """Atomically consume events. Native events contain no tokens/secrets."""
-        consumed = self.mailbox.with_suffix(".consumed")
+        """Read one complete batch without acknowledging it yet.
+
+        A batch stays in ``.consumed`` while Python handles it, so a process
+        interruption cannot erase a valid native event before its handler runs.
+        ``acknowledge()`` publishes the completion only after processing.
+        """
         try:
-            if not self.mailbox.exists(): return []
-            self.mailbox.replace(consumed)
-            events = json.loads(consumed.read_text(encoding="utf-8"))
+            if not self.consumed.exists():
+                if not self.mailbox.exists(): return []
+                self.mailbox.replace(self.consumed)
+            events = json.loads(self.consumed.read_text(encoding="utf-8"))
             # Ignore malformed/unknown payload shapes; the event loop must not
             # be able to crash because a native queue contains one bad entry.
             return [event for event in events if isinstance(event, dict)] if isinstance(events, list) else []
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("[ANDROID] Failed to read native bridge events: %s", exc)
+            self.acknowledge()  # malformed batches are not retried forever
             return []
-        finally:
-            try:
-                consumed.unlink(missing_ok=True)
-            except OSError as exc:
-                logger.warning("[ANDROID] Failed to remove consumed mailbox: %s", exc)
+
+    def acknowledge(self) -> None:
+        try:
+            self.consumed.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("[ANDROID] Failed to remove consumed mailbox: %s", exc)

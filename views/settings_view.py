@@ -14,7 +14,8 @@ from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEX
 class SettingsView:
     @staticmethod
     def build(page, store, library, on_back, on_catalog_changed, on_add_folder,
-              on_refresh_library, on_login, on_logout, account, account_state="disconnected"):
+              on_refresh_library, on_login, on_logout, account, account_state="disconnected",
+              folder_selection_pending=lambda: False):
         status = ft.Text("", color="#9DA3B4", size=12)
         busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False}
 
@@ -56,9 +57,10 @@ class SettingsView:
         if not folder_lines:
             folder_lines = [ft.Text("Nenhuma pasta foi selecionada.", color="#AAA7B6", size=12)]
 
-        add_folder_button = ft.OutlinedButton("Adicionar pasta", icon=ft.Icons.CREATE_NEW_FOLDER)
+        add_folder_button = ft.OutlinedButton("Adicionar pasta", icon=ft.Icons.CREATE_NEW_FOLDER,
+                                              disabled=bool(folder_selection_pending()))
         async def add_folder(_):
-            if busy["folder"] or busy["scan"]:
+            if busy["folder"] or busy["scan"] or folder_selection_pending():
                 return
             busy["folder"] = True
             add_folder_button.disabled = True
@@ -136,7 +138,7 @@ class SettingsView:
                 # The Android/OAuth callback owns the final connected/error state.
                 busy["login"] = False; account_button.disabled = False; page.update()
         account_button.on_click = login
-        account_button.disabled = account_state == "connecting"
+        account_button.disabled = account_state in {"initiating", "awaiting_google", "connecting"}
         logout_button = ft.OutlinedButton("Sair da conta", icon=ft.Icons.LOGOUT)
         def do_logout():
             if busy["logout"]:
@@ -150,7 +152,7 @@ class SettingsView:
         def ask_logout(_):
             confirm("Sair da conta Google?", "A sessão local será removida. Biblioteca, favoritos, progresso e histórico não serão alterados.", "Sair", do_logout)
         logout_button.on_click = ask_logout
-        state_labels = {"connecting": "Conectando…", "connected": "Conectada", "error": "Erro ao conectar", "disconnecting": "Saindo…", "configuration_required": "Configuração necessária"}
+        state_labels = {"initiating": "Iniciando login…", "awaiting_google": "Aguardando Google…", "connecting": "Conectando…", "connected": "Conectada", "error": "Erro ao conectar", "disconnecting": "Saindo…", "configuration_required": "Configuração necessária"}
         account_status = state_labels.get(account_state, "Conectada" if connected else "Não conectada")
 
         last = store.last_scan()

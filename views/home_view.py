@@ -1,3 +1,4 @@
+import asyncio
 import flet as ft
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title
 
@@ -154,25 +155,23 @@ class HomeView:
             selected_sort[0] = event.control.value or "Mais recentes"
             render_library()
 
-        def load_catalog():
-            status.controls = [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT), ft.Text("Carregando biblioteca local…", color=TEXT_MUTED, size=12)]
-            status.visible = True
-            page.update()
-            def work():
-                nonlocal catalog, continuing
-                try:
-                    # Home is strictly a local presentation. Scanning belongs to
-                    # the explicit library/SAF flow and must not trigger AniList
-                    # work every time the user returns to this screen.
-                    catalog = library.catalog()
-                    continuing = library.continue_watching(limit=8)
-                    status.visible = False
-                except Exception as exc:
-                    catalog, continuing = [], []
-                    status.controls = [ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FFB4AB", size=18), ft.Text("Não foi possível carregar sua biblioteca local.", color="#FFB4AB", size=12)]
-                    status.visible = True
-                render_genres(); render_states(); render_continue(); render_library()
-            page.run_thread(work)
+        async def load_catalog():
+            # ``build`` runs before this control is attached to Page. Yielding
+            # once prevents Android Flet from raising on an early page.update,
+            # which previously left the initial spinner visible forever.
+            await asyncio.sleep(0)
+            nonlocal catalog, continuing
+            try:
+                catalog, continuing = await asyncio.gather(
+                    asyncio.to_thread(library.catalog),
+                    asyncio.to_thread(library.continue_watching, limit=8),
+                )
+                status.visible = False
+            except Exception:
+                catalog, continuing = [], []
+                status.controls = [ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FFB4AB", size=18), ft.Text("Não foi possível carregar sua biblioteca local.", color="#FFB4AB", size=12)]
+                status.visible = True
+            render_genres(); render_states(); render_continue(); render_library()
 
         search.on_change = on_search
         search.on_submit = on_search
@@ -192,5 +191,5 @@ class HomeView:
 
         # Refresh is intentionally delayed to the end so all controls exist.
         status.visible = True
-        load_catalog()
+        page.run_task(load_catalog)
         return ft.Container(content=layout, padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=18, bottom=8), bgcolor=BACKGROUND)

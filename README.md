@@ -51,31 +51,19 @@ REIFLIX_GOOGLE_CLIENT_ID='...apps.googleusercontent.com' # fallback OAuth deskto
 REIFLIX_GOOGLE_REDIRECT_URL='https://redirect-autorizado.example/callback'
 ```
 
-No Google Cloud Console configure a tela de consentimento, o **Web client ID**
-passado a `REIFLIX_GOOGLE_WEB_CLIENT_ID`, e um Android client para o package
-`com.reiflix.reiflix_local` com SHA-1/SHA-256 do certificado de assinatura. Não
-inclua client secret no APK.
+### Login Google no APK Android
 
-### Login Google no Android
+O APK usa **Credential Manager + Google Identity** apenas para identificar uma
+conta localmente. Configure o identificador público do **OAuth 2.0 Web client**
+em `app_config.py`, no campo `GOOGLE_WEB_CLIENT_ID`, ou forneça
+`REIFLIX_GOOGLE_WEB_CLIENT_ID` durante o build. Não adicione client secret.
 
-O botão usa o Credential Manager somente quando
-`REIFLIX_GOOGLE_WEB_CLIENT_ID` (ou `GOOGLE_WEB_CLIENT_ID` em
-`app_config.py`) contém um Web client ID OAuth 2.0 público. Sem esse
-identificador, o APK mostra que a configuração é necessária e não simula um
-login ou salva uma conta falsa.
-
-No mesmo projeto do Google Cloud Console:
-
-1. Crie um cliente OAuth 2.0 do tipo **Web application** e configure somente
-   o seu client ID público como `REIFLIX_GOOGLE_WEB_CLIENT_ID`.
-2. Crie um cliente OAuth 2.0 do tipo **Android** para o package
-   `com.reiflix.reiflix_local`; registre o SHA-1 e o SHA-256 do certificado que
-   assina o APK distribuído (release/Play Console conforme aplicável).
-3. Não coloque client secret, token, senha ou arquivo de credenciais no
-   repositório, nas variáveis empacotadas ou no APK.
-
-O aplicativo armazena somente ID, nome, e-mail e foto retornados pela conta.
-Ele não pede Gmail, Drive, contatos ou permissões de arquivos.
+No Google Cloud Console, crie também um OAuth client do tipo **Android** para o
+package `com.reiflix.reiflix_local` e cadastre os SHA-1 e SHA-256 do certificado
+que assina o APK distribuído (por exemplo, o certificado de release/Play App
+Signing). O Web Client ID é o valor passado ao Credential Manager; ele deve ser
+do mesmo projeto Cloud. Sem essas credenciais públicas externas o app mostra a
+mensagem de configuração necessária e não simula login.
 
 ## AniList, scanner e organização
 

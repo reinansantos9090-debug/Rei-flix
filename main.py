@@ -4,6 +4,8 @@ import flet as ft
 from flet.auth import OAuthProvider
 from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URL as CONFIG_GOOGLE_REDIRECT_URL, GOOGLE_WEB_CLIENT_ID as CONFIG_GOOGLE_WEB_CLIENT_ID
 from core.android_bridge import AndroidBridge
+from core.google_account import GoogleAccountController
+from core.navigation import NavigationController, SafSelectionState
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
 from views.home_view import HomeView
@@ -20,18 +22,35 @@ async def main(page: ft.Page):
     page.title='Rei-Flix Local'; page.theme_mode=ft.ThemeMode.DARK; page.bgcolor='#16151F'; page.padding=0
     page.theme=ft.Theme(color_scheme_seed='#E50914',font_family='Roboto')
     data_dir=os.getenv('FLET_APP_STORAGE_DATA') or os.path.join(os.path.dirname(__file__),'.reiflix-data')
-    store=LibraryStore(data_dir); library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]; details_back=[None]
-    account_state=["connected" if store.account().get("email") else "disconnected"]
+    store=LibraryStore(data_dir); library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]
+    google_account = GoogleAccountController(store)
     scan_in_progress=[False]
     pending_native_scans=[0]
-    active_view=["home"]
+    navigation = NavigationController()
+    saf_selection = SafSelectionState()
     def show(control): page.clean(); page.add(control); page.update()
+    def render_current():
+        if navigation.current == "home":
+            show(HomeView.build(page, library, navigate_details, navigate_settings, play_episode, navigate_organize))
+        elif navigation.current == "organize":
+            show(OrganizeView.build(page, library, navigate_details, navigate_back, navigate_settings))
+        elif navigation.current == "details":
+            show(DetailView.build(page, current[0], play_episode, navigate_back,
+                                  store.toggle_favorite, library.playback_target))
+        elif navigation.current == "settings":
+            show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,refresh_library,login,logout,google_account.account(),google_account.state,
+                                    folder_selection_pending=lambda: saf_selection.pending))
+        elif navigation.current == "player":
+            path, title, progress = player_context[0]
+            show(PlayerView.build(page, path, title, navigate_back, None, start_native_player, progress))
+
+    player_context=[("", "", 0)]
     def navigate_home():
-        active_view[0] = "home"
-        show(HomeView.build(page, library, navigate_details, navigate_settings, play_episode, navigate_organize))
+        navigation.replace("home")
+        render_current()
     def navigate_organize():
-        active_view[0] = "organize"
-        show(OrganizeView.build(page, library, lambda anime: navigate_details(anime, navigate_organize), navigate_home, navigate_settings))
+        navigation.push("organize")
+        render_current()
     def start_native_player(path, title, position_ms=0):
         # Sequence decisions stay in LibraryStore; Android receives only the
         # selected local URI and booleans for the native controls.
@@ -42,40 +61,46 @@ async def main(page: ft.Page):
     def play_episode(path, title, on_next=None, progress_seconds=0):
         if store.get_preference("resume_playback", "true") != "true":
             progress_seconds = 0
-        active_view[0] = "player"
-        show(PlayerView.build(page, path, title, lambda: navigate_details(current[0], details_back[0]),
-                              on_next, start_native_player, progress_seconds))
+        player_context[0] = (path, title, progress_seconds)
+        navigation.push("player")
+        render_current()
     def navigate_details(anime, on_back=None):
         # Refresh once from SQLite so Details always presents the durable
         # favorite/progress state without triggering a scan or network call.
         anime_id = anime.get('id') if anime else None
-        details_back[0] = on_back or navigate_home
         current[0] = next((item for item in library.catalog() if item['id'] == anime_id), anime)
-        active_view[0] = "details"
-        show(DetailView.build(page, current[0], play_episode, details_back[0],
-                              store.toggle_favorite, library.playback_target))
+        navigation.push("details")
+        render_current()
     def on_catalog_changed():
         # The active screen owns rendering; returning home always reads the SQLite catalog again.
         return None
-    def account(): return store.account()
     def navigate_settings():
-        active_view[0] = "settings"
-        show(SettingsView.build(page,store,library,navigate_home,on_catalog_changed,add_folder,refresh_library,login,logout,account(),account_state[0]))
+        navigation.push("settings")
+        render_current()
+    def navigate_back():
+        action = navigation.back()
+        if action == "previous":
+            render_current()
+        elif action == "prompt_exit":
+            page.snack_bar=ft.SnackBar(ft.Text("Pressione voltar novamente para sair")); page.snack_bar.open=True; page.update()
+        elif action == "exit":
+            # Close only after the Android/Python shared two-back policy.
+            page.window.close()
     def refresh_settings_if_active():
-        if active_view[0] == "settings":
-            navigate_settings()
+        if navigation.current == "settings":
+            render_current()
     async def add_folder(_=None):
-        if scan_in_progress[0]:
+        if scan_in_progress[0] or not saf_selection.begin():
             return
-        scan_in_progress[0] = True
-        pending_native_scans[0] = 1
         try:
             bridge.select_tree()
         except RuntimeError as exc:
-            scan_in_progress[0] = False
-            pending_native_scans[0] = 0
+            saf_selection.finish()
             page.snack_bar=ft.SnackBar(ft.Text(str(exc))); page.snack_bar.open=True; page.update()
+            raise
     async def refresh_library(_=None):
+        if saf_selection.pending:
+            return "Conclua ou cancele a seleção da pasta antes de atualizar a biblioteca.", False
         if scan_in_progress[0]:
             return "Uma atualização da biblioteca já está em andamento.", True
         scan_in_progress[0] = True
@@ -97,37 +122,44 @@ async def main(page: ft.Page):
             if not (bridge.available and any(f.get('kind') == 'saf' for f in store.folders())):
                 scan_in_progress[0] = False
     async def login(_=None):
+        if not google_account.begin():
+            return
         if bridge.available:
             if not GOOGLE_WEB_CLIENT_ID:
-                account_state[0] = 'configuration_required'; navigate_settings()
+                google_account.configuration_required(); refresh_settings_if_active()
                 page.snack_bar=ft.SnackBar(ft.Text('Login Google não configurado neste APK. Configure um Web Client ID público antes de tentar novamente.')); page.snack_bar.open=True; page.update(); return
-            account_state[0] = 'connecting'; navigate_settings()
-            bridge.sign_in(GOOGLE_WEB_CLIENT_ID); return
-        account_state[0] = 'connecting'; navigate_settings()
+            google_account.awaiting_google(); refresh_settings_if_active()
+            try:
+                bridge.sign_in(GOOGLE_WEB_CLIENT_ID)
+            except Exception:
+                google_account.fail(); refresh_settings_if_active()
+                raise
+            return
+        refresh_settings_if_active()
         if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URL:
-            account_state[0] = 'error'; navigate_settings()
+            google_account.configuration_required(); refresh_settings_if_active()
             page.snack_bar=ft.SnackBar(ft.Text('Configure REIFLIX_GOOGLE_CLIENT_ID e REIFLIX_GOOGLE_REDIRECT_URL para entrar com Google.'))
             page.snack_bar.open=True; page.update(); return
         provider=OAuthProvider(client_id=GOOGLE_CLIENT_ID,client_secret='',authorization_endpoint='https://accounts.google.com/o/oauth2/v2/auth',token_endpoint='https://oauth2.googleapis.com/token',redirect_url=GOOGLE_REDIRECT_URL,scopes=['openid','email','profile'],user_endpoint='https://openidconnect.googleapis.com/v1/userinfo',user_id_fn=lambda u:u.get('sub'),authorization_params={'access_type':'offline','prompt':'select_account'})
         await page.login(provider,fetch_user=True)
     def logout(_=None):
-        account_state[0] = 'disconnecting'; navigate_settings()
+        google_account.state = 'disconnecting'; refresh_settings_if_active()
         try:
-            store.clear_account(); page.logout()
-            account_state[0] = 'disconnected'
+            google_account.logout()
+            if not bridge.available:
+                page.logout()
         except Exception:
-            account_state[0] = 'error'
+            google_account.fail()
             raise
-        navigate_settings()
+        refresh_settings_if_active()
     async def login_done(e):
         if e.error:
-            account_state[0] = 'error'
+            google_account.fail()
             page.snack_bar=ft.SnackBar(ft.Text(f'Não foi possível entrar: {e.error_description or e.error}')); page.snack_bar.open=True; page.update(); return
         user=page.auth.user
         if user:
-            store.save_account({'id':str(user.id),'name':str(user.get('name','')),'email':str(user.get('email','')),'picture':str(user.get('picture',''))})
-            account_state[0] = 'connected'
-        navigate_settings()
+            google_account.complete({'id':str(user.id),'name':str(user.get('name','')),'email':str(user.get('email','')),'picture':str(user.get('picture',''))})
+        refresh_settings_if_active()
     async def poll_native_bridge():
         def finish_native_scan():
             pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
@@ -139,6 +171,7 @@ async def main(page: ft.Page):
                 event_type=event.get('type'); payload=event.get('payload') or {}
                 if event_type == 'saf_scan':
                     try:
+                        saf_selection.finish()
                         stats = payload.get('stats') or {}
                         tree_uri = payload.get('treeUri', '')
                         if not tree_uri:
@@ -159,6 +192,8 @@ async def main(page: ft.Page):
                     if uri:
                         store.save_progress(uri, payload.get('positionMs', 0) / 1000,
                                             payload.get('durationMs', 0) / 1000)
+                    if event_type == 'player_exited' and navigation.current == 'player':
+                        navigate_back()
                 elif event_type in {'player_next_request', 'player_previous_request'}:
                     uri = payload.get('uri', '')
                     target = library.next_episode(uri) if event_type == 'player_next_request' else library.previous_episode(uri)
@@ -166,11 +201,22 @@ async def main(page: ft.Page):
                         start_native_player(target['path'], target['file_name'], 0)
                 elif event_type == 'player_error':
                     page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível reproduzir este arquivo.'))); page.snack_bar.open=True; page.update()
-                elif event_type == 'google_account':
-                    store.save_account(payload); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
+                elif event_type == 'google_sign_in_started':
+                    google_account.awaiting_google(); refresh_settings_if_active()
+                elif event_type == 'google_sign_in_success':
+                    if google_account.complete(payload):
+                        page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update()
+                    else:
+                        page.snack_bar=ft.SnackBar(ft.Text('O Google retornou uma conta inválida. Tente novamente.')); page.snack_bar.open=True; page.update()
+                    refresh_settings_if_active()
                 elif event_type == 'saf_cancelled':
-                    finish_native_scan()
+                    saf_selection.finish()
                     page.snack_bar=ft.SnackBar(ft.Text('Seleção de pasta cancelada.')); page.snack_bar.open=True; page.update()
+                    refresh_settings_if_active()
+                elif event_type == 'saf_selection_confirmed':
+                    # Permission is persistent before this event is emitted;
+                    # scanner progress must not keep the picker button locked.
+                    saf_selection.finish()
                     refresh_settings_if_active()
                 elif event_type == 'saf_permission':
                     tree_uri = payload.get('treeUri')
@@ -181,17 +227,20 @@ async def main(page: ft.Page):
                             store.update_folder_status(tree_uri, 'revoked', 'A permissão desta pasta foi removida.')
                         refresh_settings_if_active()
                 elif event_type == 'google_cancelled':
-                    account_state[0] = 'disconnected'
+                    google_account.cancel()
                     page.snack_bar=ft.SnackBar(ft.Text('Entrada com Google cancelada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
                 elif event_type in {'saf_error','google_error'}:
                     if event_type == 'saf_error':
-                        finish_native_scan()
+                        saf_selection.finish()
                         tree_uri = payload.get('treeUri')
                         if tree_uri:
                             store.update_folder_status(tree_uri, 'revoked', event.get('message', 'Não foi possível acessar a pasta.'))
-                    if event_type == 'google_error': account_state[0] = 'error'
+                    if event_type == 'google_error': google_account.fail()
                     page.snack_bar=ft.SnackBar(ft.Text(event.get('message','Operação Android não concluída.'))); page.snack_bar.open=True; page.update()
                     if event_type == 'saf_error': refresh_settings_if_active()
+                elif event_type == 'android_back':
+                    navigate_back()
+            bridge.acknowledge()
             await asyncio.sleep(1)
     page.on_login=login_done
     page.run_task(poll_native_bridge)
@@ -199,7 +248,7 @@ async def main(page: ft.Page):
         for folder in store.folders():
             if folder.get('kind') == 'saf':
                 bridge.verify_tree(folder['path'])
-    navigate_home()
+    render_current()
 
 if __name__ == "__main__":
     ft.run(main)

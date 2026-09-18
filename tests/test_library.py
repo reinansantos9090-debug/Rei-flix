@@ -253,6 +253,14 @@ class SettingsPersistenceTests(unittest.TestCase):
 
 
 class AndroidBridgeTests(unittest.TestCase):
+    def test_flet_page_platform_enum_is_recognized_on_real_android(self):
+        class Platform:
+            value = 'android'
+        class Page:
+            platform = Platform()
+        with tempfile.TemporaryDirectory() as d:
+            self.assertTrue(AndroidBridge(d, Page()).available)
+
     def test_native_saf_actions_use_only_encoded_content_uris(self):
         class Page:
             platform = 'android'
@@ -273,10 +281,23 @@ class AndroidBridgeTests(unittest.TestCase):
             bridge = AndroidBridge(d)
             bridge.mailbox.write_text(json.dumps([{'type': 'unknown'}, 'bad', 3]), encoding='utf-8')
             self.assertEqual(bridge.drain(), [{'type': 'unknown'}])
+            bridge.acknowledge()
             self.assertFalse(bridge.mailbox.with_suffix('.consumed').exists())
             bridge.mailbox.write_text('{bad json', encoding='utf-8')
             self.assertEqual(bridge.drain(), [])
             self.assertFalse(bridge.mailbox.with_suffix('.consumed').exists())
+
+    def test_mailbox_keeps_complete_native_events_until_python_acknowledges(self):
+        with tempfile.TemporaryDirectory() as d:
+            bridge = AndroidBridge(d)
+            event = {'type': 'saf_scan', 'payload': {'treeUri': 'content://tree/anime'}}
+            bridge.mailbox.write_text(json.dumps([event]), encoding='utf-8')
+            self.assertEqual(bridge.drain(), [event])
+            self.assertTrue(bridge.consumed.exists())
+            # A second read after a Python interruption recovers the same event.
+            self.assertEqual(bridge.drain(), [event])
+            bridge.acknowledge()
+            self.assertFalse(bridge.consumed.exists())
 
     def test_native_saf_documents_are_persisted_as_uris(self):
         with tempfile.TemporaryDirectory() as d:
@@ -549,7 +570,9 @@ class LibraryBrowseTests(unittest.TestCase):
     def test_home_builds_for_an_empty_local_catalog(self):
         class FakePage:
             def update(self): pass
-            def run_thread(self, work): work()
+            def run_task(self, work):
+                import asyncio
+                asyncio.run(work())
         with tempfile.TemporaryDirectory() as d:
             view = HomeView.build(FakePage(), LibraryService(LibraryStore(d)), lambda _: None, lambda: None, lambda *args, **kwargs: None)
         self.assertEqual(view.content.controls[0].__class__.__name__, 'Row')

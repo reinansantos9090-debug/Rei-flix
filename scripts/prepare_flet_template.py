@@ -56,6 +56,7 @@ if main is None:
 main.set(name, "com.reiflix.reiflix_local.MainActivity")
 main.set(f"{{{ANDROID}}}launchMode", "singleTop")
 main.set(f"{{{ANDROID}}}configChanges", "orientation|screenSize|keyboardHidden")
+main.set(f"{{{ANDROID}}}theme", "@style/ReiFlixTheme")
 
 # Reiflix bridge deep-link retained alongside Flet's launcher intent filter.
 bridge = ET.SubElement(main, "intent-filter")

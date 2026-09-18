@@ -67,6 +67,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
             hook = (template / "hooks" / "post_gen_project.py").read_text(encoding="utf-8")
             self.assertIn("NativePlayerActivity", hook)
             self.assertIn("media3-exoplayer:1.5.1", hook)
+            self.assertIn('theme", "@style/ReiFlixTheme"', hook)
 
             rendered = Path(d) / "rendered" / "android" / "app"
             (rendered / "src" / "main").mkdir(parents=True)

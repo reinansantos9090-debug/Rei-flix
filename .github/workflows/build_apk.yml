@@ -47,4 +47,3 @@ jobs:
       - name: Build APK with Flet
         run: |
           flet build apk -v
-

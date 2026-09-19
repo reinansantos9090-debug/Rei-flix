@@ -65,8 +65,12 @@ class AndroidBridge:
 
     @contextmanager
     def _mailbox_lock(self):
-        # Android and Python share this lock file so a claim/ack cannot race
-        # with NativeMailbox read-modify-write publication.
+        # Android and Python share this lock file on Android. Desktop builds
+        # do not have the Android publisher, so they keep the existing mailbox
+        # semantics without requiring a POSIX-only dependency.
+        if os.name != "posix" or not self.available:
+            yield
+            return
         import fcntl
         self.data_dir.mkdir(parents=True, exist_ok=True)
         with self.lock_file.open("a+", encoding="utf-8") as lock:

@@ -38,14 +38,23 @@ def _volume_key(volume: str | None) -> str:
     return value
 
 
+def _normalize_volume_relative(volume: str, relative: str) -> tuple[str, str]:
+    value = volume.casefold().strip()
+    relative = relative.strip("/")
+    # Emulated primary storage is normally /storage/emulated/0.
+    if value == "emulated" and (relative == "0" or relative.startswith("0/")):
+        return "primary", relative[1:].lstrip("/")
+    return _volume_key(volume), relative
+
+
 def identity_from_file_uri(uri: str) -> str | None:
     parsed = urlparse(uri)
     path = unquote(parsed.path or "")
     match = _STORAGE_RE.match(path)
     if not match:
         return None
-    volume = _volume_key(match.group(1))
-    relative = _clean_relative(match.group(2) or "")
+    volume, relative_raw = _normalize_volume_relative(match.group(1), match.group(2) or "")
+    relative = _clean_relative(relative_raw)
     if not relative:
         return None
     return f"shared:{volume}:{relative}"
@@ -60,8 +69,8 @@ def identity_from_relative_path(relative_path: str, volume_name: str | None = No
     # Accept full Android shared-storage paths produced by the broad scanner.
     match = _STORAGE_RE.match(value)
     if match:
-        volume = _volume_key(match.group(1))
-        relative = _clean_relative(match.group(2) or "")
+        volume, relative_raw = _normalize_volume_relative(match.group(1), match.group(2) or "")
+        relative = _clean_relative(relative_raw)
         return f"shared:{volume}:{relative}" if relative else None
 
     # MediaStore and SAF expose paths relative to a volume/tree.

@@ -121,6 +121,8 @@ async def main(page: ft.Page):
     def navigate_settings():
         navigation.push("settings")
         render_current()
+        if bridge.available:
+            page.run_task(bridge.check_storage_access)
     def navigate_back():
         action = navigation.back()
         if action == "previous":
@@ -159,8 +161,13 @@ async def main(page: ft.Page):
             return "Uma atualização da biblioteca já está em andamento.", True
         scan_in_progress[0] = True
         try:
-            saf_folders = [folder for folder in store.folders()
+            folders = store.folders()
+            saf_folders = [folder for folder in folders
                        if folder.get('kind') == 'saf' and folder.get('authorization') == 'granted']
+            mediastore_granted = any(
+                folder.get('kind') == 'mediastore' and folder.get('authorization') == 'granted'
+                for folder in folders
+            )
             if bridge.available:
                 # SAF and MediaStore scans share the same native completion lock,
                 # but each source is persisted and marked-missing independently.
@@ -177,17 +184,20 @@ async def main(page: ft.Page):
                     except Exception:
                         pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
                         store.update_folder_status(folder['path'], "granted", "Não foi possível iniciar a varredura SAF.")
-                pending_native_scans[0] += 1
-                try:
-                    await bridge.scan_media_store()
-                except Exception:
-                    pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
-                    store.update_folder_status(
-                        "mediastore:external:video",
-                        "unknown",
-                        "Não foi possível iniciar a varredura MediaStore.",
-                    )
+                if mediastore_granted:
+                    pending_native_scans[0] += 1
+                    try:
+                        await bridge.scan_media_store()
+                    except Exception:
+                        pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
+                        store.update_folder_status(
+                            "mediastore:external:video",
+                            "unknown",
+                            "Não foi possível iniciar a varredura MediaStore.",
+                        )
                 if pending_native_scans[0] > 0:
+                    if not mediastore_granted:
+                        return "Atualização iniciada. Conceda a permissão de vídeos para incluir o MediaStore.", True
                     return "Atualização iniciada. Verificando as fontes locais…", True
                 scan_in_progress[0] = False
                 return "Nenhuma fonte local pôde iniciar uma varredura.", False

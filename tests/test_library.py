@@ -999,6 +999,45 @@ class DetailsViewTests(unittest.TestCase):
         self.assertEqual(anime['meta']['episodes_count'], 12)
         self.assertEqual(len(anime['seasons'][0]['episodes']), 1)
 
+    def test_details_marks_next_unwatched_episode_after_completion(self):
+        completed = {'path': 'content://document/episode-1', 'title': 'Anime - 01.mkv', 'season': 1,
+                     'number': 1, 'progress': 100, 'duration': 100, 'watched': True, 'missing': False,
+                     'last_played_at': 10}
+        next_episode = {'path': 'content://document/episode-2', 'title': 'Anime - 02.mkv', 'season': 1,
+                        'number': 2, 'progress': 0, 'duration': 100, 'watched': False, 'missing': False}
+        anime = {'id': 4, 'main_title': 'Anime', 'meta': {}, 'seasons': [
+            {'season_name': 'Temporada 1', 'season': 1, 'episodes': [completed, next_episode]}
+        ]}
+        _, view, _ = self._build(anime, next_episode)
+        def walk(control):
+            yield control
+            for child in getattr(control, 'controls', []) or []:
+                yield from walk(child)
+            content = getattr(control, 'content', None)
+            if content is not None:
+                yield from walk(content)
+        primary = next(item for item in walk(view) if item.__class__.__name__ == 'FilledButton')
+        self.assertEqual(primary.text, 'Próximo episódio')
+
+    def test_details_season_picker_shows_local_availability(self):
+        local = {'path': 'content://document/episode-1', 'title': 'Anime - 01.mkv', 'season': 1,
+                 'number': 1, 'progress': 0, 'duration': 0, 'watched': False, 'missing': False}
+        missing = {'path': 'content://document/episode-2', 'title': 'Anime - 02.mkv', 'season': 1,
+                   'number': 2, 'progress': 0, 'duration': 0, 'watched': False, 'missing': True}
+        anime = {'id': 5, 'main_title': 'Anime', 'meta': {}, 'seasons': [
+            {'season_name': 'Temporada 1', 'season': 1, 'episodes': [local, missing]}
+        ]}
+        _, view, _ = self._build(anime, local)
+        def walk(control):
+            yield control
+            for child in getattr(control, 'controls', []) or []:
+                yield from walk(child)
+            content = getattr(control, 'content', None)
+            if content is not None:
+                yield from walk(content)
+        picker = next(item for item in walk(view) if item.__class__.__name__ == 'Dropdown')
+        self.assertEqual(picker.options[0].text, 'Temporada 1 • 1/2 locais')
+
     def test_missing_episode_is_not_clickable(self):
         missing = {'path': '/library/missing.mkv', 'title': 'Missing', 'season': 1, 'number': 1,
                    'progress': 20, 'duration': 100, 'watched': False, 'missing': True}

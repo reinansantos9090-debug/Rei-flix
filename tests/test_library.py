@@ -1056,6 +1056,24 @@ class DetailsViewTests(unittest.TestCase):
         self.assertEqual(anime['meta']['episodes_count'], 12)
         self.assertEqual(len(anime['seasons'][0]['episodes']), 1)
 
+    def test_details_player_context_uses_anime_and_episode_label(self):
+        episode = {'path': 'content://document/episode-2', 'title': 'Anime - 02.mkv', 'season': 1,
+                   'number': 2, 'progress': 30, 'duration': 100, 'watched': False, 'missing': False}
+        anime = {'id': 6, 'main_title': 'Anime', 'meta': {}, 'seasons': [
+            {'season_name': 'Temporada 1', 'season': 1, 'episodes': [episode]}
+        ]}
+        _, view, played = self._build(anime, episode)
+        def walk(control):
+            yield control
+            for child in getattr(control, 'controls', []) or []:
+                yield from walk(child)
+            content = getattr(control, 'content', None)
+            if content is not None:
+                yield from walk(content)
+        primary = next(item for item in walk(view) if item.__class__.__name__ == 'FilledButton')
+        primary.on_click(None)
+        self.assertEqual(played[0], ('content://document/episode-2', 'Anime • T1 E2', {'progress_seconds': 30}))
+
     def test_details_marks_next_unwatched_episode_after_completion(self):
         completed = {'path': 'content://document/episode-1', 'title': 'Anime - 01.mkv', 'season': 1,
                      'number': 1, 'progress': 100, 'duration': 100, 'watched': True, 'missing': False,

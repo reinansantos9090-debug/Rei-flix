@@ -102,6 +102,17 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("class MainActivity : FlutterFragmentActivity()", main)
         self.assertNotIn("import io.flutter.embedding.android.FlutterActivity", main)
 
+    def test_saf_picker_requests_only_persisted_read_access(self):
+        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("Intent.FLAG_GRANT_READ_URI_PERMISSION", main)
+        self.assertIn("Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION", main)
+        self.assertIn("Intent.FLAG_GRANT_PREFIX_URI_PERMISSION", main)
+        self.assertNotIn("Intent.FLAG_GRANT_WRITE_URI_PERMISSION", main)
+
+    def test_startup_saf_permission_verification_is_awaited(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("await bridge.verify_tree(folder['path'])", source)
+
     def test_native_host_keeps_system_bars_for_flet_and_fullscreen_for_player_only(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")

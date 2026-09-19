@@ -316,6 +316,16 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(len(history), 1)
             self.assertEqual(history[0]['progress'], 20)
 
+    def test_episode_navigation_handles_missing_episode_numbers(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('naruto', {'title': 'Naruto', 'genres': '[]'})
+            store.upsert_episode(anime, '/one.mkv', 'One.mkv', 1, None)
+            store.upsert_episode(anime, '/two.mkv', 'Two.mkv', 1, None)
+            store.upsert_episode(anime, '/three.mkv', 'Three.mkv', 1, 3)
+            self.assertEqual(store.next_episode('/one.mkv')['path'], '/two.mkv')
+            self.assertEqual(store.previous_episode('/three.mkv')['path'], '/two.mkv')
+
 
 class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
     def test_android_bridge_accepts_only_saf_content_uris(self):

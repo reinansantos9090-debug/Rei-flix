@@ -1086,7 +1086,7 @@ class DetailsDomainTests(unittest.TestCase):
                                'progress': 0, 'watched': False, 'missing': True}]}]}
         page = self.FakePage()
         played = []
-        DetailView.build(page, anime, lambda *args, **kwargs: played.append(args), lambda: None, lambda _: True, lambda _: None)
+        view = DetailView.build(page, anime, lambda *args, **kwargs: played.append(args), lambda: None, lambda _: True, lambda _: None)
         missing_cards = []
         def walk(control):
             if getattr(control, 'opacity', None) == .58 and hasattr(control, 'content'):
@@ -1096,8 +1096,7 @@ class DetailsDomainTests(unittest.TestCase):
             child = getattr(control, 'content', None)
             if child is not None:
                 walk(child)
-        for control in page.controls:
-            walk(control)
+        walk(view)
         self.assertEqual(len(missing_cards), 1)
         self.assertIsNone(missing_cards[0].on_click)
         self.assertEqual(played, [])

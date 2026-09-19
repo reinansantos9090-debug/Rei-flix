@@ -102,3 +102,6 @@ flet build apk --yes
 O build requer Java 17, Flutter e dependências Android acessíveis. Depois de
 configurar a mesclagem do overlay, valide em aparelho a seleção SAF, a conta
 Google e arquivos/codec reais, especialmente MKV.
+
+
+<!-- CI validation marker for Phase 11.6. -->

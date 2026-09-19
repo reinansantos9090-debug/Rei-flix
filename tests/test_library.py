@@ -1017,7 +1017,7 @@ class DetailsViewTests(unittest.TestCase):
             if content is not None:
                 yield from walk(content)
         primary = next(item for item in walk(view) if item.__class__.__name__ == 'FilledButton')
-        self.assertEqual(primary.text, 'Próximo episódio')
+        self.assertEqual(getattr(primary.content, 'value', primary.content), 'Próximo episódio')
 
     def test_details_season_picker_shows_local_availability(self):
         local = {'path': 'content://document/episode-1', 'title': 'Anime - 01.mkv', 'season': 1,

@@ -51,6 +51,12 @@ object MediaStoreScanner {
     private fun has(context: Context, permission: String): Boolean =
         context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
 
+    fun isAuthorizedDocument(context: Context, uri: Uri): Boolean {
+        return uri.scheme == "content" &&
+            uri.authority == MediaStore.AUTHORITY &&
+            hasReadPermission(context)
+    }
+
     fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null): JSONObject {
         check(hasReadPermission(context)) { "Permissão de vídeos não concedida." }
 

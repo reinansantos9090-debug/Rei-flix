@@ -25,7 +25,7 @@ from pathlib import Path
 ANDROID = "http://schemas.android.com/apk/res/android"
 ET.register_namespace("android", ANDROID)
 root = Path.cwd()
-overlay = Path("__REIFLIX_OVERLAY_APP__")
+overlay = Path(__REIFLIX_OVERLAY_APP__)
 app = root / "android" / "app"
 if not app.is_dir():
     raise RuntimeError(f"Rendered Flet project has no Android app module: {app}")

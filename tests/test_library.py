@@ -1630,3 +1630,50 @@ class OrganizeTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SafLibraryHardeningTests(unittest.TestCase):
+    def test_saf_ingest_rejects_non_content_media_reference(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            service = LibraryService(store)
+            catalog = service.ingest_documents(
+                "content://tree/anime",
+                [{"uri": "/storage/emulated/0/Anime/Naruto-001.mkv", "name": "Naruto-001.mkv"}],
+            )
+            self.assertEqual(catalog, [])
+            self.assertEqual(store.library_summary()["episodes"], 0)
+            self.assertIn("Referência local inválida", store.folders()[0]["last_error"])
+
+    def test_catalog_exposes_episode_source_folder_for_multi_source_libraries(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime("naruto", {"title": "Naruto", "genres": "[]"})
+            uri = "content://document/naruto-001"
+            tree = "content://tree/anime"
+            store.upsert_episode(anime, uri, "Naruto - 001.mkv", 1, 1, source_folder=tree)
+            episode = store.catalog()[0]["seasons"][0]["episodes"][0]
+            self.assertEqual(episode["source_folder"], tree)
+
+    def test_two_saf_sources_do_not_mark_each_other_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            service = LibraryService(store)
+            first_tree = "content://tree/one"
+            second_tree = "content://tree/two"
+            first = {"uri": "content://document/one", "name": "Naruto - 001.mkv"}
+            second = {"uri": "content://document/two", "name": "Naruto - 002.mkv"}
+            with patch.object(service.anilist, "search", return_value=[]):
+                service.ingest_documents(first_tree, [first])
+                service.ingest_documents(second_tree, [second])
+                service.ingest_documents(first_tree, [first])
+            rows = {
+                ep["path"]: ep
+                for anime in store.catalog()
+                for season in anime["seasons"]
+                for ep in season["episodes"]
+            }
+            self.assertFalse(rows[first["uri"]]["missing"])
+            self.assertFalse(rows[second["uri"]]["missing"])
+            self.assertEqual(rows[first["uri"]]["source_folder"], first_tree)
+            self.assertEqual(rows[second["uri"]]["source_folder"], second_tree)

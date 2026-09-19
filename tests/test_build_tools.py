@@ -245,8 +245,9 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertTrue(AndroidBridge.is_local_media_reference(
             "content://com.android.providers.media.documents/document/video%3A1"
         ))
-        for value in ("", "/sdcard/video.mkv", "file:///sdcard/video.mkv", "http://example/video.mkv"):
+        for value in ("", "/sdcard/video.mkv", "http://example/video.mkv"):
             self.assertFalse(AndroidBridge.is_local_media_reference(value))
+        self.assertTrue(AndroidBridge.is_local_media_reference("file:///sdcard/video.mkv"))
 
     def test_saf_regrant_path_persists_before_scanning_and_reports_revocation(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

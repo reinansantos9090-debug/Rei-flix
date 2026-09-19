@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from core.anilist import AniListClient
 from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
 from core.organizer_ai import AnimeOrganizer
+from core.media_identity import identity_from_document
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,11 @@ class LibraryService:
             on_status(f"Encontrando vídeos em {folder['name']}…")
             try:
                 seen = []
-                for root, _, files in os.walk(reference):
+                for root, dirs, files in os.walk(reference):
+                    if ".nomedia" in files:
+                        dirs[:] = []
+                        continue
+                    dirs[:] = [directory for directory in dirs if not (Path(root) / directory / ".nomedia").is_file()]
                     for name in files:
                         result.files += 1
                         if os.path.splitext(name)[1].lower() in VIDEO_EXTENSIONS:
@@ -144,7 +149,7 @@ class LibraryService:
                     metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
                     result.errors.append(f"{item.anime_title}: AniList indisponível ({exc})")
                     logger.warning("Metadata lookup failed for local title %s: %s", item.anime_title, exc)
-            anime_id=self.store.upsert_anime(key,metadata[key]); self.store.upsert_episode(anime_id,path,os.path.basename(path),item.season,item.episode,source_folder=source_folder)
+            anime_id=self.store.upsert_anime(key,metadata[key]); self.store.upsert_episode(anime_id,path,os.path.basename(path),item.season,item.episode,source_folder=source_folder,media_identity=identity_from_document(Path(path).as_uri(), path))
         result.catalog=self.store.catalog(); result.animes=len(result.catalog); result.episodes=sum(len(s['episodes']) for a in result.catalog for s in a['seasons'])
         self.store.finish_scan(run_id, result.__dict__); on_status(result.message()); return result
     def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *, folder_name=None, scan_errors=None, scan_stats=None, source_kind="saf"):
@@ -163,18 +168,20 @@ class LibraryService:
         seen = []
         for document in documents:
             uri, name = document.get("uri"), document.get("name")
+            if not isinstance(uri, str) or not uri or not isinstance(name, str) or not name:
+                scan_errors.append("Documento nativo sem URI/nome válidos.")
+                continue
             relative_path = document.get("relativePath") or document.get("path") or name
             if uri.startswith("file://") and not document.get("relativePath") and not document.get("path"):
                 relative_path = unquote(urlparse(uri).path)
-            if not uri or not name:
-                continue
             # Native media documents are the local-media contract. Rejecting
             # anything else here prevents a malformed bridge payload from
             # silently creating a playable row that Android cannot authorize.
-            if not isinstance(uri, str) or not (uri.startswith("content://") or uri.startswith("file://")):
+            if not (uri.startswith("content://") or uri.startswith("file://")):
                 scan_errors.append(f"Referência local inválida para {name}.")
                 continue
             seen.append(uri)
+            media_identity = identity_from_document(uri, relative_path, document.get("volumeName"), tree_uri)
             try:
                 item = parse_video_path(relative_path, tree_uri)
             except (OSError, ValueError, UnicodeError) as exc:
@@ -188,7 +195,7 @@ class LibraryService:
                     metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
                     logger.warning("Metadata lookup failed for SAF title %s: %s", item.anime_title, exc)
             anime_id = self.store.upsert_anime(key, metadata[key])
-            self.store.upsert_episode(anime_id, uri, name, item.season, item.episode, document.get("mimeType"), document.get("size"), document.get("modifiedAt"), tree_uri)
+            self.store.upsert_episode(anime_id, uri, name, item.season, item.episode, document.get("mimeType"), document.get("size"), document.get("modifiedAt"), tree_uri, media_identity)
         # Do not infer removals from a partial SAF scan: a SecurityException in
         # one subdirectory means its previous documents may simply be unreadable.
         # On a complete scan, absent documents become missing while keeping their
@@ -198,6 +205,9 @@ class LibraryService:
         else:
             self.store.mark_missing(tree_uri, seen)
             self.store.update_folder_status(tree_uri, "granted")
+        merged = self.store.merge_duplicate_media_identities()
+        if merged:
+            logger.info("Merged %s duplicate episode row(s) across media sources", merged)
         catalog = self.store.catalog()
         result = ScanResult(
             catalog=catalog,

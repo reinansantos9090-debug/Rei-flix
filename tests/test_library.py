@@ -16,6 +16,7 @@ from core.library_service import LibraryService
 from core.organizer_ai import AnimeOrganizer, normalize
 from views.home_view import HomeView
 from views.organize_view import OrganizeView
+from views.details_view import DetailView
 
 
 def anilist_media(anilist_id=1, english='Jujutsu Kaisen', romaji=None, synonyms=None):

@@ -59,6 +59,7 @@ permission_specs = [
     ("android.permission.READ_EXTERNAL_STORAGE", "32"),
     ("android.permission.READ_MEDIA_VIDEO", None),
     ("android.permission.READ_MEDIA_VISUAL_USER_SELECTED", None),
+    ("android.permission.MANAGE_EXTERNAL_STORAGE", None),
 ]
 for permission, max_sdk in permission_specs:
     if permission in existing_permissions:
@@ -118,6 +119,10 @@ gradle = next((app / candidate for candidate in ("build.gradle.kts", "build.grad
 if gradle is None:
     raise RuntimeError("Rendered Flet app module has no Gradle build file")
 existing = gradle.read_text(encoding="utf-8")
+# Flet resolves targetSdk from pyproject.toml. Keep compileSdk explicit because
+# Android 16 APIs require SDK 36 even when Flutter's bundled default lags behind.
+existing = existing.replace("compileSdk = flutter.compileSdkVersion", "compileSdk = 36")
+existing = existing.replace("compileSdk = 35", "compileSdk = 36")
 if "androidx.media3:media3-exoplayer:1.5.1" not in existing:
     if gradle.suffix == ".kts":
         block = "\n// ReiFlix native host dependencies\ndependencies {\n" + "".join(f'    implementation("{item}")\n' for item in dependencies) + "}\n"

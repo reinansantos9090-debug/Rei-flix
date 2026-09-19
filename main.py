@@ -134,7 +134,7 @@ async def main(page: ft.Page):
                     except Exception:
                         # A tree that could not be handed to Android must not
                         # leave the refresh lock waiting forever.
-                        store.update_folder_status(folder['path"], "error", "Não foi possível iniciar a varredura SAF.")
+                        store.update_folder_status(folder['path'], "granted", "Não foi possível iniciar a varredura SAF.")
                 if pending_native_scans[0] > 0:
                     return "Atualização iniciada. Verificando as pastas autorizadas…", True
                 scan_in_progress[0] = False

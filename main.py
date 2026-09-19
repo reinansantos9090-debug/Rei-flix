@@ -204,7 +204,21 @@ async def main(page: ft.Page):
             events = bridge.drain()
             for event in events:
                 event_type=event.get('type'); payload=event.get('payload') or {}
-                if event_type == 'saf_scan':
+                if event_type == 'saf_scan_progress':
+                    # Native scanner reports coarse progress so large SAF trees do not
+                    # look frozen while the Android ContentResolver is traversing them.
+                    files = int(payload.get('files') or 0)
+                    videos = int(payload.get('videos') or 0)
+                    directories = int(payload.get('directories') or 0)
+                    phase = payload.get('phase') or 'scanning'
+                    if phase == 'started':
+                        text = 'Preparando varredura da pasta…'
+                    else:
+                        text = f'Verificando pasta… {directories} diretórios, {files} arquivos, {videos} vídeos.'
+                    page.snack_bar = ft.SnackBar(ft.Text(text))
+                    page.snack_bar.open = True
+                    page.update()
+                elif event_type == 'saf_scan':
                     try:
                         saf_selection.finish()
                         stats = payload.get('stats') or {}

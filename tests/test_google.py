@@ -102,7 +102,7 @@ class GoogleAndroidIntegrationTests(unittest.TestCase):
         gradle = GRADLE.read_text(encoding="utf-8")
         self.assertIn('androidx.credentials:credentials:1.6.0', gradle)
         self.assertIn('androidx.credentials:credentials-play-services-auth:1.6.0', gradle)
-        self.assertIn('googleid:1.2.1', gradle)
+        self.assertIn('googleid:1.2.0', gradle)
 
     def test_workflow_validates_the_public_web_client_id_shape(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")

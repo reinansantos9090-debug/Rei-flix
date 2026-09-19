@@ -1032,7 +1032,6 @@ class DetailsDomainTests(unittest.TestCase):
             self.assertEqual([item['anime_title'] for item in items], ['Continue B', 'Continue A'])
 
     def test_details_marks_missing_episode_unplayable(self):
-        from views.details_view import DetailView
         anime = {'id': 'details-missing', 'main_title': 'Details Missing', 'meta': {'title': 'Details Missing'},
                  'favorite': False, 'genres': [], 'seasons': [{'season_name': 'Temporada 1', 'season': 1,
                  'episodes': [{'title': 'Episódio 1', 'path': 'content://episode/1', 'season': 1, 'number': 1,

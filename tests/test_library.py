@@ -1159,6 +1159,63 @@ class DetailsDomainTests(unittest.TestCase):
             self.assertEqual(catalog['seasons'][0]['season'], 1)
 
 
+    def test_library_sync_keeps_multiple_saf_sources_independent_and_preserves_progress(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            service = LibraryService(store)
+            first_tree = 'content://tree/library-a'
+            second_tree = 'content://tree/library-b'
+            first = {'uri': 'content://document/a-1', 'name': 'Naruto - 001.mkv'}
+            second = {'uri': 'content://document/b-1', 'name': 'Naruto - 002.mkv'}
+            with patch.object(service.anilist, 'search', return_value=[]):
+                service.ingest_documents(first_tree, [first], folder_name='Biblioteca A')
+                service.ingest_documents(second_tree, [second], folder_name='Biblioteca B')
+            store.save_progress(first['uri'], 35, 100)
+
+            with patch.object(service.anilist, 'search', return_value=[]):
+                service.ingest_documents(first_tree, [], folder_name='Biblioteca A')
+
+            episodes = {
+                episode['path']: episode
+                for anime in store.catalog()
+                for season in anime['seasons']
+                for episode in season['episodes']
+            }
+            self.assertTrue(episodes[first['uri']]['missing'])
+            self.assertFalse(episodes[second['uri']]['missing'])
+            self.assertEqual(episodes[first['uri']]['progress'], 35)
+            self.assertEqual(len(store.folders()), 2)
+
+            store.remove_folder(first_tree)
+            self.assertEqual({folder['path'] for folder in store.folders()}, {second_tree})
+            reopened = LibraryStore(d)
+            episodes = {
+                episode['path']: episode
+                for anime in reopened.catalog()
+                for season in anime['seasons']
+                for episode in season['episodes']
+            }
+            self.assertTrue(episodes[first['uri']]['missing'])
+            self.assertFalse(episodes[second['uri']]['missing'])
+            self.assertEqual(episodes[first['uri']]['progress'], 35)
+
+    def test_library_sync_retains_folder_account_ownership_across_account_changes(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            first_tree = 'content://tree/account-a'
+            second_tree = 'content://tree/account-b'
+            store.save_account({'id': 'google-a', 'email': 'a@example.com'})
+            store.add_folder(first_tree, name='A', kind='saf', account_id=store.account()['id'])
+            store.save_account({'id': 'google-b', 'email': 'b@example.com'})
+            store.add_folder(second_tree, name='B', kind='saf', account_id=store.account()['id'])
+
+            folders = {folder['path']: folder for folder in store.folders()}
+            self.assertEqual(folders[first_tree]['account_id'], 'google-a')
+            self.assertEqual(folders[second_tree]['account_id'], 'google-b')
+            self.assertEqual(store.account()['id'], 'google-b')
+
+
+
 class DetailsViewTests(unittest.TestCase):
     class FakePage:
         def __init__(self):

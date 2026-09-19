@@ -1165,6 +1165,22 @@ class OrganizeTests(unittest.TestCase):
             catalog = store.catalog()
             self.assertEqual([item['id'] for item in LibraryService.browse_catalog(catalog, state='Concluídos')], [anime])
 
+    def test_catalog_current_episode_ignores_missing_completed_history(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('catalog-missing', {'title': 'Catalog Missing', 'genres': '[]'})
+            first = '/library/catalog-01.mkv'
+            second = '/library/catalog-02.mkv'
+            store.upsert_episode(anime, first, 'Catalog 01', 1, 1)
+            store.upsert_episode(anime, second, 'Catalog 02', 1, 2)
+            store.save_progress(first, 95, 100)
+            with store._conn() as con:
+                con.execute('UPDATE episodes SET missing=1 WHERE path=?', (first,))
+            catalog = store.catalog()
+            entry = next(item for item in catalog if item['id'] == anime)
+            self.assertEqual(entry['current_episode']['path'], second)
+            self.assertEqual(entry['current_episode']['progress'], 0)
+
     def test_resume_ignores_completed_episode_that_is_now_missing(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

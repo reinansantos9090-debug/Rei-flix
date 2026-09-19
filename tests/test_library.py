@@ -881,6 +881,32 @@ class LibraryBrowseTests(unittest.TestCase):
             view = HomeView.build(FakePage(), LibraryService(LibraryStore(d)), lambda _: None, lambda: None, lambda *args, **kwargs: None)
         self.assertEqual(view.content.controls[0].__class__.__name__, 'Row')
 
+    def test_home_continuation_uses_anime_and_episode_title_for_player(self):
+        class FakePage:
+            def update(self): pass
+            def run_thread(self, work): work()
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('attack', {'title': 'Attack on Titan', 'genres': '[]'})
+            path = '/attack-01.mkv'
+            store.upsert_episode(anime, path, 'Attack - 01.mkv', 1, 1)
+            store.save_progress(path, 25, 100)
+            played = []
+            view = HomeView.build(
+                FakePage(), LibraryService(store), lambda _: None, lambda: None,
+                lambda path, title, **kwargs: played.append((path, title, kwargs)),
+            )
+            def walk(control):
+                yield control
+                for child in getattr(control, 'controls', []) or []:
+                    yield from walk(child)
+                if getattr(control, 'content', None) is not None:
+                    yield from walk(control.content)
+            card = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
+                        item.on_click and getattr(item, 'width', None) == 270)
+            card.on_click(None)
+            self.assertEqual(played[0], (path, 'Attack on Titan • T1 E1', {'progress_seconds': 25}))
+
     def test_home_reuses_query_filter_and_sort_state_after_a_round_trip(self):
         class FakePage:
             def update(self): pass

@@ -93,7 +93,12 @@ class MainActivity : FlutterFragmentActivity() {
         }
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan").put("payload", SafScanner.scan(this@MainActivity, treeUri)))
+                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan_progress").put("payload", JSONObject().put("treeUri", reference).put("phase", "started")))
+                val result = SafScanner.scan(this@MainActivity, treeUri) { progress ->
+                    NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan_progress")
+                        .put("payload", progress.put("treeUri", reference).put("phase", "scanning")))
+                }
+                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan").put("payload", result))
             } catch (exception: Exception) {
                 Log.e(tag, "SAF scan failed", exception)
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_error").put("message", "Não foi possível atualizar esta pasta autorizada.")

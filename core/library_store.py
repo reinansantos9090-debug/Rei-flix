@@ -261,12 +261,19 @@ class LibraryStore:
     @staticmethod
     def _episode_order_key(episode):
         number = episode.get("number")
+        if number is None:
+            return (
+                episode.get("season") or 1,
+                0,
+                (episode.get("file_name") or "").casefold(),
+                (episode.get("path") or "").casefold(),
+            )
         return (
-            episode.get("season") or 0,
-            0 if number is not None else 1,
-            number if number is not None else 0,
+            episode.get("season") or 1,
+            1,
+            number,
             (episode.get("file_name") or "").casefold(),
-            episode.get("path") or "",
+            (episode.get("path") or "").casefold(),
         )
 
     @staticmethod

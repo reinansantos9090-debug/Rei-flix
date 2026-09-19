@@ -143,10 +143,16 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("ArrayDeque<Pair<DocumentFile, String>>()", scanner)
         self.assertIn("pending.removeLast()", scanner)
         self.assertIn('put("partial", partial)', scanner)
+        self.assertIn("DocumentsContract.buildChildDocumentsUriUsingTree", scanner)
+        self.assertIn("DocumentsContract.buildDocumentUriUsingTree", scanner)
+        self.assertIn("COLUMN_DOCUMENT_ID", scanner)
+        self.assertIn("COLUMN_MIME_TYPE", scanner)
+        self.assertIn("Log.i(", scanner)
 
     def test_native_player_entry_rejects_non_local_deep_link_uris(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn('localUri.scheme != "content"', main)
+        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn('"Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."', main)
 
     def test_google_identity_emits_only_token_free_validated_profile_fields(self):

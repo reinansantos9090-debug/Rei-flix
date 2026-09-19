@@ -110,9 +110,9 @@ dependencies = [
     "androidx.documentfile:documentfile:1.0.1",
     "androidx.media3:media3-exoplayer:1.5.1",
     "androidx.media3:media3-ui:1.5.1",
-    "androidx.credentials:credentials:1.3.0",
-    "androidx.credentials:credentials-play-services-auth:1.3.0",
-    "com.google.android.libraries.identity.googleid:googleid:1.1.1",
+    "androidx.credentials:credentials:1.6.0",
+    "androidx.credentials:credentials-play-services-auth:1.6.0",
+    "com.google.android.libraries.identity.googleid:googleid:1.2.1",
 ]
 gradle = next((app / candidate for candidate in ("build.gradle.kts", "build.gradle") if (app / candidate).is_file()), None)
 if gradle is None:

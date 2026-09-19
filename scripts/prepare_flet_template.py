@@ -143,6 +143,7 @@ def main() -> int:
         source / "src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/SafScanner.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/MediaStoreScanner.kt",
+        source / "src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/GoogleIdentity.kt",
         source / "src/main/res/values/styles.xml",

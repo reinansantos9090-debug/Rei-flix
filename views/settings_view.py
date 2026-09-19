@@ -14,10 +14,10 @@ from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEX
 class SettingsView:
     @staticmethod
     def build(page, store, library, on_back, on_catalog_changed, on_add_folder, on_remove_folder,
-              on_refresh_library, on_login, on_logout, account, account_state="disconnected",
+              on_refresh_library, on_request_video_access, on_open_broad_storage, on_login, on_logout, account, account_state="disconnected",
               folder_selection_pending=lambda: False, on_resolve_match=lambda _lookup, _id: None):
         status = ft.Text("", color="#9DA3B4", size=12)
-        busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False}
+        busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False, "permission": False}
 
         def notice(message, error=False):
             status.value = message
@@ -45,6 +45,55 @@ class SettingsView:
 
         folders = store.folders()
         summary = store.library_summary()
+        broad_folder = next((f for f in folders if f.get("kind") == "broad_storage"), None)
+        media_folder = next((f for f in folders if f.get("kind") == "mediastore"), None)
+        broad_granted = bool(broad_folder and broad_folder.get("authorization") == "granted")
+        media_granted = bool(media_folder and media_folder.get("authorization") == "granted")
+
+        def show_video_permission_dialog(_=None):
+            if busy["permission"]:
+                return
+            dialog = None
+            async def allow(_event):
+                busy["permission"] = True
+                try:
+                    dialog.close()
+                    page.update()
+                    await on_request_video_access()
+                    notice("Solicitação de permissão para ler vídeos enviada ao Android…")
+                except Exception:
+                    notice("Não foi possível solicitar a permissão para ler vídeos.", error=True)
+                finally:
+                    busy["permission"] = False
+                    page.update()
+            dialog = ft.AlertDialog(
+                modal=True,
+                icon=ft.Icon(ft.Icons.SETTINGS_OUTLINED, size=40),
+                title=ft.Text("Permissão necessária"),
+                content=ft.Text("Permissão para ler vídeos"),
+                actions=[
+                    ft.TextButton("CANCELAR", on_click=lambda _: dialog.close()),
+                    ft.FilledButton("PERMITIR", on_click=allow),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.overlay.append(dialog)
+            dialog.open = True
+            page.update()
+
+        async def open_broad_storage(_=None):
+            if busy["permission"]:
+                return
+            busy["permission"] = True
+            try:
+                await on_open_broad_storage()
+                notice("Abrindo as configurações do Android para permitir o acesso ao armazenamento…")
+            except Exception:
+                notice("Não foi possível abrir a configuração de armazenamento.", error=True)
+            finally:
+                busy["permission"] = False
+                page.update()
+
         pending_matches = store.pending_matches()
         folder_lines = []
         for folder in folders:
@@ -118,6 +167,34 @@ class SettingsView:
                 scan_button.disabled = waiting_native_result
                 page.update()
         scan_button.on_click = scan
+
+        video_permission_button = ft.FilledButton(
+            "Permitir leitura de vídeos" if not media_granted else "Permissão de vídeos concedida",
+            icon=ft.Icons.VIDEO_LIBRARY_OUTLINED,
+            disabled=media_granted,
+            on_click=show_video_permission_dialog,
+        )
+        broad_storage_button = ft.OutlinedButton(
+            "Permitir acesso ao armazenamento" if not broad_granted else "Acesso ao armazenamento concedido",
+            icon=ft.Icons.FOLDER_OPEN_OUTLINED,
+            disabled=broad_granted,
+            on_click=open_broad_storage,
+        )
+        permission_lines = [
+            ft.Text(
+                "✓ Permissão para ler vídeos" if media_granted else "⚠ Permissão para ler vídeos ainda não concedida",
+                color="#9FE3B1" if media_granted else "#FFB4AB", size=11,
+            ),
+            ft.Text(
+                "✓ Acesso amplo ao armazenamento" if broad_granted else "⚠ Acesso amplo ao armazenamento ainda não concedido",
+                color="#9FE3B1" if broad_granted else "#FFB4AB", size=11,
+            ),
+            ft.Row([video_permission_button, broad_storage_button], wrap=True, spacing=8, run_spacing=8),
+            ft.Text(
+                "O acesso amplo permite procurar vídeos em várias pastas locais. O Android pode exigir uma confirmação separada nas Configurações.",
+                color="#AAA7B6", size=10,
+            ),
+        ]
 
         resume_switch = ft.Switch(label="Continuar do progresso salvo", value=store.get_preference("resume_playback", "true") == "true")
         def save_resume(event):
@@ -228,6 +305,7 @@ class SettingsView:
             section("CONTA", ft.Icons.PERSON_OUTLINE, account_content),
             section("BIBLIOTECA", ft.Icons.VIDEO_LIBRARY_OUTLINED, ft.Column(folder_lines + [
                 ft.Text(f"{summary['animes']} animes • {summary['episodes']} episódios locais", color="#C7C5D0", size=12),
+                ft.Column(permission_lines, spacing=6),
                 ft.Row([add_folder_button, scan_button], wrap=True),
                 ft.Text(diagnostic, color="#AAA7B6", size=11),
             ], spacing=8)),

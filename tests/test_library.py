@@ -1212,6 +1212,22 @@ class OrganizeTests(unittest.TestCase):
             self.assertIsNone(store.next_episode(last))
             self.assertEqual(store.playback_target(anime)['path'], first)
 
+    def test_browse_search_uses_local_anime_aliases_without_network(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('alias', {
+                'title': 'Shingeki no Kyojin',
+                'english': 'Attack on Titan',
+                'romaji': 'Shingeki no Kyojin',
+                'aliases': '["AOT", "進撃の巨人"]',
+                'genres': '[]',
+            })
+            store.upsert_episode(anime, '/library/aot-01.mkv', 'AOT 01', 1, 1)
+            catalog = store.catalog()
+            self.assertEqual([item['id'] for item in LibraryService.browse_catalog(catalog, query='attack')], [anime])
+            self.assertEqual([item['id'] for item in LibraryService.browse_catalog(catalog, query='進撃')], [anime])
+            self.assertEqual(LibraryService.browse_catalog(catalog, query='one piece'), [])
+
     def test_organize_filters_reuse_favorites_progress_and_missing_rules(self):
         with tempfile.TemporaryDirectory() as d:
             store, action, comedy, plain, paths = self._catalog(d)

@@ -69,6 +69,37 @@ class LibraryAniListCacheTests(unittest.TestCase):
                 cached = store.anime_metadata("naruto")
             self.assertFalse(service._cached_metadata_is_current(cached, 20))
 
+    def test_stale_refresh_keeps_metadata_when_cover_download_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            anime = store.upsert_anime("attack on titan", {
+                "title": "Old title",
+                "anilist_id": 16498,
+                "cover_url": "https://img.example/old.jpg",
+                "cover_cache": "",
+                "genres": "[]",
+            })
+            with store._conn() as con:
+                con.execute(
+                    "UPDATE anime SET metadata_updated_at=? WHERE id=?",
+                    (time.time() - LibraryService.METADATA_CACHE_SECONDS - 1, anime),
+                )
+            service = LibraryService(store)
+            media = {
+                "id": 16498,
+                "title": {"english": "Attack on Titan", "romaji": "Shingeki no Kyojin"},
+                "coverImage": {"extraLarge": "https://img.example/new.jpg"},
+                "genres": ["Action"],
+            }
+            with patch.object(service.anilist, "by_id", return_value=media), patch.object(
+                service.anilist, "cache_cover", return_value=""
+            ):
+                refreshed = service._identify("attack on titan", "Attack on Titan", lambda _: None)
+            self.assertEqual(refreshed["title"], "Attack on Titan")
+            self.assertEqual(refreshed["anilist_id"], 16498)
+            persisted = store.anime_metadata("attack on titan")
+            self.assertEqual(persisted["title"], "Attack on Titan")
+
     def test_association_mismatch_forces_refresh(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

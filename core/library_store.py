@@ -259,30 +259,26 @@ class LibraryStore:
         return bool(updated)
 
     @staticmethod
+    def _episode_order_key(episode):
+        number = episode.get("number")
+        return (
+            episode.get("season") or 0,
+            0 if number is not None else 1,
+            number if number is not None else 0,
+            (episode.get("file_name") or "").casefold(),
+            episode.get("path") or "",
+        )
+
+    @staticmethod
     def _adjacent_from_rows(current, available, direction):
         if not current:
             return None
-        current_key = (
-            current["season"],
-            current["number"] if current["number"] is not None else -1,
-            current["file_name"],
-        )
-        ordered = sorted(
-            available,
-            key=lambda episode: (
-                episode["season"],
-                episode["number"] if episode["number"] is not None else -1,
-                episode["file_name"].casefold(),
-            ),
-        )
+        current_key = LibraryStore._episode_order_key(current)
+        ordered = sorted(available, key=LibraryStore._episode_order_key)
         if direction < 0:
             ordered.reverse()
         for episode in ordered:
-            key = (
-                episode["season"],
-                episode["number"] if episode["number"] is not None else -1,
-                episode["file_name"],
-            )
+            key = LibraryStore._episode_order_key(episode)
             if (direction > 0 and key > current_key) or (direction < 0 and key < current_key):
                 return episode
         return None
@@ -324,6 +320,7 @@ class LibraryStore:
     def _current_from_rows(episodes):
         """Choose a playable current episode using one shared availability policy."""
         available = [episode for episode in episodes if not episode.get("missing", False)]
+        available.sort(key=LibraryStore._episode_order_key)
         if not available:
             return None
 
@@ -378,11 +375,7 @@ class LibraryStore:
             ).fetchall()
         ordered = sorted(
             (dict(row) for row in rows),
-            key=lambda episode: (
-                episode["season"],
-                episode["number"] if episode["number"] is not None else -1,
-                episode["file_name"].casefold(),
-            ),
+            key=self._episode_order_key,
         )
         return ordered[0] if ordered else None
 

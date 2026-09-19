@@ -33,25 +33,26 @@ class AndroidBridge:
             or os.getenv("ANDROID_ARGUMENT") is not None
         )
 
-    def _launch(self, action: str, **params):
+    async def _launch(self, action: str, **params):
         if not self.available:
             raise RuntimeError("A ponte Android está disponível somente no APK ReiFlix.")
         query = urlencode({"action": action, **{k: v for k, v in params.items() if v is not None}})
         url = f"reiflix://native?{query}"
-        # The bridge URI belongs to the Rei-flix Android host, not a browser.
-        # Explicitly selecting the non-browser resolver avoids Android/Flet
-        # treating the custom scheme as a web URL and silently doing nothing.
-        self.page.launch_url(url, mode=ft.LaunchMode.EXTERNAL_NON_BROWSER_APPLICATION)
+        # Flet's URL launcher is asynchronous. Without await, Android never
+        # receives the custom-scheme intent.
+        await self.page.launch_url(
+            url, mode=ft.LaunchMode.EXTERNAL_NON_BROWSER_APPLICATION
+        )
 
-    def select_tree(self): self._launch("select_tree")
-    def rescan_tree(self, tree_uri: str): self._launch("scan_tree", tree_uri=tree_uri)
-    def verify_tree(self, tree_uri: str): self._launch("verify_tree", tree_uri=tree_uri)
-    def sign_in(self, server_client_id: str): self._launch("google_sign_in", server_client_id=server_client_id)
-    def play(self, uri: str, title: str, position_ms: int = 0, *, can_next=False, can_previous=False):
+    async def select_tree(self): await self._launch("select_tree")
+    async def rescan_tree(self, tree_uri: str): await self._launch("scan_tree", tree_uri=tree_uri)
+    async def verify_tree(self, tree_uri: str): await self._launch("verify_tree", tree_uri=tree_uri)
+    async def sign_in(self, server_client_id: str): await self._launch("google_sign_in", server_client_id=server_client_id)
+    async def play(self, uri: str, title: str, position_ms: int = 0, *, can_next=False, can_previous=False):
         if not self.is_local_media_reference(uri):
             raise ValueError("A reprodução aceita somente arquivos locais ou URIs content://.")
-        self._launch("play", uri=uri, title=title, position_ms=max(0, int(position_ms)),
-                     can_next=str(bool(can_next)).lower(), can_previous=str(bool(can_previous)).lower())
+        await self._launch("play", uri=uri, title=title, position_ms=max(0, int(position_ms)),
+                           can_next=str(bool(can_next)).lower(), can_previous=str(bool(can_previous)).lower())
 
     @staticmethod
     def is_local_media_reference(uri: str) -> bool:

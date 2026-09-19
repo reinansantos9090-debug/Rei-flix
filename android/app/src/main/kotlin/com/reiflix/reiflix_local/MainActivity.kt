@@ -97,7 +97,7 @@ class MainActivity : FlutterFragmentActivity() {
     private fun openPlayer(data: Uri?) {
         val episodeUri = data?.getQueryParameter("uri") ?: return
         val localUri = Uri.parse(episodeUri)
-        if (!SafScanner.isAuthorizedDocument(this, localUri)) {
+        if (localUri.scheme != "content" || !SafScanner.isAuthorizedDocument(this, localUri)) {
             Log.w(tag, "Rejected unauthorized local media URI")
             NativeMailbox.write(this, JSONObject().put("type", "player_error")
                 .put("message", "Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."))

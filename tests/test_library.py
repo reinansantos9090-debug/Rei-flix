@@ -962,6 +962,29 @@ class DetailsDomainTests(unittest.TestCase):
             self.assertEqual(target['path'], second)
             self.assertEqual(target['anime_title'], 'Player Title')
 
+    def test_playback_target_respects_season_order_when_numbers_repeat(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('seasons', {'title': 'Seasons', 'genres': '[]'})
+            s1 = '/library/season1-01.mkv'
+            s2 = '/library/season2-01.mkv'
+            store.upsert_episode(anime, s1, 'Season 1 - 01.mkv', 1, 1)
+            store.upsert_episode(anime, s2, 'Season 2 - 01.mkv', 2, 1)
+            store.save_progress(s1, 95, 100)
+            target = store.playback_target(anime)
+            self.assertEqual(target['path'], s2)
+            self.assertEqual(store.previous_episode(s2)['path'], s1)
+
+    def test_adjacent_episode_orders_unparsed_numbers_by_filename(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('unparsed-order', {'title': 'Unparsed', 'genres': '[]'})
+            first = '/library/episode-alpha.mkv'
+            second = '/library/episode-beta.mkv'
+            store.upsert_episode(anime, first, 'Episode Alpha', 1, None)
+            store.upsert_episode(anime, second, 'Episode Beta', 1, None)
+            self.assertEqual(store.next_episode(first)['path'], second)
+            self.assertEqual(store.previous_episode(second)['path'], first)
     def test_catalog_persists_resume_and_next_episode_after_reopen(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

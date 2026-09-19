@@ -8,7 +8,6 @@ Desktop deliberately reports this bridge as unavailable.
 from __future__ import annotations
 import json
 import logging
-from contextlib import contextmanager
 import os
 from pathlib import Path
 from urllib.parse import urlencode
@@ -71,6 +70,22 @@ class AndroidBridge:
         claimed: list[Path] = []
         try:
             self.queue_dir.mkdir(parents=True, exist_ok=True)
+            legacy = self.mailbox.with_suffix(".consumed")
+            if self.mailbox.exists():
+                try:
+                    self.mailbox.replace(legacy)
+                except OSError:
+                    pass
+                else:
+                    try:
+                        payload = json.loads(legacy.read_text(encoding="utf-8"))
+                        if isinstance(payload, list):
+                            events.extend(event for event in payload if isinstance(event, dict))
+                        elif isinstance(payload, dict):
+                            events.append(payload)
+                        claimed.append(legacy)
+                    except (OSError, json.JSONDecodeError):
+                        legacy.unlink(missing_ok=True)
             for source in sorted(self.queue_dir.glob("event-*.json")):
                 consumed = source.with_suffix(".consumed")
                 try:

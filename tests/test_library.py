@@ -882,6 +882,32 @@ class LibraryBrowseTests(unittest.TestCase):
             view = HomeView.build(FakePage(), LibraryService(LibraryStore(d)), lambda _: None, lambda: None, lambda *args, **kwargs: None)
         self.assertEqual(view.content.controls[0].__class__.__name__, 'Row')
 
+    def test_home_does_not_label_missing_episode_as_fully_completed(self):
+        class FakePage:
+            def update(self): pass
+            def run_thread(self, work): work()
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('partial-complete', {'title': 'Partial Complete', 'genres': '[]'})
+            available = '/partial-01.mkv'
+            missing = '/partial-02.mkv'
+            store.upsert_episode(anime, available, 'Partial - 01.mkv', 1, 1)
+            store.upsert_episode(anime, missing, 'Partial - 02.mkv', 1, 2)
+            store.save_progress(available, 95, 100)
+            store.mark_missing('/partial', [])
+            view = HomeView.build(FakePage(), LibraryService(store), lambda _: None, lambda: None,
+                                  lambda *args, **kwargs: None)
+            texts = []
+            def walk(control):
+                if control.__class__.__name__ == 'Text' and getattr(control, 'value', None):
+                    texts.append(control.value)
+                for child in getattr(control, 'controls', []) or []:
+                    walk(child)
+                if getattr(control, 'content', None) is not None:
+                    walk(control.content)
+            walk(view)
+            self.assertNotIn('Concluído', texts)
+
     def test_home_continuation_uses_anime_and_episode_title_for_player(self):
         class FakePage:
             def update(self): pass

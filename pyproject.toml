@@ -9,6 +9,12 @@ org = "com.reiflix"
 product = "ReiFlix Local"
 company = "ReiFlix"
 
+# The custom scheme is used only for intents handled by the bundled Android
+# MainActivity (SAF, Credential Manager and the native local player).
+[tool.flet.android.deep_linking]
+scheme = "reiflix"
+host = "native"
+
 # INTERNET is a normal permission, used only for AniList metadata, cached cover
 # downloads, and the configured OAuth/OIDC flow. Folder access is delegated to
 # the user-selected directory; no broad storage permission is requested.

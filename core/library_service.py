@@ -163,7 +163,14 @@ class LibraryService:
         for document in documents:
             uri, name = document.get("uri"), document.get("name")
             relative_path = document.get("relativePath") or document.get("path") or name
-            if not uri or not name: continue
+            if not uri or not name:
+                continue
+            # SAF documents are the native local-media contract. Rejecting
+            # anything else here prevents a malformed bridge payload from
+            # silently creating a playable row that Android cannot authorize.
+            if not isinstance(uri, str) or not uri.startswith("content://"):
+                scan_errors.append(f"Referência local inválida para {name}.")
+                continue
             seen.append(uri)
             try:
                 item = parse_video_path(relative_path, tree_uri)

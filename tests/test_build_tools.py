@@ -231,6 +231,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn('localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri)', main)
         self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
+        self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", main)
         self.assertIn('"Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."', main)
 
     def test_native_player_rechecks_saf_authorization_before_media3_start(self):
@@ -267,6 +268,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("startActivity(Intent(this, NativePlayerActivity::class.java)", main)
         self.assertIn('uri.scheme == "content" && SafScanner.isAuthorizedDocument(this, uri)', player)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", player)
+        self.assertIn("BroadStorageScanner.isAuthorizedFile(this, uri)", player)
         self.assertIn('reportError("Arquivo local inválido.")', player)
         self.assertIn("finish()", player)
 
@@ -277,7 +279,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", player)
         self.assertIn("MediaItem.Builder().setUri(uri)", player)
-        self.assertIn('return bool(uri) and uri.startswith("content://")', bridge)
+        self.assertIn('return bool(uri) and (uri.startswith("content://") or uri.startswith("file://"))', bridge)
         self.assertNotIn("Uri.fromFile", main + player)
         self.assertNotIn("/storage/emulated/0", main + player)
 

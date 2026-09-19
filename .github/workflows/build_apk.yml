@@ -9,7 +9,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
 
@@ -33,18 +32,14 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: "platform-tools build-tools;35.0.0 platforms;android-35 cmdline-tools;latest"
+          packages: 'platform-tools build-tools;35.0.0 platforms;android-35 cmdline-tools;latest'
 
       - name: Accept Android SDK Licenses
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Install Android platform
-        run: |
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+        run: sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -66,115 +61,25 @@ jobs:
           while IFS= read -r -d '' file; do
             python -m json.tool "$file" >/dev/null
             echo "Valid JSON: $file"
-          done < <(
-            find . \
-              -path './.git' -prune -o \
-              -path './build' -prune -o \
-              -type f -name '*.json' -print0
-          )
+          done < <(find . -path './.git' -prune -o -path './build' -prune -o -type f -name '*.json' -print0)
 
       - name: Validate Python application
         run: |
           python -m compileall -q main.py app_config.py core views
           git diff --check
 
-      - name: Download exact Flet 0.86.5 build template
-        shell: bash
-        run: |
-          rm -rf build/flet-build-template
-          mkdir -p build
-
-          curl -fL \
-            "https://github.com/flet-dev/flet/releases/download/v0.86.5/flet-build-template.zip" \
-            -o /tmp/flet-build-template.zip
-
-          rm -rf /tmp/flet-template
-          mkdir -p /tmp/flet-template
-
-          python - <<'PY'
-          from pathlib import Path
-          from zipfile import ZipFile
-          import shutil
-
-          archive = Path("/tmp/flet-build-template.zip")
-          destination = Path("/tmp/flet-template")
-
-          with ZipFile(archive) as z:
-              z.extractall(destination)
-
-          candidates = list(destination.rglob("cookiecutter.json"))
-
-          if not candidates:
-              raise SystemExit(
-                  "ERRO: cookiecutter.json não encontrado no template Flet 0.86.5."
-              )
-
-          if len(candidates) > 1:
-              raise SystemExit(
-                  "ERRO: mais de um cookiecutter.json encontrado no template."
-              )
-
-          template = candidates[0].parent
-          output = Path("build/flet-build-template")
-
-          output.parent.mkdir(parents=True, exist_ok=True)
-          shutil.copytree(template, output)
-
-          print(f"Template Flet 0.86.5 preparado em: {output}")
-          PY
-
-          test -f build/flet-build-template/cookiecutter.json
-
-      - name: Prepare Flet build template with Android host
-        run: |
-          python scripts/prepare_flet_template.py \
-            --template build/flet-build-template \
-            --overlay android
-
-      - name: Validate prepared Android host
-        shell: bash
-        run: |
-          test -f build/flet-build-template/cookiecutter.json
-          test -f build/flet-build-template/hooks/post_gen_project.py
-
-          test -f build/flet-build-template/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt
-          test -f build/flet-build-template/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt
-          test -f build/flet-build-template/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/SafScanner.kt
-          test -f build/flet-build-template/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt
-          test -f build/flet-build-template/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/GoogleIdentity.kt
-
-          echo "Template e Android host validados."
-
       - name: Build APK
-        shell: bash
-        run: |
-          flet build apk \
-            --template build/flet-build-template \
-            --yes \
-            -v
+        run: flet build apk --yes -v
 
       - name: Locate APK
         id: apk
         shell: bash
         run: |
           apk="$(find build -type f -name '*.apk' -print -quit)"
-
           test -n "$apk"
           test -s "$apk"
-
-          echo "APK encontrado:"
-          echo "$apk"
-
           echo "path=$apk" >> "$GITHUB_OUTPUT"
-
           file "$apk"
-
-      - name: Verify Android host packaging
-        shell: bash
-        run: |
-          apk="${{ steps.apk.outputs.path }}"
-
-          python scripts/verify_android_host.py "$apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -182,3 +87,4 @@ jobs:
           name: reiflix-local-apk
           path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
+

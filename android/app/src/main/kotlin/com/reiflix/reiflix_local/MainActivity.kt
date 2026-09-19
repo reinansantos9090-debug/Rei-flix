@@ -64,6 +64,7 @@ class MainActivity : FlutterFragmentActivity() {
             "select_tree" -> openTreePicker()
             "scan_tree" -> scanTree(intent.data?.getQueryParameter("tree_uri"))
             "verify_tree" -> verifyTree(intent.data?.getQueryParameter("tree_uri"))
+            "release_tree" -> releaseTree(intent.data?.getQueryParameter("tree_uri"))
             "google_sign_in" -> signInWithGoogle(intent.data?.getQueryParameter("server_client_id"))
             "play" -> openPlayer(intent.data)
         }
@@ -85,6 +86,24 @@ class MainActivity : FlutterFragmentActivity() {
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_error").put("message", "Não foi possível atualizar esta pasta autorizada.")
                     .put("payload", JSONObject().put("treeUri", reference)))
             }
+        }
+    }
+    private fun releaseTree(reference: String?) {
+        if (reference.isNullOrBlank()) return
+        val treeUri = Uri.parse(reference)
+        try {
+            contentResolver.releasePersistableUriPermission(
+                treeUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+            Log.i(tag, "SAF permission released")
+            NativeMailbox.write(this, JSONObject().put("type", "saf_released")
+                .put("payload", JSONObject().put("treeUri", reference)))
+        } catch (exception: Exception) {
+            Log.e(tag, "Failed to release SAF permission", exception)
+            NativeMailbox.write(this, JSONObject().put("type", "saf_error")
+                .put("message", "Não foi possível liberar a permissão desta pasta.")
+                .put("payload", JSONObject().put("treeUri", reference)))
         }
     }
     private fun verifyTree(reference: String?) {

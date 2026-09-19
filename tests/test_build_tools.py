@@ -132,6 +132,16 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn('File(context.filesDir, "data")', mailbox)
         self.assertIn('val target = File(dataDirectory, FILE)', mailbox)
 
+    def test_refresh_recovers_when_a_saf_scan_cannot_start(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        start = source.index("            if saf_folders and bridge.available:")
+        end = source.index("            result = await asyncio.to_thread(library.scan)", start)
+        block = source[start:end]
+        self.assertIn("pending_native_scans[0] = 0", block)
+        self.assertIn("except Exception:", block)
+        self.assertIn('update_folder_status(folder[\'path\'], "granted"', block)
+        self.assertIn("pending_native_scans[0] > 0", block)
+
     def test_folder_removal_is_blocked_while_refresh_is_active(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         start = source.index("    def remove_folder(reference):")

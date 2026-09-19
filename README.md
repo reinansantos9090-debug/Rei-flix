@@ -4,6 +4,10 @@ ReiFlix é uma biblioteca para vídeos de anime que o usuário já possui no
 Android. Os arquivos não são enviados para servidor algum; AniList é usado
 somente para metadados/capas.
 
+## Android 16
+
+O projeto configura `target_sdk_version = 36` e prepara o build para o Android 16 (API 36). O teste final de permissões e descoberta deve ser feito em um dispositivo Android 16 real, porque a suíte Python não consegue provar o comportamento das Configurações do sistema, MediaStore ou provedores SAF.
+
 ## Execução Python
 
 ```bash
@@ -18,7 +22,7 @@ O banco SQLite e o cache de capas ficam no diretório privado definido por
 ## Android e APK
 
 O projeto fixa `flet==0.86.5`. A própria distribuição instalada declara
-**Flutter 3.44.8**; Java 17 e Android SDK 35 são o contrato de build. O código
+**Flutter 3.44.8**; Java 17 e Android SDK 36 são o contrato de build. O código
 em [`android/`](android/README.md) é um overlay do host Flutter gerado pelo
 Flet, não um aplicativo Android independente.
 

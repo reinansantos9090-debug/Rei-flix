@@ -132,6 +132,14 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn('File(context.filesDir, "data")', mailbox)
         self.assertIn('val target = File(dataDirectory, FILE)', mailbox)
 
+    def test_folder_removal_is_blocked_while_refresh_is_active(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        start = source.index("    def remove_folder(reference):")
+        end = source.index("    def account():", start)
+        block = source[start:end]
+        self.assertIn("if scan_in_progress[0] or saf_selection.pending:", block)
+        self.assertIn("store.remove_folder(reference)", block)
+
     def test_settings_exposes_folder_removal_callback(self):
         settings = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
         main = (ROOT / "main.py").read_text(encoding="utf-8")

@@ -125,7 +125,13 @@ class LibraryStore:
                       (authorization, error, time.time(), reference))
 
     def remove_folder(self, reference):
+        """Remove a configured folder while preserving its episodes as missing.
+
+        Playback progress, favorites and anime metadata remain durable; only
+        episodes owned by the removed source stop being playable.
+        """
         with self._conn() as c:
+            c.execute("UPDATE episodes SET missing=1 WHERE source_folder=?", (reference,))
             c.execute("DELETE FROM folders WHERE path=?", (reference,))
 
     def begin_scan(self):

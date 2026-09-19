@@ -23,6 +23,22 @@ class AndroidBridge:
         self.mailbox = self.data_dir / MAILBOX
         self.queue_dir = self.data_dir / "reiflix-native-events"
         self._claimed: list[Path] = []
+        self._recover_unacknowledged_batches()
+
+    def _recover_unacknowledged_batches(self) -> None:
+        """Return batches left in .consumed form by a previous Python process."""
+        try:
+            self.queue_dir.mkdir(parents=True, exist_ok=True)
+            legacy = self.mailbox.with_suffix(".consumed")
+            if legacy.exists() and not self.mailbox.exists():
+                legacy.replace(self.mailbox)
+            for consumed in sorted(self.queue_dir.glob("event-*.consumed")):
+                target = consumed.with_suffix(".json")
+                if target.exists():
+                    continue
+                consumed.replace(target)
+        except OSError as exc:
+            logger.warning("[ANDROID] Failed to recover unacknowledged batches: %s", exc)
 
     @property
     def available(self) -> bool:

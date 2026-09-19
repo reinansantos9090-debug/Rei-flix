@@ -9,6 +9,7 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
         self.assertIn("MANAGE_EXTERNAL_STORAGE", manifest)
         self.assertIn("Environment.isExternalStorageManager()", scanner)
+        self.assertIn("Environment.getStorageDirectory()", scanner)
         self.assertIn("fun accessSnapshot(context: Context): JSONObject", scanner)
         self.assertIn('child == "data" || child == "obb"', scanner)
 

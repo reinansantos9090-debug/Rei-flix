@@ -47,19 +47,16 @@ class LibraryService:
         except (TypeError, ValueError):
             return False
 
-        # Metadata has its own long TTL; a failed cover is retried separately.
-        if age >= self.METADATA_CACHE_SECONDS:
-            return False
-
+        # A previously expected cover has its own short retry window.
+        # This check must happen before the long metadata TTL: metadata can
+        # still be fresh while a missing cover is already due for retry.
         cover_cache = (cached.get("cover_cache") or "").strip()
-        if (
-            cover_cache
-            and not Path(cover_cache).is_file()
-            and age >= self.COVER_RETRY_SECONDS
-        ):
-            return False
+        if cover_cache and not Path(cover_cache).is_file():
+            return age < self.COVER_RETRY_SECONDS
 
-        return True
+        # An empty/missing cover cache is valid metadata state. In that case,
+        # only the normal metadata TTL controls freshness.
+        return age < self.METADATA_CACHE_SECONDS
 
     def _identify(self, lookup_title, display_title, on_status):
         """Resolve local title to cached/remote AniList metadata without guessing.

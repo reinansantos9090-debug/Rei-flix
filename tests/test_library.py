@@ -985,6 +985,29 @@ class DetailsDomainTests(unittest.TestCase):
             store.upsert_episode(anime, second, 'Episode Beta', 1, None)
             self.assertEqual(store.next_episode(first)['path'], second)
             self.assertEqual(store.previous_episode(second)['path'], first)
+    def test_browse_recently_played_ignores_missing_episode_history(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            first = store.upsert_anime('recent-a', {'title': 'Recent A', 'genres': '[]'})
+            second = store.upsert_anime('recent-b', {'title': 'Recent B', 'genres': '[]'})
+            a_available = '/library/recent-a-available.mkv'
+            a_missing = '/library/recent-a-missing.mkv'
+            b_available = '/library/recent-b-available.mkv'
+            store.upsert_episode(first, a_available, 'A Available', 1, 1)
+            store.upsert_episode(first, a_missing, 'A Missing', 1, 2)
+            store.upsert_episode(second, b_available, 'B Available', 1, 1)
+            store.save_progress(a_available, 20, 100)
+            store.save_progress(a_missing, 20, 100)
+            store.save_progress(b_available, 20, 100)
+            with store._conn() as con:
+                con.execute('UPDATE episodes SET missing=1 WHERE path=?', (a_missing,))
+                con.execute('UPDATE episodes SET last_played_at=100 WHERE path=?', (a_available,))
+                con.execute('UPDATE episodes SET last_played_at=300 WHERE path=?', (a_missing,))
+                con.execute('UPDATE episodes SET last_played_at=200 WHERE path=?', (b_available,))
+            catalog = store.catalog()
+            ordered = LibraryService.browse_catalog(catalog, sort='Assistidos recentemente')
+            self.assertEqual([item['main_title'] for item in ordered], ['Recent B', 'Recent A'])
+
     def test_catalog_persists_resume_and_next_episode_after_reopen(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

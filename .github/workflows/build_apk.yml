@@ -71,8 +71,25 @@ jobs:
       - name: Prepare Flet build template with Android host
         run: |
           mkdir -p build
-          git clone --depth 1 --branch 0.83.0 https://github.com/flet-dev/flet-build-template.git build/flet-build-template
+          git clone --depth 1 https://github.com/flet-dev/flet-build-template.git build/flet-build-template
           python scripts/prepare_flet_template.py --template build/flet-build-template --overlay android
+
+      - name: Fix generated JSON files
+        shell: bash
+        run: |
+          python -c "
+          import glob, json, re
+          for path in glob.glob('build/flet-build-template/**/*.json', recursive=True):
+              try:
+                  with open(path, 'r', encoding='utf-8') as f:
+                      content = f.read()
+                  cleaned = re.sub(r',(\s*[\}\]])', r'\1', content)
+                  data = json.loads(cleaned)
+                  with open(path, 'w', encoding='utf-8') as f:
+                      json.dump(data, f, indent=2)
+              except Exception as e:
+                  pass
+          "
 
       - name: Build APK
         run: flet build apk --template build/flet-build-template --yes -v

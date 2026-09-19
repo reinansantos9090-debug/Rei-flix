@@ -155,6 +155,11 @@ async def main(page: ft.Page):
                 # SAF and MediaStore scans share the same native completion lock,
                 # but each source is persisted and marked-missing independently.
                 pending_native_scans[0] = 0
+                pending_native_scans[0] += 1
+                try:
+                    await bridge.scan_all_storage()
+                except Exception:
+                    pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
                 for folder in saf_folders:
                     pending_native_scans[0] += 1
                     try:
@@ -258,6 +263,38 @@ async def main(page: ft.Page):
                     finally:
                         finish_native_scan()
                         refresh_settings_if_active()
+                elif event_type == 'broad_storage_scan_progress':
+                    files = int(payload.get('files') or 0)
+                    videos = int(payload.get('videos') or 0)
+                    directories = int(payload.get('directories') or 0)
+                    phase = payload.get('phase') or 'scanning'
+                    text = 'Preparando armazenamento local…' if phase == 'started' else f'Verificando armazenamento… {directories} diretórios, {files} arquivos, {videos} vídeos.'
+                    page.snack_bar = ft.SnackBar(ft.Text(text)); page.snack_bar.open = True; page.update()
+                elif event_type == 'broad_storage_scan':
+                    try:
+                        stats = payload.get('stats') or {}
+                        source = payload.get('source') or 'broad-storage'
+                        catalog = await asyncio.to_thread(library.ingest_documents, source, payload.get('documents') or [], folder_name=payload.get('name') or 'Armazenamento local', scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='broad_storage')
+                        store.add_folder(source, name=payload.get('name') or 'Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
+                        videos = int(stats.get('videos') or 0)
+                        partial = bool(payload.get('partial') or stats.get('errors'))
+                        message = ('Armazenamento local atualizado parcialmente. ' if partial else 'Armazenamento local atualizado. ')
+                        message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
+                        page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; page.update()
+                    except Exception:
+                        page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; page.update()
+                    finally:
+                        finish_native_scan(); refresh_settings_if_active()
+                elif event_type == 'broad_storage_permission':
+                    if payload.get('granted'):
+                        store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
+                    else:
+                        store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento ainda não foi concedido.')
+                    refresh_settings_if_active()
+                elif event_type == 'broad_storage_error':
+                    store.update_folder_status('broad-storage', 'revoked', event.get('message', 'Não foi possível acessar o armazenamento local.'))
+                    finish_native_scan(); page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; page.update()
+                    refresh_settings_if_active()
                 elif event_type == 'mediastore_scan_progress':
                     files = int(payload.get('files') or 0)
                     videos = int(payload.get('videos') or 0)

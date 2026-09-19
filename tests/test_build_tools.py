@@ -282,3 +282,29 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn('validatedSubject(credential.idToken, serverClientId)', source)
         self.assertIn('.put("id", subject)', source)
         self.assertNotIn('.put("idToken"', source)
+
+
+class TestSafSelectionRegistration(unittest.TestCase):
+    def test_picker_registers_grant_before_scan(self):
+        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn('put("selected", true)', main)
+        self.assertIn('SafScanner.displayName(this, uri)', main)
+        self.assertLess(main.index('put("selected", true)'), main.index('scanTree(uri.toString())'))
+
+    def test_python_registers_selected_saf_tree_before_ingest_result(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("if payload.get('selected'):", source)
+        self.assertIn("store.add_folder(", source)
+        self.assertIn("kind='saf'", source)
+        self.assertIn("authorization='granted'", source)
+
+    def test_saf_scanner_has_safe_display_name_fallback(self):
+        scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("fun displayName(context: Context, treeUri: Uri): String", scanner)
+        self.assertIn("DocumentFile.fromTreeUri(context, treeUri)?.name", scanner)
+
+    def test_invalid_scan_command_reports_an_error_instead_of_hanging_refresh(self):
+        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn('if (reference.isNullOrBlank()) {', main)
+        self.assertIn('JSONObject().put("type", "saf_error")', main)
+        self.assertIn('A pasta SAF não foi informada corretamente.', main)

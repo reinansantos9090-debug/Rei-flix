@@ -137,6 +137,7 @@ class NativePlayerActivity : ComponentActivity() {
         }
         super.onDestroy()
     }
+    override fun onResume() { super.onResume(); enterImmersiveMode() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) enterImmersiveMode() }
 
     private fun enterImmersiveMode() {

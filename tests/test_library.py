@@ -209,7 +209,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(store.catalog()[0]['main_title'], 'Naruto')
             self.assertEqual(store.get_preference('missing', 'default'), 'default')
             with store._conn() as con:
-                self.assertEqual(con.execute('SELECT version FROM schema_migrations').fetchone()[0], 10)
+                self.assertEqual(con.execute('undefined').fetchone()[0], 11)
 
     def test_clear_anilist_cache_preserves_library_favorite_progress_history_and_association(self):
         with tempfile.TemporaryDirectory() as d:

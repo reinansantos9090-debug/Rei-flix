@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.storage.StorageManager
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -14,6 +15,7 @@ import java.util.ArrayDeque
 import java.util.HashSet
 
 object BroadStorageScanner {
+    private const val TAG = "[REIFLIX][SCANNER]"
     const val SOURCE = "broad-storage"
     const val DISPLAY_NAME = "Armazenamento local"
     private val videoExtensions = setOf("mp4","mkv","webm","avi","mov","m4v","ts","m2ts","flv","wmv")
@@ -59,9 +61,6 @@ object BroadStorageScanner {
     fun roots(context: Context): List<File> {
         val paths = LinkedHashSet<String>()
         Environment.getExternalStorageDirectory().let { if (it.exists()) paths.add(it.absolutePath) }
-        if (Build.VERSION.SDK_INT >= 30) {
-            Environment.getStorageDirectory().let { if (it.exists()) paths.add(it.absolutePath) }
-        }
         if (Build.VERSION.SDK_INT >= 24) {
             context.getSystemService(StorageManager::class.java)?.storageVolumes?.forEach { volume ->
                 runCatching { volume.directory?.canonicalPath }.getOrNull()?.let(paths::add)
@@ -80,10 +79,38 @@ object BroadStorageScanner {
         file.path == root.path || file.path.startsWith(root.path + File.separator)
 
     private fun isRestricted(file: File): Boolean {
+        val name = file.name.lowercase()
+        if (name == "self" || name == "knox" || name == "lost+found" || name == ".trash") return true
         val parts = file.path.split(File.separator).filter(String::isNotEmpty)
         val i = parts.indexOfLast { it.equals("Android", true) }
         val child = if (i >= 0) parts.getOrNull(i + 1)?.lowercase() else null
         return child == "data" || child == "obb"
+    }
+
+    private fun isNoMediaDirectory(directory: File): Boolean =
+        runCatching { File(directory, ".nomedia").isFile }.getOrDefault(false)
+
+    private fun rootForFile(file: File, roots: List<File>): File? =
+        roots.filter { isInside(file, it) }.maxByOrNull { it.path.length }
+
+    private fun relativePath(file: File, root: File): String =
+        runCatching {
+            val prefix = root.canonicalPath.trimEnd(File.separatorChar) + File.separator
+            file.canonicalPath.removePrefix(prefix).replace(File.separatorChar, '/')
+        }.getOrDefault(file.name)
+
+    private fun volumeKey(context: Context, root: File): String {
+        val primary = runCatching { Environment.getExternalStorageDirectory().canonicalFile }.getOrNull()
+        if (primary != null && primary == runCatching { root.canonicalFile }.getOrNull()) {
+            return "external_primary"
+        }
+        if (Build.VERSION.SDK_INT >= 24) {
+            val volume = context.getSystemService(StorageManager::class.java)?.storageVolumes?.firstOrNull {
+                runCatching { it.directory?.canonicalFile == root.canonicalFile }.getOrDefault(false)
+            }
+            volume?.uuid?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return root.name.ifBlank { root.path }
     }
 
     fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null): JSONObject {

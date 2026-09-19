@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.storage.StorageManager
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -14,9 +15,11 @@ import java.util.ArrayDeque
 import java.util.HashSet
 
 object BroadStorageScanner {
+    private const val TAG = "[REIFLIX][SCANNER]"
     const val SOURCE = "broad-storage"
     const val DISPLAY_NAME = "Armazenamento local"
     private val videoExtensions = setOf("mp4","mkv","webm","avi","mov","m4v","ts","m2ts","flv","wmv")
+
     fun hasAccess(context: Context): Boolean = when {
         Build.VERSION.SDK_INT >= 30 -> Environment.isExternalStorageManager()
         Build.VERSION.SDK_INT >= 23 -> context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
@@ -28,6 +31,9 @@ object BroadStorageScanner {
         val result = JSONObject()
             .put("api", Build.VERSION.SDK_INT)
             .put("hasAccess", hasAccess(context))
+        if (Build.VERSION.SDK_INT >= 30) {
+            runCatching { result.put("storageDir", Environment.getStorageDirectory().absolutePath) }
+        }
         val rootsJson = JSONArray()
         roots(context).forEach { root ->
             val check = JSONObject().put("path", root.path)
@@ -59,9 +65,6 @@ object BroadStorageScanner {
     fun roots(context: Context): List<File> {
         val paths = LinkedHashSet<String>()
         Environment.getExternalStorageDirectory().let { if (it.exists()) paths.add(it.absolutePath) }
-        if (Build.VERSION.SDK_INT >= 30) {
-            Environment.getStorageDirectory().let { if (it.exists()) paths.add(it.absolutePath) }
-        }
         if (Build.VERSION.SDK_INT >= 24) {
             context.getSystemService(StorageManager::class.java)?.storageVolumes?.forEach { volume ->
                 runCatching { volume.directory?.canonicalPath }.getOrNull()?.let(paths::add)
@@ -80,6 +83,8 @@ object BroadStorageScanner {
         file.path == root.path || file.path.startsWith(root.path + File.separator)
 
     private fun isRestricted(file: File): Boolean {
+        val name = file.name.lowercase()
+        if (name == "self" || name == "knox" || name == "lost+found" || name == ".trash") return true
         val parts = file.path.split(File.separator).filter(String::isNotEmpty)
         val i = parts.indexOfLast { it.equals("Android", true) }
         val child = if (i >= 0) parts.getOrNull(i + 1)?.lowercase() else null
@@ -87,28 +92,44 @@ object BroadStorageScanner {
     }
 
     fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null): JSONObject {
-        check(hasAccess(context))
+        val access = hasAccess(context)
+        Log.i(TAG, "SCAN_STARTED: API=${Build.VERSION.SDK_INT}, PERMISSION_STATUS=$access")
+        check(access) { "Acesso amplo ao armazenamento não foi concedido." }
+
         val docs = JSONArray()
         val errors = JSONArray()
         val snapshot = accessSnapshot(context)
         val visited = HashSet<String>()
         val pending = ArrayDeque<File>()
         val rootFiles = roots(context)
-        rootFiles.forEach { pending.addLast(it) }
-        if (rootFiles.isEmpty()) errors.put("Nenhuma raiz de armazenamento compartilhado foi encontrada.")
+        rootFiles.forEach {
+            Log.i(TAG, "ROOT_DISCOVERED: path=${it.path}")
+            pending.addLast(it)
+        }
+        if (rootFiles.isEmpty()) {
+            Log.w(TAG, "SCAN_FAILED: Nenhuma raiz de armazenamento encontrada")
+            errors.put("Nenhuma raiz de armazenamento compartilhado foi encontrada.")
+        }
+
         var directories = 0
         var files = 0
         var videos = 0
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE)
             .put("directories",0).put("files",0).put("videos",0))
+
         while (pending.isNotEmpty()) {
             val dir = pending.removeLast()
             val canonical = runCatching { dir.canonicalFile }.getOrElse { dir }
             if (!visited.add(canonical.path) || isRestricted(canonical)) continue
             directories++
-            val children = try { canonical.listFiles() } catch (_: Exception) { null }
+            val children = try { canonical.listFiles() } catch (e: Exception) {
+                Log.w(TAG, "DIRECTORY_ACCESS_DENIED: path=${canonical.path}")
+                null
+            }
             if (children == null) {
-                errors.put("Não foi possível acessar: ${canonical.name}")
+                if (rootFiles.any { it.path == canonical.path }) {
+                    errors.put("Não foi possível acessar a raiz: ${canonical.name}")
+                }
                 continue
             }
             for (child in children) {
@@ -122,10 +143,12 @@ object BroadStorageScanner {
                     .put("size",runCatching{file.length()}.getOrDefault(0L))
                     .put("modifiedAt",runCatching{file.lastModified()}.getOrDefault(0L)))
                 videos++
+                Log.i(TAG, "VIDEO_FOUND: name=${file.name}")
                 if (videos % 100 == 0) onProgress?.invoke(JSONObject().put("phase","scanning")
                     .put("source",SOURCE).put("directories",directories).put("files",files).put("videos",videos))
             }
         }
+        Log.i(TAG, "SCAN_COMPLETED: directories=$directories, files=$files, videos=$videos, errors=${errors.length()}")
         onProgress?.invoke(JSONObject().put("phase","finished").put("source",SOURCE)
             .put("directories",directories).put("files",files).put("videos",videos))
         return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("documents",docs)

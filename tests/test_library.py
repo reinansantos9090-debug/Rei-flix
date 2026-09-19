@@ -284,6 +284,18 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertTrue(folder["path"].startswith("content://"))
             self.assertFalse(Path(d, "uploads").exists())
 
+    def test_playback_target_uses_filename_order_for_unnumbered_episodes(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime("sample", {"title": "Sample", "genres": "[]"})
+
+            store.upsert_episode(anime, "/library/z.mkv", "Zeta.mkv", 1, None)
+            store.upsert_episode(anime, "/library/a.mkv", "Alpha.mkv", 1, None)
+
+            target = store.playback_target(anime)
+
+            self.assertEqual(target["file_name"], "Alpha.mkv")
+
     def test_remove_folder_preserves_history_but_marks_source_missing(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

@@ -83,6 +83,9 @@ class NativePlayerActivity : ComponentActivity() {
                 }
             }
             override fun onPlayerError(error: PlaybackException) {
+                // player_error is the terminal signal for an unreadable media item.
+                // Suppress player_exited here so Python does not navigate back twice.
+                suppressExitEvent = true
                 reportError("Não foi possível reproduzir este arquivo neste dispositivo.")
                 finish()
             }

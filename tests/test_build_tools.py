@@ -152,7 +152,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
     def test_native_mailbox_uses_the_flet_application_data_subdirectory(self):
         mailbox = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativeMailbox.kt").read_text(encoding="utf-8")
         self.assertIn('File(context.filesDir, "data")', mailbox)
-        self.assertIn('val target = File(dataDirectory, FILE)', mailbox)
+        self.assertIn('val queue = File(dataDirectory, QUEUE)', mailbox)
 
     def test_refresh_recovers_when_a_saf_scan_cannot_start(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")

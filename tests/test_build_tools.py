@@ -132,6 +132,13 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn('File(context.filesDir, "data")', mailbox)
         self.assertIn('val target = File(dataDirectory, FILE)', mailbox)
 
+    def test_settings_exposes_folder_removal_callback(self):
+        settings = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("on_remove_folder", settings)
+        self.assertIn("on_remove_folder(reference)", settings)
+        self.assertIn("remove_folder", main)
+
     def test_refresh_library_skips_revoked_saf_trees_until_permission_returns(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("folder.get('kind') == 'saf' and folder.get('authorization') == 'granted'", source)

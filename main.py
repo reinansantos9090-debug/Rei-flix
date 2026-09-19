@@ -44,7 +44,7 @@ async def main(page: ft.Page):
             show(DetailView.build(page, current[0], play_episode, navigate_back,
                                   store.toggle_favorite, library.playback_target))
         elif navigation.current == "settings":
-            show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,refresh_library,login,logout,account(),account_state[0],
+            show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,login,logout,account(),account_state[0],
                                     folder_selection_pending=lambda: saf_selection.pending))
         elif navigation.current == "player":
             path, title, progress = player_context[0]

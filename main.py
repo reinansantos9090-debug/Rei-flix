@@ -257,7 +257,7 @@ async def main(page: ft.Page):
     if bridge.available:
         for folder in store.folders():
             if folder.get('kind') == 'saf':
-                bridge.verify_tree(folder['path'])
+                await bridge.verify_tree(folder['path'])
     render_current()
 
 if __name__ == "__main__":

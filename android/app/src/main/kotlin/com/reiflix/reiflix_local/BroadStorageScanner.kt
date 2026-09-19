@@ -114,7 +114,9 @@ object BroadStorageScanner {
     }
 
     fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null): JSONObject {
-        check(hasAccess(context))
+        val access = hasAccess(context)
+        Log.i(TAG, "SCAN_STARTED: api=${Build.VERSION.SDK_INT}, granted=$access")
+        check(access) { "Acesso amplo ao armazenamento não foi concedido." }
         val docs = JSONArray()
         val errors = JSONArray()
         val snapshot = accessSnapshot(context)
@@ -126,16 +128,26 @@ object BroadStorageScanner {
         var directories = 0
         var files = 0
         var videos = 0
+        var excludedNoMedia = 0
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE)
             .put("directories",0).put("files",0).put("videos",0))
         while (pending.isNotEmpty()) {
             val dir = pending.removeLast()
             val canonical = runCatching { dir.canonicalFile }.getOrElse { dir }
             if (!visited.add(canonical.path) || isRestricted(canonical)) continue
+            if (isNoMediaDirectory(canonical)) {
+                excludedNoMedia++
+                continue
+            }
             directories++
-            val children = try { canonical.listFiles() } catch (_: Exception) { null }
+            val children = try { canonical.listFiles() } catch (exception: Exception) {
+                Log.w(TAG, "DIRECTORY_ACCESS_DENIED: ${canonical.path}", exception)
+                null
+            }
             if (children == null) {
-                errors.put("Não foi possível acessar: ${canonical.name}")
+                if (rootFiles.any { it.path == canonical.path }) {
+                    errors.put("Não foi possível acessar a raiz: ${canonical.name}")
+                }
                 continue
             }
             for (child in children) {
@@ -144,20 +156,26 @@ object BroadStorageScanner {
                 files++
                 if (!child.isFile || child.extension.lowercase() !in videoExtensions) continue
                 val file = runCatching { child.canonicalFile }.getOrNull() ?: continue
+                val root = rootForFile(file, rootFiles)
+                val volumeName = root?.let { volumeKey(context, it) } ?: ""
+                val relative = root?.let { relativePath(file, it) } ?: file.name
                 docs.put(JSONObject().put("uri",Uri.fromFile(file).toString()).put("path",file.path)
-                    .put("name",file.name).put("relativePath",file.path).put("mimeType",mimeFor(file.extension))
+                    .put("name",file.name).put("relativePath",relative).put("volumeName",volumeName)
+                    .put("mimeType",mimeFor(file.extension))
                     .put("size",runCatching{file.length()}.getOrDefault(0L))
                     .put("modifiedAt",runCatching{file.lastModified()}.getOrDefault(0L)))
                 videos++
+                Log.i(TAG, "VIDEO_FOUND: ${file.path}")
                 if (videos % 100 == 0) onProgress?.invoke(JSONObject().put("phase","scanning")
                     .put("source",SOURCE).put("directories",directories).put("files",files).put("videos",videos))
             }
         }
+        Log.i(TAG, "SCAN_COMPLETED: directories=$directories, files=$files, videos=$videos, nomedia=$excludedNoMedia, errors=${errors.length()}")
         onProgress?.invoke(JSONObject().put("phase","finished").put("source",SOURCE)
-            .put("directories",directories).put("files",files).put("videos",videos))
+            .put("directories",directories).put("files",files).put("videos",videos).put("excludedNoMedia",excludedNoMedia))
         return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("documents",docs)
-            .put("stats",JSONObject().put("directories",directories).put("files",files).put("videos",videos).put("errors",errors)
-                .put("access", snapshot))
+            .put("stats",JSONObject().put("directories",directories).put("files",files).put("videos",videos)
+                .put("excludedNoMedia",excludedNoMedia).put("errors",errors).put("access", snapshot))
             .put("partial",errors.length()>0)
     }
 

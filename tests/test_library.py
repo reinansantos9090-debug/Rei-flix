@@ -1631,6 +1631,9 @@ class OrganizeTests(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 
+if __name__ == '__main__':
+    unittest.main()
+
 
 class SafLibraryHardeningTests(unittest.TestCase):
     def test_saf_ingest_rejects_non_content_media_reference(self):

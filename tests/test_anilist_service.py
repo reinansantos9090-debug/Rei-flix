@@ -50,24 +50,24 @@ class LibraryAniListCacheTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)
             missing_cover = Path(directory) / "covers" / "missing.jpg"
-            anime = store.upsert_anime("naruto", {
-                "title": "Naruto",
-                "anilist_id": 20,
-                "cover_url": "https://img.example/naruto.jpg",
-                "cover_cache": str(missing_cover),
-                "genres": "[]",
-            })
-            recent = time.time() - 60
-            old = time.time() - (LibraryService.COVER_RETRY_SECONDS + 1)
-            with store._conn() as con:
-                con.execute("UPDATE anime SET metadata_updated_at=? WHERE id=?", (recent, anime))
-                cached = store.anime_metadata("naruto")
             service = LibraryService(store)
-            self.assertTrue(service._cached_metadata_is_current(cached, 20))
-            with store._conn() as con:
-                con.execute("UPDATE anime SET metadata_updated_at=? WHERE id=?", (old, anime))
-                cached = store.anime_metadata("naruto")
-            self.assertFalse(service._cached_metadata_is_current(cached, 20))
+            now = 1_000_000.0
+
+            recent = {
+                "anilist_id": 20,
+                "metadata_updated_at": now - 60,
+                "cover_cache": str(missing_cover),
+            }
+            stale = {
+                "anilist_id": 20,
+                "metadata_updated_at": now - (LibraryService.COVER_RETRY_SECONDS + 1),
+                "cover_cache": str(missing_cover),
+            }
+
+            with patch("core.library_service.time.time", return_value=now):
+                self.assertFalse(missing_cover.is_file())
+                self.assertTrue(service._cached_metadata_is_current(recent, 20))
+                self.assertFalse(service._cached_metadata_is_current(stale, 20))
 
     def test_empty_cover_cache_remains_valid_until_metadata_ttl(self):
         with tempfile.TemporaryDirectory() as directory:

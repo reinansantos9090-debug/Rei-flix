@@ -284,6 +284,24 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertTrue(folder["path"].startswith("content://"))
             self.assertFalse(Path(d, "uploads").exists())
 
+    def test_remove_folder_preserves_history_but_marks_source_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime("sample", {"title": "Sample", "genres": "[]"})
+
+            store.add_folder("content://tree/removed", "Removed", kind="saf", authorization="granted")
+            store.upsert_episode(anime, "content://tree/removed/doc-1", "Sample - 01.mkv", 1, 1,
+                                 source_folder="content://tree/removed")
+            store.save_progress("content://tree/removed/doc-1", 42, 100)
+
+            store.remove_folder("content://tree/removed")
+
+            self.assertEqual(store.folders(), [])
+            episode = store.catalog()[0]["seasons"][0]["episodes"][0]
+            self.assertTrue(episode["missing"])
+            self.assertEqual(episode["progress"], 42)
+            self.assertFalse(episode["watched"])
+
     def test_saf_folder_authorization_and_ownership_survive_database_reopen(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

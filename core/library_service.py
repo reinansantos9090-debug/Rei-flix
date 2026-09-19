@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 import time
 import json
-import logging\nfrom urllib.parse import unquote, urlparse
+import logging
+from urllib.parse import unquote, urlparse
 from pathlib import Path
 from dataclasses import dataclass, field
 from core.anilist import AniListClient

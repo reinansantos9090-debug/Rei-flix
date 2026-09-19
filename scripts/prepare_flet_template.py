@@ -57,8 +57,8 @@ exported_attr = "{" + ANDROID + "}exported"
 scheme_attr = "{" + ANDROID + "}scheme"
 host_attr = "{" + ANDROID + "}host"
 
-# Use the normal, non-fullscreen ReiFlix theme for the Flet host.  The native
-# player declares its own immersive theme below.
+# Use the ReiFlix immersive host theme. The native player declares its own
+# immersive theme below.
 application.set(theme_attr, "@style/ReiFlixTheme")
 activities = application.findall("activity")
 main = next((activity for activity in activities if activity.get(name) in [".MainActivity", "com.reiflix.reiflix_local.MainActivity"]), None)
@@ -120,6 +120,7 @@ def main() -> int:
         parser.error(f"Flet template is not a Cookiecutter repository: {template}")
     source = overlay / "app"
     required = [
+        source / "src/main/kotlin/com/reiflix/reiflix_local/SystemUiController.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/SafScanner.kt",

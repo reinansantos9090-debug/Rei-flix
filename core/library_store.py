@@ -276,18 +276,23 @@ class LibraryStore:
         """
         if direction not in (-1, 1):
             raise ValueError("direction must be -1 or 1")
-        comparison = "<" if direction < 0 else ">"
-        ordering = "DESC" if direction < 0 else "ASC"
         with self._conn() as c:
-            current = c.execute("SELECT anime_id,season,number FROM episodes WHERE path=?", (path,)).fetchone()
+            current = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
             if not current:
                 return None
-            number = current["number"] if current["number"] is not None else (-1 if direction > 0 else float("inf"))
-            row = c.execute(f"""SELECT * FROM episodes WHERE anime_id=? AND missing=0
-                AND (season {comparison} ? OR (season=? AND number {comparison} ?))
-                ORDER BY season {ordering}, number {ordering}, file_name {ordering} LIMIT 1""",
-                (current["anime_id"], current["season"], current["season"], number)).fetchone()
-            return dict(row) if row else None
+            rows = c.execute(
+                "SELECT * FROM episodes WHERE anime_id=? AND missing=0",
+                (current["anime_id"],),
+            ).fetchall()
+        # SQLite's NULL ordering differs from the catalog policy. Reusing the
+        # same Python ordering here keeps episodes without a parsed number
+        # navigable instead of making them invisible to next/previous.
+        current_row = dict(current)
+        return self._adjacent_from_rows(
+            current_row,
+            [dict(row) for row in rows],
+            direction,
+        )
 
     def next_episode(self, path):
         return self.adjacent_episode(path, 1)

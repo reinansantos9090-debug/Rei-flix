@@ -373,6 +373,20 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(bridge.drain(), [])
             self.assertFalse(bridge.mailbox.with_suffix('.consumed').exists())
 
+    def test_native_events_written_while_batch_is_claimed_survive_acknowledgement(self):
+        with tempfile.TemporaryDirectory() as d:
+            bridge = AndroidBridge(d)
+            bridge.mailbox.write_text(json.dumps([{'type': 'first'}]), encoding='utf-8')
+            self.assertEqual(bridge.drain()[0]['type'], 'first')
+            # NativeMailbox can publish the next batch while Python is still
+            # processing the claimed .consumed file. Acknowledging the first
+            # batch must not delete that newly published batch.
+            bridge.mailbox.write_text(json.dumps([{'type': 'second'}]), encoding='utf-8')
+            bridge.acknowledge()
+            self.assertEqual(bridge.drain()[0]['type'], 'second')
+            bridge.acknowledge()
+            self.assertFalse(bridge.mailbox.exists())
+
     def test_unacknowledged_mailbox_batch_is_replayed_after_bridge_restart(self):
         with tempfile.TemporaryDirectory() as d:
             first = AndroidBridge(d)

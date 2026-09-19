@@ -25,7 +25,7 @@ from pathlib import Path
 ANDROID = "http://schemas.android.com/apk/res/android"
 ET.register_namespace("android", ANDROID)
 root = Path.cwd()
-overlay = Path(__file__).resolve().parents[1] / "reiflix_android_overlay" / "app"
+overlay = Path("__REIFLIX_OVERLAY_APP__")
 app = root / "android" / "app"
 if not app.is_dir():
     raise RuntimeError(f"Rendered Flet project has no Android app module: {app}")
@@ -145,6 +145,13 @@ def main() -> int:
             content = previous + "\n\n" + HOOK
     else:
         content = HOOK
+
+    # Cookiecutter renders hooks into a temporary file before executing them.
+    # Therefore __file__ cannot be used to locate files beside hooks/.
+    # Bake the absolute overlay path into the generated hook while preparing
+    # the template, so the hook remains valid when Cookiecutter executes it.
+    overlay_app = (target / "app").resolve()
+    content = content.replace("__REIFLIX_OVERLAY_APP__", repr(str(overlay_app)))
     hook.write_text(content, encoding="utf-8")
     print(f"Prepared native ReiFlix host in Cookiecutter template: {template}")
     return 0

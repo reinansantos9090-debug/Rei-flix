@@ -55,11 +55,15 @@ class SettingsView:
             error = str(folder.get("last_error") or "").strip()
 
             def ask_remove(reference, display_name):
+                async def remove():
+                    result = on_remove_folder(reference)
+                    if hasattr(result, "__await__"):
+                        await result
                 confirm(
                     "Remover pasta da biblioteca?",
                     f'"{display_name}" será removida das pastas configuradas. Os arquivos já indexados serão mantidos no histórico, mas ficarão indisponíveis até a pasta ser adicionada novamente.',
                     "Remover",
-                    lambda: on_remove_folder(reference),
+                    remove,
                 )
 
             folder_info = ft.Column([

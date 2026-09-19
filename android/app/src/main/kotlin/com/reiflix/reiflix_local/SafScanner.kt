@@ -68,7 +68,7 @@ object SafScanner {
         }.getOrNull()?.takeIf { it.isNotBlank() } ?: treeUri.toString()
     }
 
-    fun scan(context: Context, treeUri: Uri): JSONObject {
+    fun scan(context: Context, treeUri: Uri, onProgress: ((JSONObject) -> Unit)? = null): JSONObject {
         check(hasPersistedReadPermission(context, treeUri)) { "A permissão desta pasta foi removida." }
         val resolver = context.contentResolver
         val root = DocumentFile.fromTreeUri(context, treeUri)
@@ -84,11 +84,26 @@ object SafScanner {
         // This preserves provider-native document IDs and works for local as well
         // as cloud-backed DocumentsProviders without converting URIs into paths.
         val pending = ArrayDeque<Pair<String, String>>()
+        val visited = HashSet<String>()
         pending.addLast(rootDocumentId to "")
+        var lastProgressFiles = 0
+        var lastProgressDirectories = 0
 
         while (pending.isNotEmpty()) {
             val (parentDocumentId, currentPath) = pending.removeLast()
+            if (!visited.add(parentDocumentId)) {
+                continue
+            }
             stats.put("directories", stats.getInt("directories") + 1)
+            if (stats.getInt("directories") - lastProgressDirectories >= 25) {
+                lastProgressDirectories = stats.getInt("directories")
+                onProgress?.invoke(JSONObject()
+                    .put("directories", lastProgressDirectories)
+                    .put("files", stats.getInt("files"))
+                    .put("videos", stats.getInt("videos"))
+                    .put("pending", pending.size)
+                    .put("currentPath", currentPath))
+            }
 
             val childrenUri = runCatching {
                 DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
@@ -140,6 +155,15 @@ object SafScanner {
                         }
 
                         stats.put("files", stats.getInt("files") + 1)
+                        if (stats.getInt("files") - lastProgressFiles >= 100) {
+                            lastProgressFiles = stats.getInt("files")
+                            onProgress?.invoke(JSONObject()
+                                .put("directories", stats.getInt("directories"))
+                                .put("files", lastProgressFiles)
+                                .put("videos", stats.getInt("videos"))
+                                .put("pending", pending.size)
+                                .put("currentPath", currentPath))
+                        }
                         val extension = name.substringAfterLast('.', "").lowercase()
                         val isVideo = extension in videoExtensions || mimeType.startsWith("video/")
                         if (!isVideo) continue
@@ -162,6 +186,12 @@ object SafScanner {
             }
         }
 
+        onProgress?.invoke(JSONObject()
+            .put("directories", stats.getInt("directories"))
+            .put("files", stats.getInt("files"))
+            .put("videos", stats.getInt("videos"))
+            .put("pending", 0)
+            .put("currentPath", ""))
         val partial = errors.length() > 0
         Log.i(
             TAG,

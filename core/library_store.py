@@ -8,7 +8,7 @@ import time
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 11
+    SCHEMA_VERSION = 12
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -48,7 +48,7 @@ class LibraryStore:
             CREATE TABLE IF NOT EXISTS preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS scan_runs (
-              id INTEGER PRIMARY KEY, started_at REAL NOT NULL, finished_at REAL, folders INTEGER DEFAULT 0,
+              id INTEGER PRIMARY KEY, started_at REAL NOT NULL, finished_at REAL, status TEXT NOT NULL DEFAULT 'running', folders INTEGER DEFAULT 0,
               files INTEGER DEFAULT 0, videos INTEGER DEFAULT 0, animes INTEGER DEFAULT 0,
               episodes INTEGER DEFAULT 0, errors TEXT NOT NULL DEFAULT '[]');
             ''')
@@ -70,9 +70,17 @@ class LibraryStore:
                     c.execute(f"ALTER TABLE episodes ADD COLUMN {column} {definition}")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_anime_playback ON episodes(anime_id, missing, watched, last_played_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_source_folder ON episodes(source_folder)")
-            # Version records make the additive Phase 10 migration auditable
+            # Version records make additive schema changes auditable
             # while CREATE IF NOT EXISTS keeps all earlier databases intact.
             c.execute("CREATE INDEX IF NOT EXISTS idx_folders_account ON folders(account_id)")
+            scan_columns = {r[1] for r in c.execute("PRAGMA table_info(scan_runs)")}
+            if "status" not in scan_columns:
+                c.execute("ALTER TABLE scan_runs ADD COLUMN status TEXT NOT NULL DEFAULT 'running'")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_scan_runs_status ON scan_runs(status, started_at)")
+            # A process can disappear between begin_scan() and finish_scan().
+            # On the next startup those runs are no longer active; keep their
+            # diagnostics instead of pretending that the previous scan completed.
+            c.execute("UPDATE scan_runs SET status='interrupted' WHERE status='running' AND finished_at IS NULL")
             c.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?,?)", (self.SCHEMA_VERSION, time.time()))
 
     def get_preference(self, key, default=None):
@@ -136,12 +144,12 @@ class LibraryStore:
 
     def begin_scan(self):
         with self._conn() as c:
-            cur = c.execute("INSERT INTO scan_runs(started_at) VALUES (?)", (time.time(),))
+            cur = c.execute("INSERT INTO scan_runs(started_at,status) VALUES (?, 'running')", (time.time(),))
             return cur.lastrowid
 
     def finish_scan(self, run_id, summary):
         with self._conn() as c:
-            c.execute("""UPDATE scan_runs SET finished_at=?,folders=?,files=?,videos=?,animes=?,episodes=?,errors=? WHERE id=?""",
+            c.execute("""UPDATE scan_runs SET finished_at=?,status='completed',folders=?,files=?,videos=?,animes=?,episodes=?,errors=? WHERE id=?""",
                       (time.time(), summary["folders"], summary["files"], summary["videos"], summary["animes"],
                        summary["episodes"], json.dumps(summary["errors"], ensure_ascii=False), run_id))
 
@@ -149,6 +157,27 @@ class LibraryStore:
         with self._conn() as c:
             row = c.execute("SELECT * FROM scan_runs ORDER BY id DESC LIMIT 1").fetchone()
             return dict(row) if row else None
+
+    def interrupted_scans(self):
+        """Return scans that were interrupted by a prior process shutdown."""
+        with self._conn() as c:
+            return [dict(row) for row in c.execute(
+                "SELECT * FROM scan_runs WHERE status='interrupted' ORDER BY id DESC"
+            )]
+
+    def recover_interrupted_scans(self):
+        """Finalize orphaned scan runs without touching library media rows."""
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT id FROM scan_runs WHERE status='running' AND finished_at IS NULL"
+            ).fetchall()
+            if not rows:
+                return 0
+            c.executemany(
+                "UPDATE scan_runs SET status='interrupted',finished_at=? WHERE id=?",
+                ((time.time(), row["id"]) for row in rows),
+            )
+            return len(rows)
 
     def association(self, lookup):
         with self._conn() as c:

@@ -131,6 +131,19 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn('File(context.filesDir, "data")', mailbox)
         self.assertIn('val target = File(dataDirectory, FILE)', mailbox)
 
+    def test_native_player_entry_requires_a_persisted_saf_document(self):
+        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
+        self.assertIn("DocumentsContract.getDocumentId(documentUri)", scanner)
+        self.assertIn("DocumentsContract.getTreeDocumentId(permission.uri)", scanner)
+
+    def test_saf_scanner_uses_iterative_traversal_and_partial_results(self):
+        scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("ArrayDeque<Pair<DocumentFile, String>>()", scanner)
+        self.assertIn("pending.removeLast()", scanner)
+        self.assertIn('put("partial", partial)', scanner)
+
     def test_native_player_entry_rejects_non_local_deep_link_uris(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn('localUri.scheme !in setOf("content", "file")', main)

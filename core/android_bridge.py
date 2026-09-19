@@ -56,7 +56,10 @@ class AndroidBridge:
 
     @staticmethod
     def is_local_media_reference(uri: str) -> bool:
-        return bool(uri) and (uri.startswith(("content://", "file://")) or "://" not in uri)
+        # Android library entries come from SAF and must remain content:// URIs.
+        # Reject file:// and raw filesystem paths so the native player cannot
+        # be used as a second, unscoped storage-access path.
+        return bool(uri) and uri.startswith("content://")
 
     def drain(self) -> list[dict]:
         consumed = self.mailbox.with_suffix(".consumed")

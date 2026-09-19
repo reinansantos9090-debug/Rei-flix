@@ -37,9 +37,11 @@ distribuído, pois a bridge `reiflix://native`, SAF e Media3 não estarão
 integrados. O workflow GitHub Actions reproduz essas etapas, configura Python,
 Java 17, Flutter 3.44.8 e Android SDK 35, e publica apenas o APK verificado.
 
-Não há APK comitado no repositório e não são incluídos secrets de Google. O
-acesso aos vídeos continua exclusivamente pela concessão SAF da pasta escolhida
-pelo usuário; não se solicita permissão ampla de armazenamento.
+Não há APK comitado no repositório e não são incluídos secrets de Google. No
+Android, o usuário pode conceder leitura de vídeos pelo MediaStore e, para a
+biblioteca que procura vídeos em várias pastas, também pode conceder o acesso
+especial de armazenamento amplo. O SAF continua disponível para autorizar uma
+pasta específica. O app não converte URIs content:// em caminhos artificiais.
 
 ## Google Cloud
 
@@ -88,10 +90,18 @@ utilizáveis. A Home filtra os títulos por gêneros devolvidos pelo AniList.
 
 ## Permissões
 
-Somente `INTERNET` é declarada para AniList/OAuth. O acesso a vídeos é a
-concessão por pasta do SAF, não `READ_MEDIA_VIDEO` amplo. Não são solicitadas
-permissões de notificações, contatos, SMS, telefone, localização, câmera,
-microfone, Gmail ou Drive.
+O Android usa três mecanismos complementares para a biblioteca local:
+
+- READ_MEDIA_VIDEO (e o estado de acesso visual selecionado no Android 14+)
+  para consultar vídeos pelo MediaStore;
+- MANAGE_EXTERNAL_STORAGE, concedido pelo usuário nas Configurações do
+  Android, para a varredura ampla de armazenamento local;
+- SAF (ACTION_OPEN_DOCUMENT_TREE) para uma pasta específica escolhida pelo
+  usuário.
+
+A tela de Configurações do Rei-flix explica e solicita esses acessos em contexto.
+O app não solicita permissões de notificações, contatos, SMS, telefone,
+localização, câmera, microfone, Gmail ou Drive.
 
 ## Build
 

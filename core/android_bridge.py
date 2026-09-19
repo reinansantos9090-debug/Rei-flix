@@ -28,7 +28,8 @@ class AndroidBridge:
     def _recover_unacknowledged_batches(self) -> None:
         """Return batches left in .consumed form by a previous Python process."""
         try:
-            self.queue_dir.mkdir(parents=True, exist_ok=True)
+            # Recovery must not create the queue itself; drain() owns queue creation.
+            # This keeps startup recovery side-effect free when no native writer exists.
             legacy = self.mailbox.with_suffix(".consumed")
             if legacy.exists() and not self.mailbox.exists():
                 legacy.replace(self.mailbox)

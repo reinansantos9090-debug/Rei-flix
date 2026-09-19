@@ -78,7 +78,9 @@ jobs:
           mv build/temp_tmpl/build/* build/flet-build-template/
           mv build/temp_tmpl/build/.* build/flet-build-template/ 2>/dev/null || true
           rm -rf build/temp_tmpl build/flet-build-template.zip
-          python scripts/prepare_flet_template.py --template build/flet-build-template --overlay android
+          python scripts/prepare_flet_template.py \
+            --template "$GITHUB_WORKSPACE/build/flet-build-template" \
+            --overlay "$GITHUB_WORKSPACE/android"
 
       - name: Fix generated JSON files
         shell: bash

@@ -13,7 +13,7 @@ from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEX
 
 class SettingsView:
     @staticmethod
-    def build(page, store, library, on_back, on_catalog_changed, on_add_folder,
+    def build(page, store, library, on_back, on_catalog_changed, on_add_folder, on_remove_folder,
               on_refresh_library, on_login, on_logout, account, account_state="disconnected",
               folder_selection_pending=lambda: False):
         status = ft.Text("", color="#9DA3B4", size=12)
@@ -48,13 +48,33 @@ class SettingsView:
         folder_lines = []
         for folder in folders:
             name = folder.get("name") or "Pasta configurada"
-            description = "Pasta SAF autorizada" if folder.get("kind") == "saf" else "Pasta local configurada"
-            if folder.get("authorization") != "granted":
-                description = "Acesso precisa ser verificado"
-            folder_lines.append(ft.Column([
+            granted = folder.get("authorization") == "granted"
+            description = "Pasta SAF autorizada" if folder.get("kind") == "saf" and granted else (
+                "Pasta local configurada" if folder.get("kind") != "saf" and granted else "Acesso precisa ser verificado"
+            )
+            error = str(folder.get("last_error") or "").strip()
+
+            def ask_remove(reference, display_name):
+                confirm(
+                    "Remover pasta da biblioteca?",
+                    f'"{display_name}" será removida das pastas configuradas. Os arquivos já indexados serão mantidos no histórico, mas ficarão indisponíveis até a pasta ser adicionada novamente.',
+                    "Remover",
+                    lambda: on_remove_folder(reference),
+                )
+
+            folder_info = ft.Column([
                 ft.Text(name, color=TEXT, size=13, weight=ft.FontWeight.BOLD, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 ft.Text(description, color=TEXT_MUTED, size=11),
-            ], spacing=2))
+                ft.Text(error, color="#FFB4AB", size=10, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, visible=bool(error)),
+            ], spacing=2, expand=True)
+            folder_lines.append(ft.Row([
+                folder_info,
+                ft.OutlinedButton(
+                    "Remover",
+                    icon=ft.Icons.DELETE_OUTLINE,
+                    on_click=lambda _, ref=folder["path"], label=name: ask_remove(ref, label),
+                ),
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER))
         if not folder_lines:
             folder_lines = [ft.Text("Nenhuma pasta foi selecionada.", color="#AAA7B6", size=12)]
 

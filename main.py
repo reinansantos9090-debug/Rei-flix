@@ -271,7 +271,10 @@ async def main(page: ft.Page):
                             videos = int(payload.get('videos') or 0)
                             directories = int(payload.get('directories') or 0)
                             phase = payload.get('phase') or 'scanning'
-                            if phase == 'started':
+                            if phase == 'already_running':
+                                finish_native_scan()
+                                text = 'A varredura desta pasta já está em andamento.'
+                            elif phase == 'started':
                                 text = 'Preparando varredura da pasta…'
                             else:
                                 text = f'Verificando pasta… {directories} diretórios, {files} arquivos, {videos} vídeos.'
@@ -302,7 +305,11 @@ async def main(page: ft.Page):
                             videos = int(payload.get('videos') or 0)
                             directories = int(payload.get('directories') or 0)
                             phase = payload.get('phase') or 'scanning'
-                            text = 'Preparando armazenamento local…' if phase == 'started' else f'Verificando armazenamento… {directories} diretórios, {files} arquivos, {videos} vídeos.'
+                            if phase == 'already_running':
+                                finish_native_scan()
+                                text = 'A varredura do armazenamento local já está em andamento.'
+                            else:
+                                text = 'Preparando armazenamento local…' if phase == 'started' else f'Verificando armazenamento… {directories} diretórios, {files} arquivos, {videos} vídeos.'
                             page.snack_bar = ft.SnackBar(ft.Text(text)); page.snack_bar.open = True; page.update()
                         elif event_type == 'broad_storage_scan':
                             try:
@@ -347,7 +354,11 @@ async def main(page: ft.Page):
                             files = int(payload.get('files') or 0)
                             videos = int(payload.get('videos') or 0)
                             phase = payload.get('phase') or 'scanning'
-                            text = 'Preparando vídeos do dispositivo…' if phase == 'started' else f'Verificando vídeos do dispositivo… {files} itens, {videos} vídeos.'
+                            if phase == 'already_running':
+                                finish_native_scan()
+                                text = 'A varredura dos vídeos do dispositivo já está em andamento.'
+                            else:
+                                text = 'Preparando vídeos do dispositivo…' if phase == 'started' else f'Verificando vídeos do dispositivo… {files} itens, {videos} vídeos.'
                             page.snack_bar = ft.SnackBar(ft.Text(text))
                             page.snack_bar.open = True
                             page.update()

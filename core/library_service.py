@@ -208,7 +208,27 @@ class LibraryService:
         self.store.finish_scan(run_id, result.__dict__)
         return catalog
 
-    def resolve_match(self, lookup_title, anilist_id): self.store.resolve_match(lookup_title, anilist_id)
+    def resolve_match(self, lookup_title, anilist_id):
+        """Persist an explicit AniList choice and refresh its metadata immediately."""
+        try:
+            anilist_id = int(anilist_id)
+        except (TypeError, ValueError):
+            raise ValueError("ID AniList inválido.")
+        pending = next(
+            (item for item in self.store.pending_matches() if item["lookup_title"] == lookup_title),
+            None,
+        )
+        if not pending:
+            raise ValueError("Este candidato não está mais pendente.")
+        media = self.anilist.by_id(anilist_id)
+        if not media or media.get("id") != anilist_id:
+            raise ValueError("O anime escolhido não está disponível no AniList.")
+        metadata = self.anilist.metadata_from_media(pending["display_title"], media)
+        metadata["anilist_id"] = anilist_id
+        self.store.set_association(lookup_title, anilist_id)
+        self.store.upsert_anime(lookup_title, metadata)
+        self.store.resolve_match(lookup_title, anilist_id)
+        return metadata
     def catalog(self, favorites_only=False): return self.store.catalog(favorites_only)
     def continue_watching(self, limit=12): return self.store.continue_watching(limit)
     def playback_history(self, limit=50): return self.store.playback_history(limit)

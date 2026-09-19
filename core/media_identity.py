@@ -7,11 +7,11 @@ at the same shared-storage location.
 """
 from __future__ import annotations
 
-import posixpath
 import re
 from urllib.parse import unquote, urlparse
 
 _PRIMARY_ALIASES = {"external_primary", "primary", "external"}
+_EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
 _STORAGE_RE = re.compile(r"^/(?:storage|mnt/media_rw)/([^/]+)(?:/(.*))?$", re.I)
 
 
@@ -89,9 +89,10 @@ def identity_from_document(
             return identity
 
     if tree_uri:
-        tree_path = unquote(urlparse(tree_uri).path or "")
+        parsed_tree = urlparse(tree_uri)
+        tree_path = unquote(parsed_tree.path or "")
         marker = "/tree/"
-        if marker in tree_path:
+        if marker in tree_path and parsed_tree.netloc == _EXTERNAL_STORAGE_AUTHORITY:
             tree_id = tree_path.split(marker, 1)[1]
             if ":" in tree_id:
                 tree_volume, tree_root = tree_id.split(":", 1)
@@ -101,10 +102,12 @@ def identity_from_document(
                 if combined:
                     return f"shared:{_volume_key(tree_volume)}:{_clean_relative(combined)}"
 
-    relative_identity = identity_from_relative_path(relative_path or "", volume_name)
-    if relative_identity:
-        return relative_identity
-
+    # Generic/cloud DocumentsProvider paths do not prove shared local storage.
+    # Only use a relative path when MediaStore explicitly supplied a volume.
+    if volume_name:
+        relative_identity = identity_from_relative_path(relative_path or "", volume_name)
+        if relative_identity:
+            return relative_identity
     # Non-filesystem DocumentsProviders cannot be safely correlated with local
     # paths. Keep a provider-scoped identity so repeated scans remain stable.
     parsed = urlparse(uri)

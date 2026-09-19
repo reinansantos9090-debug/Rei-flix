@@ -87,6 +87,7 @@ object MediaStoreScanner {
         )
         if (Build.VERSION.SDK_INT >= 29) {
             projection += MediaStore.Video.Media.RELATIVE_PATH
+            projection += MediaStore.MediaColumns.VOLUME_NAME
         }
 
         val documents = JSONArray()
@@ -118,6 +119,11 @@ object MediaStoreScanner {
                 } else {
                     -1
                 }
+                val volumeColumn = if (Build.VERSION.SDK_INT >= 29) {
+                    cursor.getColumnIndex(MediaStore.MediaColumns.VOLUME_NAME)
+                } else {
+                    -1
+                }
 
                 if (idColumn < 0 || nameColumn < 0) {
                     errors.put("O MediaStore não retornou os dados necessários.")
@@ -146,6 +152,11 @@ object MediaStoreScanner {
                     } else {
                         "$relativeDirectory/$name"
                     }
+                    val volumeName = if (volumeColumn >= 0 && !cursor.isNull(volumeColumn)) {
+                        cursor.getString(volumeColumn)
+                    } else {
+                        if (Build.VERSION.SDK_INT >= 29) "external_primary" else ""
+                    }
 
                     val uri = if (Build.VERSION.SDK_INT >= 30) {
                         MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL, id)
@@ -167,6 +178,7 @@ object MediaStoreScanner {
                         .put("uri", uri.toString())
                         .put("name", name)
                         .put("relativePath", relativePath)
+                        .put("volumeName", volumeName)
                         .put("mimeType", mimeType)
                         .put("size", size)
                         .put("modifiedAt", modifiedAt))

@@ -1,5 +1,5 @@
 import flet as ft
-from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title
+from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title
 
 
 class HomeView:
@@ -13,7 +13,7 @@ class HomeView:
         selected_state = [view_state.get("state", "Todos")]
         selected_genre = [view_state.get("genre", "Todos")]
         selected_sort = [view_state.get("sort", "Mais recentes")]
-        search_visible = [bool(view_state.get("search_visible", False)]
+        search_visible = [bool(view_state.get("search_visible", False))]
 
         def save_view_state():
             view_state.update(state=selected_state[0], genre=selected_genre[0], sort=selected_sort[0],

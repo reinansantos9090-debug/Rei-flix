@@ -234,7 +234,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("takePersistableUriPermission(uri, granted)", scanner)
         self.assertIn("check(hasPersistedReadPermission(context, uri))", scanner)
         self.assertIn("if (!SafScanner.hasPersistedReadPermission(this, treeUri))", main)
-        self.assertIn('"A permissão desta pasta foi removida."', main)
+        self.assertIn("A permissão desta pasta foi removida.", main)
 
     def test_player_rejects_removed_or_invalid_saf_documents_without_starting_media3(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

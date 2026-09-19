@@ -96,7 +96,7 @@ class MainActivity : FlutterFragmentActivity() {
         super.onResume()
         applyImmersiveSystemUi()
         if (broadStoragePermissionPending) {
-            if (BroadStorageScanner.hasAccess()) {
+            if (BroadStorageScanner.hasAccess(this)) {
                 broadStoragePermissionPending = false
                 scanAllStorage()
             } else {

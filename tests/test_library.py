@@ -1,4 +1,5 @@
 import tempfile
+import asyncio
 import unittest
 import sqlite3
 import json
@@ -262,7 +263,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(history[0]['progress'], 20)
 
 
-class AndroidBridgeTests(unittest.TestCase):
+class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
     def test_flet_page_platform_enum_is_recognized_on_real_android(self):
         class Platform:
             value = 'android'
@@ -275,16 +276,17 @@ class AndroidBridgeTests(unittest.TestCase):
         class Page:
             platform = 'android'
             def __init__(self): self.urls = []
-            def launch_url(self, value): self.urls.append(value)
+            async def launch_url(self, value, **kwargs): self.urls.append((value, kwargs))
 
         with tempfile.TemporaryDirectory() as d:
             page = Page(); bridge = AndroidBridge(d, page)
             tree = 'content://com.android.providers.media.documents/tree/video%3AAnime'
-            bridge.select_tree(); bridge.verify_tree(tree); bridge.rescan_tree(tree)
-            self.assertEqual(page.urls[0], 'reiflix://native?action=select_tree')
-            self.assertIn('action=verify_tree', page.urls[1])
-            self.assertIn('tree_uri=content%3A%2F%2F', page.urls[1])
-            self.assertIn('action=scan_tree', page.urls[2])
+            await bridge.select_tree(); await bridge.verify_tree(tree); await bridge.rescan_tree(tree)
+            self.assertEqual(page.urls[0][0], 'reiflix://native?action=select_tree')
+            self.assertEqual(page.urls[0][1]['mode'], __import__('flet').LaunchMode.EXTERNAL_NON_BROWSER_APPLICATION)
+            self.assertIn('action=verify_tree', page.urls[1][0])
+            self.assertIn('tree_uri=content%3A%2F%2F', page.urls[1][0])
+            self.assertIn('action=scan_tree', page.urls[2][0])
 
     def test_player_bridge_rejects_remote_urls_but_keeps_local_references(self):
         class Page:
@@ -299,7 +301,7 @@ class AndroidBridgeTests(unittest.TestCase):
             self.assertTrue(bridge.is_local_media_reference('file:///local/video.mkv'))
             self.assertFalse(bridge.is_local_media_reference('https://example.invalid/video.m3u8'))
             with self.assertRaisesRegex(ValueError, 'somente arquivos locais'):
-                bridge.play('https://example.invalid/video.m3u8', 'Remote')
+                await bridge.play('https://example.invalid/video.m3u8', 'Remote')
             self.assertEqual(bridge.page.urls, [])
 
     def test_mailbox_acknowledges_only_after_the_claimed_batch_is_processed(self):

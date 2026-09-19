@@ -11,6 +11,7 @@ belong to the Android project that produces the APK.
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 from pathlib import Path
 
@@ -115,6 +116,28 @@ dependencies = [
     "androidx.credentials:credentials-play-services-auth:1.6.0",
     "com.google.android.libraries.identity.googleid:googleid:1.2.0",
 ]
+# Android API 36 requires AGP 8.9.1 or newer. Flet 0.86.5's template may still
+# carry an older plugin/wrapper, so upgrade only generated build metadata.
+android_root = root / "android"
+for candidate in (android_root / "settings.gradle.kts", android_root / "settings.gradle", android_root / "build.gradle.kts", android_root / "build.gradle"):
+    if candidate.is_file():
+        source = candidate.read_text(encoding="utf-8")
+        updated = source.replace("com.android.application" , "com.android.application")
+        updated = updated.replace("com.android.tools.build:gradle:8.6.1", "com.android.tools.build:gradle:8.9.1")
+        # Settings-style plugin declarations normally contain the version as a
+        # literal after the plugin id; limit this replacement to the AGP id.
+        updated = re.sub(r'(id\s*["']com\.android\.application["']\s+version\s+["'])8\.6\.1(["'])',
+                         r'\g<1>8.9.1\g<2>', updated)
+        if updated != source:
+            candidate.write_text(updated, encoding="utf-8")
+
+wrapper = android_root / "gradle" / "wrapper" / "gradle-wrapper.properties"
+if wrapper.is_file():
+    source = wrapper.read_text(encoding="utf-8")
+    updated = re.sub(r'gradle-8\.7(?:\.\d+)?-(bin|all)\.zip', r'gradle-8.11.1-\1.zip', source)
+    if updated != source:
+        wrapper.write_text(updated, encoding="utf-8")
+
 gradle = next((app / candidate for candidate in ("build.gradle.kts", "build.gradle") if (app / candidate).is_file()), None)
 if gradle is None:
     raise RuntimeError("Rendered Flet app module has no Gradle build file")

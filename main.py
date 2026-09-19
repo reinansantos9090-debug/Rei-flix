@@ -112,7 +112,8 @@ async def main(page: ft.Page):
             return "Uma atualização da biblioteca já está em andamento.", True
         scan_in_progress[0] = True
         try:
-            saf_folders = [folder for folder in store.folders() if folder.get('kind') == 'saf']
+            saf_folders = [folder for folder in store.folders()
+                       if folder.get('kind') == 'saf' and folder.get('authorization') == 'granted']
             if saf_folders and bridge.available:
                 # Native SAF scans finish through the mailbox; retain the lock
                 # until their result/error event arrives.

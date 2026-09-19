@@ -92,13 +92,14 @@ class AndroidHostVerificationTests(unittest.TestCase):
             self.assertIn("@style/ReiFlixTheme", (rendered / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8"))
             self.assertIn("media3-exoplayer:1.5.1", (rendered / "build.gradle").read_text(encoding="utf-8"))
 
-    def test_main_activity_uses_compatible_back_and_activity_result_callbacks(self):
+    def test_main_activity_uses_lifecycle_aware_back_and_activity_result_callbacks(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
-        self.assertNotIn("OnBackPressedCallback", main)
-        self.assertNotIn("onBackPressedDispatcher", main)
+        self.assertIn("import androidx.activity.OnBackPressedCallback", main)
+        self.assertIn("onBackPressedDispatcher.addCallback(this, backCallback)", main)
+        self.assertIn("override fun handleOnBackPressed()", main)
+        self.assertNotIn("override fun onBackPressed()", main)
         self.assertNotIn("return@registerForActivityResult", main)
         self.assertIn("handleTreePickerResult(result)", main)
-        self.assertIn("override fun onBackPressed()", main)
         self.assertIn("import io.flutter.embedding.android.FlutterFragmentActivity", main)
         self.assertIn("class MainActivity : FlutterFragmentActivity()", main)
         self.assertNotIn("import io.flutter.embedding.android.FlutterActivity", main)

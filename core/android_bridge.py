@@ -8,6 +8,7 @@ Desktop deliberately reports this bridge as unavailable.
 from __future__ import annotations
 import json
 import logging
+from contextlib import contextmanager
 import os
 from pathlib import Path
 from urllib.parse import urlencode
@@ -21,6 +22,7 @@ class AndroidBridge:
     def __init__(self, data_dir: str, page=None):
         self.data_dir = Path(data_dir); self.page = page
         self.mailbox = self.data_dir / MAILBOX
+        self.lock_file = self.data_dir / f"{MAILBOX}.lock"
         self._claimed = False
 
     @property
@@ -61,23 +63,38 @@ class AndroidBridge:
         # be used as a second, unscoped storage-access path.
         return bool(uri) and uri.startswith("content://")
 
+    @contextmanager
+    def _mailbox_lock(self):
+        # Android and Python share this lock file so a claim/ack cannot race
+        # with NativeMailbox read-modify-write publication.
+        import fcntl
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        with self.lock_file.open("a+", encoding="utf-8") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
     def drain(self) -> list[dict]:
         consumed = self.mailbox.with_suffix(".consumed")
         if self._claimed:
             return []
         try:
-            if consumed.exists():
-                pass
-            elif self.mailbox.exists():
-                self.mailbox.replace(consumed)
-            else:
-                return []
-            events = json.loads(consumed.read_text(encoding="utf-8"))
-            if not isinstance(events, list):
-                consumed.unlink(missing_ok=True)
-                return []
-            self._claimed = True
-            return [event for event in events if isinstance(event, dict)]
+            with self._mailbox_lock():
+                if consumed.exists():
+                    pass
+                elif self.mailbox.exists():
+                    self.mailbox.replace(consumed)
+                else:
+                    return []
+                events = json.loads(consumed.read_text(encoding="utf-8"))
+                if not isinstance(events, list):
+                    consumed.unlink(missing_ok=True)
+                    return []
+                self._claimed = True
+                return [event for event in events if isinstance(event, dict)]
+        except (OSError, json.JSONDecodeError) as exc:
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("[ANDROID] Failed to read native bridge events: %s", exc)
             try:
@@ -90,7 +107,8 @@ class AndroidBridge:
         if not self._claimed:
             return
         try:
-            self.mailbox.with_suffix(".consumed").unlink(missing_ok=True)
-            self._claimed = False
+            with self._mailbox_lock():
+                self.mailbox.with_suffix(".consumed").unlink(missing_ok=True)
+                self._claimed = False
         except OSError as exc:
             logger.warning("[ANDROID] Failed to acknowledge native events: %s", exc)

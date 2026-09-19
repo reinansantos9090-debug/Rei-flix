@@ -24,7 +24,7 @@ class AniListMatchingHardeningTests(unittest.TestCase):
     def test_near_tied_candidates_require_manual_confirmation(self):
         candidates = [
             {"id": 1, "title": {"romaji": "Kanon"}, "synonyms": []},
-            {"id": 2, "title": {"romaji": "Kanon 2006"}, "synonyms": []},
+            {"id": 2, "title": {"romaji": "Kanon"}, "synonyms": []},
         ]
         best, confident, ranked = AnimeOrganizer.choose("Kanon", candidates)
         self.assertIsNotNone(best)

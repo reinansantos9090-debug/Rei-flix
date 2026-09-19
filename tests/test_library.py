@@ -758,6 +758,28 @@ class LibraryStateTests(unittest.TestCase):
             continuation = store.continue_watching()
             self.assertEqual(continuation[0]['path'], paths[2])
 
+    def test_metadata_refresh_preserves_cached_cover_when_new_download_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('naruto', {
+                'title': 'Naruto',
+                'anilist_id': 20,
+                'cover_url': 'https://example/old.jpg',
+                'cover_cache': '/cache/old.jpg',
+                'genres': '[\"Ação\"]',
+            })
+            store.upsert_anime('naruto', {
+                'title': 'Naruto',
+                'anilist_id': 20,
+                'cover_url': '',
+                'cover_cache': '',
+                'genres': '[\"Ação\"]',
+            })
+            metadata = store.anime_metadata('naruto')
+            self.assertEqual(metadata['id'], anime)
+            self.assertEqual(metadata['cover_url'], 'https://example/old.jpg')
+            self.assertEqual(metadata['cover_cache'], '/cache/old.jpg')
+
     def test_rescan_preserves_favorite_progress_and_watched(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d) / 'Anime'; root.mkdir(); video = root / 'Naruto - 001.mkv'; video.write_bytes(b'')

@@ -3,7 +3,6 @@ package com.reiflix.reiflix_local
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.content.pm.PackageManager
 import android.util.Log
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -177,7 +176,7 @@ class MainActivity : FlutterFragmentActivity() {
     private fun openPlayer(data: Uri?) {
         val episodeUri = data?.getQueryParameter("uri") ?: return
         val localUri = Uri.parse(episodeUri)
-        if (localUri.scheme != "content" || !SafScanner.isAuthorizedDocument(this, localUri)) {
+        if (!((localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri)) || MediaStoreScanner.isAuthorizedDocument(this, localUri))) {
             Log.w(tag, "Rejected unauthorized local media URI")
             NativeMailbox.write(this, JSONObject().put("type", "player_error")
                 .put("message", "Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."))

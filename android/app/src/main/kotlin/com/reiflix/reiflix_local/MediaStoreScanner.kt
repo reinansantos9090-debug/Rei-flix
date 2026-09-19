@@ -51,6 +51,17 @@ object MediaStoreScanner {
     private fun has(context: Context, permission: String): Boolean =
         context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
 
+    fun accessLevel(context: Context): String {
+        return when {
+            Build.VERSION.SDK_INT >= 34 && has(context, Manifest.permission.READ_MEDIA_VIDEO) -> "full"
+            Build.VERSION.SDK_INT >= 34 && has(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) -> "partial"
+            Build.VERSION.SDK_INT >= 33 && has(context, Manifest.permission.READ_MEDIA_VIDEO) -> "full"
+            Build.VERSION.SDK_INT >= 23 && has(context, Manifest.permission.READ_EXTERNAL_STORAGE) -> "full"
+            Build.VERSION.SDK_INT < 23 -> "full"
+            else -> "denied"
+        }
+    }
+
     fun isAuthorizedDocument(context: Context, uri: Uri): Boolean {
         return uri.scheme == "content" &&
             uri.authority == MediaStore.AUTHORITY &&

@@ -127,10 +127,11 @@ class LibraryService:
         seen = []
         for document in documents:
             uri, name = document.get("uri"), document.get("name")
+            relative_path = document.get("relativePath") or document.get("path") or name
             if not uri or not name: continue
             seen.append(uri)
             try:
-                item = parse_video_path(name)
+                item = parse_video_path(relative_path, tree_uri)
             except (OSError, ValueError, UnicodeError) as exc:
                 scan_errors.append(f"Não foi possível ler {name}: {exc}")
                 continue

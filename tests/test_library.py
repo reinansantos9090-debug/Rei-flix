@@ -44,6 +44,14 @@ class ParserTests(unittest.TestCase):
         self.assertEqual((ep.anime_title, ep.season, ep.episode), ('Frieren', 1, 1))
         self.assertEqual((long_ep.anime_title, long_ep.season, long_ep.episode), ('Frieren', 1, 1))
         self.assertEqual((dashed.anime_title, dashed.season, dashed.episode), ('Frieren', 1, 1))
+
+    def test_relative_subfolder_paths_and_temporada_folders(self):
+        p1 = parse_video_path('Naruto/Temporada 1/01.mp4')
+        p2 = parse_video_path('One Piece/Season 2/Episode 05.mkv')
+        p3 = parse_video_path('Bleach/Temp 03/Bleach 50.mp4')
+        self.assertEqual((p1.anime_title, p1.season, p1.episode), ('Naruto', 1, 1))
+        self.assertEqual((p2.anime_title, p2.season, p2.episode), ('One Piece', 2, 5))
+        self.assertEqual((p3.anime_title, p3.season, p3.episode), ('Bleach', 3, 50))
     def test_invalid_file_is_safe(self):
         p=parse_video_path('sem-padrao.mkv')
         self.assertEqual(p.episode, None)

@@ -31,6 +31,10 @@ class NavigationController:
         self._stack[-1] = screen
         self._exit_requested_at = None
 
+    def reset_to_root(self) -> None:
+        self._stack = [self.ROOT]
+        self._exit_requested_at = None
+
     def back(self) -> str:
         """Return ``previous``, ``prompt_exit`` or ``exit`` for one back event."""
         if len(self._stack) > 1:

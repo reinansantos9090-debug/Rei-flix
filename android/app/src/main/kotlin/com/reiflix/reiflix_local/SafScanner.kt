@@ -31,27 +31,33 @@ object SafScanner {
         val root = DocumentFile.fromTreeUri(context, treeUri) ?: throw IllegalArgumentException("Árvore SAF inválida")
         val files = JSONArray(); val stats = JSONObject().put("files", 0).put("videos", 0).put("directories", 0).put("errors", JSONArray())
         Log.i(TAG, "SAF scan started")
-        visit(root, files, stats)
+        visit(root, "", files, stats)
         val partial = stats.getJSONArray("errors").length() > 0
         Log.i(TAG, "SAF scan completed: ${stats.getInt("videos")} videos, partial=$partial")
         return JSONObject().put("treeUri", treeUri.toString()).put("name", root.name ?: treeUri.toString()).put("documents", files).put("stats", stats).put("partial", partial)
     }
 
-    private fun visit(directory: DocumentFile, files: JSONArray, stats: JSONObject) {
+    private fun visit(directory: DocumentFile, currentPath: String, files: JSONArray, stats: JSONObject) {
         try {
             stats.put("directories", stats.getInt("directories") + 1)
             directory.listFiles().forEach { file ->
-                if (file.isDirectory) visit(file, files, stats) else {
+                val name = file.name ?: return@forEach
+                val relativePath = if (currentPath.isEmpty()) name else "$currentPath/$name"
+                if (file.isDirectory) {
+                    visit(file, relativePath, files, stats)
+                } else {
                     stats.put("files", stats.getInt("files") + 1)
-                    val name = file.name ?: return@forEach
                     val extension = name.substringAfterLast('.', "").lowercase()
                     if (extension in videoExtensions) {
                         files.put(JSONObject()
-                            .put("uri", file.uri.toString()).put("name", name)
-                            .put("mimeType", file.type ?: "video/*").put("size", file.length())
+                            .put("uri", file.uri.toString())
+                            .put("name", name)
+                            .put("relativePath", relativePath)
+                            .put("mimeType", file.type ?: "video/*")
+                            .put("size", file.length())
                             .put("modifiedAt", file.lastModified()))
                         stats.put("videos", stats.getInt("videos") + 1)
-                        Log.d(TAG, "Video found: ${file.uri}")
+                        Log.d(TAG, "Video found: $relativePath (${file.uri})")
                     }
                 }
             }
@@ -59,7 +65,7 @@ object SafScanner {
             // A failed subtree makes this a partial scan. Python preserves the
             // previous rows instead of marking unseen documents as missing.
             stats.getJSONArray("errors").put("Não foi possível ler uma subpasta: ${exception.message}")
-            Log.w(TAG, "Could not read SAF directory", exception)
+            Log.w(TAG, "Could not read SAF directory $currentPath", exception)
         }
     }
 }

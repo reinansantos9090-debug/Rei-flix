@@ -52,7 +52,7 @@ async def main(page: ft.Page):
 
     player_context=[("", "", 0)]
     def navigate_home():
-        navigation.replace("home")
+        navigation.reset_to_root()
         render_current()
     def navigate_organize():
         navigation.push("organize")
@@ -101,7 +101,7 @@ async def main(page: ft.Page):
             return
         try:
             bridge.select_tree()
-        except RuntimeError as exc:
+        except Exception as exc:
             saf_selection.finish()
             page.snack_bar=ft.SnackBar(ft.Text(str(exc))); page.snack_bar.open=True; page.update()
             raise
@@ -251,7 +251,7 @@ async def main(page: ft.Page):
             # point, after SQLite/UI handling has completed. A process restart
             # before acknowledgement replays the complete batch safely.
             bridge.acknowledge()
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.2)
     page.on_login=login_done
     page.run_task(poll_native_bridge)
     if bridge.available:

@@ -140,7 +140,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
 
     def test_saf_scanner_uses_iterative_traversal_and_partial_results(self):
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
-        self.assertIn("ArrayDeque<Pair<DocumentFile, String>>()", scanner)
+        self.assertIn("ArrayDeque<Pair<String, String>>()", scanner)
         self.assertIn("pending.removeLast()", scanner)
         self.assertIn('put("partial", partial)', scanner)
         self.assertIn("DocumentsContract.buildChildDocumentsUriUsingTree", scanner)

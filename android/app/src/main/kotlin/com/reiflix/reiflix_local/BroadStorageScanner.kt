@@ -50,7 +50,10 @@ object BroadStorageScanner {
                     .put("primary", volume.isPrimary)
                     .put("removable", volume.isRemovable)
                     .put("state", volume.state ?: "unknown")
-                runCatching { volume.directory?.canonicalPath }.getOrNull()?.let { item.put("directory", it) }
+                if (Build.VERSION.SDK_INT >= 30) {
+                    volume.mediaStoreVolumeName?.let { item.put("mediaStoreVolumeName", it) }
+                    runCatching { volume.directory?.canonicalPath }.getOrNull()?.let { item.put("directory", it) }
+                }
                 volumes.put(item)
             }
         }
@@ -61,7 +64,7 @@ object BroadStorageScanner {
     fun roots(context: Context): List<File> {
         val paths = LinkedHashSet<String>()
         Environment.getExternalStorageDirectory().let { if (it.exists()) paths.add(it.absolutePath) }
-        if (Build.VERSION.SDK_INT >= 24) {
+        if (Build.VERSION.SDK_INT >= 30) {
             context.getSystemService(StorageManager::class.java)?.storageVolumes?.forEach { volume ->
                 runCatching { volume.directory?.canonicalPath }.getOrNull()?.let(paths::add)
             }
@@ -79,8 +82,6 @@ object BroadStorageScanner {
         file.path == root.path || file.path.startsWith(root.path + File.separator)
 
     private fun isRestricted(file: File): Boolean {
-        val name = file.name.lowercase()
-        if (name == "self" || name == "knox" || name == "lost+found" || name == ".trash") return true
         val parts = file.path.split(File.separator).filter(String::isNotEmpty)
         val i = parts.indexOfLast { it.equals("Android", true) }
         val child = if (i >= 0) parts.getOrNull(i + 1)?.lowercase() else null
@@ -105,8 +106,15 @@ object BroadStorageScanner {
             return "external_primary"
         }
         if (Build.VERSION.SDK_INT >= 24) {
-            val volume = context.getSystemService(StorageManager::class.java)?.storageVolumes?.firstOrNull {
-                runCatching { it.directory?.canonicalFile == root.canonicalFile }.getOrDefault(false)
+            val volume = if (Build.VERSION.SDK_INT >= 30) {
+                context.getSystemService(StorageManager::class.java)?.storageVolumes?.firstOrNull {
+                    runCatching { it.directory?.canonicalFile == root.canonicalFile }.getOrDefault(false)
+                }
+            } else {
+                null
+            }
+            if (Build.VERSION.SDK_INT >= 30) {
+                volume?.mediaStoreVolumeName?.takeIf { it.isNotBlank() }?.let { return it }
             }
             volume?.uuid?.takeIf { it.isNotBlank() }?.let { return it }
         }
@@ -165,7 +173,9 @@ object BroadStorageScanner {
                     .put("size",runCatching{file.length()}.getOrDefault(0L))
                     .put("modifiedAt",runCatching{file.lastModified()}.getOrDefault(0L)))
                 videos++
-                Log.i(TAG, "VIDEO_FOUND: ${file.path}")
+                if (videos % 100 == 0) {
+                    Log.i(TAG, "VIDEO_PROGRESS: videos=$videos, files=$files, directories=$directories")
+                }
                 if (videos % 100 == 0) onProgress?.invoke(JSONObject().put("phase","scanning")
                     .put("source",SOURCE).put("directories",directories).put("files",files).put("videos",videos))
             }

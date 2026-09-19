@@ -55,6 +55,24 @@ jobs:
           flet --version
           flutter --version
 
+      - name: Validate public Google configuration for Android build
+        shell: bash
+        env:
+          REIFLIX_GOOGLE_WEB_CLIENT_ID: ${{ vars.REIFLIX_GOOGLE_WEB_CLIENT_ID || secrets.REIFLIX_GOOGLE_WEB_CLIENT_ID }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          value = os.environ.get("REIFLIX_GOOGLE_WEB_CLIENT_ID", "").strip()
+          if value and not value.endswith(".apps.googleusercontent.com"):
+              raise SystemExit("REIFLIX_GOOGLE_WEB_CLIENT_ID must be a Google OAuth Web client ID")
+          path = Path("app_config.py")
+          text = path.read_text(encoding="utf-8")
+          marker = 'GOOGLE_WEB_CLIENT_ID = ""'
+          path.write_text(text.replace(marker, f'GOOGLE_WEB_CLIENT_ID = {value!r}'), encoding="utf-8")
+          print("Google Web Client ID injected into this APK build:" + (" yes" if value else " no (login will show configuration required)"))
+          PY
+
       - name: Validate JSON configuration
         shell: bash
         run: |

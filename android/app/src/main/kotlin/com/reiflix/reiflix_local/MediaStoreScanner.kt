@@ -63,9 +63,18 @@ object MediaStoreScanner {
     }
 
     fun isAuthorizedDocument(context: Context, uri: Uri): Boolean {
-        return uri.scheme == "content" &&
-            uri.authority == MediaStore.AUTHORITY &&
-            hasReadPermission(context)
+        if (uri.scheme != "content" || uri.authority != MediaStore.AUTHORITY || !hasReadPermission(context)) {
+            return false
+        }
+        return runCatching {
+            context.contentResolver.query(
+                uri,
+                arrayOf(MediaStore.Video.Media._ID),
+                null,
+                null,
+                null,
+            )?.use { cursor -> cursor.moveToFirst() } == true
+        }.getOrDefault(false)
     }
 
     fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null): JSONObject {

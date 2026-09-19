@@ -35,17 +35,18 @@ class SettingsView:
         def confirm(title, body, action_label, action):
             dialog = ft.AlertDialog(
                 modal=True, title=ft.Text(title), content=ft.Text(body),
-                actions=[ft.TextButton("Cancelar", on_click=lambda _: page.close(dialog)),
-                         ft.FilledButton(action_label, on_click=lambda _: (page.close(dialog), action()))],
+                actions=[ft.TextButton("Cancelar", on_click=lambda _: dialog.close()),
+                         ft.FilledButton(action_label, on_click=lambda _: (dialog.close(), action()))],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
-            page.open(dialog)
+            page.overlay.append(dialog)
+            dialog.open = True
+            page.update()
 
         folders = store.folders()
         summary = store.library_summary()
         folder_lines = []
         for folder in folders:
-            # SAF URI values are capability references, not meaningful names to expose.
             name = folder.get("name") or "Pasta configurada"
             description = "Pasta SAF autorizada" if folder.get("kind") == "saf" else "Pasta local configurada"
             if folder.get("authorization") != "granted":
@@ -136,7 +137,6 @@ class SettingsView:
             except Exception:
                 notice("Não foi possível iniciar o login Google.", error=True)
             finally:
-                # The Android/OAuth callback owns the final connected/error state.
                 busy["login"] = False; account_button.disabled = False; page.update()
         account_button.on_click = login
         account_button.disabled = account_state in {"connecting", "awaiting_google"}

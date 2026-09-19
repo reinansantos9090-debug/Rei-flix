@@ -47,7 +47,7 @@ async def main(page: ft.Page):
             show(DetailView.build(page, current[0], play_episode, navigate_back,
                                   store.toggle_favorite, library.playback_target))
         elif navigation.current == "settings":
-            show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,login,logout,account(),account_state[0],
+            show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
                                     folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match))
         elif navigation.current == "player":
             path, title, progress = player_context[0]
@@ -142,6 +142,16 @@ async def main(page: ft.Page):
             saf_selection.finish()
             page.snack_bar=ft.SnackBar(ft.Text(str(exc))); page.snack_bar.open=True; page.update()
             raise
+    async def request_video_access(_=None):
+        if not bridge.available:
+            return
+        await bridge.request_media_access()
+
+    async def open_broad_storage_access(_=None):
+        if not bridge.available:
+            return
+        await bridge.open_broad_storage_settings()
+
     async def refresh_library(_=None):
         if saf_selection.pending:
             return "Conclua ou cancele a seleção da pasta antes de atualizar a biblioteca.", False
@@ -285,6 +295,17 @@ async def main(page: ft.Page):
                         page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; page.update()
                     finally:
                         finish_native_scan(); refresh_settings_if_active()
+                elif event_type == 'broad_storage_status':
+                    granted = bool(payload.get('hasAccess'))
+                    roots = payload.get('roots') or []
+                    volumes = payload.get('volumes') or []
+                    if granted:
+                        store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
+                        readable = sum(1 for root in roots if root.get('readable') and root.get('directory'))
+                        store.update_folder_status('broad-storage', 'granted', f'Diagnóstico: {readable} raiz(es) legível(is), {len(volumes)} volume(s) detectado(s).')
+                    else:
+                        store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento não concedido.')
+                    refresh_settings_if_active()
                 elif event_type == 'broad_storage_permission':
                     if payload.get('granted'):
                         store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
@@ -335,6 +356,8 @@ async def main(page: ft.Page):
                 elif event_type == 'mediastore_permission':
                     source = payload.get('source') or 'mediastore:external:video'
                     if payload.get('granted'):
+                        access = payload.get('access') or 'full'
+                        label = 'acesso total' if access == 'full' else 'acesso parcial'
                         store.add_folder(
                             source,
                             name='Vídeos do dispositivo',
@@ -342,6 +365,7 @@ async def main(page: ft.Page):
                             authorization='granted',
                             account_id=store.account().get('id'),
                         )
+                        store.update_folder_status(source, 'granted', f'Permissão de vídeos: {label}.')
                     else:
                         store.update_folder_status(source, 'revoked', 'A permissão para vídeos do dispositivo foi removida.')
                     refresh_settings_if_active()

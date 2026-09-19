@@ -1165,6 +1165,24 @@ class OrganizeTests(unittest.TestCase):
             catalog = store.catalog()
             self.assertEqual([item['id'] for item in LibraryService.browse_catalog(catalog, state='Concluídos')], [anime])
 
+    def test_continue_watching_moves_to_next_local_episode_after_completion(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('continue', {'title': 'Continue', 'genres': '[]'})
+            first = '/library/continue-01.mkv'
+            second = '/library/continue-02.mkv'
+            missing = '/library/continue-03.mkv'
+            store.upsert_episode(anime, first, 'Continue 01', 1, 1)
+            store.upsert_episode(anime, second, 'Continue 02', 1, 2)
+            store.upsert_episode(anime, missing, 'Continue 03', 1, 3)
+            store.save_progress(first, 95, 100)
+            with store._conn() as con:
+                con.execute('UPDATE episodes SET missing=1 WHERE path=?', (missing,))
+            items = store.continue_watching()
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]['path'], second)
+            self.assertFalse(items[0]['watched'])
+
     def test_final_completed_episode_does_not_wrap_to_first_episode(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

@@ -81,18 +81,36 @@ class SettingsView:
             dialog.open = True
             page.update()
 
-        async def open_broad_storage(_=None):
+        def show_broad_storage_dialog(_=None):
             if busy["permission"]:
                 return
-            busy["permission"] = True
-            try:
-                await on_open_broad_storage()
-                notice("Abrindo as configurações do Android para permitir o acesso ao armazenamento…")
-            except Exception:
-                notice("Não foi possível abrir a configuração de armazenamento.", error=True)
-            finally:
-                busy["permission"] = False
-                page.update()
+            dialog = None
+            async def allow(_event):
+                busy["permission"] = True
+                try:
+                    dialog.close()
+                    page.update()
+                    await on_open_broad_storage()
+                    notice("Abrindo as configurações do Android para permitir o acesso ao armazenamento…")
+                except Exception:
+                    notice("Não foi possível abrir a configuração de armazenamento.", error=True)
+                finally:
+                    busy["permission"] = False
+                    page.update()
+            dialog = ft.AlertDialog(
+                modal=True,
+                icon=ft.Icon(ft.Icons.FOLDER_OPEN_OUTLINED, size=40),
+                title=ft.Text("Permissão necessária"),
+                content=ft.Text("Acesso ao armazenamento para procurar vídeos nas pastas locais."),
+                actions=[
+                    ft.TextButton("CANCELAR", on_click=lambda _: dialog.close()),
+                    ft.FilledButton("PERMITIR", on_click=allow),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.overlay.append(dialog)
+            dialog.open = True
+            page.update()
 
         pending_matches = store.pending_matches()
         folder_lines = []
@@ -178,7 +196,7 @@ class SettingsView:
             "Permitir acesso ao armazenamento" if not broad_granted else "Acesso ao armazenamento concedido",
             icon=ft.Icons.FOLDER_OPEN_OUTLINED,
             disabled=broad_granted,
-            on_click=open_broad_storage,
+            on_click=show_broad_storage_dialog,
         )
         permission_lines = [
             ft.Text(

@@ -22,8 +22,8 @@ class AndroidBridge:
     def __init__(self, data_dir: str, page=None):
         self.data_dir = Path(data_dir); self.page = page
         self.mailbox = self.data_dir / MAILBOX
-        self.lock_file = self.data_dir / f"{MAILBOX}.lock"
-        self._claimed = False
+        self.queue_dir = self.data_dir / "reiflix-native-events"
+        self._claimed: list[Path] = []
 
     @property
     def available(self) -> bool:
@@ -64,55 +64,44 @@ class AndroidBridge:
         # be used as a second, unscoped storage-access path.
         return bool(uri) and uri.startswith("content://")
 
-    @contextmanager
-    def _mailbox_lock(self):
-        # Android and Python share this lock file on Android. Desktop builds
-        # do not have the Android publisher, so they keep the existing mailbox
-        # semantics without requiring a POSIX-only dependency.
-        if os.name != "posix" or not self.available:
-            yield
-            return
-        import fcntl
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        with self.lock_file.open("a+", encoding="utf-8") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-
     def drain(self) -> list[dict]:
-        consumed = self.mailbox.with_suffix(".consumed")
         if self._claimed:
             return []
+        events: list[dict] = []
+        claimed: list[Path] = []
         try:
-            with self._mailbox_lock():
-                if consumed.exists():
-                    pass
-                elif self.mailbox.exists():
-                    self.mailbox.replace(consumed)
-                else:
-                    return []
-                events = json.loads(consumed.read_text(encoding="utf-8"))
-                if not isinstance(events, list):
+            self.queue_dir.mkdir(parents=True, exist_ok=True)
+            for source in sorted(self.queue_dir.glob("event-*.json")):
+                consumed = source.with_suffix(".consumed")
+                try:
+                    source.replace(consumed)
+                except OSError:
+                    continue
+                try:
+                    payload = json.loads(consumed.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
                     consumed.unlink(missing_ok=True)
-                    return []
-                self._claimed = True
-                return [event for event in events if isinstance(event, dict)]
-        except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("[ANDROID] Failed to read native bridge events: %s", exc)
-            try:
-                consumed.unlink(missing_ok=True)
-            except OSError:
-                pass
+                    continue
+                if isinstance(payload, list):
+                    events.extend(event for event in payload if isinstance(event, dict))
+                elif isinstance(payload, dict):
+                    events.append(payload)
+                claimed.append(consumed)
+            self._claimed = claimed
+            return events
+        except OSError as exc:
+            logger.warning("[ANDROID] Failed to drain native bridge events: %s", exc)
+            for path in claimed:
+                path.unlink(missing_ok=True)
+            self._claimed = []
             return []
 
     def acknowledge(self) -> None:
         if not self._claimed:
             return
-        try:
-            with self._mailbox_lock():
-                self.mailbox.with_suffix(".consumed").unlink(missing_ok=True)
-                self._claimed = False
-        except OSError as exc:
-            logger.warning("[ANDROID] Failed to acknowledge native events: %s", exc)
+        for consumed in self._claimed:
+            try:
+                consumed.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("[ANDROID] Failed to acknowledge native event %s: %s", consumed.name, exc)
+        self._claimed = []

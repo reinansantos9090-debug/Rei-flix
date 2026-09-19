@@ -308,3 +308,25 @@ class TestSafSelectionRegistration(unittest.TestCase):
         self.assertIn('if (reference.isNullOrBlank()) {', main)
         self.assertIn('JSONObject().put("type", "saf_error")', main)
         self.assertIn('A pasta SAF não foi informada corretamente.', main)
+
+
+class TestSafScannerHardening(unittest.TestCase):
+    def test_scanner_has_revisit_guard_and_progress_callback(self):
+        scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("onProgress: ((JSONObject) -> Unit)? = null", scanner)
+        self.assertIn("val visited = HashSet<String>()", scanner)
+        self.assertIn("if (!visited.add(parentDocumentId))", scanner)
+        self.assertIn('put("pending", pending.size)', scanner)
+
+    def test_main_activity_publishes_scan_progress_before_final_result(self):
+        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        progress = main.index('put("type", "saf_scan_progress")')
+        final = main.index('put("type", "saf_scan")', progress)
+        self.assertLess(progress, final)
+        self.assertIn('put("phase", "scanning")', main)
+
+    def test_python_consumes_saf_scan_progress(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("event_type == 'saf_scan_progress'", source)
+        self.assertIn("Verificando pasta…", source)
+        self.assertIn("payload.get('directories')", source)

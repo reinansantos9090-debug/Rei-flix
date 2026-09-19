@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
-import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -23,14 +22,20 @@ import org.json.JSONObject
 class MainActivity : FlutterActivity() {
     private val tag = "[REIFLIX][ANDROID]"
     private val treePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val uri = result.data?.data ?: run {
+        handleTreePickerResult(result)
+    }
+
+    private fun handleTreePickerResult(result: androidx.activity.result.ActivityResult) {
+        val resultIntent = result.data
+        val uri = resultIntent?.data
+        if (uri == null) {
             Log.i(tag, "SAF selection cancelled")
             NativeMailbox.write(this, JSONObject().put("type", "saf_cancelled"))
-            return@registerForActivityResult
+            return
         }
         try {
             Log.i(tag, "SAF result received")
-            SafScanner.persistPermission(this, uri, result.data?.flags ?: 0)
+            SafScanner.persistPermission(this, uri, resultIntent.flags)
             scanTree(uri.toString())
         } catch (exception: Exception) {
             Log.e(tag, "SAF selection failed", exception)
@@ -42,16 +47,16 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         configureSystemBars()
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                // Flet owns screen history.  Do not let FlutterActivity finish
-                // before its Python navigation policy receives this event.
-                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "android_back"))
-            }
-        })
+        // Flet owns screen history. Do not let FlutterActivity finish before
+        // its Python navigation policy receives this event.
         handleNativeIntent(intent)
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handleNativeIntent(intent) }
+
+    @Deprecated("Use OnBackInvokedDispatcher on newer Android versions when available")
+    override fun onBackPressed() {
+        NativeMailbox.write(this, JSONObject().put("type", "android_back"))
+    }
 
     private fun handleNativeIntent(intent: Intent?) {
         when (intent?.data?.getQueryParameter("action")) {

@@ -132,6 +132,23 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(result.catalog[0]['main_title'], 'Naruto')
             self.assertTrue(result.errors)
 
+    def test_partial_saf_scan_does_not_mark_unseen_episode_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            service = LibraryService(store)
+            anime = store.upsert_anime("naruto", {"title": "Naruto", "genres": "[]"})
+            uri = "content://provider/tree/video%3A1/document/video%3A1%2FNaruto-001.mkv"
+            store.upsert_episode(anime, uri, "Naruto - 001.mkv", 1, 1, source_folder="content://provider/tree/video%3A1")
+            service.ingest_documents(
+                "content://provider/tree/video%3A1",
+                [],
+                folder_name="Anime",
+                scan_errors=["Não foi possível ler uma subpasta"],
+                scan_stats={"files": 0, "videos": 0},
+            )
+            episode = store.catalog()[0]["seasons"][0]["episodes"][0]
+            self.assertFalse(episode["missing"])
+
     def test_saf_reference_is_not_converted_to_path(self):
         with tempfile.TemporaryDirectory() as d:
             store=LibraryStore(d); store.add_folder('content://com.android.providers.media.documents/tree/video%3A1',kind='saf')

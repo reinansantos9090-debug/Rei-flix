@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -20,6 +21,11 @@ import org.json.JSONObject
 class MainActivity : FlutterFragmentActivity() {
     private val tag = "[REIFLIX][ANDROID]"
     private lateinit var systemUiController: SystemUiController
+    private val backCallback = object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+            NativeMailbox.write(this@MainActivity, JSONObject().put("type", "android_back"))
+        }
+    }
     private val mediaPermissionRequester = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         val granted = grants.any { it.value } && MediaStoreScanner.hasReadPermission(this)
         NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission").put("payload", JSONObject()
@@ -65,6 +71,7 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         systemUiController = SystemUiController(window)
+        onBackPressedDispatcher.addCallback(this, backCallback)
         applyImmersiveSystemUi()
         // Flet owns screen history. Do not let FlutterActivity finish before
         // its Python navigation policy receives this event.
@@ -73,10 +80,6 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handleNativeIntent(intent) }
     override fun onResume() { super.onResume(); applyImmersiveSystemUi() }
 
-    @Deprecated("Use OnBackInvokedDispatcher on newer Android versions when available")
-    override fun onBackPressed() {
-        NativeMailbox.write(this, JSONObject().put("type", "android_back"))
-    }
 
     private fun handleNativeIntent(intent: Intent?) {
         when (intent?.data?.getQueryParameter("action")) {

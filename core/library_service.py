@@ -45,11 +45,13 @@ class LibraryService:
         if age >= self.METADATA_CACHE_SECONDS:
             return False
 
-        cover_url = str(cached.get("cover_url") or "").strip()
         cover_cache = str(cached.get("cover_cache") or "").strip()
-        if cover_url and cover_cache:
+        if cover_cache:
             cover_path = Path(cover_cache)
-            cover_available = cover_path.is_file() and cover_path.stat().st_size > 0
+            try:
+                cover_available = cover_path.is_file() and cover_path.stat().st_size > 0
+            except OSError:
+                cover_available = False
             if not cover_available and age >= self.COVER_RETRY_SECONDS:
                 return False
 

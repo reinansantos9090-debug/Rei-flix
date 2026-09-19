@@ -104,6 +104,17 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("class MainActivity : FlutterFragmentActivity()", main)
         self.assertNotIn("import io.flutter.embedding.android.FlutterActivity", main)
 
+    def test_settings_permission_controls_are_wired(self):
+        settings = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        bridge = (ROOT / "core" / "android_bridge.py").read_text(encoding="utf-8")
+        self.assertIn("on_request_video_access", settings)
+        self.assertIn("on_open_broad_storage", settings)
+        self.assertIn("request_video_access", main)
+        self.assertIn("open_broad_storage_access", main)
+        self.assertIn("request_media_access", bridge)
+        self.assertIn("open_broad_storage_settings", bridge)
+
     def test_saf_picker_requests_only_persisted_read_access(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("Intent.FLAG_GRANT_READ_URI_PERMISSION", main)

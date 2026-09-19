@@ -22,7 +22,9 @@ async def main(page: ft.Page):
     page.title='Rei-Flix Local'; page.theme_mode=ft.ThemeMode.DARK; page.bgcolor='#16151F'; page.padding=0
     page.theme=ft.Theme(color_scheme_seed='#E50914',font_family='Roboto')
     data_dir=os.getenv('FLET_APP_STORAGE_DATA') or os.path.join(os.path.dirname(__file__),'.reiflix-data')
-    store=LibraryStore(data_dir); library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]
+    store=LibraryStore(data_dir)
+    recovered_scans=store.interrupted_scans()
+    library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]
     account_state=["connected" if store.account().get("email") else "disconnected"]
     scan_in_progress=[False]
     pending_native_scans=[0]
@@ -395,6 +397,12 @@ async def main(page: ft.Page):
             await asyncio.sleep(0.2)
     page.on_login=login_done
     page.run_task(poll_native_bridge)
+    if recovered_scans:
+        page.snack_bar = ft.SnackBar(ft.Text(
+            f"{len(recovered_scans)} varredura(s) anterior(es) foram interrompidas e poderão ser refeitas."
+        ))
+        page.snack_bar.open = True
+        page.update()
     if bridge.available:
         for folder in store.folders():
             if folder.get('kind') == 'saf':

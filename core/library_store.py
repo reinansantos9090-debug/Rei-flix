@@ -332,7 +332,7 @@ class LibraryStore:
                 ORDER BY last_played_at DESC LIMIT 1""", (anime_id,)).fetchone()
             if active:
                 return dict(active)
-            completed = c.execute("""SELECT * FROM episodes WHERE anime_id=? AND watched=1
+            completed = c.execute("""SELECT * FROM episodes WHERE anime_id=? AND missing=0 AND watched=1
                 ORDER BY last_played_at DESC LIMIT 1""", (anime_id,)).fetchone()
         return self.next_episode(completed["path"]) if completed else None
 

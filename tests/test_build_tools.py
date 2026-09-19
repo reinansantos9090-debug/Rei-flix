@@ -49,7 +49,8 @@ class AndroidHostVerificationTests(unittest.TestCase):
     def test_workflow_prepares_a_real_template_and_keeps_host_gate(self):
         workflow = (ROOT / ".github" / "workflows" / "build_apk.yml").read_text(encoding="utf-8")
         self.assertIn("https://github.com/flet-dev/flet/releases/download/v0.86.5/flet-build-template.zip", workflow)
-        self.assertIn("scripts/prepare_flet_template.py --template build/flet-build-template --overlay android", workflow)
+        self.assertIn("--template \"$GITHUB_WORKSPACE/build/flet-build-template\"", workflow)
+        self.assertIn("--overlay \"$GITHUB_WORKSPACE/android\"", workflow)
         self.assertIn("flet build apk --template build/flet-build-template --yes -v", workflow)
         self.assertNotIn("flet build apk --template .", workflow)
         self.assertIn('python scripts/verify_android_host.py "$apk"', workflow)
@@ -70,7 +71,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
             self.assertIn("NativePlayerActivity", hook)
             self.assertIn("media3-exoplayer:1.5.1", hook)
             self.assertNotIn("__REIFLIX_OVERLAY_APP__", hook)
-            self.assertIn(str((template / "reiflix_android_overlay" / "app").resolve()), hook)
+            self.assertIn(f'Path({str((template / "reiflix_android_overlay" / "app").resolve())!r})', hook)
 
             rendered = Path(d) / "rendered" / "android" / "app"
             (rendered / "src" / "main").mkdir(parents=True)

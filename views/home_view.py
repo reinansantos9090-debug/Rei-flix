@@ -61,10 +61,23 @@ class HomeView:
         def artwork(source, height, icon_size=34):
             return media_artwork(source, height, icon_size=icon_size)
 
+        def episode_player_title(anime, episode):
+            season = episode.get("season", 1)
+            number = episode.get("number")
+            if number is None:
+                episode_label = episode.get("title", "Episódio")
+            else:
+                episode_label = f"T{season} E{number}"
+            return f"{anime['main_title']} • {episode_label}"
+
         def play_continuation(item):
+            anime = next(
+                (entry for entry in catalog if entry.get("id") == item.get("anime_id")),
+                {"main_title": item.get("anime_title", "Anime local")},
+            )
             on_play_episode(
                 item["path"],
-                f"{item.get('anime_title', 'Anime local')} • T{item.get('season', 1)} E{item.get('number') if item.get('number') is not None else '—'}",
+                episode_player_title(anime, item),
                 progress_seconds=item.get("progress", 0),
             )
 

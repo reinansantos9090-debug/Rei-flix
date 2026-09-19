@@ -396,8 +396,22 @@ async def main(page: ft.Page):
                         # disabled loading button after one revoked grant.
                         if scan_in_progress[0]:
                             finish_native_scan()
-                    if event_type == 'google_error': account_state[0] = 'error'
-                    page.snack_bar=ft.SnackBar(ft.Text(event.get('message','Operação Android não concluída.'))); page.snack_bar.open=True; page.update()
+                    if event_type == 'google_error':
+                        code = str(event.get('code') or 'credential_error')
+                        account_state[0] = 'configuration_required' if code == 'configuration_required' else 'error'
+                        if code == 'no_credential':
+                            message = 'Nenhuma conta/credencial Google disponível. Verifique se uma conta Google está configurada no dispositivo.'
+                        elif code == 'unsupported':
+                            message = 'Este dispositivo não oferece suporte ao Gerenciador de Credenciais usado pelo Rei-Flix.'
+                        elif code == 'provider_configuration':
+                            message = 'O provedor Google do Gerenciador de Credenciais não está configurado corretamente.'
+                        elif code == 'invalid_credential':
+                            message = 'O Google retornou uma credencial que não pôde ser validada com segurança.'
+                        elif code == 'configuration_required':
+                            message = 'O login Google precisa de um Web Client ID válido neste APK.'
+                        else:
+                            message = event.get('message', 'O login Google não pôde ser concluído.')
+                        page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; page.update()
                     if event_type == 'saf_error': refresh_settings_if_active()
                 elif event_type == 'android_back':
                     navigate_back()

@@ -44,6 +44,8 @@ async def main(page: ft.Page):
             show(OrganizeView.build(page, library, navigate_details, navigate_back, navigate_settings,
                                     on_request_storage_access=open_broad_storage_access,
                                     on_scan_storage=refresh_library,
+                                    on_request_video_access=request_video_access,
+                                    on_add_folder=add_folder,
                                     view_state=organize_state))
         elif navigation.current == "details":
             show(DetailView.build(page, current[0], play_episode, navigate_back,
@@ -83,8 +85,10 @@ async def main(page: ft.Page):
         navigation.push("details")
         render_current()
     def on_catalog_changed():
-        # The active screen owns rendering; returning home always reads the SQLite catalog again.
-        return None
+        # Native scan completion must immediately re-read SQLite on the active
+        # screen; the previous implementation intentionally did nothing here,
+        # leaving a freshly indexed catalog invisible until manual navigation.
+        render_current()
     async def remove_folder(reference):
         if scan_in_progress[0] or saf_selection.pending:
             page.snack_bar = ft.SnackBar(ft.Text("Aguarde a atualização ou a seleção de pasta terminar antes de remover uma pasta."))
@@ -171,8 +175,8 @@ async def main(page: ft.Page):
                 for folder in folders
             )
             if bridge.available:
-                # SAF and MediaStore scans share the same native completion lock,
-                # but each source is persisted and marked-missing independently.
+                # Native sources remain independent for persistence/missing-state,
+                # while Python owns one user-visible refresh lifecycle.
                 pending_native_scans[0] = 0
                 pending_native_scans[0] += 1
                 try:
@@ -198,8 +202,13 @@ async def main(page: ft.Page):
                             "Não foi possível iniciar a varredura MediaStore.",
                         )
                 if pending_native_scans[0] > 0:
+                    missing_sources = []
                     if not mediastore_granted:
-                        return "Atualização iniciada. Conceda a permissão de vídeos para incluir o MediaStore.", True
+                        missing_sources.append("vídeos do dispositivo")
+                    if not any(folder.get('kind') == 'broad_storage' and folder.get('authorization') == 'granted' for folder in folders):
+                        missing_sources.append("armazenamento amplo")
+                    if missing_sources:
+                        return "Atualização iniciada. Ainda sem acesso a " + ", ".join(missing_sources) + ".", True
                     return "Atualização iniciada. Verificando as fontes locais…", True
                 scan_in_progress[0] = False
                 return "Nenhuma fonte local pôde iniciar uma varredura.", False

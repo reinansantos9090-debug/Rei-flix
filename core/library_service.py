@@ -265,5 +265,14 @@ class LibraryService:
         if sort == "Nome Z-A":
             return sorted(result, key=lambda anime: anime.get("main_title", "").casefold(), reverse=True)
         if sort == "Assistidos recentemente":
-            return sorted(result, key=lambda anime: max((episode.get("last_played_at") or 0 for episode in episodes(anime)), default=0), reverse=True)
+            return sorted(
+                result,
+                key=lambda anime: max(
+                    (episode.get("last_played_at") or 0
+                     for episode in episodes(anime)
+                     if not episode.get("missing")),
+                    default=0,
+                ),
+                reverse=True,
+            )
         return sorted(result, key=lambda anime: anime.get("meta", {}).get("added_at") or 0, reverse=True)

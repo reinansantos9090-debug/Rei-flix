@@ -54,6 +54,11 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("flet build apk --template build/flet-build-template --yes -v", workflow)
         self.assertNotIn("flet build apk --template .", workflow)
         self.assertIn('python scripts/verify_android_host.py "$apk"', workflow)
+        self.assertIn("build-tools;36.0.0", workflow)
+        self.assertIn("platforms;android-36", workflow)
+        self.assertIn("Verify final APK permissions and target SDK", workflow)
+        self.assertIn("targetSdkVersion:'36'", workflow)
+        self.assertIn("MANAGE_EXTERNAL_STORAGE", workflow)
 
     def test_template_preparation_copies_overlay_and_installs_post_generation_hook(self):
         with tempfile.TemporaryDirectory() as d:

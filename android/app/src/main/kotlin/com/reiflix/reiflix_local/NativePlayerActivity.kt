@@ -50,7 +50,11 @@ class NativePlayerActivity : ComponentActivity() {
         val rawUri = intent.getStringExtra("uri")
         if (rawUri.isNullOrBlank()) { reportError("Arquivo local inválido."); finish(); return }
         uri = Uri.parse(rawUri)
-        if (uri.scheme.isNullOrBlank()) { reportError("URI do arquivo inválida."); finish(); return }
+        if (uri.scheme != "content" || !SafScanner.isAuthorizedDocument(this, uri)) {
+            reportError("Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix.")
+            finish()
+            return
+        }
 
         player = ExoPlayer.Builder(this).build()
         val playerView = PlayerView(this).apply {

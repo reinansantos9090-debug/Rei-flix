@@ -11,7 +11,7 @@ import org.json.JSONObject
 
 object SafScanner {
     private const val TAG = "[REIFLIX][SAF]"
-    private val videoExtensions = setOf("mp4", "mkv", "webm", "avi", "mov", "m4v")
+    private val videoExtensions = setOf("mp4", "mkv", "webm", "avi", "mov", "m4v", "ts", "m2ts", "flv", "wmv")
 
     fun persistPermission(context: Context, uri: Uri, flags: Int) {
         val granted = flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -68,6 +68,30 @@ object SafScanner {
         }.getOrNull()?.takeIf { it.isNotBlank() } ?: treeUri.toString()
     }
 
+    private fun directoryHasNoMedia(resolver: android.content.ContentResolver, treeUri: Uri, parentDocumentId: String): Boolean {
+        val childrenUri = runCatching {
+            DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
+        }.getOrNull() ?: return false
+        return runCatching {
+            resolver.query(
+                childrenUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                if (nameColumn < 0) return@use false
+                while (cursor.moveToNext()) {
+                    if (cursor.getString(nameColumn)?.equals(".nomedia", ignoreCase = true) == true) {
+                        return@use true
+                    }
+                }
+                false
+            } ?: false
+        }.getOrDefault(false)
+    }
+
     fun scan(context: Context, treeUri: Uri, onProgress: ((JSONObject) -> Unit)? = null): JSONObject {
         check(hasPersistedReadPermission(context, treeUri)) { "A permissão desta pasta foi removida." }
         val resolver = context.contentResolver
@@ -78,7 +102,7 @@ object SafScanner {
 
         val files = JSONArray()
         val errors = JSONArray()
-        val stats = JSONObject().put("files", 0).put("videos", 0).put("directories", 0).put("errors", errors)
+        val stats = JSONObject().put("files", 0).put("videos", 0).put("directories", 0).put("excludedNoMedia", 0).put("errors", errors)
 
         // Query the provider directly instead of relying on DocumentFile.listFiles().
         // This preserves provider-native document IDs and works for local as well
@@ -92,6 +116,10 @@ object SafScanner {
         while (pending.isNotEmpty()) {
             val (parentDocumentId, currentPath) = pending.removeLast()
             if (!visited.add(parentDocumentId)) {
+                continue
+            }
+            if (directoryHasNoMedia(resolver, treeUri, parentDocumentId)) {
+                stats.put("excludedNoMedia", stats.getInt("excludedNoMedia") + 1)
                 continue
             }
             stats.put("directories", stats.getInt("directories") + 1)

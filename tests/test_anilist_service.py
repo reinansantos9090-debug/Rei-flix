@@ -69,6 +69,23 @@ class LibraryAniListCacheTests(unittest.TestCase):
                 cached = store.anime_metadata("naruto")
             self.assertFalse(service._cached_metadata_is_current(cached, 20))
 
+    def test_empty_cover_cache_remains_valid_until_metadata_ttl(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            anime = store.upsert_anime("naruto", {
+                "title": "Naruto",
+                "anilist_id": 20,
+                "cover_url": "https://img.example/naruto.jpg",
+                "cover_cache": "",
+                "genres": "[]",
+            })
+            old = time.time() - (LibraryService.COVER_RETRY_SECONDS + 1)
+            with store._conn() as con:
+                con.execute("UPDATE anime SET metadata_updated_at=? WHERE id=?", (old, anime))
+                cached = store.anime_metadata("naruto")
+            service = LibraryService(store)
+            self.assertTrue(service._cached_metadata_is_current(cached, 20))
+
     def test_stale_refresh_keeps_metadata_when_cover_download_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

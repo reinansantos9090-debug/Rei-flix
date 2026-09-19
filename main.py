@@ -167,7 +167,7 @@ async def main(page: ft.Page):
             scan_in_progress[0] = False
             raise
         finally:
-            if not (bridge.available and any(f.get('kind') == 'saf' and f.get('authorization') == 'granted' for f in store.folders())):
+            if not (bridge.available and pending_native_scans[0] > 0):
                 scan_in_progress[0] = False
     async def login(_=None):
         if bridge.available:

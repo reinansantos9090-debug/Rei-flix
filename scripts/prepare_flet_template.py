@@ -123,11 +123,11 @@ android_root = root / "android"
 for candidate in (android_root / "settings.gradle.kts", android_root / "settings.gradle", android_root / "build.gradle.kts", android_root / "build.gradle"):
     if candidate.is_file():
         source = candidate.read_text(encoding="utf-8")
-        updated = updated.replace("com.android.tools.build:gradle:8.6.1", "com.android.tools.build:gradle:8.9.1")
+        updated = source.replace("com.android.tools.build:gradle:8.6.1", "com.android.tools.build:gradle:8.9.1")
         # Settings-style plugin declarations normally contain the version as a
         # literal after the plugin id; limit this replacement to the AGP id.
-        updated = re.sub(r'(id\s*["']com\.android\.application["']\s+version\s+["'])8\.6\.1(["'])',
-                         r'\g<1>8.9.1\g<2>', updated)
+        updated = re.sub(r"(id\s*[\"\']com\.android\.application[\"\']\s+version\s+[\"\'])8\.6\.1([\"\'])",
+                         r"\g<1>8.9.1\g<2>", updated)
         if updated != source:
             candidate.write_text(updated, encoding="utf-8")
 

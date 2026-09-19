@@ -98,6 +98,9 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertNotIn("return@registerForActivityResult", main)
         self.assertIn("handleTreePickerResult(result)", main)
         self.assertIn("override fun onBackPressed()", main)
+        self.assertIn("import io.flutter.embedding.android.FlutterFragmentActivity", main)
+        self.assertIn("class MainActivity : FlutterFragmentActivity()", main)
+        self.assertNotIn("import io.flutter.embedding.android.FlutterActivity", main)
 
     def test_native_host_keeps_system_bars_for_flet_and_fullscreen_for_player_only(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

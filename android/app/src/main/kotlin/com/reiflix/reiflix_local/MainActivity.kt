@@ -32,6 +32,7 @@ class MainActivity : FlutterFragmentActivity() {
         val granted = grants.any { it.value } && MediaStoreScanner.hasReadPermission(this)
         NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission").put("payload", JSONObject()
             .put("granted", granted)
+            .put("access", MediaStoreScanner.accessLevel(this))
             .put("source", MediaStoreScanner.SOURCE)))
         if (granted) scanMediaStore() else {
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
@@ -80,8 +81,19 @@ class MainActivity : FlutterFragmentActivity() {
         handleNativeIntent(intent)
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handleNativeIntent(intent) }
-    override fun onResume() { super.onResume(); applyImmersiveSystemUi(); if (broadStoragePermissionPending && BroadStorageScanner.hasAccess()) { broadStoragePermissionPending = false; scanAllStorage() } }
-
+    override fun onResume() {
+        super.onResume()
+        applyImmersiveSystemUi()
+        if (broadStoragePermissionPending) {
+            if (BroadStorageScanner.hasAccess()) {
+                broadStoragePermissionPending = false
+                scanAllStorage()
+            } else {
+                NativeMailbox.write(this, JSONObject().put("type", "broad_storage_status")
+                    .put("payload", BroadStorageScanner.accessSnapshot(this)))
+            }
+        }
+    }
 
     private fun handleNativeIntent(intent: Intent?) {
         when (intent?.data?.getQueryParameter("action")) {
@@ -90,6 +102,9 @@ class MainActivity : FlutterFragmentActivity() {
             "verify_tree" -> verifyTree(intent.data?.getQueryParameter("tree_uri"))
             "release_tree" -> releaseTree(intent.data?.getQueryParameter("tree_uri"))
             "scan_media_store" -> scanMediaStore()
+            "request_media_access" -> requestMediaAccess()
+            "check_storage_access" -> publishStorageStatus()
+            "open_broad_storage_settings" -> openBroadStorageSettings()
             "scan_all_storage" -> scanAllStorage()
             "google_sign_in" -> signInWithGoogle(intent.data?.getQueryParameter("server_client_id"))
             "play" -> openPlayer(intent.data)
@@ -124,19 +139,55 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
     }
+    private fun requestMediaAccess() {
+        if (MediaStoreScanner.hasReadPermission(this)) {
+            NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission").put("payload", JSONObject()
+                .put("granted", true)
+                .put("access", MediaStoreScanner.accessLevel(this))
+                .put("source", MediaStoreScanner.SOURCE)))
+            return
+        }
+        val permissions = MediaStoreScanner.requiredPermissions()
+        if (permissions.isEmpty()) {
+            NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
+                .put("message", "Este Android não disponibiliza permissão de leitura de vídeos.")
+                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
+            return
+        }
+        mediaPermissionRequester.launch(permissions)
+    }
+
+    private fun publishStorageStatus() {
+        NativeMailbox.write(this, JSONObject().put("type", "broad_storage_status")
+            .put("payload", BroadStorageScanner.accessSnapshot(this)))
+    }
+
+    private fun openBroadStorageSettings() {
+        if (BroadStorageScanner.hasAccess()) {
+            publishStorageStatus()
+            return
+        }
+        broadStoragePermissionPending = true
+        NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
+            .put("payload", JSONObject().put("granted", false).put("source", BroadStorageScanner.SOURCE)))
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                    .setData(Uri.parse("package:$packageName")))
+            } catch (exception: Exception) {
+                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+        } else {
+            broadStoragePermissionPending = false
+            scanAllStorage()
+        }
+    }
+
     private fun scanAllStorage() {
         if (!BroadStorageScanner.hasAccess()) {
-            broadStoragePermissionPending = true
+            publishStorageStatus()
             NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
                 .put("payload", JSONObject().put("granted", false).put("source", BroadStorageScanner.SOURCE)))
-            if (android.os.Build.VERSION.SDK_INT >= 30) {
-                try {
-                    startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                        .setData(Uri.parse("package:$packageName")))
-                } catch (exception: Exception) {
-                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-                }
-            }
             return
         }
         NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")

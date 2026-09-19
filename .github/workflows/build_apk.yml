@@ -71,7 +71,13 @@ jobs:
       - name: Prepare Flet build template with Android host
         run: |
           mkdir -p build
-          git clone --depth 1 --branch 0.83.0 https://github.com/flet-dev/flet-build-template.git build/flet-build-template
+          curl -sSL -o build/flet-build-template.zip https://github.com/flet-dev/flet/releases/download/v0.86.5/flet-build-template.zip
+          mkdir -p build/temp_tmpl
+          unzip -q build/flet-build-template.zip -d build/temp_tmpl
+          mkdir -p build/flet-build-template
+          mv build/temp_tmpl/build/* build/flet-build-template/
+          mv build/temp_tmpl/build/.* build/flet-build-template/ 2>/dev/null || true
+          rm -rf build/temp_tmpl build/flet-build-template.zip
           python scripts/prepare_flet_template.py --template build/flet-build-template --overlay android
 
       - name: Build APK

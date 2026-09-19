@@ -89,12 +89,17 @@ async def main(page: ft.Page):
         folder = next((item for item in store.folders() if item.get("path") == reference), None)
         if folder and folder.get("kind") == "saf" and bridge.available:
             try:
+                pending_folder_removals.add(reference)
                 await bridge.release_tree(reference)
+                page.snack_bar = ft.SnackBar(ft.Text("Liberando a permissão da pasta…"))
+                page.snack_bar.open = True
+                page.update()
             except Exception as exc:
+                pending_folder_removals.discard(reference)
                 page.snack_bar = ft.SnackBar(ft.Text(f"Não foi possível liberar a pasta: {exc}"))
                 page.snack_bar.open = True
                 page.update()
-                return
+            return
         store.remove_folder(reference)
         on_catalog_changed()
         refresh_settings_if_active()
@@ -256,6 +261,14 @@ async def main(page: ft.Page):
                         else:
                             store.update_folder_status(tree_uri, 'revoked', 'A permissão desta pasta foi removida.')
                         refresh_settings_if_active()
+                elif event_type == 'saf_released':
+                    tree_uri = payload.get('treeUri')
+                    if tree_uri and tree_uri in pending_folder_removals:
+                        pending_folder_removals.discard(tree_uri)
+                        store.remove_folder(tree_uri)
+                        on_catalog_changed()
+                        refresh_settings_if_active()
+                        page.snack_bar=ft.SnackBar(ft.Text('Pasta removida da biblioteca.')); page.snack_bar.open=True; page.update()
                 elif event_type == 'google_cancelled':
                     account_state[0] = 'disconnected'
                     page.snack_bar=ft.SnackBar(ft.Text('Entrada com Google cancelada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
@@ -263,6 +276,11 @@ async def main(page: ft.Page):
                     if event_type == 'saf_error':
                         saf_selection.finish()
                         tree_uri = payload.get('treeUri')
+                        if tree_uri and tree_uri in pending_folder_removals:
+                            pending_folder_removals.discard(tree_uri)
+                            page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível liberar a pasta.'))); page.snack_bar.open=True; page.update()
+                            refresh_settings_if_active()
+                            continue
                         if tree_uri:
                             store.update_folder_status(tree_uri, 'revoked', event.get('message', 'Não foi possível acessar a pasta.'))
                         # A re-scan has no successful result event to clear

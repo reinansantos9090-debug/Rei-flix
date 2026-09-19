@@ -146,7 +146,7 @@ class LibraryService:
             anime_id=self.store.upsert_anime(key,metadata[key]); self.store.upsert_episode(anime_id,path,os.path.basename(path),item.season,item.episode,source_folder=source_folder)
         result.catalog=self.store.catalog(); result.animes=len(result.catalog); result.episodes=sum(len(s['episodes']) for a in result.catalog for s in a['seasons'])
         self.store.finish_scan(run_id, result.__dict__); on_status(result.message()); return result
-    def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *, folder_name=None, scan_errors=None, scan_stats=None):
+    def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *, folder_name=None, scan_errors=None, scan_stats=None, source_kind="saf"):
         """Persist video document URIs enumerated by Android's ContentResolver."""
         run_id = self.store.begin_scan()
         scan_errors = list(scan_errors or [])
@@ -154,7 +154,7 @@ class LibraryService:
         self.store.add_folder(
             tree_uri,
             name=folder_name or tree_uri.rsplit("/", 1)[-1],
-            kind="saf",
+            kind=source_kind,
             authorization="granted",
             account_id=self.store.account().get("id"),
         )
@@ -165,7 +165,7 @@ class LibraryService:
             relative_path = document.get("relativePath") or document.get("path") or name
             if not uri or not name:
                 continue
-            # SAF documents are the native local-media contract. Rejecting
+            # Native media documents are the local-media contract. Rejecting
             # anything else here prevents a malformed bridge payload from
             # silently creating a playable row that Android cannot authorize.
             if not isinstance(uri, str) or not uri.startswith("content://"):

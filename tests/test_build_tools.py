@@ -166,7 +166,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
 
     def test_refresh_recovers_when_a_saf_scan_cannot_start(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        start = source.index("            saf_folders = [folder for folder in store.folders()")
+        start = source.index("            saf_folders = [folder for folder in folders")
         end = source.index("            result = await asyncio.to_thread(library.scan)", start)
         block = source[start:end]
         self.assertIn("pending_native_scans[0] = 0", block)

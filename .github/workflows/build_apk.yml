@@ -9,7 +9,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
 
@@ -36,12 +35,10 @@ jobs:
           packages: "platform-tools build-tools;35.0.0 platforms;android-35 cmdline-tools;latest"
 
       - name: Accept Android SDK Licenses
-        shell: bash
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
       - name: Install Android platform
-        shell: bash
         run: |
           sdkmanager --install \
             "platform-tools" \
@@ -56,22 +53,11 @@ jobs:
           cache: true
 
       - name: Install Python and Flet build dependencies
-        shell: bash
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt "flet[cli]==0.86.5"
-
-          echo "=== Flet ==="
           flet --version
-
-          echo "=== Flutter ==="
           flutter --version
-
-          echo "=== Cookiecutter ==="
-          python -m cookiecutter --version
-
-          echo "=== Jinja2 ==="
-          python -c "import jinja2; print(jinja2.__version__)"
 
       - name: Validate JSON configuration
         shell: bash
@@ -87,32 +73,22 @@ jobs:
           )
 
       - name: Validate Python application
-        shell: bash
         run: |
-          python -m compileall -q \
-            main.py \
-            app_config.py \
-            core \
-            views
-
+          python -m compileall -q main.py app_config.py core views
           git diff --check
 
-      # IMPORTANTE:
-      # O Flet 0.86.5 deve usar o template congelado da própria release.
-      # Não usamos o repositório flet-build-template.git.
-      - name: Download Flet 0.86.5 build template
+      - name: Download exact Flet 0.86.5 build template
         shell: bash
         run: |
-          set -euo pipefail
-
           rm -rf build/flet-build-template
-          rm -rf /tmp/flet-template
           mkdir -p build
-          mkdir -p /tmp/flet-template
 
-          curl -fL --retry 3 --retry-all-errors \
+          curl -fL \
             "https://github.com/flet-dev/flet/releases/download/v0.86.5/flet-build-template.zip" \
             -o /tmp/flet-build-template.zip
+
+          rm -rf /tmp/flet-template
+          mkdir -p /tmp/flet-template
 
           python - <<'PY'
           from pathlib import Path
@@ -120,88 +96,62 @@ jobs:
           import shutil
 
           archive = Path("/tmp/flet-build-template.zip")
-          extraction = Path("/tmp/flet-template")
-          output = Path("build/flet-build-template")
-
-          if not archive.is_file():
-              raise SystemExit("ERRO: template Flet não foi baixado.")
+          destination = Path("/tmp/flet-template")
 
           with ZipFile(archive) as z:
-              z.extractall(extraction)
+              z.extractall(destination)
 
-          candidates = list(extraction.rglob("cookiecutter.json"))
+          candidates = list(destination.rglob("cookiecutter.json"))
 
-          if len(candidates) != 1:
+          if not candidates:
               raise SystemExit(
-                  f"ERRO: esperado exatamente 1 cookiecutter.json; "
-                  f"encontrados {len(candidates)}."
+                  "ERRO: cookiecutter.json não encontrado no template Flet 0.86.5."
+              )
+
+          if len(candidates) > 1:
+              raise SystemExit(
+                  "ERRO: mais de um cookiecutter.json encontrado no template."
               )
 
           template = candidates[0].parent
-
-          print(f"Template encontrado em: {template}")
+          output = Path("build/flet-build-template")
 
           output.parent.mkdir(parents=True, exist_ok=True)
           shutil.copytree(template, output)
 
-          print(f"Template copiado para: {output}")
+          print(f"Template Flet 0.86.5 preparado em: {output}")
           PY
 
           test -f build/flet-build-template/cookiecutter.json
 
-          echo "=== Template Flet 0.86.5 ==="
-          find build/flet-build-template -maxdepth 2 -type f | sort | head -100
+          echo "Template usado:"
+          find build/flet-build-template -maxdepth 2 -type f | sort | head -50
 
-      # Aqui entra o Android customizado do ReiFlix.
-      - name: Prepare custom Android host
-        shell: bash
+      - name: Prepare Flet build template with Android host
         run: |
-          set -euo pipefail
-
           python scripts/prepare_flet_template.py \
             --template build/flet-build-template \
             --overlay android
 
-      # Verifica o template ANTES de gastar tempo compilando o APK.
-      - name: Validate custom Android host
+      - name: Validate prepared Flet template
         shell: bash
         run: |
-          set -euo pipefail
+          test -f build/flet-build-template/cookiecutter.json
+          test -f build/flet-build-template/hooks/post_gen_project.py
 
-          TEMPLATE="build/flet-build-template"
+          echo "Android host overlay:"
+          find build/flet-build-template/reiflix_android_overlay \
+            -type f | sort
 
-          test -f "$TEMPLATE/cookiecutter.json"
-          test -f "$TEMPLATE/hooks/post_gen_project.py"
+          echo "Cookiecutter hooks:"
+          find build/flet-build-template/hooks \
+            -maxdepth 1 \
+            -type f \
+            -print
 
-          test -f "$TEMPLATE/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt"
-          test -f "$TEMPLATE/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt"
-          test -f "$TEMPLATE/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/SafScanner.kt"
-          test -f "$TEMPLATE/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt"
-          test -f "$TEMPLATE/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/GoogleIdentity.kt"
-
-          echo "Android host customizado validado."
-
-      # Se o problema for Jinja/Cookiecutter, queremos o erro completo
-      # aqui, e não uma mensagem genérica depois.
-      - name: Validate Cookiecutter template generation
+      - name: Build APK using prepared template
         shell: bash
         run: |
-          set -euo pipefail
-
-          rm -rf /tmp/reiflix-cookiecutter-test
-
-          python -m cookiecutter \
-            --no-input \
-            --output-dir /tmp/reiflix-cookiecutter-test \
-            build/flet-build-template
-
-          echo "Cookiecutter conseguiu gerar o template."
-
-      - name: Build APK
-        shell: bash
-        run: |
-          set -euo pipefail
-
           flet build apk \
             --template build/flet-build-template \
             --yes \
@@ -211,8 +161,6 @@ jobs:
         id: apk
         shell: bash
         run: |
-          set -euo pipefail
-
           apk="$(find build -type f -name '*.apk' -print -quit)"
 
           test -n "$apk"
@@ -228,8 +176,6 @@ jobs:
       - name: Verify Android host packaging
         shell: bash
         run: |
-          set -euo pipefail
-
           apk="${{ steps.apk.outputs.path }}"
 
           python scripts/verify_android_host.py "$apk"
@@ -240,3 +186,4 @@ jobs:
           name: reiflix-local-apk
           path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
+

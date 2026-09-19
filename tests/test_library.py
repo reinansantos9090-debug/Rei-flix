@@ -231,6 +231,29 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertFalse(cover.exists())
             self.assertIsNone(store.anime_metadata('naruto')['metadata_updated_at'])
 
+    def test_saf_folder_records_active_google_account_without_uploading_media(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            store.save_account({"id": "google-sub-123", "email": "user@example.com"})
+            tree = "content://com.android.providers.media.documents/tree/video%3A1"
+            store.add_folder(tree, name="Animes", kind="saf", authorization="granted", account_id=store.account().get("id"))
+            folder = store.folders()[0]
+            self.assertEqual(folder["account_id"], "google-sub-123")
+            self.assertEqual(folder["path"], tree)
+            self.assertTrue(folder["path"].startswith("content://"))
+            self.assertFalse(Path(d, "uploads").exists())
+
+    def test_saf_folder_keeps_ownership_when_account_is_logged_out(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            store.save_account({"id": "google-sub-456", "email": "user@example.com"})
+            tree = "content://provider/tree/animes"
+            store.add_folder(tree, name="Animes", kind="saf", account_id=store.account()["id"])
+            store.clear_account()
+            folder = store.folders()[0]
+            self.assertEqual(folder["account_id"], "google-sub-456")
+            self.assertEqual(store.account(), {})
+
     def test_account_logout_and_folder_state_do_not_remove_library(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

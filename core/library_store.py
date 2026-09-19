@@ -234,39 +234,44 @@ class LibraryStore:
             return cur.lastrowid
 
     def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None, modified_at=None, source_folder=None, media_identity=None):
-        """Upsert an episode by URI first, then by stable cross-source identity.
+        """Upsert by URI, then by proven cross-source identity.
 
-        Playback state is intentionally not overwritten. If MediaStore, SAF and
-        broad storage expose the same shared-storage file through different URIs,
-        the identity match updates the existing row instead of creating a second
-        logical episode.
+        If an older URI row and an identity row both exist, merge them while
+        preserving the richest playback state before removing the duplicate.
         """
         with self._conn() as c:
-            by_path = c.execute(
-                "SELECT * FROM episodes WHERE path=?",
-                (path,),
-            ).fetchone()
-            if by_path:
-                c.execute(
-                    """UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,
-                       file_size=?,modified_at=?,source_folder=?,media_identity=?,missing=0 WHERE id=?""",
-                    (anime_id, file_name, season, number, mime_type, file_size, modified_at,
-                     source_folder, media_identity, by_path["id"]),
-                )
-                return by_path["id"]
-
+            by_path = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
             by_identity = None
             if media_identity:
                 by_identity = c.execute(
                     "SELECT * FROM episodes WHERE media_identity=? ORDER BY id LIMIT 1",
                     (media_identity,),
                 ).fetchone()
+
+            if by_path and by_identity and by_path["id"] != by_identity["id"]:
+                progress = max(float(by_path["progress"] or 0), float(by_identity["progress"] or 0))
+                watched = max(int(by_path["watched"] or 0), int(by_identity["watched"] or 0))
+                last_played = max(float(by_path["last_played_at"] or 0), float(by_identity["last_played_at"] or 0)) or None
+                c.execute(
+                    "UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,media_identity=?,missing=0,progress=?,watched=?,last_played_at=? WHERE id=?",
+                    (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder, media_identity, progress, watched, last_played, by_identity["id"]),
+                )
+                c.execute("DELETE FROM episodes WHERE id=?", (by_path["id"],))
+                return by_identity["id"]
+
+            if by_path:
+                c.execute(
+                    """UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,
+                       file_size=?,modified_at=?,source_folder=?,media_identity=?,missing=0 WHERE id=?""",
+                    (anime_id, file_name, season, number, mime_type, file_size, modified_at, source_folder, media_identity, by_path["id"]),
+                )
+                return by_path["id"]
+
             if by_identity:
                 c.execute(
                     """UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,
                        file_size=?,modified_at=?,source_folder=?,missing=0 WHERE id=?""",
-                    (anime_id, path, file_name, season, number, mime_type, file_size,
-                     modified_at, source_folder, by_identity["id"]),
+                    (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder, by_identity["id"]),
                 )
                 return by_identity["id"]
 
@@ -274,8 +279,7 @@ class LibraryStore:
                 """INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,
                                          source_folder,missing,media_identity)
                    VALUES(?,?,?,?,?,?,?,?,?,0,?)""",
-                (anime_id, path, file_name, season, number, mime_type, file_size, modified_at,
-                 source_folder, media_identity),
+                (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder, media_identity),
             )
             return cur.lastrowid
 

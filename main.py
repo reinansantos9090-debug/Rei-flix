@@ -143,15 +143,17 @@ async def main(page: ft.Page):
                 # but each source is persisted and marked-missing independently.
                 pending_native_scans[0] = 0
                 for folder in saf_folders:
+                    pending_native_scans[0] += 1
                     try:
                         await bridge.rescan_tree(folder['path'])
-                        pending_native_scans[0] += 1
                     except Exception:
+                        pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
                         store.update_folder_status(folder['path'], "granted", "Não foi possível iniciar a varredura SAF.")
+                pending_native_scans[0] += 1
                 try:
                     await bridge.scan_media_store()
-                    pending_native_scans[0] += 1
                 except Exception:
+                    pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
                     store.update_folder_status(
                         "mediastore:external:video",
                         "unknown",

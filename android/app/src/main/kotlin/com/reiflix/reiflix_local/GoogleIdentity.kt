@@ -1,63 +1,171 @@
 package com.reiflix.reiflix_local
 
 import android.content.Context
-import android.util.Log
 import android.util.Base64
+import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import java.security.SecureRandom
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-/** Uses Android Credential Manager. The ID token is never written to disk. */
+/** Uses Android Credential Manager. The ID token is never written to disk or sent through the mailbox. */
 object GoogleIdentity {
     private const val TAG = "[REIFLIX][AUTH]"
+    private const val NONCE_BYTES = 32
+
     suspend fun signIn(context: Context, serverClientId: String) {
-        if (serverClientId.isBlank()) {
-            Log.w(TAG, "Google sign-in requested without a Web client ID")
-            NativeMailbox.write(context, JSONObject().put("type", "google_error").put("message", "O login Google ainda não foi configurado neste APK."))
+        if (serverClientId.isBlank() || !isWebClientId(serverClientId)) {
+            Log.w(TAG, "Google sign-in requested without a valid Web client ID")
+            writeError(context, "configuration_required", "O login Google ainda não foi configurado corretamente neste APK.")
             return
         }
+
         try {
             Log.i(TAG, "Google Credential Manager sign-in requested")
             NativeMailbox.write(context, JSONObject().put("type", "google_sign_in_started"))
-            val option = GetGoogleIdOption.Builder().setServerClientId(serverClientId).setFilterByAuthorizedAccounts(false).setAutoSelectEnabled(false).build()
-            val response = CredentialManager.create(context).getCredential(context, GetCredentialRequest.Builder().addCredentialOption(option).build())
+
+            // A nonce binds the returned ID token to this sign-in request and is
+            // defense-in-depth for any future server-backed authentication flow.
+            val nonce = generateNonce()
+            val option = GetGoogleIdOption.Builder()
+                .setServerClientId(serverClientId)
+                .setNonce(nonce)
+                .setFilterByAuthorizedAccounts(false)
+                .setAutoSelectEnabled(false)
+                .build()
+
+            val response = CredentialManager.create(context).getCredential(
+                context,
+                GetCredentialRequest.Builder().addCredentialOption(option).build(),
+            )
             val credential = GoogleIdTokenCredential.createFrom(response.credential.data)
-            val subject = validatedSubject(credential.idToken, serverClientId)
-            if (subject == null || credential.id.isBlank()) {
-                NativeMailbox.write(context, JSONObject().put("type", "google_error").put("message", "A credencial Google recebida é inválida."))
+            val claims = validatedClaims(credential.idToken, serverClientId, nonce)
+
+            if (claims == null || credential.uniqueId.isBlank() || credential.email.isNullOrBlank()) {
+                writeError(context, "invalid_credential", "A credencial Google recebida não pôde ser validada.")
                 return
             }
-            NativeMailbox.write(context, JSONObject().put("type", "google_account").put("payload", JSONObject()
-                .put("id", subject).put("name", credential.displayName ?: "").put("email", credential.id)
-                .put("picture", credential.profilePictureUri?.toString() ?: "")))
+
+            // uniqueId is the stable Google account identifier exposed by the
+            // Google Identity SDK. Email is retained only as profile data.
+            if (claims.subject != credential.uniqueId) {
+                writeError(context, "invalid_credential", "A identidade Google recebida não corresponde ao identificador da conta.")
+                return
+            }
+
+            NativeMailbox.write(
+                context,
+                JSONObject()
+                    .put("type", "google_account")
+                    .put(
+                        "payload",
+                        JSONObject()
+                            .put("id", credential.uniqueId)
+                            .put("name", credential.displayName ?: "")
+                            .put("email", credential.email ?: "")
+                            .put("picture", credential.profilePictureUri?.toString() ?: ""),
+                    ),
+            )
             Log.i(TAG, "Google account selected")
         } catch (cancelled: GetCredentialCancellationException) {
             Log.i(TAG, "Google sign-in cancelled")
             NativeMailbox.write(context, JSONObject().put("type", "google_cancelled"))
+        } catch (exception: GetCredentialException) {
+            Log.e(TAG, "Google credential manager failed", exception)
+            val error = classifyCredentialError(exception)
+            writeError(context, error.first, error.second)
         } catch (exception: Exception) {
             Log.e(TAG, "Google identity failed", exception)
-            NativeMailbox.write(context, JSONObject().put("type", "google_error").put("message", "Não foi possível entrar com o Google. Verifique a configuração e a conexão."))
+            writeError(context, "internal_error", "Não foi possível concluir o login Google. Tente novamente.")
         }
     }
 
-    /** Credential Manager obtains the credential; this only validates claims
-     * before reducing it to the token-free profile sent over NativeMailbox. */
-    private fun validatedSubject(idToken: String, clientId: String): String? {
+    private fun writeError(context: Context, code: String, message: String) {
+        NativeMailbox.write(
+            context,
+            JSONObject()
+                .put("type", "google_error")
+                .put("code", code)
+                .put("message", message),
+        )
+    }
+
+    private fun classifyCredentialError(exception: GetCredentialException): Pair<String, String> {
+        return when (exception::class.java.simpleName) {
+            "NoCredentialException" ->
+                "no_credential" to "Nenhuma credencial Google disponível neste dispositivo."
+            "GetCredentialUnsupportedException" ->
+                "unsupported" to "O Gerenciador de Credenciais não está disponível neste dispositivo."
+            "GetCredentialProviderConfigurationException" ->
+                "provider_configuration" to "O provedor de credenciais Google não está configurado corretamente."
+            else ->
+                "credential_error" to "O Gerenciador de Credenciais não conseguiu concluir o login Google."
+        }
+    }
+
+    private fun isWebClientId(clientId: String): Boolean =
+        clientId.trim().endsWith(".apps.googleusercontent.com") &&
+            clientId.substringBefore(".apps.googleusercontent.com").isNotBlank()
+
+    private fun generateNonce(): String {
+        val bytes = ByteArray(NONCE_BYTES)
+        SecureRandom().nextBytes(bytes)
+        return Base64.encodeToString(bytes, Base64.NO_WRAP or Base64.URL_SAFE or Base64.NO_PADDING)
+    }
+
+    private data class TokenClaims(
+        val subject: String,
+    )
+
+    /**
+     * Defense-in-depth claim validation. Credential Manager/Google Identity
+     * supplies the credential; this check additionally enforces the expected
+     * issuer, audience, expiry and per-request nonce before the profile is
+     * reduced to token-free fields.
+     *
+     * Full cryptographic JWT signature verification belongs at a trusted
+     * backend when the ID token is used to authorize server resources.
+     */
+    private fun validatedClaims(idToken: String, clientId: String, expectedNonce: String): TokenClaims? {
         return try {
             val parts = idToken.split('.')
             if (parts.size != 3) return null
-            val payload = JSONObject(String(Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)))
+            val payload = JSONObject(
+                String(
+                    Base64.decode(
+                        parts[1],
+                        Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+                    ),
+                ),
+            )
             val issuer = payload.optString("iss")
             val audience = payload.opt("aud")
-            val audienceMatches = audience == clientId || (audience is org.json.JSONArray && (0 until audience.length()).any { audience.optString(it) == clientId })
+            val audienceMatches =
+                audience == clientId ||
+                    (audience is org.json.JSONArray &&
+                        (0 until audience.length()).any { audience.optString(it) == clientId })
             val expiresAt = payload.optLong("exp", 0L)
+            val nonce = payload.optString("nonce")
             val subject = payload.optString("sub").trim()
-            if (issuer !in setOf("https://accounts.google.com", "accounts.google.com") || !audienceMatches || expiresAt <= System.currentTimeMillis() / 1000 || subject.isBlank()) null else subject
-        } catch (_: Exception) { null }
+            if (
+                issuer !in setOf("https://accounts.google.com", "accounts.google.com") ||
+                !audienceMatches ||
+                expiresAt <= System.currentTimeMillis() / 1000 ||
+                nonce != expectedNonce ||
+                subject.isBlank()
+            ) {
+                null
+            } else {
+                TokenClaims(subject)
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 }

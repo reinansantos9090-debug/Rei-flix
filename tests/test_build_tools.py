@@ -144,7 +144,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
 
     def test_folder_removal_is_blocked_while_refresh_is_active(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        start = source.index("    def remove_folder(reference):")
+        start = source.index("    async def remove_folder(reference):")
         end = source.index("    def account():", start)
         block = source[start:end]
         self.assertIn("if scan_in_progress[0] or saf_selection.pending:", block)
@@ -180,7 +180,8 @@ class AndroidHostVerificationTests(unittest.TestCase):
 
     def test_refresh_library_waits_for_every_saf_scan_result_or_error(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn("pending_native_scans[0] = len(saf_folders)", source)
+        self.assertIn("pending_native_scans[0] = 0", source)
+        self.assertIn("pending_native_scans[0] += 1", source)
         self.assertIn("pending_native_scans[0] = max(0, pending_native_scans[0] - 1)", source)
         self.assertIn("if pending_native_scans[0] == 0:", source)
         self.assertIn("if event_type == 'saf_error':", source)

@@ -80,6 +80,10 @@ async def main(page: ft.Page):
     def on_catalog_changed():
         # The active screen owns rendering; returning home always reads the SQLite catalog again.
         return None
+    def remove_folder(reference):
+        store.remove_folder(reference)
+        on_catalog_changed()
+        refresh_settings_if_active()
     def account(): return store.account()
     def navigate_settings():
         navigation.push("settings")

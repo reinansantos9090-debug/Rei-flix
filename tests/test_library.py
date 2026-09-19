@@ -305,7 +305,7 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertTrue(AndroidBridge(d, Page()).available)
 
-    def test_native_saf_actions_use_only_encoded_content_uris(self):
+    async def test_native_saf_actions_use_only_encoded_content_uris(self):
         class Page:
             platform = 'android'
             def __init__(self): self.urls = []
@@ -321,17 +321,17 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('tree_uri=content%3A%2F%2F', page.urls[1][0])
             self.assertIn('action=scan_tree', page.urls[2][0])
 
-    def test_player_bridge_rejects_remote_urls_but_keeps_local_references(self):
+    async def test_player_bridge_rejects_remote_urls_but_keeps_local_references(self):
         class Page:
             platform = 'android'
             def __init__(self): self.urls = []
-            def launch_url(self, value): self.urls.append(value)
+            async def launch_url(self, value, **kwargs): self.urls.append((value, kwargs))
 
         with tempfile.TemporaryDirectory() as d:
             bridge = AndroidBridge(d, Page())
             self.assertTrue(bridge.is_local_media_reference('content://provider/document/1'))
-            self.assertTrue(bridge.is_local_media_reference('/local/video.mkv'))
-            self.assertTrue(bridge.is_local_media_reference('file:///local/video.mkv'))
+            self.assertFalse(bridge.is_local_media_reference('/local/video.mkv'))
+            self.assertFalse(bridge.is_local_media_reference('file:///local/video.mkv'))
             self.assertFalse(bridge.is_local_media_reference('https://example.invalid/video.m3u8'))
             with self.assertRaisesRegex(ValueError, 'somente arquivos locais'):
                 await bridge.play('https://example.invalid/video.m3u8', 'Remote')

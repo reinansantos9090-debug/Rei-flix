@@ -31,8 +31,18 @@ object SafScanner {
         val documentId = runCatching { DocumentsContract.getDocumentId(documentUri) }.getOrNull() ?: return false
         return context.contentResolver.persistedUriPermissions.any { permission ->
             if (!permission.isReadPermission || permission.uri.authority != documentUri.authority) return@any false
-            val treeId = runCatching { DocumentsContract.getTreeDocumentId(permission.uri) }.getOrNull() ?: return@any false
-            documentId == treeId || documentId.startsWith("$treeId:")
+            val scopedUri = runCatching {
+                DocumentsContract.buildDocumentUriUsingTree(permission.uri, documentId)
+            }.getOrNull() ?: return@any false
+            runCatching {
+                context.contentResolver.query(
+                    scopedUri,
+                    arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+                    null,
+                    null,
+                    null,
+                )?.use { cursor -> cursor.moveToFirst() } == true
+            }.getOrDefault(false)
         }
     }
 

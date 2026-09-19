@@ -17,6 +17,39 @@ object BroadStorageScanner {
     private val videoExtensions = setOf("mp4","mkv","webm","avi","mov","m4v","ts","m2ts","flv","wmv")
     fun hasAccess(): Boolean = Build.VERSION.SDK_INT < 30 || Environment.isExternalStorageManager()
 
+    /** Compact runtime diagnostics used to explain why local storage is or is not visible. */
+    fun accessSnapshot(context: Context): JSONObject {
+        val result = JSONObject()
+            .put("api", Build.VERSION.SDK_INT)
+            .put("hasAccess", hasAccess())
+        val rootsJson = JSONArray()
+        roots(context).forEach { root ->
+            val check = JSONObject().put("path", root.path)
+                .put("exists", root.exists())
+                .put("directory", root.isDirectory)
+                .put("readable", root.canRead())
+            if (root.exists() && root.isDirectory) {
+                check.put("children", runCatching { root.list()?.size ?: 0 }.getOrDefault(-1))
+            }
+            rootsJson.put(check)
+        }
+        result.put("roots", rootsJson)
+        val volumes = JSONArray()
+        if (Build.VERSION.SDK_INT >= 24) {
+            context.getSystemService(StorageManager::class.java)?.storageVolumes?.forEach { volume ->
+                val item = JSONObject()
+                    .put("uuid", volume.uuid ?: "")
+                    .put("primary", volume.isPrimary)
+                    .put("removable", volume.isRemovable)
+                    .put("state", volume.state ?: "unknown")
+                runCatching { volume.directory?.canonicalPath }.getOrNull()?.let { item.put("directory", it) }
+                volumes.put(item)
+            }
+        }
+        result.put("volumes", volumes)
+        return result
+    }
+
     fun roots(context: Context): List<File> {
         val paths = LinkedHashSet<String>()
         Environment.getExternalStorageDirectory().let { if (it.exists()) paths.add(it.absolutePath) }
@@ -48,9 +81,12 @@ object BroadStorageScanner {
         check(hasAccess())
         val docs = JSONArray()
         val errors = JSONArray()
+        val snapshot = accessSnapshot(context)
         val visited = HashSet<String>()
         val pending = ArrayDeque<File>()
-        roots(context).forEach { pending.addLast(it) }
+        val rootFiles = roots(context)
+        rootFiles.forEach { pending.addLast(it) }
+        if (rootFiles.isEmpty()) errors.put("Nenhuma raiz de armazenamento compartilhado foi encontrada.")
         var directories = 0
         var files = 0
         var videos = 0
@@ -84,7 +120,8 @@ object BroadStorageScanner {
         onProgress?.invoke(JSONObject().put("phase","finished").put("source",SOURCE)
             .put("directories",directories).put("files",files).put("videos",videos))
         return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("documents",docs)
-            .put("stats",JSONObject().put("directories",directories).put("files",files).put("videos",videos).put("errors",errors))
+            .put("stats",JSONObject().put("directories",directories).put("files",files).put("videos",videos).put("errors",errors)
+                .put("access", snapshot))
             .put("partial",errors.length()>0)
     }
 

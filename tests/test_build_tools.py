@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -64,9 +65,12 @@ class AndroidHostVerificationTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             copied = template / "reiflix_android_overlay" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local"
             self.assertTrue((copied / "NativeMailbox.kt").is_file())
-            hook = (template / "hooks" / "post_gen_project.py").read_text(encoding="utf-8")
+            hook_path = template / "hooks" / "post_gen_project.py"
+            hook = hook_path.read_text(encoding="utf-8")
             self.assertIn("NativePlayerActivity", hook)
             self.assertIn("media3-exoplayer:1.5.1", hook)
+            self.assertNotIn("__REIFLIX_OVERLAY_APP__", hook)
+            self.assertIn(str((template / "reiflix_android_overlay" / "app").resolve()), hook)
 
             rendered = Path(d) / "rendered" / "android" / "app"
             (rendered / "src" / "main").mkdir(parents=True)
@@ -75,7 +79,11 @@ class AndroidHostVerificationTests(unittest.TestCase):
                 '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application><activity android:name=".MainActivity" /></application></manifest>',
                 encoding="utf-8",
             )
-            hook_result = subprocess.run([sys.executable, str(template / "hooks" / "post_gen_project.py")],
+            # Cookiecutter executes a temporary copy of the rendered hook.
+            # Reproduce that behavior so the test catches __file__-relative paths.
+            runtime_hook = Path(d) / "cookiecutter_tmp_post_gen_project.py"
+            shutil.copy2(hook_path, runtime_hook)
+            hook_result = subprocess.run([sys.executable, str(runtime_hook)],
                                          cwd=rendered.parents[1], capture_output=True, text=True)
             self.assertEqual(hook_result.returncode, 0, hook_result.stderr)
             self.assertIn("NativePlayerActivity", (rendered / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8"))

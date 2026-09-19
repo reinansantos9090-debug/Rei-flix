@@ -1601,6 +1601,32 @@ class OrganizeTests(unittest.TestCase):
             self.assertEqual(grid.controls[0].content.controls[1].value, 'Action')
             self.assertEqual(sort.value, 'Nome A-Z')
 
+    def test_android_bridge_drains_independent_native_event_files_without_shared_lock(self):
+        with tempfile.TemporaryDirectory() as d:
+            bridge = AndroidBridge(d)
+            queue = Path(d) / "reiflix-native-events"
+            queue.mkdir()
+            (queue / "event-2.json").write_text(json.dumps({"type": "second"}), encoding="utf-8")
+            (queue / "event-1.json").write_text(json.dumps({"type": "first"}), encoding="utf-8")
+            events = bridge.drain()
+            self.assertEqual([event["type"] for event in events], ["first", "second"])
+            self.assertEqual(list(queue.glob("event-*.json")), [])
+            self.assertEqual(len(list(queue.glob("event-*.consumed"))), 2)
+            bridge.acknowledge()
+            self.assertEqual(list(queue.glob("*.consumed")), [])
+
+    def test_android_bridge_can_claim_new_events_after_acknowledging_previous_batch(self):
+        with tempfile.TemporaryDirectory() as d:
+            bridge = AndroidBridge(d)
+            queue = Path(d) / "reiflix-native-events"
+            queue.mkdir()
+            (queue / "event-one.json").write_text(json.dumps({"type": "one"}), encoding="utf-8")
+            self.assertEqual([e["type"] for e in bridge.drain()], ["one"])
+            (queue / "event-two.json").write_text(json.dumps({"type": "two"}), encoding="utf-8")
+            self.assertEqual(bridge.drain(), [])
+            bridge.acknowledge()
+            self.assertEqual([e["type"] for e in bridge.drain()], ["two"])
+            bridge.acknowledge()
 
 if __name__ == '__main__':
     unittest.main()

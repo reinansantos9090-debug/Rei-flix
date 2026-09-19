@@ -112,7 +112,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
     def test_startup_saf_permission_verification_is_awaited(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("await bridge.verify_tree(folder['path'])", source)
-        self.assertIn("authorization")
+        self.assertIn("authorization", source)
 
     def test_native_host_keeps_system_bars_for_flet_and_fullscreen_for_player_only(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

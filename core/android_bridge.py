@@ -65,6 +65,7 @@ class AndroidBridge:
     async def select_tree(self): await self._launch("select_tree")
     async def rescan_tree(self, tree_uri: str): await self._launch("scan_tree", tree_uri=tree_uri)
     async def scan_media_store(self): await self._launch("scan_media_store")
+    async def scan_all_storage(self): await self._launch("scan_all_storage")
     async def verify_tree(self, tree_uri: str): await self._launch("verify_tree", tree_uri=tree_uri)
     async def release_tree(self, tree_uri: str): await self._launch("release_tree", tree_uri=tree_uri)
     async def sign_in(self, server_client_id: str): await self._launch("google_sign_in", server_client_id=server_client_id)
@@ -79,7 +80,7 @@ class AndroidBridge:
         # Android library entries come from SAF and must remain content:// URIs.
         # Reject file:// and raw filesystem paths so the native player cannot
         # be used as a second, unscoped storage-access path.
-        return bool(uri) and uri.startswith("content://")
+        return bool(uri) and (uri.startswith("content://") or uri.startswith("file://"))
 
     def drain(self) -> list[dict]:
         if self._claimed:

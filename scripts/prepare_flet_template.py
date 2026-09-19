@@ -49,6 +49,24 @@ application = manifest.find("application")
 if application is None:
     raise RuntimeError("Rendered Flet AndroidManifest has no application element")
 name = "{" + ANDROID + "}name"
+
+# MediaStore is an optional read-only source alongside SAF. Keep the
+# permissions version-scoped so Android 13+ uses granular video access while
+# older supported devices retain READ_EXTERNAL_STORAGE.
+permission_attr = "{" + ANDROID + "}name"
+existing_permissions = {node.get(permission_attr) for node in manifest.findall("uses-permission")}
+permission_specs = [
+    ("android.permission.READ_EXTERNAL_STORAGE", "32"),
+    ("android.permission.READ_MEDIA_VIDEO", None),
+    ("android.permission.READ_MEDIA_VISUAL_USER_SELECTED", None),
+]
+for permission, max_sdk in permission_specs:
+    if permission in existing_permissions:
+        continue
+    attrs = {permission_attr: permission}
+    if max_sdk is not None:
+        attrs["{" + ANDROID + "}maxSdkVersion"] = max_sdk
+    manifest.append(ET.Element("uses-permission", attrs))
 theme_attr = "{" + ANDROID + "}theme"
 launch_attr = "{" + ANDROID + "}launchMode"
 config_attr = "{" + ANDROID + "}configChanges"

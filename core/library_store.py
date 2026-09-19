@@ -235,7 +235,8 @@ class LibraryStore:
                     genres = json.loads(a["genres"] or "[]")
                 except (TypeError, json.JSONDecodeError):
                     genres = []
-                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"]} for e in values]} for s, values in seasons.items()]})
+                ordered_seasons = sorted(seasons.items(), key=lambda item: item[0] if item[0] is not None else -1)
+                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"]} for e in sorted(values, key=lambda episode: (episode["number"] if episode["number"] is not None else -1, episode["file_name"].casefold()))]} for s, values in ordered_seasons]})
             for anime in animes:
                 rows = episodes_by_anime[anime["id"]]
                 available = [episode for episode in rows if not episode["missing"]]

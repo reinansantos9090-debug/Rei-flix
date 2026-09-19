@@ -150,6 +150,13 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("if scan_in_progress[0] or saf_selection.pending:", block)
         self.assertIn("store.remove_folder(reference)", block)
 
+    def test_folder_removal_waits_for_native_release_event(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("pending_folder_removals=set()", main)
+        self.assertIn("pending_folder_removals.add(reference)", main)
+        self.assertIn("event_type == 'saf_released'", main)
+        self.assertIn("store.remove_folder(tree_uri)", main)
+
     def test_folder_removal_releases_saf_permission_before_database_removal(self):
         bridge = (ROOT / "core" / "android_bridge.py").read_text(encoding="utf-8")
         activity = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

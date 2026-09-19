@@ -264,6 +264,12 @@ class SettingsPersistenceTests(unittest.TestCase):
 
 
 class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
+    def test_android_bridge_accepts_only_saf_content_uris(self):
+        self.assertTrue(AndroidBridge.is_local_media_reference("content://com.android.providers.media.documents/document/video%3A1"))
+        self.assertFalse(AndroidBridge.is_local_media_reference("file:///storage/emulated/0/Anime/ep.mkv"))
+        self.assertFalse(AndroidBridge.is_local_media_reference("/storage/emulated/0/Anime/ep.mkv"))
+        self.assertFalse(AndroidBridge.is_local_media_reference("https://example.com/ep.mkv"))
+
     def test_flet_page_platform_enum_is_recognized_on_real_android(self):
         class Platform:
             value = 'android'

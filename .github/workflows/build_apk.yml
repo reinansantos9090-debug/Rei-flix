@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
 
@@ -32,14 +33,20 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools build-tools;35.0.0 platforms;android-35 cmdline-tools;latest'
+          packages: "platform-tools build-tools;35.0.0 platforms;android-35 cmdline-tools;latest"
 
       - name: Accept Android SDK Licenses
+        shell: bash
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
       - name: Install Android platform
-        run: sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+        shell: bash
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -49,11 +56,22 @@ jobs:
           cache: true
 
       - name: Install Python and Flet build dependencies
+        shell: bash
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt "flet[cli]==0.86.5"
+
+          echo "=== Flet ==="
           flet --version
+
+          echo "=== Flutter ==="
           flutter --version
+
+          echo "=== Cookiecutter ==="
+          python -m cookiecutter --version
+
+          echo "=== Jinja2 ==="
+          python -c "import jinja2; print(jinja2.__version__)"
 
       - name: Validate JSON configuration
         shell: bash
@@ -61,25 +79,160 @@ jobs:
           while IFS= read -r -d '' file; do
             python -m json.tool "$file" >/dev/null
             echo "Valid JSON: $file"
-          done < <(find . -path './.git' -prune -o -path './build' -prune -o -type f -name '*.json' -print0)
+          done < <(
+            find . \
+              -path './.git' -prune -o \
+              -path './build' -prune -o \
+              -type f -name '*.json' -print0
+          )
 
       - name: Validate Python application
+        shell: bash
         run: |
-          python -m compileall -q main.py app_config.py core views
+          python -m compileall -q \
+            main.py \
+            app_config.py \
+            core \
+            views
+
           git diff --check
 
+      # IMPORTANTE:
+      # O Flet 0.86.5 deve usar o template congelado da própria release.
+      # Não usamos o repositório flet-build-template.git.
+      - name: Download Flet 0.86.5 build template
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf build/flet-build-template
+          rm -rf /tmp/flet-template
+          mkdir -p build
+          mkdir -p /tmp/flet-template
+
+          curl -fL --retry 3 --retry-all-errors \
+            "https://github.com/flet-dev/flet/releases/download/v0.86.5/flet-build-template.zip" \
+            -o /tmp/flet-build-template.zip
+
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import shutil
+
+          archive = Path("/tmp/flet-build-template.zip")
+          extraction = Path("/tmp/flet-template")
+          output = Path("build/flet-build-template")
+
+          if not archive.is_file():
+              raise SystemExit("ERRO: template Flet não foi baixado.")
+
+          with ZipFile(archive) as z:
+              z.extractall(extraction)
+
+          candidates = list(extraction.rglob("cookiecutter.json"))
+
+          if len(candidates) != 1:
+              raise SystemExit(
+                  f"ERRO: esperado exatamente 1 cookiecutter.json; "
+                  f"encontrados {len(candidates)}."
+              )
+
+          template = candidates[0].parent
+
+          print(f"Template encontrado em: {template}")
+
+          output.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copytree(template, output)
+
+          print(f"Template copiado para: {output}")
+          PY
+
+          test -f build/flet-build-template/cookiecutter.json
+
+          echo "=== Template Flet 0.86.5 ==="
+          find build/flet-build-template -maxdepth 2 -type f | sort | head -100
+
+      # Aqui entra o Android customizado do ReiFlix.
+      - name: Prepare custom Android host
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python scripts/prepare_flet_template.py \
+            --template build/flet-build-template \
+            --overlay android
+
+      # Verifica o template ANTES de gastar tempo compilando o APK.
+      - name: Validate custom Android host
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TEMPLATE="build/flet-build-template"
+
+          test -f "$TEMPLATE/cookiecutter.json"
+          test -f "$TEMPLATE/hooks/post_gen_project.py"
+
+          test -f "$TEMPLATE/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt"
+          test -f "$TEMPLATE/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt"
+          test -f "$TEMPLATE/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/SafScanner.kt"
+          test -f "$TEMPLATE/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt"
+          test -f "$TEMPLATE/reiflix_android_overlay/app/src/main/kotlin/com/reiflix/reiflix_local/GoogleIdentity.kt"
+
+          echo "Android host customizado validado."
+
+      # Se o problema for Jinja/Cookiecutter, queremos o erro completo
+      # aqui, e não uma mensagem genérica depois.
+      - name: Validate Cookiecutter template generation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf /tmp/reiflix-cookiecutter-test
+
+          python -m cookiecutter \
+            --no-input \
+            --output-dir /tmp/reiflix-cookiecutter-test \
+            build/flet-build-template
+
+          echo "Cookiecutter conseguiu gerar o template."
+
       - name: Build APK
-        run: flet build apk --yes -v
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          flet build apk \
+            --template build/flet-build-template \
+            --yes \
+            -v
 
       - name: Locate APK
         id: apk
         shell: bash
         run: |
+          set -euo pipefail
+
           apk="$(find build -type f -name '*.apk' -print -quit)"
+
           test -n "$apk"
           test -s "$apk"
+
+          echo "APK encontrado:"
+          echo "$apk"
+
           echo "path=$apk" >> "$GITHUB_OUTPUT"
+
           file "$apk"
+
+      - name: Verify Android host packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          apk="${{ steps.apk.outputs.path }}"
+
+          python scripts/verify_android_host.py "$apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -87,4 +240,3 @@ jobs:
           name: reiflix-local-apk
           path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
-

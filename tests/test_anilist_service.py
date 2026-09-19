@@ -117,6 +117,31 @@ class LibraryAniListCacheTests(unittest.TestCase):
             persisted = store.anime_metadata("attack on titan")
             self.assertEqual(persisted["title"], "Attack on Titan")
 
+    def test_clear_anilist_cache_preserves_library_and_association(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            anime_id = store.upsert_anime("naruto", {
+                "title": "Naruto",
+                "anilist_id": 20,
+                "cover_cache": str(Path(directory) / "covers" / "naruto.jpg"),
+                "genres": "[]",
+            })
+            store.set_association("naruto", 20)
+            cover = Path(store.cache_dir) / "naruto.jpg"
+            cover.write_bytes(b"cached-cover")
+            service = LibraryService(store)
+
+            removed = service.clear_anilist_cache()
+
+            self.assertEqual(removed, 1)
+            self.assertTrue(cover.parent.is_dir())
+            persisted = store.anime_metadata("naruto")
+            self.assertEqual(persisted["title"], "Naruto")
+            self.assertIsNone(persisted["metadata_updated_at"])
+            self.assertEqual(persisted["cover_cache"], "")
+            self.assertEqual(store.association("naruto"), 20)
+            self.assertEqual(store.library_summary()["animes"], 1)
+
     def test_association_mismatch_forces_refresh(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

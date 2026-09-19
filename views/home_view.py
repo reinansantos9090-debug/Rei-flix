@@ -105,7 +105,7 @@ class HomeView:
             progress = ratio(current)
             cover = anime.get("meta", {}).get("cover_cache") or anime.get("meta", {}).get("cover_url")
             subtitle = f"{len(available)} episódios" if len(available) == len(episodes) else f"{len(available)}/{len(episodes)} disponíveis"
-            status = "Concluído" if available and watched == len(available) else (f"{watched} vistos" if watched else subtitle)
+            status = "Concluído" if available and len(available) == len(episodes) and watched == len(available) else (f"{watched} vistos" if watched else subtitle)
             indicators = []
             if anime.get("favorite"):
                 indicators.append(ft.Container(content=ft.Icon(ft.Icons.STAR, color="#FFD54F", size=16), top=7, right=7, bgcolor="#181720CC", border_radius=12, padding=4))

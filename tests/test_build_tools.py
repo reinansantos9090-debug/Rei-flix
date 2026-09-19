@@ -114,6 +114,19 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("await bridge.verify_tree(folder['path'])", source)
         self.assertIn("authorization", source)
 
+    def test_main_activity_delegates_system_ui_to_controller_and_reapplies_on_resume(self):
+        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        controller = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SystemUiController.kt").read_text(encoding="utf-8")
+        styles = (ROOT / "android" / "app" / "src" / "main" / "res" / "values" / "styles.xml").read_text(encoding="utf-8")
+        self.assertIn("private lateinit var systemUiController: SystemUiController", main)
+        self.assertIn("systemUiController = SystemUiController(window)", main)
+        self.assertIn("override fun onResume()", main)
+        self.assertIn("applyImmersiveSystemUi()", main)
+        self.assertIn("WindowCompat.getInsetsController(window, window.decorView)", controller)
+        self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", controller)
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
+        self.assertIn('<item name="android:windowFullscreen">true</item>', styles)
+
     def test_native_host_uses_immersive_system_bars_for_flet_and_player(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")

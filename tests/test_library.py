@@ -270,6 +270,16 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(AndroidBridge.is_local_media_reference("/storage/emulated/0/Anime/ep.mkv"))
         self.assertFalse(AndroidBridge.is_local_media_reference("https://example.com/ep.mkv"))
 
+    def test_android_bridge_can_drain_multiple_batches(self):
+        with tempfile.TemporaryDirectory() as d:
+            bridge = AndroidBridge(d)
+            bridge.mailbox.write_text(json.dumps([{"type": "first"}]), encoding="utf-8")
+            self.assertEqual(bridge.drain()[0]["type"], "first")
+            bridge.acknowledge()
+            bridge.mailbox.write_text(json.dumps([{"type": "second"}]), encoding="utf-8")
+            self.assertEqual(bridge.drain()[0]["type"], "second")
+            bridge.acknowledge()
+
     def test_flet_page_platform_enum_is_recognized_on_real_android(self):
         class Platform:
             value = 'android'

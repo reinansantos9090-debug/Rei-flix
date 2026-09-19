@@ -114,12 +114,15 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("await bridge.verify_tree(folder['path'])", source)
         self.assertIn("authorization", source)
 
-    def test_native_host_keeps_system_bars_for_flet_and_fullscreen_for_player_only(self):
+    def test_native_host_uses_immersive_system_bars_for_flet_and_player(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
-        self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, true)", main)
-        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", main)
+        self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", main)
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", main)
+        self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", main)
+        self.assertNotIn("show(WindowInsetsCompat.Type.systemBars())", main)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", player)
+        self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", player)
 
     def test_player_exit_is_not_suppressed_after_normal_completion(self):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")

@@ -229,8 +229,9 @@ class AndroidHostVerificationTests(unittest.TestCase):
 
     def test_native_player_entry_rejects_non_local_deep_link_uris(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
-        self.assertIn('localUri.scheme != "content"', main)
+        self.assertIn('localUri.scheme == "content" && (', main)
         self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
+        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn('"Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."', main)
 
     def test_native_player_rechecks_saf_authorization_before_media3_start(self):

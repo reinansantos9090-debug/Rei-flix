@@ -6,9 +6,6 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +19,7 @@ import org.json.JSONObject
  */
 class MainActivity : FlutterFragmentActivity() {
     private val tag = "[REIFLIX][ANDROID]"
+    private lateinit var systemUiController: SystemUiController
     private val treePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
         handleTreePickerResult(result)
     }
@@ -47,7 +45,8 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        configureSystemBars()
+        systemUiController = SystemUiController(window)
+        applyImmersiveSystemUi()
         // Flet owns screen history. Do not let FlutterActivity finish before
         // its Python navigation policy receives this event.
         handleNativeIntent(intent)
@@ -135,17 +134,10 @@ class MainActivity : FlutterFragmentActivity() {
     }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) configureSystemBars()
+        if (hasFocus) applyImmersiveSystemUi()
     }
-    private fun configureSystemBars() {
-        // ReiFlix uses an immersive application shell. The system bars stay
-        // hidden during normal navigation and can be revealed temporarily by
-        // the Android system gesture, then are hidden again when focus returns.
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
+    private fun applyImmersiveSystemUi() {
+        if (::systemUiController.isInitialized) systemUiController.applyImmersive()
     }
     private fun signInWithGoogle(serverClientId: String?) {
         if (serverClientId.isNullOrBlank()) { NativeMailbox.write(this, JSONObject().put("type", "google_error").put("message", "Configure o Web Client ID do Google.")); return }

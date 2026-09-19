@@ -42,6 +42,8 @@ async def main(page: ft.Page):
                                 view_state=home_state))
         elif navigation.current == "organize":
             show(OrganizeView.build(page, library, navigate_details, navigate_back, navigate_settings,
+                                    on_request_storage_access=open_broad_storage_access,
+                                    on_scan_storage=refresh_library,
                                     view_state=organize_state))
         elif navigation.current == "details":
             show(DetailView.build(page, current[0], play_episode, navigate_back,
@@ -248,249 +250,255 @@ async def main(page: ft.Page):
                 scan_in_progress[0] = False
 
         while True:
-            events = bridge.drain()
-            for event in events:
-                event_type=event.get('type'); payload=event.get('payload') or {}
-                if event_type == 'saf_scan_progress':
-                    # Native scanner reports coarse progress so large SAF trees do not
-                    # look frozen while the Android ContentResolver is traversing them.
-                    files = int(payload.get('files') or 0)
-                    videos = int(payload.get('videos') or 0)
-                    directories = int(payload.get('directories') or 0)
-                    phase = payload.get('phase') or 'scanning'
-                    if phase == 'started':
-                        text = 'Preparando varredura da pasta…'
-                    else:
-                        text = f'Verificando pasta… {directories} diretórios, {files} arquivos, {videos} vídeos.'
-                    page.snack_bar = ft.SnackBar(ft.Text(text))
-                    page.snack_bar.open = True
-                    page.update()
-                elif event_type == 'saf_scan':
+            try:
+                events = bridge.drain()
+                for event in events:
                     try:
-                        saf_selection.finish()
-                        stats = payload.get('stats') or {}
-                        tree_uri = payload.get('treeUri', '')
-                        if not tree_uri:
-                            raise ValueError('Resultado SAF sem pasta de origem.')
-                        catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats)
-                        videos = int(stats.get('videos') or 0)
-                        partial = bool(payload.get('partial') or stats.get('errors'))
-                        message = ("Scan concluído parcialmente. Alguns diretórios não puderam ser acessados. " if partial else "")
-                        message += f"Encontramos {videos} vídeo(s) em {len(catalog)} anime(s)." if videos else "Não encontramos vídeos compatíveis nesta pasta."
-                        page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; page.update()
-                    except Exception:
-                        page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar a atualização da biblioteca.')); page.snack_bar.open=True; page.update()
-                    finally:
-                        finish_native_scan()
-                        refresh_settings_if_active()
-                elif event_type == 'broad_storage_scan_progress':
-                    files = int(payload.get('files') or 0)
-                    videos = int(payload.get('videos') or 0)
-                    directories = int(payload.get('directories') or 0)
-                    phase = payload.get('phase') or 'scanning'
-                    text = 'Preparando armazenamento local…' if phase == 'started' else f'Verificando armazenamento… {directories} diretórios, {files} arquivos, {videos} vídeos.'
-                    page.snack_bar = ft.SnackBar(ft.Text(text)); page.snack_bar.open = True; page.update()
-                elif event_type == 'broad_storage_scan':
-                    try:
-                        stats = payload.get('stats') or {}
-                        source = payload.get('source') or 'broad-storage'
-                        catalog = await asyncio.to_thread(library.ingest_documents, source, payload.get('documents') or [], folder_name=payload.get('name') or 'Armazenamento local', scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='broad_storage')
-                        store.add_folder(source, name=payload.get('name') or 'Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
-                        videos = int(stats.get('videos') or 0)
-                        partial = bool(payload.get('partial') or stats.get('errors'))
-                        message = ('Armazenamento local atualizado parcialmente. ' if partial else 'Armazenamento local atualizado. ')
-                        message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
-                        page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; page.update()
-                    except Exception:
-                        page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; page.update()
-                    finally:
-                        finish_native_scan(); refresh_settings_if_active()
-                elif event_type == 'broad_storage_status':
-                    granted = bool(payload.get('hasAccess'))
-                    roots = payload.get('roots') or []
-                    volumes = payload.get('volumes') or []
-                    if granted:
-                        store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
-                        readable = sum(1 for root in roots if root.get('readable') and root.get('directory'))
-                        store.update_folder_status('broad-storage', 'granted', f'Diagnóstico: {readable} raiz(es) legível(is), {len(volumes)} volume(s) detectado(s).')
-                    else:
-                        store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento não concedido.')
-                    refresh_settings_if_active()
-                elif event_type == 'broad_storage_permission':
-                    if payload.get('granted'):
-                        store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
-                    else:
-                        store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento ainda não foi concedido.')
-                        finish_native_scan()
-                    refresh_settings_if_active()
-                elif event_type == 'broad_storage_error':
-                    store.update_folder_status('broad-storage', 'revoked', event.get('message', 'Não foi possível acessar o armazenamento local.'))
-                    finish_native_scan(); page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; page.update()
-                    refresh_settings_if_active()
-                elif event_type == 'mediastore_scan_progress':
-                    files = int(payload.get('files') or 0)
-                    videos = int(payload.get('videos') or 0)
-                    phase = payload.get('phase') or 'scanning'
-                    text = 'Preparando vídeos do dispositivo…' if phase == 'started' else f'Verificando vídeos do dispositivo… {files} itens, {videos} vídeos.'
-                    page.snack_bar = ft.SnackBar(ft.Text(text))
-                    page.snack_bar.open = True
-                    page.update()
-                elif event_type == 'mediastore_scan':
-                    try:
-                        stats = payload.get('stats') or {}
-                        source = payload.get('source') or 'mediastore:external:video'
-                        documents = payload.get('documents') or []
-                        catalog = await asyncio.to_thread(
-                            library.ingest_documents,
-                            source,
-                            documents,
-                            folder_name=payload.get('name') or 'Vídeos do dispositivo',
-                            scan_errors=stats.get('errors', []),
-                            scan_stats=stats,
-                            source_kind='mediastore',
-                        )
-                        videos = int(stats.get('videos') or 0)
-                        partial = bool(payload.get('partial') or stats.get('errors'))
-                        message = ('Atualização do dispositivo concluída parcialmente. ' if partial else 'Vídeos do dispositivo atualizados. ')
-                        message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
-                        page.snack_bar = ft.SnackBar(ft.Text(message))
-                        page.snack_bar.open = True
-                        page.update()
-                    except Exception:
-                        page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar os vídeos do dispositivo.'))
-                        page.snack_bar.open = True
-                        page.update()
-                    finally:
-                        finish_native_scan()
-                        refresh_settings_if_active()
-                elif event_type == 'mediastore_permission':
-                    source = payload.get('source') or 'mediastore:external:video'
-                    if payload.get('granted'):
-                        access = payload.get('access') or 'full'
-                        label = 'acesso total' if access == 'full' else 'acesso parcial'
-                        store.add_folder(
-                            source,
-                            name='Vídeos do dispositivo',
-                            kind='mediastore',
-                            authorization='granted',
-                            account_id=store.account().get('id'),
-                        )
-                        store.update_folder_status(source, 'granted', f'Permissão de vídeos: {label}.')
-                    else:
-                        store.update_folder_status(source, 'revoked', 'A permissão para vídeos do dispositivo foi removida.')
-                    refresh_settings_if_active()
-                elif event_type == 'mediastore_error':
-                    source = payload.get('source') or 'mediastore:external:video'
-                    store.update_folder_status(source, 'revoked', event.get('message', 'Não foi possível acessar os vídeos do dispositivo.'))
-                    finish_native_scan()
-                    page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar os vídeos do dispositivo.')))
-                    page.snack_bar.open = True
-                    page.update()
-                    refresh_settings_if_active()
-                elif event_type in {'player_progress', 'player_paused', 'player_exited', 'player_completed'}:
-                    uri = payload.get('uri', '')
-                    if uri:
-                        store.save_progress(uri, payload.get('positionMs', 0) / 1000,
-                                            payload.get('durationMs', 0) / 1000)
-                    if event_type == 'player_exited' and navigation.current == 'player':
-                        navigate_back()
-                elif event_type in {'player_next_request', 'player_previous_request'}:
-                    uri = payload.get('uri', '')
-                    target = library.next_episode(uri) if event_type == 'player_next_request' else library.previous_episode(uri)
-                    if target:
-                        episode_label = f"T{target.get('season', '—')} E{target.get('number') if target.get('number') is not None else '—'}"
-                        player_title = f"{target.get('anime_title') or target.get('file_name')} • {episode_label}"
-                        await start_native_player(target['path'], player_title, 0)
-                elif event_type == 'player_error':
-                    page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível reproduzir este arquivo.'))); page.snack_bar.open=True; page.update()
-                    # Invalid/unreadable URIs can fail before Media3 creates a
-                    # player, so there may be no player_exited event to dismiss
-                    # the Flet transition screen.
-                    if navigation.current == 'player':
-                        navigate_back()
-                elif event_type == 'google_sign_in_started':
-                    account_state[0] = 'awaiting_google'; refresh_settings_if_active()
-                elif event_type == 'google_account':
-                    profile = normalize_google_profile(payload)
-                    if profile is None:
-                        account_state[0] = 'error'
-                        page.snack_bar=ft.SnackBar(ft.Text('A resposta da conta Google é inválida. Tente novamente.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
-                    else:
-                        store.save_account(profile); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
-                elif event_type == 'saf_cancelled':
-                    saf_selection.finish()
-                    page.snack_bar=ft.SnackBar(ft.Text('Seleção de pasta cancelada.')); page.snack_bar.open=True; page.update()
-                    refresh_settings_if_active()
-                elif event_type == 'saf_permission':
-                    tree_uri = payload.get('treeUri')
-                    if tree_uri:
-                        if payload.get('granted'):
-                            # A freshly selected tree must be registered before
-                            # scanning so a provider failure does not make the
-                            # user's persisted permission disappear from Settings.
-                            if payload.get('selected'):
+                        event_type=event.get('type'); payload=event.get('payload') or {}
+                        if event_type == 'saf_scan_progress':
+                            # Native scanner reports coarse progress so large SAF trees do not
+                            # look frozen while the Android ContentResolver is traversing them.
+                            files = int(payload.get('files') or 0)
+                            videos = int(payload.get('videos') or 0)
+                            directories = int(payload.get('directories') or 0)
+                            phase = payload.get('phase') or 'scanning'
+                            if phase == 'started':
+                                text = 'Preparando varredura da pasta…'
+                            else:
+                                text = f'Verificando pasta… {directories} diretórios, {files} arquivos, {videos} vídeos.'
+                            page.snack_bar = ft.SnackBar(ft.Text(text))
+                            page.snack_bar.open = True
+                            page.update()
+                        elif event_type == 'saf_scan':
+                            try:
+                                saf_selection.finish()
+                                stats = payload.get('stats') or {}
+                                tree_uri = payload.get('treeUri', '')
+                                if not tree_uri:
+                                    raise ValueError('Resultado SAF sem pasta de origem.')
+                                catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats)
+                                videos = int(stats.get('videos') or 0)
+                                partial = bool(payload.get('partial') or stats.get('errors'))
+                                message = ("Scan concluído parcialmente. Alguns diretórios não puderam ser acessados. " if partial else "")
+                                message += f"Encontramos {videos} vídeo(s) em {len(catalog)} anime(s)." if videos else "Não encontramos vídeos compatíveis nesta pasta."
+                                page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; page.update()
+                            except Exception:
+                                page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar a atualização da biblioteca.')); page.snack_bar.open=True; page.update()
+                            finally:
+                                finish_native_scan()
+                                refresh_settings_if_active()
+                        elif event_type == 'broad_storage_scan_progress':
+                            files = int(payload.get('files') or 0)
+                            videos = int(payload.get('videos') or 0)
+                            directories = int(payload.get('directories') or 0)
+                            phase = payload.get('phase') or 'scanning'
+                            text = 'Preparando armazenamento local…' if phase == 'started' else f'Verificando armazenamento… {directories} diretórios, {files} arquivos, {videos} vídeos.'
+                            page.snack_bar = ft.SnackBar(ft.Text(text)); page.snack_bar.open = True; page.update()
+                        elif event_type == 'broad_storage_scan':
+                            try:
+                                stats = payload.get('stats') or {}
+                                source = payload.get('source') or 'broad-storage'
+                                catalog = await asyncio.to_thread(library.ingest_documents, source, payload.get('documents') or [], folder_name=payload.get('name') or 'Armazenamento local', scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='broad_storage')
+                                store.add_folder(source, name=payload.get('name') or 'Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
+                                videos = int(stats.get('videos') or 0)
+                                partial = bool(payload.get('partial') or stats.get('errors'))
+                                message = ('Armazenamento local atualizado parcialmente. ' if partial else 'Armazenamento local atualizado. ')
+                                message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
+                                page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; page.update()
+                            except Exception:
+                                page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; page.update()
+                            finally:
+                                finish_native_scan(); refresh_settings_if_active()
+                        elif event_type == 'broad_storage_status':
+                            granted = bool(payload.get('hasAccess'))
+                            roots = payload.get('roots') or []
+                            volumes = payload.get('volumes') or []
+                            if granted:
+                                store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
+                                readable = sum(1 for root in roots if root.get('readable') and root.get('directory'))
+                                store.update_folder_status('broad-storage', 'granted', f'Diagnóstico: {readable} raiz(es) legível(is), {len(volumes)} volume(s) detectado(s).')
+                            else:
+                                store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento não concedido.')
+                            refresh_settings_if_active()
+                        elif event_type == 'broad_storage_permission':
+                            if payload.get('granted'):
+                                store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
+                            else:
+                                store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento ainda não foi concedido.')
+                                finish_native_scan()
+                            refresh_settings_if_active()
+                        elif event_type == 'broad_storage_error':
+                            store.update_folder_status('broad-storage', 'revoked', event.get('message', 'Não foi possível acessar o armazenamento local.'))
+                            finish_native_scan(); page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; page.update()
+                            refresh_settings_if_active()
+                        elif event_type == 'mediastore_scan_progress':
+                            files = int(payload.get('files') or 0)
+                            videos = int(payload.get('videos') or 0)
+                            phase = payload.get('phase') or 'scanning'
+                            text = 'Preparando vídeos do dispositivo…' if phase == 'started' else f'Verificando vídeos do dispositivo… {files} itens, {videos} vídeos.'
+                            page.snack_bar = ft.SnackBar(ft.Text(text))
+                            page.snack_bar.open = True
+                            page.update()
+                        elif event_type == 'mediastore_scan':
+                            try:
+                                stats = payload.get('stats') or {}
+                                source = payload.get('source') or 'mediastore:external:video'
+                                documents = payload.get('documents') or []
+                                catalog = await asyncio.to_thread(
+                                    library.ingest_documents,
+                                    source,
+                                    documents,
+                                    folder_name=payload.get('name') or 'Vídeos do dispositivo',
+                                    scan_errors=stats.get('errors', []),
+                                    scan_stats=stats,
+                                    source_kind='mediastore',
+                                )
+                                videos = int(stats.get('videos') or 0)
+                                partial = bool(payload.get('partial') or stats.get('errors'))
+                                message = ('Atualização do dispositivo concluída parcialmente. ' if partial else 'Vídeos do dispositivo atualizados. ')
+                                message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
+                                page.snack_bar = ft.SnackBar(ft.Text(message))
+                                page.snack_bar.open = True
+                                page.update()
+                            except Exception:
+                                page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar os vídeos do dispositivo.'))
+                                page.snack_bar.open = True
+                                page.update()
+                            finally:
+                                finish_native_scan()
+                                refresh_settings_if_active()
+                        elif event_type == 'mediastore_permission':
+                            source = payload.get('source') or 'mediastore:external:video'
+                            if payload.get('granted'):
+                                access = payload.get('access') or 'full'
+                                label = 'acesso total' if access == 'full' else 'acesso parcial'
                                 store.add_folder(
-                                    tree_uri,
-                                    name=payload.get('name') or tree_uri.rsplit('/', 1)[-1],
-                                    kind='saf',
+                                    source,
+                                    name='Vídeos do dispositivo',
+                                    kind='mediastore',
                                     authorization='granted',
                                     account_id=store.account().get('id'),
                                 )
+                                store.update_folder_status(source, 'granted', f'Permissão de vídeos: {label}.')
                             else:
-                                store.update_folder_status(tree_uri, 'granted')
-                        else:
-                            store.update_folder_status(tree_uri, 'revoked', 'A permissão desta pasta foi removida.')
-                        refresh_settings_if_active()
-                elif event_type == 'saf_released':
-                    tree_uri = payload.get('treeUri')
-                    if tree_uri and tree_uri in pending_folder_removals:
-                        pending_folder_removals.discard(tree_uri)
-                        store.remove_folder(tree_uri)
-                        on_catalog_changed()
-                        refresh_settings_if_active()
-                        page.snack_bar=ft.SnackBar(ft.Text('Pasta removida da biblioteca.')); page.snack_bar.open=True; page.update()
-                elif event_type == 'google_cancelled':
-                    account_state[0] = 'disconnected'
-                    page.snack_bar=ft.SnackBar(ft.Text('Entrada com Google cancelada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
-                elif event_type in {'saf_error','google_error'}:
-                    if event_type == 'saf_error':
-                        saf_selection.finish()
-                        tree_uri = payload.get('treeUri')
-                        if tree_uri and tree_uri in pending_folder_removals:
-                            pending_folder_removals.discard(tree_uri)
-                            page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível liberar a pasta.'))); page.snack_bar.open=True; page.update()
+                                store.update_folder_status(source, 'revoked', 'A permissão para vídeos do dispositivo foi removida.')
                             refresh_settings_if_active()
-                            continue
-                        if tree_uri:
-                            store.update_folder_status(tree_uri, 'revoked', event.get('message', 'Não foi possível acessar a pasta.'))
-                        # A re-scan has no successful result event to clear
-                        # its lock.  Without this, Settings can remain on its
-                        # disabled loading button after one revoked grant.
-                        if scan_in_progress[0]:
+                        elif event_type == 'mediastore_error':
+                            source = payload.get('source') or 'mediastore:external:video'
+                            store.update_folder_status(source, 'revoked', event.get('message', 'Não foi possível acessar os vídeos do dispositivo.'))
                             finish_native_scan()
-                    if event_type == 'google_error':
-                        code = str(event.get('code') or 'credential_error')
-                        account_state[0] = 'configuration_required' if code == 'configuration_required' else 'error'
-                        if code == 'no_credential':
-                            message = 'Nenhuma conta/credencial Google disponível. Verifique se uma conta Google está configurada no dispositivo.'
-                        elif code == 'unsupported':
-                            message = 'Este dispositivo não oferece suporte ao Gerenciador de Credenciais usado pelo Rei-Flix.'
-                        elif code == 'provider_configuration':
-                            message = 'O provedor Google do Gerenciador de Credenciais não está configurado corretamente.'
-                        elif code == 'invalid_credential':
-                            message = 'O Google retornou uma credencial que não pôde ser validada com segurança.'
-                        elif code == 'configuration_required':
-                            message = 'O login Google precisa de um Web Client ID válido neste APK.'
-                        else:
-                            message = event.get('message', 'O login Google não pôde ser concluído.')
-                        page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; page.update()
-                    if event_type == 'saf_error': refresh_settings_if_active()
-                elif event_type == 'android_back':
-                    navigate_back()
-            # NativeMailbox retains the atomically claimed batch until this
-            # point, after SQLite/UI handling has completed. A process restart
-            # before acknowledgement replays the complete batch safely.
-            bridge.acknowledge()
+                            page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar os vídeos do dispositivo.')))
+                            page.snack_bar.open = True
+                            page.update()
+                            refresh_settings_if_active()
+                        elif event_type in {'player_progress', 'player_paused', 'player_exited', 'player_completed'}:
+                            uri = payload.get('uri', '')
+                            if uri:
+                                store.save_progress(uri, payload.get('positionMs', 0) / 1000,
+                                                    payload.get('durationMs', 0) / 1000)
+                            if event_type == 'player_exited' and navigation.current == 'player':
+                                navigate_back()
+                        elif event_type in {'player_next_request', 'player_previous_request'}:
+                            uri = payload.get('uri', '')
+                            target = library.next_episode(uri) if event_type == 'player_next_request' else library.previous_episode(uri)
+                            if target:
+                                episode_label = f"T{target.get('season', '—')} E{target.get('number') if target.get('number') is not None else '—'}"
+                                player_title = f"{target.get('anime_title') or target.get('file_name')} • {episode_label}"
+                                await start_native_player(target['path'], player_title, 0)
+                        elif event_type == 'player_error':
+                            page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível reproduzir este arquivo.'))); page.snack_bar.open=True; page.update()
+                            # Invalid/unreadable URIs can fail before Media3 creates a
+                            # player, so there may be no player_exited event to dismiss
+                            # the Flet transition screen.
+                            if navigation.current == 'player':
+                                navigate_back()
+                        elif event_type == 'google_sign_in_started':
+                            account_state[0] = 'awaiting_google'; refresh_settings_if_active()
+                        elif event_type == 'google_account':
+                            profile = normalize_google_profile(payload)
+                            if profile is None:
+                                account_state[0] = 'error'
+                                page.snack_bar=ft.SnackBar(ft.Text('A resposta da conta Google é inválida. Tente novamente.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
+                            else:
+                                store.save_account(profile); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
+                        elif event_type == 'saf_cancelled':
+                            saf_selection.finish()
+                            page.snack_bar=ft.SnackBar(ft.Text('Seleção de pasta cancelada.')); page.snack_bar.open=True; page.update()
+                            refresh_settings_if_active()
+                        elif event_type == 'saf_permission':
+                            tree_uri = payload.get('treeUri')
+                            if tree_uri:
+                                if payload.get('granted'):
+                                    # A freshly selected tree must be registered before
+                                    # scanning so a provider failure does not make the
+                                    # user's persisted permission disappear from Settings.
+                                    if payload.get('selected'):
+                                        store.add_folder(
+                                            tree_uri,
+                                            name=payload.get('name') or tree_uri.rsplit('/', 1)[-1],
+                                            kind='saf',
+                                            authorization='granted',
+                                            account_id=store.account().get('id'),
+                                        )
+                                    else:
+                                        store.update_folder_status(tree_uri, 'granted')
+                                else:
+                                    store.update_folder_status(tree_uri, 'revoked', 'A permissão desta pasta foi removida.')
+                                refresh_settings_if_active()
+                        elif event_type == 'saf_released':
+                            tree_uri = payload.get('treeUri')
+                            if tree_uri and tree_uri in pending_folder_removals:
+                                pending_folder_removals.discard(tree_uri)
+                                store.remove_folder(tree_uri)
+                                on_catalog_changed()
+                                refresh_settings_if_active()
+                                page.snack_bar=ft.SnackBar(ft.Text('Pasta removida da biblioteca.')); page.snack_bar.open=True; page.update()
+                        elif event_type == 'google_cancelled':
+                            account_state[0] = 'disconnected'
+                            page.snack_bar=ft.SnackBar(ft.Text('Entrada com Google cancelada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
+                        elif event_type in {'saf_error','google_error'}:
+                            if event_type == 'saf_error':
+                                saf_selection.finish()
+                                tree_uri = payload.get('treeUri')
+                                if tree_uri and tree_uri in pending_folder_removals:
+                                    pending_folder_removals.discard(tree_uri)
+                                    page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível liberar a pasta.'))); page.snack_bar.open=True; page.update()
+                                    refresh_settings_if_active()
+                                    continue
+                                if tree_uri:
+                                    store.update_folder_status(tree_uri, 'revoked', event.get('message', 'Não foi possível acessar a pasta.'))
+                                # A re-scan has no successful result event to clear
+                                # its lock.  Without this, Settings can remain on its
+                                # disabled loading button after one revoked grant.
+                                if scan_in_progress[0]:
+                                    finish_native_scan()
+                            if event_type == 'google_error':
+                                code = str(event.get('code') or 'credential_error')
+                                account_state[0] = 'configuration_required' if code == 'configuration_required' else 'error'
+                                if code == 'no_credential':
+                                    message = 'Nenhuma conta/credencial Google disponível. Verifique se uma conta Google está configurada no dispositivo.'
+                                elif code == 'unsupported':
+                                    message = 'Este dispositivo não oferece suporte ao Gerenciador de Credenciais usado pelo Rei-Flix.'
+                                elif code == 'provider_configuration':
+                                    message = 'O provedor Google do Gerenciador de Credenciais não está configurado corretamente.'
+                                elif code == 'invalid_credential':
+                                    message = 'O Google retornou uma credencial que não pôde ser validada com segurança.'
+                                elif code == 'configuration_required':
+                                    message = 'O login Google precisa de um Web Client ID válido neste APK.'
+                                else:
+                                    message = event.get('message', 'O login Google não pôde ser concluído.')
+                                page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; page.update()
+                            if event_type == 'saf_error': refresh_settings_if_active()
+                        elif event_type == 'android_back':
+                            navigate_back()
+                    except Exception as exc:
+                        print(f"[ANDROID] Erro ao processar evento nativo: {exc}")
+                # NativeMailbox retains the atomically claimed batch until this
+                # point, after SQLite/UI handling has completed. A process restart
+                # before acknowledgement replays the complete batch safely.
+                bridge.acknowledge()
+            except Exception as exc:
+                print(f"[ANDROID] Erro no loop da ponte nativa: {exc}")
             await asyncio.sleep(0.2)
     page.on_login=login_done
     page.run_task(poll_native_bridge)

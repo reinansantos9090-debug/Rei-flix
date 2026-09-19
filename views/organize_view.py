@@ -9,9 +9,22 @@ class OrganizeView:
     """Organize one loaded SQLite catalog without scanning or contacting AniList."""
 
     @staticmethod
-    def build(page: ft.Page, library, on_select_anime, on_back, on_open_settings, view_state=None):
+    def build(page: ft.Page, library, on_select_anime, on_back, on_open_settings,
+              on_request_storage_access=None, on_scan_storage=None, view_state=None):
         catalog = []
         view_state = view_state if view_state is not None else {}
+
+        def handle_request_storage(_=None):
+            if on_request_storage_access:
+                res = on_request_storage_access()
+                if hasattr(res, "__await__"):
+                    page.run_task(lambda: res)
+
+        def handle_scan_storage(_=None):
+            if on_scan_storage:
+                res = on_scan_storage()
+                if hasattr(res, "__await__"):
+                    page.run_task(lambda: res)
         selected_genre = [view_state.get("genre", "Todos")]
         selected_state = [view_state.get("state", "Todos")]
         selected_sort = [view_state.get("sort", "Mais recentes")]
@@ -62,12 +75,22 @@ class OrganizeView:
                                  on_click=lambda _: back_handler()) if back_handler else ft.IconButton(
                                      icon=ft.Icons.HOME_OUTLINED, icon_color="#FFFFFF", tooltip="Início",
                                      on_click=lambda _: on_back())
+            actions = []
+            if on_request_storage_access:
+                actions.append(ft.IconButton(icon=ft.Icons.FOLDER_OPEN_OUTLINED, icon_color="#FFFFFF",
+                                             tooltip="Solicitar acesso ao armazenamento",
+                                             on_click=handle_request_storage))
+            if on_scan_storage:
+                actions.append(ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#FFFFFF",
+                                             tooltip="Varrer armazenamento",
+                                             on_click=handle_scan_storage))
+            actions.append(ft.IconButton(icon=ft.Icons.SETTINGS_OUTLINED, icon_color="#FFFFFF", tooltip="Configurações",
+                                         on_click=lambda _: on_open_settings()))
             return ft.Row([
                 left,
                 ft.Column([ft.Text(title, size=21, weight=ft.FontWeight.BOLD, color="#F7F5FA"),
                            ft.Text("Explore sua biblioteca local", size=11, color="#AAA7B6")], spacing=1, expand=True),
-                ft.IconButton(icon=ft.Icons.SETTINGS_OUTLINED, icon_color="#FFFFFF", tooltip="Configurações",
-                              on_click=lambda _: on_open_settings()),
+                *actions,
             ])
 
         def state_button(label, count):
@@ -103,7 +126,21 @@ class OrganizeView:
             )
 
         def empty_catalog():
-            return empty_state(ft.Icons.VIDEO_LIBRARY_OUTLINED, "Seu catálogo está vazio", "Adicione uma pasta com animes nas configurações para começar.", ft.FilledButton("Abrir configurações", icon=ft.Icons.SETTINGS, on_click=lambda _: on_open_settings()))
+            actions = []
+            if on_request_storage_access:
+                actions.append(ft.FilledButton("Solicitar acesso ao armazenamento", icon=ft.Icons.FOLDER_OPEN_OUTLINED, on_click=handle_request_storage))
+            if on_scan_storage:
+                actions.append(ft.OutlinedButton("Varrer armazenamento", icon=ft.Icons.REFRESH, on_click=handle_scan_storage))
+            actions.append(ft.TextButton("Abrir configurações", icon=ft.Icons.SETTINGS, on_click=lambda _: on_open_settings()))
+            return ft.Container(
+                content=ft.Column([
+                    ft.Icon(ft.Icons.VIDEO_LIBRARY_OUTLINED, size=48, color=ACCENT),
+                    ft.Text("Seu catálogo está vazio", size=18, weight=ft.FontWeight.BOLD, color=TEXT),
+                    ft.Text("Solicite acesso ao armazenamento local para localizar seus vídeos de anime.", size=12, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER),
+                    ft.Column(actions, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12),
+                alignment=ft.Alignment(0, 0), padding=24,
+            )
 
         def open_collection(genre, state):
             selected_genre[0], selected_state[0], mode[0] = genre, state, "collection"

@@ -138,22 +138,29 @@ async def main(page: ft.Page):
         try:
             saf_folders = [folder for folder in store.folders()
                        if folder.get('kind') == 'saf' and folder.get('authorization') == 'granted']
-            if saf_folders and bridge.available:
-                # Native SAF scans finish through the mailbox; retain the lock
-                # until their result/error event arrives.
+            if bridge.available:
+                # SAF and MediaStore scans share the same native completion lock,
+                # but each source is persisted and marked-missing independently.
                 pending_native_scans[0] = 0
                 for folder in saf_folders:
                     try:
                         await bridge.rescan_tree(folder['path'])
                         pending_native_scans[0] += 1
                     except Exception:
-                        # A tree that could not be handed to Android must not
-                        # leave the refresh lock waiting forever.
                         store.update_folder_status(folder['path'], "granted", "Não foi possível iniciar a varredura SAF.")
+                try:
+                    await bridge.scan_media_store()
+                    pending_native_scans[0] += 1
+                except Exception:
+                    store.update_folder_status(
+                        "mediastore:external:video",
+                        "unknown",
+                        "Não foi possível iniciar a varredura MediaStore.",
+                    )
                 if pending_native_scans[0] > 0:
-                    return "Atualização iniciada. Verificando as pastas autorizadas…", True
+                    return "Atualização iniciada. Verificando as fontes locais…", True
                 scan_in_progress[0] = False
-                return "Nenhuma pasta autorizada pôde iniciar uma varredura.", False
+                return "Nenhuma fonte local pôde iniciar uma varredura.", False
             result = await asyncio.to_thread(library.scan)
             return result.message(), False
         except Exception:
@@ -236,6 +243,63 @@ async def main(page: ft.Page):
                     finally:
                         finish_native_scan()
                         refresh_settings_if_active()
+                elif event_type == 'mediastore_scan_progress':
+                    files = int(payload.get('files') or 0)
+                    videos = int(payload.get('videos') or 0)
+                    phase = payload.get('phase') or 'scanning'
+                    text = 'Preparando vídeos do dispositivo…' if phase == 'started' else f'Verificando vídeos do dispositivo… {files} itens, {videos} vídeos.'
+                    page.snack_bar = ft.SnackBar(ft.Text(text))
+                    page.snack_bar.open = True
+                    page.update()
+                elif event_type == 'mediastore_scan':
+                    try:
+                        stats = payload.get('stats') or {}
+                        source = payload.get('source') or 'mediastore:external:video'
+                        documents = payload.get('documents') or []
+                        catalog = await asyncio.to_thread(
+                            library.ingest_documents,
+                            source,
+                            documents,
+                            folder_name=payload.get('name') or 'Vídeos do dispositivo',
+                            scan_errors=stats.get('errors', []),
+                            scan_stats=stats,
+                            source_kind='mediastore',
+                        )
+                        videos = int(stats.get('videos') or 0)
+                        partial = bool(payload.get('partial') or stats.get('errors'))
+                        message = ('Atualização do dispositivo concluída parcialmente. ' if partial else 'Vídeos do dispositivo atualizados. ')
+                        message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
+                        page.snack_bar = ft.SnackBar(ft.Text(message))
+                        page.snack_bar.open = True
+                        page.update()
+                    except Exception:
+                        page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar os vídeos do dispositivo.'))
+                        page.snack_bar.open = True
+                        page.update()
+                    finally:
+                        finish_native_scan()
+                        refresh_settings_if_active()
+                elif event_type == 'mediastore_permission':
+                    source = payload.get('source') or 'mediastore:external:video'
+                    if payload.get('granted'):
+                        store.add_folder(
+                            source,
+                            name='Vídeos do dispositivo',
+                            kind='mediastore',
+                            authorization='granted',
+                            account_id=store.account().get('id'),
+                        )
+                    else:
+                        store.update_folder_status(source, 'revoked', 'A permissão para vídeos do dispositivo foi removida.')
+                    refresh_settings_if_active()
+                elif event_type == 'mediastore_error':
+                    source = payload.get('source') or 'mediastore:external:video'
+                    store.update_folder_status(source, 'revoked', event.get('message', 'Não foi possível acessar os vídeos do dispositivo.'))
+                    finish_native_scan()
+                    page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar os vídeos do dispositivo.')))
+                    page.snack_bar.open = True
+                    page.update()
+                    refresh_settings_if_active()
                 elif event_type in {'player_progress', 'player_paused', 'player_exited', 'player_completed'}:
                     uri = payload.get('uri', '')
                     if uri:

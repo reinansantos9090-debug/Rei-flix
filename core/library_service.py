@@ -28,6 +28,7 @@ class ScanResult:
 
 class LibraryService:
     METADATA_CACHE_SECONDS = 30 * 24 * 60 * 60
+    COVER_RETRY_SECONDS = 6 * 60 * 60
 
     def __init__(self, store): self.store=store; self.anilist=AniListClient(store.cache_dir)
 
@@ -37,7 +38,17 @@ class LibraryService:
         if associated_id and cached["anilist_id"] != associated_id:
             return False
         updated_at = cached.get("metadata_updated_at")
-        return bool(updated_at and time.time() - updated_at < self.METADATA_CACHE_SECONDS)
+        if not updated_at:
+            return False
+        age = time.time() - updated_at
+        cover_cache = cached.get("cover_cache") or ""
+        cover_url = cached.get("cover_url") or ""
+        if cover_url and (not os.path.isfile(cover_cache) or os.path.getsize(cover_cache) <= 0):
+            # A first cover download can fail while the metadata itself succeeds.
+            # Retry that missing artifact after a short interval instead of
+            # suppressing recovery for the full metadata TTL.
+            return age < self.COVER_RETRY_SECONDS
+        return age < self.METADATA_CACHE_SECONDS
 
     def _identify(self, lookup_title, display_title, on_status):
         """Resolve local title to cached/remote AniList metadata without guessing.

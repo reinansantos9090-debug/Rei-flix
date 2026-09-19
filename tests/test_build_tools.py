@@ -361,3 +361,16 @@ class TestSafScannerHardening(unittest.TestCase):
         self.assertIn("event_type == 'saf_scan_progress'", source)
         self.assertIn("Verificando pasta…", source)
         self.assertIn("payload.get('directories')", source)
+
+
+class TestNativePlayerHardening(unittest.TestCase):
+    def test_native_player_reapplies_immersive_mode_on_resume(self):
+        player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("override fun onResume()", player)
+        self.assertIn("super.onResume()", player)
+        self.assertIn("enterImmersiveMode()", player)
+
+    def test_player_uses_media3_dependencies(self):
+        gradle = (ROOT / "android" / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+        self.assertIn('implementation("androidx.media3:media3-exoplayer:1.5.1")', gradle)
+        self.assertIn('implementation("androidx.media3:media3-ui:1.5.1")', gradle)

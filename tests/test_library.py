@@ -891,8 +891,8 @@ class LibraryBrowseTests(unittest.TestCase):
             anime = store.upsert_anime('partial-complete', {'title': 'Partial Complete', 'genres': '[]'})
             available = '/partial-01.mkv'
             missing = '/partial-02.mkv'
-            store.upsert_episode(anime, available, 'Partial - 01.mkv', 1, 1)
-            store.upsert_episode(anime, missing, 'Partial - 02.mkv', 1, 2)
+            store.upsert_episode(anime, available, 'Partial - 01.mkv', 1, 1, source_folder='/partial')
+            store.upsert_episode(anime, missing, 'Partial - 02.mkv', 1, 2, source_folder='/partial')
             store.save_progress(available, 95, 100)
             store.mark_missing('/partial', [])
             view = HomeView.build(FakePage(), LibraryService(store), lambda _: None, lambda: None,

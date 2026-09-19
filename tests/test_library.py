@@ -1008,6 +1008,19 @@ class DetailsDomainTests(unittest.TestCase):
             ordered = LibraryService.browse_catalog(catalog, sort='Assistidos recentemente')
             self.assertEqual([item['main_title'] for item in ordered], ['Recent B', 'Recent A'])
 
+    def test_favorite_persists_after_store_reopen_and_catalog_filter(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('favorite', {'title': 'Favorite', 'genres': '[]'})
+            store.upsert_episode(anime, '/library/favorite-01.mkv', 'Favorite - 01.mkv', 1, 1)
+            self.assertTrue(store.toggle_favorite(anime))
+            reopened = LibraryStore(d)
+            catalog = reopened.catalog(favorites_only=True)
+            self.assertEqual(len(catalog), 1)
+            self.assertEqual(catalog[0]['id'], anime)
+            self.assertTrue(catalog[0]['favorite'])
+            self.assertTrue(reopened.is_favorite(anime))
+
     def test_catalog_persists_resume_and_next_episode_after_reopen(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

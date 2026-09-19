@@ -53,6 +53,9 @@ object BroadStorageScanner {
     fun roots(context: Context): List<File> {
         val paths = LinkedHashSet<String>()
         Environment.getExternalStorageDirectory().let { if (it.exists()) paths.add(it.absolutePath) }
+        if (Build.VERSION.SDK_INT >= 30) {
+            Environment.getStorageDirectory().let { if (it.exists()) paths.add(it.absolutePath) }
+        }
         if (Build.VERSION.SDK_INT >= 24) {
             context.getSystemService(StorageManager::class.java)?.storageVolumes?.forEach { volume ->
                 runCatching { volume.directory?.canonicalPath }.getOrNull()?.let(paths::add)

@@ -3,6 +3,7 @@ package com.reiflix.reiflix_local
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.content.pm.PackageManager
 import android.util.Log
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +21,17 @@ import org.json.JSONObject
 class MainActivity : FlutterFragmentActivity() {
     private val tag = "[REIFLIX][ANDROID]"
     private lateinit var systemUiController: SystemUiController
+    private val mediaPermissionRequester = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        val granted = grants.any { it.value } && MediaStoreScanner.hasReadPermission(this)
+        NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission").put("payload", JSONObject()
+            .put("granted", granted)
+            .put("source", MediaStoreScanner.SOURCE)))
+        if (granted) scanMediaStore() else {
+            NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
+                .put("message", "A permissão para acessar os vídeos do dispositivo foi negada.")
+                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
+        }
+    }
     private val treePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
         handleTreePickerResult(result)
     }
@@ -73,6 +85,7 @@ class MainActivity : FlutterFragmentActivity() {
             "scan_tree" -> scanTree(intent.data?.getQueryParameter("tree_uri"))
             "verify_tree" -> verifyTree(intent.data?.getQueryParameter("tree_uri"))
             "release_tree" -> releaseTree(intent.data?.getQueryParameter("tree_uri"))
+            "scan_media_store" -> scanMediaStore()
             "google_sign_in" -> signInWithGoogle(intent.data?.getQueryParameter("server_client_id"))
             "play" -> openPlayer(intent.data)
         }
@@ -103,6 +116,36 @@ class MainActivity : FlutterFragmentActivity() {
                 Log.e(tag, "SAF scan failed", exception)
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_error").put("message", "Não foi possível atualizar esta pasta autorizada.")
                     .put("payload", JSONObject().put("treeUri", reference)))
+            }
+        }
+    }
+    private fun scanMediaStore() {
+        if (!MediaStoreScanner.hasReadPermission(this)) {
+            val permissions = MediaStoreScanner.requiredPermissions()
+            if (permissions.isEmpty()) {
+                NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
+                    .put("message", "Este Android não disponibiliza acesso ao MediaStore.")
+                    .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
+            } else {
+                mediaPermissionRequester.launch(permissions)
+            }
+            return
+        }
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_scan_progress")
+                    .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE).put("phase", "started")))
+                val result = MediaStoreScanner.scan(this@MainActivity) { progress ->
+                    NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_scan_progress")
+                        .put("payload", progress))
+                }
+                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_scan")
+                    .put("payload", result))
+            } catch (exception: Exception) {
+                Log.e(tag, "MediaStore scan failed", exception)
+                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_error")
+                    .put("message", "Não foi possível atualizar os vídeos do dispositivo.")
+                    .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
             }
         }
     }

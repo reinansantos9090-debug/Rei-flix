@@ -17,7 +17,7 @@ class PlayerView:
             page.snack_bar.open = True
             page.update()
 
-        def play(_):
+        async def play(_):
             if opening[0]:
                 return
             if not video_uri:
@@ -31,7 +31,7 @@ class PlayerView:
             play_button.text = "Abrindo player…"
             page.update()
             try:
-                on_native_play(video_uri, ep_title, max(0, int(progress_seconds * 1000)))
+                await on_native_play(video_uri, ep_title, max(0, int(progress_seconds * 1000)))
             except Exception:
                 opening[0] = False
                 play_button.disabled = False

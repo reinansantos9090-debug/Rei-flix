@@ -341,9 +341,19 @@ class LibraryStore:
         if current:
             return current
         with self._conn() as c:
-            first = c.execute("""SELECT * FROM episodes WHERE anime_id=? AND missing=0
-                ORDER BY season, number, file_name LIMIT 1""", (anime_id,)).fetchone()
-        return dict(first) if first else None
+            rows = c.execute(
+                "SELECT * FROM episodes WHERE anime_id=? AND missing=0",
+                (anime_id,),
+            ).fetchall()
+        ordered = sorted(
+            (dict(row) for row in rows),
+            key=lambda episode: (
+                episode["season"],
+                episode["number"] if episode["number"] is not None else -1,
+                episode["file_name"].casefold(),
+            ),
+        )
+        return ordered[0] if ordered else None
 
     def continue_watching(self, limit=12):
         """One playable continuation per anime, ordered by latest playback."""

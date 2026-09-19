@@ -307,7 +307,7 @@ class LibraryStore:
             if not current:
                 return None
             rows = c.execute(
-                "SELECT * FROM episodes WHERE anime_id=? AND missing=0",
+                "SELECT e.*, a.title AS anime_title FROM episodes e JOIN anime a ON a.id=e.anime_id WHERE e.anime_id=? AND e.missing=0",
                 (current["anime_id"],),
             ).fetchall()
         # SQLite's NULL ordering differs from the catalog policy. Reusing the

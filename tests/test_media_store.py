@@ -27,6 +27,9 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
         self.assertIn('android.permission.READ_MEDIA_VISUAL_USER_SELECTED', manifest)
         self.assertIn("Build.VERSION.SDK_INT >= 34", scanner)
         self.assertIn("READ_MEDIA_VISUAL_USER_SELECTED", scanner)
+        self.assertIn('fun accessLevel(context: Context): String', scanner)
+        self.assertIn('"partial"', scanner)
+        self.assertIn('"full"', scanner)
         self.assertIn("READ_MEDIA_VIDEO", scanner)
 
     def test_player_accepts_saf_or_media_store_without_path_conversion(self):

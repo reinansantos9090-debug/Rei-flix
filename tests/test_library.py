@@ -215,6 +215,26 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertFalse(episodes[second_doc['uri']]['missing'])
 
 
+    def test_partial_saf_rescan_preserves_unseen_documents_in_that_tree(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d); service = LibraryService(store)
+            tree = 'content://tree/partial'
+            first = {'uri': 'content://document/partial-1', 'name': 'Naruto - 001.mkv'}
+            second = {'uri': 'content://document/partial-2', 'name': 'Naruto - 002.mkv'}
+            with patch.object(service.anilist, 'search', return_value=[]):
+                service.ingest_documents(tree, [first, second])
+                service.ingest_documents(tree, [first], scan_errors=['subpasta inacessível'])
+            episodes = {
+                episode['path']: episode
+                for anime in store.catalog()
+                for season in anime['seasons']
+                for episode in season['episodes']
+            }
+            self.assertFalse(episodes[first['uri']]['missing'])
+            self.assertFalse(episodes[second['uri']]['missing'])
+            self.assertIn('subpasta inacessível', store.folders()[0]['last_error'])
+
+
     def test_phase_10_migration_preserves_existing_library_rows(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / 'library.sqlite3'

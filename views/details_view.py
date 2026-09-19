@@ -104,7 +104,7 @@ class DetailView:
                 page.snack_bar.open = True
                 page.update()
                 return
-            on_play_episode(episode["path"], episode.get("title") or "Episódio",
+            on_play_episode(episode["path"], episode.get("title") or episode.get("file_name") or "Episódio",
                             progress_seconds=episode.get("progress") or 0)
 
         primary_ratio = ratio(primary_target) if primary_target else None

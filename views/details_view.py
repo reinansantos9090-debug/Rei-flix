@@ -120,7 +120,7 @@ class DetailView:
         primary_ratio = ratio(primary_target) if primary_target else None
         if primary_target and primary_ratio and primary_ratio > 0 and not primary_target.get("watched"):
             primary_label = "Continuar assistindo"
-        elif primary_target and current and current.get("watched"):
+        elif is_next_after_completion:
             primary_label = "Próximo episódio"
         elif primary_target and available and all(item.get("watched") for item in available):
             primary_label = "Reassistir episódio"

@@ -114,7 +114,10 @@ class DetailView:
                 page.snack_bar.open = True
                 page.update()
                 return
-            on_play_episode(episode["path"], episode.get("title") or episode.get("file_name") or "Episódio",
+            number = episode.get("number")
+            episode_label = f"T{episode.get('season', '—')} E{number if number is not None else '—'}"
+            player_title = f"{anime_group.get('main_title') or title} • {episode_label}"
+            on_play_episode(episode["path"], player_title,
                             progress_seconds=episode.get("progress") or 0)
 
         primary_ratio = ratio(primary_target) if primary_target else None

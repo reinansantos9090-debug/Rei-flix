@@ -62,6 +62,12 @@ object SafScanner {
         }
     }
 
+    fun displayName(context: Context, treeUri: Uri): String {
+        return runCatching {
+            DocumentFile.fromTreeUri(context, treeUri)?.name
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: treeUri.toString()
+    }
+
     fun scan(context: Context, treeUri: Uri): JSONObject {
         check(hasPersistedReadPermission(context, treeUri)) { "A permissão desta pasta foi removida." }
         val resolver = context.contentResolver

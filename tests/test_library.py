@@ -194,6 +194,27 @@ class SettingsPersistenceTests(unittest.TestCase):
             store.remove_preference('resume_playback')
             self.assertIsNone(store.get_preference('resume_playback'))
 
+    def test_saf_rescans_mark_missing_only_within_the_scanned_tree(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d); service = LibraryService(store)
+            first_tree = 'content://tree/first'
+            second_tree = 'content://tree/second'
+            first_doc = {'uri': 'content://document/first-1', 'name': 'Naruto - 001.mkv'}
+            second_doc = {'uri': 'content://document/second-1', 'name': 'Bleach - 001.mkv'}
+            with patch.object(service.anilist, 'search', return_value=[]):
+                service.ingest_documents(first_tree, [first_doc])
+                service.ingest_documents(second_tree, [second_doc])
+                service.ingest_documents(first_tree, [])
+            episodes = {
+                episode['path']: episode
+                for anime in store.catalog()
+                for season in anime['seasons']
+                for episode in season['episodes']
+            }
+            self.assertTrue(episodes[first_doc['uri']]['missing'])
+            self.assertFalse(episodes[second_doc['uri']]['missing'])
+
+
     def test_phase_10_migration_preserves_existing_library_rows(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / 'library.sqlite3'

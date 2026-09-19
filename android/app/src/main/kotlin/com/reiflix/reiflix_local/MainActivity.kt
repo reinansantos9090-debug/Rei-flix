@@ -138,12 +138,13 @@ class MainActivity : FlutterFragmentActivity() {
         if (hasFocus) configureSystemBars()
     }
     private fun configureSystemBars() {
-        // The Flet host is a normal application screen.  Keeping decor fitted
-        // prevents its header and controls from being drawn below the status
-        // bar on targetSdk 35.  Only NativePlayerActivity is immersive.
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        // ReiFlix uses an immersive application shell. The system bars stay
+        // hidden during normal navigation and can be revealed temporarily by
+        // the Android system gesture, then are hidden again when focus returns.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
-            show(WindowInsetsCompat.Type.systemBars())
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
     private fun signInWithGoogle(serverClientId: String?) {

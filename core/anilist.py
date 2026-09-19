@@ -47,7 +47,7 @@ class AniListClient:
     def cache_cover(self,url):
         name=hashlib.sha256(url.encode()).hexdigest()+os.path.splitext(url.split('?')[0])[1][:5]
         target=os.path.join(self.cache_dir,name)
-        if os.path.exists(target): return target
+        if os.path.isfile(target) and os.path.getsize(target) > 0: return target
         descriptor, temporary = tempfile.mkstemp(prefix=f".{name}.", suffix=".tmp", dir=self.cache_dir)
         try:
             with os.fdopen(descriptor, 'wb') as f, urllib.request.urlopen(url,timeout=15) as r:

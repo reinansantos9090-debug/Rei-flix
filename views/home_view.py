@@ -168,6 +168,11 @@ class HomeView:
             save_view_state()
             render_library()
 
+        def refresh_catalog():
+            # Re-read durable SQLite state after returning from the player or details.
+            # No SAF scan or remote metadata request is triggered here.
+            load_catalog()
+
         def load_catalog():
             status.controls = [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT), ft.Text("Carregando biblioteca local…", color=TEXT_MUTED, size=12)]
             status.visible = True

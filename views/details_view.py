@@ -29,6 +29,16 @@ class DetailView:
         expanded_description = [False]
         current = anime_group.get("current_episode") or {}
         primary_target = get_playback_target(anime_group["id"]) if get_playback_target else (current or next((item for item in available), None))
+        last_completed = max(
+            (item for item in episodes if item.get("watched") and not item.get("missing")),
+            key=lambda item: item.get("last_played_at") or 0,
+            default=None,
+        )
+        is_next_after_completion = bool(
+            primary_target and last_completed
+            and primary_target.get("path") != last_completed.get("path")
+            and not primary_target.get("watched")
+        )
 
         def ratio(episode):
             duration = float(episode.get("duration") or 0)
@@ -171,8 +181,13 @@ class DetailView:
             render_episodes()
 
         season_picker = ft.Dropdown(
-            value="0", options=[ft.dropdown.Option(key=str(index), text=season.get("season_name") or f"Temporada {index + 1}")
-                                for index, season in enumerate(seasons)],
+            value="0", options=[
+                ft.dropdown.Option(
+                    key=str(index),
+                    text=f"{season.get('season_name') or f'Temporada {index + 1}'} • {sum(1 for item in season.get('episodes', []) if not item.get('missing'))}/{len(season.get('episodes', []))} locais",
+                )
+                for index, season in enumerate(seasons)
+            ],
             color="#F7F5FA", text_size=13, bgcolor="#252331",
             border_color="#39364B", border_radius=12, visible=len(seasons) > 1,
         )

@@ -233,7 +233,9 @@ async def main(page: ft.Page):
                     uri = payload.get('uri', '')
                     target = library.next_episode(uri) if event_type == 'player_next_request' else library.previous_episode(uri)
                     if target:
-                        await start_native_player(target['path'], target['file_name'], 0)
+                        episode_label = f"T{target.get('season', '—')} E{target.get('number') if target.get('number') is not None else '—'}"
+                        player_title = f"{target.get('anime_title') or target.get('file_name')} • {episode_label}"
+                        await start_native_player(target['path'], player_title, 0)
                 elif event_type == 'player_error':
                     page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível reproduzir este arquivo.'))); page.snack_bar.open=True; page.update()
                     # Invalid/unreadable URIs can fail before Media3 creates a

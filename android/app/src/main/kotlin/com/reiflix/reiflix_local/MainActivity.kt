@@ -96,8 +96,8 @@ class MainActivity : FlutterFragmentActivity() {
         super.onResume()
         applyImmersiveSystemUi()
         if (broadStoragePermissionPending) {
+            broadStoragePermissionPending = false
             if (BroadStorageScanner.hasAccess(this)) {
-                broadStoragePermissionPending = false
                 scanAllStorage()
             } else {
                 NativeMailbox.write(this, JSONObject().put("type", "broad_storage_status")

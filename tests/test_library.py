@@ -1601,6 +1601,41 @@ class OrganizeTests(unittest.TestCase):
             self.assertEqual(grid.controls[0].content.controls[1].value, 'Action')
             self.assertEqual(sort.value, 'Nome A-Z')
 
+    def test_organize_view_action_triggers(self):
+        page = self.FakePage()
+        page.run_task = lambda task_fn: task_fn() if callable(task_fn) else None
+        requested = [False]
+        scanned = [False]
+        def req():
+            requested[0] = True
+        def scn():
+            scanned[0] = True
+
+        with tempfile.TemporaryDirectory() as d:
+            view = OrganizeView.build(
+                page, LibraryService(LibraryStore(d)), lambda _: None, lambda: None, lambda: None,
+                on_request_storage_access=req, on_scan_storage=scn
+            )
+            def walk(control):
+                yield control
+                for child in getattr(control, 'controls', []) or []:
+                    yield from walk(child)
+                if getattr(control, 'content', None) is not None:
+                    yield from walk(control.content)
+
+            header_row = view.content.controls[0]
+            # Verify header action buttons exist
+            icon_btns = [c for c in walk(header_row) if c.__class__.__name__ == 'IconButton']
+            req_btn = next((b for b in icon_btns if getattr(b, 'tooltip', '') == 'Solicitar acesso ao armazenamento'), None)
+            scn_btn = next((b for b in icon_btns if getattr(b, 'tooltip', '') == 'Varrer armazenamento'), None)
+            self.assertIsNotNone(req_btn)
+            self.assertIsNotNone(scn_btn)
+
+            req_btn.on_click(None)
+            self.assertTrue(requested[0])
+            scn_btn.on_click(None)
+            self.assertTrue(scanned[0])
+
     def test_android_bridge_drains_independent_native_event_files_without_shared_lock(self):
         with tempfile.TemporaryDirectory() as d:
             bridge = AndroidBridge(d)

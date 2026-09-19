@@ -1674,5 +1674,45 @@ class SafLibraryHardeningTests(unittest.TestCase):
             self.assertEqual(rows[first["uri"]]["source_folder"], first_tree)
             self.assertEqual(rows[second["uri"]]["source_folder"], second_tree)
 
+    
+class PersistenceRecoveryTests(unittest.TestCase):
+    def test_scan_runs_recover_as_interrupted_after_store_reopens(self):
+        with tempfile.TemporaryDirectory() as d:
+            first = LibraryStore(d)
+            run_id = first.begin_scan()
+            self.assertEqual(first.last_scan()["status"], "running")
+            reopened = LibraryStore(d)
+            scan = reopened.last_scan()
+            self.assertEqual(scan["id"], run_id)
+            self.assertEqual(scan["status"], "interrupted")
+            self.assertIsNotNone(scan["finished_at"])
+            self.assertEqual(len(reopened.interrupted_scans()), 1)
+
+    def test_completed_scan_is_never_reclassified_as_interrupted(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            run_id = store.begin_scan()
+            store.finish_scan(run_id, {
+                "folders": 1, "files": 2, "videos": 1, "animes": 1,
+                "episodes": 1, "errors": [],
+            })
+            reopened = LibraryStore(d)
+            scan = reopened.last_scan()
+            self.assertEqual(scan["status"], "completed")
+            self.assertEqual(reopened.interrupted_scans(), [])
+
+    def test_schema_migration_adds_scan_status_to_legacy_database(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "library.sqlite3"
+            con = sqlite3.connect(path)
+            con.execute("CREATE TABLE scan_runs (id INTEGER PRIMARY KEY, started_at REAL NOT NULL, finished_at REAL, folders INTEGER DEFAULT 0, files INTEGER DEFAULT 0, videos INTEGER DEFAULT 0, animes INTEGER DEFAULT 0, episodes INTEGER DEFAULT 0, errors TEXT NOT NULL DEFAULT '[]')")
+            con.execute("INSERT INTO scan_runs(started_at) VALUES (123)")
+            con.commit()
+            con.close()
+            store = LibraryStore(d)
+            columns = {row[1] for row in store._conn().execute("PRAGMA table_info(scan_runs)")}
+            self.assertIn("status", columns)
+            self.assertEqual(store.last_scan()["status"], "interrupted")
+
 if __name__ == '__main__':
     unittest.main()

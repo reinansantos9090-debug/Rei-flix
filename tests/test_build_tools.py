@@ -71,6 +71,8 @@ class AndroidHostVerificationTests(unittest.TestCase):
             self.assertIn("NativePlayerActivity", hook)
             self.assertIn("shutil.copytree(source, destination, dirs_exist_ok=True)", hook)
             self.assertIn("media3-exoplayer:1.5.1", hook)
+        self.assertIn("MANAGE_EXTERNAL_STORAGE", hook)
+        self.assertIn("compileSdk = 36", hook)
             self.assertNotIn("__REIFLIX_OVERLAY_APP__", hook)
             self.assertIn(f'Path({str((template / "reiflix_android_overlay" / "app").resolve())!r})', hook)
 

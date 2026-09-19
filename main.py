@@ -26,6 +26,7 @@ async def main(page: ft.Page):
     account_state=["connected" if store.account().get("email") else "disconnected"]
     scan_in_progress=[False]
     pending_native_scans=[0]
+    pending_folder_removals=set()
     # View-local query/filter state survives Details/Player round-trips while
     # the catalog itself is still read afresh from SQLite on each view entry.
     home_state = {}

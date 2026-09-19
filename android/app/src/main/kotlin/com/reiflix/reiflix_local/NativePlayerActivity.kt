@@ -22,7 +22,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import org.json.JSONObject
 
-/** Full-screen Media3 player for one persisted local or SAF document URI. */
+/** Full-screen Media3 player for one persisted local, SAF, or MediaStore URI. */
 class NativePlayerActivity : ComponentActivity() {
     private lateinit var player: ExoPlayer
     private lateinit var uri: Uri
@@ -50,7 +50,7 @@ class NativePlayerActivity : ComponentActivity() {
         val rawUri = intent.getStringExtra("uri")
         if (rawUri.isNullOrBlank()) { reportError("Arquivo local inválido."); finish(); return }
         uri = Uri.parse(rawUri)
-        if (uri.scheme != "content" || !SafScanner.isAuthorizedDocument(this, uri)) {
+        if (!((uri.scheme == "content" && SafScanner.isAuthorizedDocument(this, uri)) || MediaStoreScanner.isAuthorizedDocument(this, uri))) {
             reportError("Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix.")
             finish()
             return

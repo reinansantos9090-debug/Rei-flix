@@ -950,6 +950,25 @@ class DetailsDomainTests(unittest.TestCase):
             store, anime, paths = self._store_with_episodes(d)
             self.assertEqual(store.playback_target(anime)['path'], paths[0])
 
+    def test_catalog_persists_resume_and_next_episode_after_reopen(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('resume', {'title': 'Resume', 'genres': '[]'})
+            first = '/library/resume-01.mkv'
+            second = '/library/resume-02.mkv'
+            store.upsert_episode(anime, first, 'Resume - 01.mkv', 1, 1)
+            store.upsert_episode(anime, second, 'Resume - 02.mkv', 1, 2)
+            store.save_progress(first, 40, 100)
+
+            reopened = LibraryStore(d)
+            catalog = reopened.catalog()[0]
+            self.assertEqual(catalog['current_episode']['path'], first)
+            self.assertEqual(catalog['current_episode']['progress'], 40)
+            self.assertEqual(reopened.playback_target(anime)['path'], first)
+
+            reopened.save_progress(first, 95, 100)
+            self.assertEqual(reopened.playback_target(anime)['path'], second)
+
     def test_playback_target_prefers_partial_then_next_available_after_completion(self):
         with tempfile.TemporaryDirectory() as d:
             store, anime, paths = self._store_with_episodes(d)

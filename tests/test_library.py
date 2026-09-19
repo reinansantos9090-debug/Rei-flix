@@ -209,7 +209,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(store.catalog()[0]['main_title'], 'Naruto')
             self.assertEqual(store.get_preference('missing', 'default'), 'default')
             with store._conn() as con:
-                self.assertEqual(con.execute('undefined').fetchone()[0], 11)
+                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], 11)
 
     def test_clear_anilist_cache_preserves_library_favorite_progress_history_and_association(self):
         with tempfile.TemporaryDirectory() as d:
@@ -281,7 +281,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             LibraryStore(d)
             LibraryStore(d)
             with LibraryStore(d)._conn() as con:
-                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=10').fetchone()[0], 1)
+                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=11').fetchone()[0], 1)
 
     def test_invalid_progress_is_rejected_and_overflow_is_normalized(self):
         with tempfile.TemporaryDirectory() as d:

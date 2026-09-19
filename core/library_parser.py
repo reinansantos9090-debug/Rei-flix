@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 
 
-VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v"}
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".ts", ".m2ts", ".flv", ".wmv"}
 _NOISE = re.compile(r"\b(1080p|720p|480p|bluray|web[- .]?dl|webrip|x26[45]|hevc|aac|dublado|dual audio|legendado)\b", re.I)
 
 

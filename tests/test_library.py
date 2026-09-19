@@ -243,6 +243,20 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertTrue(folder["path"].startswith("content://"))
             self.assertFalse(Path(d, "uploads").exists())
 
+    def test_saf_folder_authorization_and_ownership_survive_database_reopen(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            store.save_account({"id": "google-sub-reopen", "email": "user@example.com"})
+            tree = "content://com.android.providers.media.documents/tree/video%3A42"
+            store.add_folder(tree, name="Animes", kind="saf", authorization="granted",
+                              account_id=store.account()["id"])
+            reopened = LibraryStore(d)
+            folder = reopened.folders()[0]
+            self.assertEqual(folder["path"], tree)
+            self.assertEqual(folder["kind"], "saf")
+            self.assertEqual(folder["authorization"], "granted")
+            self.assertEqual(folder["account_id"], "google-sub-reopen")
+
     def test_saf_folder_keeps_ownership_when_account_is_logged_out(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

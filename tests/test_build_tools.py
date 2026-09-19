@@ -91,6 +91,14 @@ class AndroidHostVerificationTests(unittest.TestCase):
             self.assertIn("@style/ReiFlixTheme", (rendered / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8"))
             self.assertIn("media3-exoplayer:1.5.1", (rendered / "build.gradle").read_text(encoding="utf-8"))
 
+    def test_main_activity_uses_compatible_back_and_activity_result_callbacks(self):
+        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        self.assertNotIn("OnBackPressedCallback", main)
+        self.assertNotIn("onBackPressedDispatcher", main)
+        self.assertNotIn("return@registerForActivityResult", main)
+        self.assertIn("handleTreePickerResult(result)", main)
+        self.assertIn("override fun onBackPressed()", main)
+
     def test_native_host_keeps_system_bars_for_flet_and_fullscreen_for_player_only(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")

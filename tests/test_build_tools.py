@@ -261,12 +261,43 @@ class AndroidHostVerificationTests(unittest.TestCase):
     def test_player_rejects_removed_or_invalid_saf_documents_without_starting_media3(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
-        self.assertIn('localUri.scheme != "content" || !SafScanner.isAuthorizedDocument(this, localUri)', main)
+        self.assertIn('localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri)', main)
+        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("startActivity(Intent(this, NativePlayerActivity::class.java)", main)
-        player_guard = 'if (uri.scheme != "content" || !SafScanner.isAuthorizedDocument(this, uri))'
-        self.assertIn(player_guard, player)
+        self.assertIn('uri.scheme == "content" && SafScanner.isAuthorizedDocument(this, uri)', player)
+        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", player)
         self.assertIn('reportError("Arquivo local inválido.")', player)
         self.assertIn("finish()", player)
+
+    def test_native_player_accepts_saf_or_media_store_and_rejects_paths(self):
+        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
+        bridge = (ROOT / "core" / "android_bridge.py").read_text(encoding="utf-8")
+        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
+        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", player)
+        self.assertIn("MediaItem.Builder().setUri(uri)", player)
+        self.assertIn('return bool(uri) and uri.startswith("content://")', bridge)
+        self.assertNotIn("Uri.fromFile", main + player)
+        self.assertNotIn("/storage/emulated/0", main + player)
+
+    def test_native_player_error_does_not_emit_a_second_exit_event(self):
+        player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
+        error = player.index("override fun onPlayerError")
+        destroy = player.index("override fun onDestroy")
+        block = player[error:destroy]
+        self.assertIn("suppressExitEvent = true", block)
+        self.assertIn('reportError("Não foi possível reproduzir este arquivo neste dispositivo.")', block)
+        self.assertIn("finish()", block)
+
+    def test_native_player_next_previous_suppress_normal_exit(self):
+        player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
+        request = player.index("private fun requestEpisode")
+        seek = player.index("private fun seekToSavedPosition")
+        block = player[request:seek]
+        self.assertIn('saveProgress("player_progress", force = true)', block)
+        self.assertIn("suppressExitEvent = true", block)
+        self.assertIn("player_next_request", player)
+        self.assertIn("player_previous_request", player)
 
     def test_saf_scanner_contains_provider_error_recovery_for_inaccessible_documents(self):
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")

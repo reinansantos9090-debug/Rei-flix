@@ -15,7 +15,7 @@ class SettingsView:
     @staticmethod
     def build(page, store, library, on_back, on_catalog_changed, on_add_folder, on_remove_folder,
               on_refresh_library, on_login, on_logout, account, account_state="disconnected",
-              folder_selection_pending=lambda: False):
+              folder_selection_pending=lambda: False, on_resolve_match=lambda _lookup, _id: None):
         status = ft.Text("", color="#9DA3B4", size=12)
         busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False}
 
@@ -45,6 +45,7 @@ class SettingsView:
 
         folders = store.folders()
         summary = store.library_summary()
+        pending_matches = store.pending_matches()
         folder_lines = []
         for folder in folders:
             name = folder.get("name") or "Pasta configurada"
@@ -180,6 +181,32 @@ class SettingsView:
         state_labels = {"connecting": "Conectando…", "awaiting_google": "Aguardando Google…", "connected": "Conectada", "error": "Erro ao conectar", "disconnecting": "Saindo…", "configuration_required": "Configuração necessária"}
         account_status = state_labels.get(account_state, "Conectada" if connected else "Não conectada")
 
+        pending_content = []
+        if pending_matches:
+            pending_content.append(ft.Text(
+                f"{len(pending_matches)} título(s) precisam de confirmação antes de receber metadados AniList.",
+                color=TEXT_MUTED, size=11,
+            ))
+            for pending in pending_matches:
+                buttons = []
+                for candidate in (pending.get("candidates") or [])[:5]:
+                    title = candidate.get("title") or {}
+                    label = title.get("english") or title.get("romaji") or title.get("native") or f"AniList #{candidate.get('id')}"
+                    score = int(round(float(candidate.get("match_score") or 0) * 100))
+                    buttons.append(ft.OutlinedButton(
+                        f"{label} • {score}%",
+                        on_click=lambda _, lookup=pending["lookup_title"], aid=candidate.get("id"): on_resolve_match(lookup, aid),
+                    ))
+                pending_content.append(ft.Container(
+                    content=ft.Column([
+                        ft.Text(pending["display_title"], color=TEXT, size=12, weight=ft.FontWeight.BOLD),
+                        ft.Row(buttons, wrap=True, spacing=6, run_spacing=6),
+                    ], spacing=5),
+                    padding=10, bgcolor="#252836", border_radius=10,
+                ))
+        else:
+            pending_content.append(ft.Text("Nenhum título aguarda confirmação AniList.", color=TEXT_MUTED, size=11))
+
         last = store.last_scan()
         diagnostic = "Ainda não houve varredura."
         if last:
@@ -209,6 +236,9 @@ class SettingsView:
                 ft.Text("O próximo episódio continua sendo uma ação explícita no player local.", color="#AAA7B6", size=11),
             ], spacing=4)),
             section("APARÊNCIA", ft.Icons.DARK_MODE_OUTLINED, ft.Text("Tema escuro Rei-flix ativo.", color="#C7C5D0", size=12)),
+            section("ANILIST", ft.Icons.MANAGE_SEARCH_OUTLINED, ft.Column(pending_content + [
+                ft.Text("Associações confirmadas ficam salvas localmente e serão reutilizadas nas próximas varreduras.", color=TEXT_MUTED, size=11),
+            ], spacing=8)),
             section("DADOS", ft.Icons.STORAGE_OUTLINED, ft.Column([
                 ft.Text(f"{summary['folders']} pasta(s) • {summary['history']} item(ns) no histórico", color="#C7C5D0", size=12),
                 cache_button,

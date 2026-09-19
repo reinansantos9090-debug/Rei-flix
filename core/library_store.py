@@ -371,10 +371,10 @@ class LibraryStore:
             groups.setdefault(row["anime_id"], []).append(dict(row))
         items = []
         for anime_id, episodes in groups.items():
-            latest_played = max((episode.get("last_played_at") or 0 for episode in episodes), default=0)
+            available = [episode for episode in episodes if not episode["missing"]]
+            latest_played = max((episode.get("last_played_at") or 0 for episode in available), default=0)
             if not latest_played:
                 continue
-            available = [episode for episode in episodes if not episode["missing"]]
             active = [episode for episode in available if episode["progress"] > 0 and not episode["watched"]]
             if active:
                 episode = max(active, key=lambda entry: entry.get("last_played_at") or 0)

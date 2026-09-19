@@ -87,7 +87,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, true)", main)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", main)
-        self.assertIn("hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())", player)
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", player)
 
     def test_player_exit_is_not_suppressed_after_normal_completion(self):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")

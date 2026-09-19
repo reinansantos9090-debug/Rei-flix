@@ -28,7 +28,11 @@ class AndroidBridge:
         # real APK report the native bridge as unavailable.
         platform = getattr(self.page, "platform", None) if self.page else None
         value = getattr(platform, "value", platform)
-        return str(value).lower() == "android"
+        return (
+            str(value).lower() == "android"
+            or os.getenv("FLET_PLATFORM") == "android"
+            or os.getenv("ANDROID_ARGUMENT") is not None
+        )
 
     def _launch(self, action: str, **params):
         if not self.available:

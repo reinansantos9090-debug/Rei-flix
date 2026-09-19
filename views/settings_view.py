@@ -68,10 +68,11 @@ class SettingsView:
                 await on_add_folder()
                 notice("Abrindo seletor Android para autorizar a pasta…")
             except Exception:
-                busy["folder"] = False
-                add_folder_button.disabled = False
                 notice("Não foi possível abrir o seletor de pasta.", error=True)
-            page.update()
+            finally:
+                busy["folder"] = False
+                add_folder_button.disabled = bool(folder_selection_pending())
+                page.update()
         add_folder_button.on_click = add_folder
 
         scan_button = ft.FilledButton("Atualizar biblioteca", icon=ft.Icons.REFRESH)

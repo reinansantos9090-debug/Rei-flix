@@ -26,6 +26,16 @@ class TestMediaIdentity(unittest.TestCase):
         self.assertEqual(identity_file, identity_media)
         self.assertEqual(identity_file, identity_saf)
 
+    def test_cloud_saf_relative_path_is_not_assumed_to_be_primary_storage(self):
+        identity = identity_from_document(
+            "content://com.google.android.apps.docs.storage/document/root%3Afoo",
+            "Movies/Anime/E01.mkv",
+            None,
+            "content://com.google.android.apps.docs.storage/tree/root%3Afoo",
+        )
+        self.assertTrue(identity.startswith("uri:"))
+        self.assertNotEqual(identity, "shared:primary:movies/anime/e01.mkv")
+
     def test_insert_from_second_source_reuses_existing_episode_and_preserves_progress(self):
         with tempfile.TemporaryDirectory() as data_dir:
             store = LibraryStore(data_dir)

@@ -77,11 +77,11 @@ class LibraryStore:
             if "status" not in scan_columns:
                 c.execute("ALTER TABLE scan_runs ADD COLUMN status TEXT NOT NULL DEFAULT 'running'")
             c.execute("CREATE INDEX IF NOT EXISTS idx_scan_runs_status ON scan_runs(status, started_at)")
-            # A process can disappear between begin_scan() and finish_scan().
-            # On the next startup those runs are no longer active; keep their
-            # diagnostics instead of pretending that the previous scan completed.
-            c.execute("UPDATE scan_runs SET status='interrupted' WHERE status='running' AND finished_at IS NULL")
             c.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?,?)", (self.SCHEMA_VERSION, time.time()))
+        # A process can disappear between begin_scan() and finish_scan().
+        # Recovering here keeps startup deterministic while leaving the
+        # recovery operation testable and reusable by callers.
+        self.recover_interrupted_scans()
 
     def get_preference(self, key, default=None):
         with self._conn() as c:

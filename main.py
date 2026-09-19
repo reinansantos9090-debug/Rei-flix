@@ -295,6 +295,7 @@ async def main(page: ft.Page):
                                 page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar a atualização da biblioteca.')); page.snack_bar.open=True; page.update()
                             finally:
                                 finish_native_scan()
+                                on_catalog_changed()
                                 refresh_settings_if_active()
                         elif event_type == 'broad_storage_scan_progress':
                             files = int(payload.get('files') or 0)
@@ -317,7 +318,9 @@ async def main(page: ft.Page):
                             except Exception:
                                 page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; page.update()
                             finally:
-                                finish_native_scan(); refresh_settings_if_active()
+                                finish_native_scan()
+                                on_catalog_changed()
+                                refresh_settings_if_active()
                         elif event_type == 'broad_storage_status':
                             granted = bool(payload.get('hasAccess'))
                             roots = payload.get('roots') or []
@@ -375,6 +378,7 @@ async def main(page: ft.Page):
                                 page.update()
                             finally:
                                 finish_native_scan()
+                                on_catalog_changed()
                                 refresh_settings_if_active()
                         elif event_type == 'mediastore_permission':
                             source = payload.get('source') or 'mediastore:external:video'

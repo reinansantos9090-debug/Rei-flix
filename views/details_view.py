@@ -162,10 +162,12 @@ class DetailView:
             ], spacing=4, expand=True)
             if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing"):
                 details.controls.append(ft.ProgressBar(value=episode_ratio, color="#E50914", bgcolor="#454252", bar_height=4))
+            is_missing = bool(episode.get("missing"))
+            clickable = None if is_missing else lambda _, item=episode: play(item)
             return ft.Container(
                 content=details, padding=12, border_radius=RADIUS, bgcolor=SURFACE,
-                opacity=.58 if episode.get("missing") else 1, ink=not episode.get("missing"),
-                on_click=None if episode.get("missing") else lambda _, item=episode: play(item),
+                opacity=.58 if is_missing else 1.0, ink=not is_missing,
+                on_click=clickable,
             )
 
         def render_episodes():

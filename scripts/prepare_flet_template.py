@@ -118,7 +118,8 @@ dependencies = [
 gradle = next((app / candidate for candidate in ("build.gradle.kts", "build.gradle") if (app / candidate).is_file()), None)
 if gradle is None:
     raise RuntimeError("Rendered Flet app module has no Gradle build file")
-existing = gradle.read_text(encoding="utf-8")
+original = gradle.read_text(encoding="utf-8")
+existing = original
 # Flet resolves targetSdk from pyproject.toml. Keep compileSdk explicit because
 # Android 16 APIs require SDK 36 even when Flutter's bundled default lags behind.
 existing = existing.replace("compileSdk = flutter.compileSdkVersion", "compileSdk = 36")
@@ -128,7 +129,9 @@ if "androidx.media3:media3-exoplayer:1.5.1" not in existing:
         block = "\n// ReiFlix native host dependencies\ndependencies {\n" + "".join(f'    implementation("{item}")\n' for item in dependencies) + "}\n"
     else:
         block = "\n// ReiFlix native host dependencies\ndependencies {\n" + "".join(f"    implementation '{item}'\n" for item in dependencies) + "}\n"
-    gradle.write_text(existing + block, encoding="utf-8")
+    existing += block
+if existing != original:
+    gradle.write_text(existing, encoding="utf-8")
 '''
 
 

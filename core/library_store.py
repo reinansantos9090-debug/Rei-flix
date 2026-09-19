@@ -239,14 +239,7 @@ class LibraryStore:
                 animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"]} for e in sorted(values, key=lambda episode: (episode["number"] if episode["number"] is not None else -1, episode["file_name"].casefold()))]} for s, values in ordered_seasons]})
             for anime in animes:
                 rows = episodes_by_anime[anime["id"]]
-                available = [episode for episode in rows if not episode["missing"]]
-                active = [episode for episode in available if episode["progress"] > 0 and not episode["watched"]]
-                if active:
-                    anime["current_episode"] = max(active, key=lambda episode: episode["last_played_at"] or 0)
-                    continue
-                completed = [episode for episode in available if episode["watched"]]
-                last_completed = max(completed, key=lambda episode: episode["last_played_at"] or 0) if completed else None
-                anime["current_episode"] = self._adjacent_from_rows(last_completed, available, 1) if last_completed else None
+                anime["current_episode"] = self._current_from_rows(rows)
             return animes
 
     def save_progress(self, path, position, duration):
@@ -327,15 +320,47 @@ class LibraryStore:
     def previous_episode(self, path):
         return self.adjacent_episode(path, -1)
 
+    @staticmethod
+    def _current_from_rows(episodes):
+        """Choose a playable current episode using one shared availability policy."""
+        available = [episode for episode in episodes if not episode.get("missing", False)]
+        if not available:
+            return None
+
+        partial = next(
+            (
+                episode for episode in sorted(
+                    available,
+                    key=lambda entry: entry.get("last_played_at") or 0,
+                    reverse=True,
+                )
+                if episode.get("progress", 0) > 0 and not episode.get("watched", False)
+            ),
+            None,
+        )
+        if partial:
+            return partial
+
+        completed = [episode for episode in available if episode.get("watched", False)]
+        if completed:
+            latest_completed = max(completed, key=lambda entry: entry.get("last_played_at") or 0)
+            next_episode = LibraryStore._adjacent_from_rows(latest_completed, available, 1)
+            if next_episode:
+                return next_episode
+
+        for episode in available:
+            if not episode.get("watched", False):
+                return episode
+
+        return available[0]
+
     def current_episode(self, anime_id):
         with self._conn() as c:
-            active = c.execute("""SELECT * FROM episodes WHERE anime_id=? AND missing=0 AND progress>0 AND watched=0
-                ORDER BY last_played_at DESC LIMIT 1""", (anime_id,)).fetchone()
-            if active:
-                return dict(active)
-            completed = c.execute("""SELECT * FROM episodes WHERE anime_id=? AND missing=0 AND watched=1
-                ORDER BY last_played_at DESC LIMIT 1""", (anime_id,)).fetchone()
-        return self.next_episode(completed["path"]) if completed else None
+            rows = c.execute(
+                "SELECT * FROM episodes WHERE anime_id=?",
+                (anime_id,),
+            ).fetchall()
+        return self._current_from_rows([dict(row) for row in rows])
 
     def playback_target(self, anime_id):
         """Return the single local episode the Details primary action should play.

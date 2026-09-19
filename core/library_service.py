@@ -4,6 +4,7 @@ import os
 import time
 import json
 import logging
+from pathlib import Path
 from dataclasses import dataclass, field
 from core.anilist import AniListClient
 from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
@@ -41,14 +42,18 @@ class LibraryService:
         if not updated_at:
             return False
         age = time.time() - updated_at
-        cover_cache = cached.get("cover_cache") or ""
-        cover_url = cached.get("cover_url") or ""
-        if cover_url and (not os.path.isfile(cover_cache) or os.path.getsize(cover_cache) <= 0):
-            # A first cover download can fail while the metadata itself succeeds.
-            # Retry that missing artifact after a short interval instead of
-            # suppressing recovery for the full metadata TTL.
-            return age < self.COVER_RETRY_SECONDS
-        return age < self.METADATA_CACHE_SECONDS
+        if age >= self.METADATA_CACHE_SECONDS:
+            return False
+
+        cover_url = str(cached.get("cover_url") or "").strip()
+        cover_cache = str(cached.get("cover_cache") or "").strip()
+        if cover_url and cover_cache:
+            cover_path = Path(cover_cache)
+            cover_available = cover_path.is_file() and cover_path.stat().st_size > 0
+            if not cover_available and age >= self.COVER_RETRY_SECONDS:
+                return False
+
+        return True
 
     def _identify(self, lookup_title, display_title, on_status):
         """Resolve local title to cached/remote AniList metadata without guessing.

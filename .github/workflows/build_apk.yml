@@ -131,6 +131,15 @@ jobs:
           echo "path=$apk" >> "$GITHUB_OUTPUT"
           file "$apk"
 
+      - name: Verify final APK permissions and target SDK
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          aapt2="$ANDROID_HOME/build-tools/36.0.0/aapt2"
+          "$aapt2" dump badging "$apk" | grep -q "targetSdkVersion:'36'"
+          "$aapt2" dump permissions "$apk" | grep -q "android.permission.MANAGE_EXTERNAL_STORAGE"
+          "$aapt2" dump permissions "$apk" | grep -q "android.permission.READ_MEDIA_VIDEO"
+
       - name: Verify Android host packaging
         shell: bash
         run: |

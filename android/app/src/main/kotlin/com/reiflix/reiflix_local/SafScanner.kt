@@ -21,20 +21,36 @@ object SafScanner {
         Log.i(TAG, "SAF permission persisted")
     }
 
-    fun hasPersistedReadPermission(context: Context, treeUri: Uri): Boolean =
-        context.contentResolver.persistedUriPermissions.any { permission ->
-            permission.uri == treeUri && permission.isReadPermission
+    fun hasPersistedReadPermission(context: Context, treeUri: Uri): Boolean {
+        if (treeUri.scheme != "content" || !DocumentsContract.isTreeUri(treeUri)) return false
+        val treeDocumentId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()
+            ?: return false
+        return context.contentResolver.persistedUriPermissions.any { permission ->
+            if (!permission.isReadPermission) return@any false
+            val permissionUri = permission.uri
+            if (permissionUri.scheme != "content" || permissionUri.authority != treeUri.authority) return@any false
+            runCatching {
+                DocumentsContract.isTreeUri(permissionUri) &&
+                    DocumentsContract.getTreeDocumentId(permissionUri) == treeDocumentId
+            }.getOrDefault(false)
         }
+    }
 
     fun isAuthorizedDocument(context: Context, documentUri: Uri): Boolean {
         if (documentUri.scheme != "content") return false
         val documentId = runCatching { DocumentsContract.getDocumentId(documentUri) }.getOrNull() ?: return false
         return context.contentResolver.persistedUriPermissions.any { permission ->
             if (!permission.isReadPermission || permission.uri.authority != documentUri.authority) return@any false
+            val treeDocumentId = runCatching { DocumentsContract.getTreeDocumentId(permission.uri) }.getOrNull()
+                ?: return@any false
             val scopedUri = runCatching {
                 DocumentsContract.buildDocumentUriUsingTree(permission.uri, documentId)
             }.getOrNull() ?: return@any false
             runCatching {
+                // Keep the persisted tree identity explicit before rebuilding
+                // the document URI; the provider query remains the final
+                // authority/access check for cloud and local providers.
+                if (treeDocumentId.isBlank()) return@runCatching false
                 context.contentResolver.query(
                     scopedUri,
                     arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),

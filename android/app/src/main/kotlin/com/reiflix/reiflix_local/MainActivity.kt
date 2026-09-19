@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -21,7 +22,7 @@ import org.json.JSONObject
  */
 class MainActivity : FlutterActivity() {
     private val tag = "[REIFLIX][ANDROID]"
-    private val treePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+    private val treePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
         handleTreePickerResult(result)
     }
 

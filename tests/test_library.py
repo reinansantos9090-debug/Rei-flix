@@ -1040,10 +1040,10 @@ class DetailsDomainTests(unittest.TestCase):
         page = self.FakePage()
         played = []
         DetailView.build(page, anime, lambda *args, **kwargs: played.append(args), lambda: None, lambda _: True, lambda _: None)
-        containers = []
+        missing_cards = []
         def walk(control):
-            if getattr(control, 'on_click', None) is not None and hasattr(control, 'content'):
-                containers.append(control)
+            if getattr(control, 'opacity', None) == .58 and hasattr(control, 'content'):
+                missing_cards.append(control)
             for child in getattr(control, 'controls', []) or []:
                 walk(child)
             child = getattr(control, 'content', None)
@@ -1051,7 +1051,8 @@ class DetailsDomainTests(unittest.TestCase):
                 walk(child)
         for control in page.controls:
             walk(control)
-        self.assertTrue(containers)
+        self.assertEqual(len(missing_cards), 1)
+        self.assertIsNone(missing_cards[0].on_click)
         self.assertEqual(played, [])
 
     def test_favorite_persists_after_store_reopen_and_catalog_filter(self):

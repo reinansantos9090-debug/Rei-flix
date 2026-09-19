@@ -11,7 +11,6 @@ belong to the Android project that produces the APK.
 from __future__ import annotations
 
 import argparse
-import re
 import shutil
 from pathlib import Path
 

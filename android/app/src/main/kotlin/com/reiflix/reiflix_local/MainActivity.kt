@@ -124,6 +124,39 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
     }
+    private fun scanAllStorage() {
+        if (!BroadStorageScanner.hasAccess()) {
+            broadStoragePermissionPending = true
+            NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
+                .put("payload", JSONObject().put("granted", false).put("source", BroadStorageScanner.SOURCE)))
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                        .setData(Uri.parse("package:$packageName")))
+                } catch (exception: Exception) {
+                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                }
+            }
+            return
+        }
+        NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
+            .put("payload", JSONObject().put("granted", true).put("source", BroadStorageScanner.SOURCE)))
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val result = BroadStorageScanner.scan(this@MainActivity) { progress ->
+                    NativeMailbox.write(this@MainActivity, JSONObject().put("type", "broad_storage_scan_progress")
+                        .put("payload", progress))
+                }
+                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "broad_storage_scan")
+                    .put("payload", result))
+            } catch (exception: Exception) {
+                Log.e(tag, "Broad storage scan failed", exception)
+                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "broad_storage_error")
+                    .put("message", "Não foi possível varrer o armazenamento local.")
+                    .put("payload", JSONObject().put("source", BroadStorageScanner.SOURCE)))
+            }
+        }
+    }
     private fun scanMediaStore() {
         if (!MediaStoreScanner.hasReadPermission(this)) {
             val permissions = MediaStoreScanner.requiredPermissions()

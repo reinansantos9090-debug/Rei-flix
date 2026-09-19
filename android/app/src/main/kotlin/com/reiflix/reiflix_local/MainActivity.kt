@@ -3,6 +3,7 @@ package com.reiflix.reiflix_local
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResult
@@ -21,6 +22,7 @@ import org.json.JSONObject
 class MainActivity : FlutterFragmentActivity() {
     private val tag = "[REIFLIX][ANDROID]"
     private lateinit var systemUiController: SystemUiController
+    private var broadStoragePermissionPending = false
     private val backCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
             NativeMailbox.write(this@MainActivity, JSONObject().put("type", "android_back"))
@@ -78,7 +80,7 @@ class MainActivity : FlutterFragmentActivity() {
         handleNativeIntent(intent)
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handleNativeIntent(intent) }
-    override fun onResume() { super.onResume(); applyImmersiveSystemUi() }
+    override fun onResume() { super.onResume(); applyImmersiveSystemUi(); if (broadStoragePermissionPending && BroadStorageScanner.hasAccess()) { broadStoragePermissionPending = false; scanAllStorage() } }
 
 
     private fun handleNativeIntent(intent: Intent?) {
@@ -88,6 +90,7 @@ class MainActivity : FlutterFragmentActivity() {
             "verify_tree" -> verifyTree(intent.data?.getQueryParameter("tree_uri"))
             "release_tree" -> releaseTree(intent.data?.getQueryParameter("tree_uri"))
             "scan_media_store" -> scanMediaStore()
+            "scan_all_storage" -> scanAllStorage()
             "google_sign_in" -> signInWithGoogle(intent.data?.getQueryParameter("server_client_id"))
             "play" -> openPlayer(intent.data)
         }
@@ -179,7 +182,7 @@ class MainActivity : FlutterFragmentActivity() {
     private fun openPlayer(data: Uri?) {
         val episodeUri = data?.getQueryParameter("uri") ?: return
         val localUri = Uri.parse(episodeUri)
-        if (!((localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri)) || MediaStoreScanner.isAuthorizedDocument(this, localUri))) {
+        if (!((localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri)) || MediaStoreScanner.isAuthorizedDocument(this, localUri) || BroadStorageScanner.isAuthorizedFile(this, localUri))) {
             Log.w(tag, "Rejected unauthorized local media URI")
             NativeMailbox.write(this, JSONObject().put("type", "player_error")
                 .put("message", "Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."))

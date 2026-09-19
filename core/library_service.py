@@ -164,6 +164,8 @@ class LibraryService:
         for document in documents:
             uri, name = document.get("uri"), document.get("name")
             relative_path = document.get("relativePath") or document.get("path") or name
+            if uri.startswith("file://") and not document.get("relativePath") and not document.get("path"):
+                relative_path = unquote(urlparse(uri).path)
             if not uri or not name:
                 continue
             # Native media documents are the local-media contract. Rejecting

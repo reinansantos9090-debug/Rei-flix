@@ -95,7 +95,6 @@ class AndroidBridge:
                 self._claimed = True
                 return [event for event in events if isinstance(event, dict)]
         except (OSError, json.JSONDecodeError) as exc:
-        except (OSError, json.JSONDecodeError) as exc:
             logger.warning("[ANDROID] Failed to read native bridge events: %s", exc)
             try:
                 consumed.unlink(missing_ok=True)

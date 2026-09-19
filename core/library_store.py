@@ -379,7 +379,7 @@ class LibraryStore:
             if active:
                 episode = max(active, key=lambda entry: entry.get("last_played_at") or 0)
             else:
-                completed = [episode for episode in episodes if episode["watched"]]
+                completed = [episode for episode in available if episode["watched"]]
                 episode = self._adjacent_from_rows(max(completed, key=lambda entry: entry.get("last_played_at") or 0), available, 1) if completed else None
             if not episode:
                 continue

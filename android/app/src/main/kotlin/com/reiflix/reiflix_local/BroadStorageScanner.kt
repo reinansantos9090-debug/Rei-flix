@@ -1,6 +1,8 @@
 package com.reiflix.reiflix_local
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -15,13 +17,17 @@ object BroadStorageScanner {
     const val SOURCE = "broad-storage"
     const val DISPLAY_NAME = "Armazenamento local"
     private val videoExtensions = setOf("mp4","mkv","webm","avi","mov","m4v","ts","m2ts","flv","wmv")
-    fun hasAccess(): Boolean = Build.VERSION.SDK_INT < 30 || Environment.isExternalStorageManager()
+    fun hasAccess(context: Context): Boolean = when {
+        Build.VERSION.SDK_INT >= 30 -> Environment.isExternalStorageManager()
+        Build.VERSION.SDK_INT >= 23 -> context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        else -> true
+    }
 
     /** Compact runtime diagnostics used to explain why local storage is or is not visible. */
     fun accessSnapshot(context: Context): JSONObject {
         val result = JSONObject()
             .put("api", Build.VERSION.SDK_INT)
-            .put("hasAccess", hasAccess())
+            .put("hasAccess", hasAccess(context))
         val rootsJson = JSONArray()
         roots(context).forEach { root ->
             val check = JSONObject().put("path", root.path)
@@ -65,7 +71,7 @@ object BroadStorageScanner {
     }
 
     fun isAuthorizedFile(context: Context, uri: Uri): Boolean {
-        if (uri.scheme != "file" || !hasAccess()) return false
+        if (uri.scheme != "file" || !hasAccess(context)) return false
         val file = runCatching { File(uri.path ?: "").canonicalFile }.getOrNull() ?: return false
         return roots(context).any { isInside(file, it) } && !isRestricted(file)
     }
@@ -81,7 +87,7 @@ object BroadStorageScanner {
     }
 
     fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null): JSONObject {
-        check(hasAccess())
+        check(hasAccess(context))
         val docs = JSONArray()
         val errors = JSONArray()
         val snapshot = accessSnapshot(context)

@@ -40,6 +40,17 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
         }
     }
+    private val legacyBroadPermissionRequester = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        val granted = grants.any { it.value } && BroadStorageScanner.hasAccess(this)
+        NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission").put("payload", JSONObject()
+            .put("granted", granted)
+            .put("source", BroadStorageScanner.SOURCE)))
+        if (granted) {
+            scanAllStorage()
+        } else {
+            publishStorageStatus()
+        }
+    }
     private val treePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
         handleTreePickerResult(result)
     }
@@ -163,14 +174,14 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun openBroadStorageSettings() {
-        if (BroadStorageScanner.hasAccess()) {
+        if (BroadStorageScanner.hasAccess(this)) {
             publishStorageStatus()
             return
         }
-        broadStoragePermissionPending = true
         NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
             .put("payload", JSONObject().put("granted", false).put("source", BroadStorageScanner.SOURCE)))
         if (android.os.Build.VERSION.SDK_INT >= 30) {
+            broadStoragePermissionPending = true
             try {
                 startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
                     .setData(Uri.parse("package:$packageName")))
@@ -179,12 +190,12 @@ class MainActivity : FlutterFragmentActivity() {
             }
         } else {
             broadStoragePermissionPending = false
-            scanAllStorage()
+            legacyBroadPermissionRequester.launch(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE))
         }
     }
 
     private fun scanAllStorage() {
-        if (!BroadStorageScanner.hasAccess()) {
+        if (!BroadStorageScanner.hasAccess(this)) {
             publishStorageStatus()
             NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
                 .put("payload", JSONObject().put("granted", false).put("source", BroadStorageScanner.SOURCE)))

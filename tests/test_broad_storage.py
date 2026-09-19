@@ -49,5 +49,13 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         self.assertIn("await bridge.scan_all_storage()", source)
         self.assertIn("event_type == 'broad_storage_scan'", source)
 
+    def test_legacy_android_broad_storage_requests_runtime_read_permission(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("legacyBroadPermissionRequester", source)
+        self.assertIn("arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)", source)
+        self.assertIn("fun hasAccess(context: Context): Boolean", scanner)
+        self.assertIn("context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)", scanner)
+
 if __name__ == "__main__":
     unittest.main()

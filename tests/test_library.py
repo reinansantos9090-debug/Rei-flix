@@ -1273,6 +1273,70 @@ class DetailsViewTests(unittest.TestCase):
         self.assertIsNone(view.content.controls[-1].controls[0].on_click)
 
 
+    def test_details_season_picker_switches_to_selected_season(self):
+        first = {'path': 'content://document/s1-01', 'title': 'Anime - S1E01', 'season': 1,
+                 'number': 1, 'progress': 0, 'duration': 100, 'watched': False, 'missing': False}
+        second = {'path': 'content://document/s2-01', 'title': 'Anime - S2E01', 'season': 2,
+                  'number': 1, 'progress': 0, 'duration': 100, 'watched': False, 'missing': False}
+        anime = {'id': 7, 'main_title': 'Anime', 'meta': {}, 'seasons': [
+            {'season_name': 'Temporada 1', 'season': 1, 'episodes': [first]},
+            {'season_name': 'Temporada 2', 'season': 2, 'episodes': [second]},
+        ]}
+        _, view, _ = self._build(anime, first)
+
+        def walk(control):
+            yield control
+            for child in getattr(control, 'controls', []) or []:
+                yield from walk(child)
+            content = getattr(control, 'content', None)
+            if content is not None:
+                yield from walk(content)
+
+        picker = next(item for item in walk(view) if item.__class__.__name__ == 'Dropdown')
+        self.assertEqual([item.content.controls[1].value for item in view.content.controls[-1].controls
+                          if item.__class__.__name__ == 'Container'], ['Anime - S1E01'])
+        picker.value = '1'
+        picker.on_select(type('Event', (), {'control': picker})())
+        episode_column = view.content.controls[-1]
+        self.assertEqual(episode_column.controls[0].content.controls[1].value, 'Anime - S2E01')
+
+    def test_details_episode_cards_expose_watched_progress_and_available_states(self):
+        watched = {'path': 'content://document/watched', 'title': 'Watched', 'season': 1,
+                   'number': 1, 'progress': 100, 'duration': 100, 'watched': True, 'missing': False}
+        active = {'path': 'content://document/active', 'title': 'Active', 'season': 1,
+                  'number': 2, 'progress': 25, 'duration': 100, 'watched': False, 'missing': False}
+        available = {'path': 'content://document/available', 'title': 'Available', 'season': 1,
+                     'number': 3, 'progress': 0, 'duration': 0, 'watched': False, 'missing': False}
+        anime = {'id': 8, 'main_title': 'Anime', 'meta': {}, 'seasons': [
+            {'season_name': 'Temporada 1', 'season': 1, 'episodes': [watched, active, available]}
+        ]}
+        _, view, _ = self._build(anime, active)
+        cards = view.content.controls[-1].controls
+        self.assertEqual(len(cards), 3)
+        self.assertIn('Assistido', cards[0].content.controls[2].value)
+        self.assertIn('Em andamento', cards[1].content.controls[2].value)
+        self.assertIn('Disponível localmente', cards[2].content.controls[2].value)
+        self.assertEqual(cards[1].content.controls[-1].value, 0.25)
+        self.assertIsNotNone(cards[0].on_click)
+        self.assertIsNotNone(cards[1].on_click)
+        self.assertIsNotNone(cards[2].on_click)
+
+    def test_current_episode_and_navigation_cross_seasons_after_completion(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('cross-season', {'title': 'Cross Season', 'genres': '[]'})
+            first = '/library/s1-01.mkv'
+            second = '/library/s2-01.mkv'
+            store.upsert_episode(anime, first, 'S1 01', 1, 1)
+            store.upsert_episode(anime, second, 'S2 01', 2, 1)
+            store.save_progress(first, 95, 100)
+            current = store.current_episode(anime)
+            self.assertEqual(current['path'], second)
+            self.assertEqual(store.next_episode(first)['path'], second)
+            self.assertEqual(store.previous_episode(second)['path'], first)
+
+
+
 class OrganizeTests(unittest.TestCase):
     class FakePage:
         def update(self): pass

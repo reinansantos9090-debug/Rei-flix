@@ -217,6 +217,43 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("SafScanner.isAuthorizedDocument(this, uri)", player)
         self.assertIn("Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix.", player)
 
+    def test_android_bridge_accepts_only_content_media_references(self):
+        from core.android_bridge import AndroidBridge
+
+        self.assertTrue(AndroidBridge.is_local_media_reference(
+            "content://com.android.providers.media.documents/document/video%3A1"
+        ))
+        for value in ("", "/sdcard/video.mkv", "file:///sdcard/video.mkv", "http://example/video.mkv"):
+            self.assertFalse(AndroidBridge.is_local_media_reference(value))
+
+    def test_saf_regrant_path_persists_before_scanning_and_reports_revocation(self):
+        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("SafScanner.persistPermission(this, uri, resultIntent.flags)", main)
+        self.assertIn("scanTree(uri.toString())", main)
+        self.assertIn("takePersistableUriPermission(uri, granted)", scanner)
+        self.assertIn("check(hasPersistedReadPermission(context, uri))", scanner)
+        self.assertIn("if (!SafScanner.hasPersistedReadPermission(this, treeUri))", main)
+        self.assertIn('"A permissão desta pasta foi removida."', main)
+
+    def test_player_rejects_removed_or_invalid_saf_documents_without_starting_media3(self):
+        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
+        self.assertIn('localUri.scheme != "content" || !SafScanner.isAuthorizedDocument(this, localUri)', main)
+        self.assertIn("startActivity(Intent(this, NativePlayerActivity::class.java)", main)
+        player_guard = 'if (uri.scheme != "content" || !SafScanner.isAuthorizedDocument(this, uri))'
+        self.assertIn(player_guard, player)
+        self.assertIn('reportError("Arquivo local inválido.")', player)
+        self.assertIn("finish()", player)
+
+    def test_saf_scanner_contains_provider_error_recovery_for_inaccessible_documents(self):
+        scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("runCatching", scanner)
+        self.assertIn("catch (exception: Exception)", scanner)
+        self.assertIn('errors.put("Não foi possível ler:', scanner)
+        self.assertIn('errors.put("Não foi possível acessar:', scanner)
+        self.assertIn('put("partial", partial)', scanner)
+
     def test_google_identity_emits_only_token_free_validated_profile_fields(self):
         source = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "GoogleIdentity.kt").read_text(encoding="utf-8")
         self.assertIn('"google_sign_in_started"', source)

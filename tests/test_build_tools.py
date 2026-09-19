@@ -69,7 +69,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
             hook_path = template / "hooks" / "post_gen_project.py"
             hook = hook_path.read_text(encoding="utf-8")
             self.assertIn("NativePlayerActivity", hook)
-            self.assertIn("SystemUiController.kt", hook)
+            self.assertIn("shutil.copytree(source, destination, dirs_exist_ok=True)", hook)
             self.assertIn("media3-exoplayer:1.5.1", hook)
             self.assertNotIn("__REIFLIX_OVERLAY_APP__", hook)
             self.assertIn(f'Path({str((template / "reiflix_android_overlay" / "app").resolve())!r})', hook)
@@ -131,10 +131,8 @@ class AndroidHostVerificationTests(unittest.TestCase):
     def test_native_host_uses_immersive_system_bars_for_flet_and_player(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
-        self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", main)
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", main)
-        self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", main)
-        self.assertNotIn("show(WindowInsetsCompat.Type.systemBars())", main)
+        self.assertIn("systemUiController = SystemUiController(window)", main)
+        self.assertIn("applyImmersiveSystemUi()", main)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", player)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", player)
 
@@ -156,7 +154,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
 
     def test_refresh_recovers_when_a_saf_scan_cannot_start(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        start = source.index("            if saf_folders and bridge.available:")
+        start = source.index("            saf_folders = [folder for folder in store.folders()")
         end = source.index("            result = await asyncio.to_thread(library.scan)", start)
         block = source[start:end]
         self.assertIn("pending_native_scans[0] = 0", block)
@@ -311,8 +309,9 @@ class AndroidHostVerificationTests(unittest.TestCase):
     def test_google_identity_emits_only_token_free_validated_profile_fields(self):
         source = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "GoogleIdentity.kt").read_text(encoding="utf-8")
         self.assertIn('"google_sign_in_started"', source)
-        self.assertIn('validatedSubject(credential.idToken, serverClientId)', source)
-        self.assertIn('.put("id", subject)', source)
+        self.assertIn("validatedClaims(credential.idToken, serverClientId, nonce)", source)
+        self.assertIn('.put("id", credential.uniqueId)', source)
+        self.assertIn("claims.subject != credential.uniqueId", source)
         self.assertNotIn('.put("idToken"', source)
 
 

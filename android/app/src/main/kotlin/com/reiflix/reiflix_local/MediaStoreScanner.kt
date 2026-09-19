@@ -61,7 +61,7 @@ object MediaStoreScanner {
         check(hasReadPermission(context)) { "Permissão de vídeos não concedida." }
 
         val resolver = context.contentResolver
-        val collection = if (Build.VERSION.SDK_INT >= 29) {
+        val collection = if (Build.VERSION.SDK_INT >= 30) {
             MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         } else {
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI

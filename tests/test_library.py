@@ -1030,6 +1030,29 @@ class DetailsDomainTests(unittest.TestCase):
             items = store.continue_watching(limit=8)
             self.assertEqual([item['anime_title'] for item in items], ['Continue B', 'Continue A'])
 
+    def test_details_marks_missing_episode_unplayable(self):
+        from views.details_view import DetailView
+        anime = {'id': 'details-missing', 'main_title': 'Details Missing', 'meta': {'title': 'Details Missing'},
+                 'favorite': False, 'genres': [], 'seasons': [{'season_name': 'Temporada 1', 'season': 1,
+                 'episodes': [{'title': 'Episódio 1', 'path': 'content://episode/1', 'season': 1, 'number': 1,
+                               'progress': 0, 'watched': False, 'missing': True}]}]}
+        page = self.FakePage()
+        played = []
+        DetailView.build(page, anime, lambda *args, **kwargs: played.append(args), lambda: None, lambda _: True, lambda _: None)
+        containers = []
+        def walk(control):
+            if getattr(control, 'on_click', None) is not None and hasattr(control, 'content'):
+                containers.append(control)
+            for child in getattr(control, 'controls', []) or []:
+                walk(child)
+            child = getattr(control, 'content', None)
+            if child is not None:
+                walk(child)
+        for control in page.controls:
+            walk(control)
+        self.assertTrue(containers)
+        self.assertEqual(played, [])
+
     def test_favorite_persists_after_store_reopen_and_catalog_filter(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

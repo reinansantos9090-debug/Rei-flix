@@ -197,7 +197,7 @@ class LibraryStore:
                 # cached image.  The same rule applies to a missing remote URL.
                 cover_cache = metadata.get("cover_cache") or row["cover_cache"] or ""
                 cover_url = metadata.get("cover_url") or row["cover_url"] or ""
-                fields = fields[:8] + (cover_url, cover_cache) + fields[10:]
+                fields = fields[:7] + (cover_url, cover_cache) + fields[9:]
                 c.execute("""UPDATE anime SET anilist_id=?,title=?,romaji=?,english=?,native=?,aliases=?,description=?,cover_url=?,cover_cache=?,banner_url=?,genres=?,year=?,season=?,status=?,episodes_count=?,duration=?,score=?,studio=?,metadata_updated_at=? WHERE id=?""", fields + (row["id"],))
                 return row["id"]
             cur = c.execute("""INSERT INTO anime(lookup_title,anilist_id,title,romaji,english,native,aliases,description,cover_url,cover_cache,banner_url,genres,year,season,status,episodes_count,duration,score,studio,metadata_updated_at,added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (lookup,) + fields + (time.time(),))

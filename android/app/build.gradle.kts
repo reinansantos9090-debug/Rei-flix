@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "com.reiflix.reiflix_local"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.reiflix.reiflix_local"
         minSdk = 23
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 2
         versionName = "0.3.0"
     }

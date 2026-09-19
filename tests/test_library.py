@@ -963,6 +963,19 @@ class DetailsDomainTests(unittest.TestCase):
             self.assertEqual(target['path'], second)
             self.assertEqual(target['anime_title'], 'Player Title')
 
+    def test_catalog_orders_seasons_and_episodes_deterministically(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('catalog-order', {'title': 'Catalog Order', 'genres': '[]'})
+            store.upsert_episode(anime, '/library/s2-02.mkv', 'Episode 02.mkv', 2, 2)
+            store.upsert_episode(anime, '/library/s1-02.mkv', 'Episode 02.mkv', 1, 2)
+            store.upsert_episode(anime, '/library/s1-01.mkv', 'Episode 01.mkv', 1, 1)
+            store.upsert_episode(anime, '/library/s2-01.mkv', 'Episode 01.mkv', 2, 1)
+            catalog = store.catalog()[0]
+            self.assertEqual([season['season'] for season in catalog['seasons']], [1, 2])
+            self.assertEqual([episode['number'] for episode in catalog['seasons'][0]['episodes']], [1, 2])
+            self.assertEqual([episode['number'] for episode in catalog['seasons'][1]['episodes']], [1, 2])
+
     def test_playback_target_respects_season_order_when_numbers_repeat(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

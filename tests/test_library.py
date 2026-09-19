@@ -585,6 +585,20 @@ class GoogleProfileTests(unittest.TestCase):
 
 
 class AniListResilienceTests(unittest.TestCase):
+    def test_empty_cached_cover_file_is_not_reused(self):
+        with tempfile.TemporaryDirectory() as d:
+            client = AniListClient(d)
+            url = 'https://example.invalid/cover.jpg'
+            name = __import__('hashlib').sha256(url.encode()).hexdigest() + '.jpg'
+            Path(d, name).touch()
+            with patch('core.anilist.urllib.request.urlopen') as request:
+                response = request.return_value.__enter__.return_value
+                response.read.return_value = b'cover'
+                result = client.cache_cover(url)
+            self.assertEqual(result, str(Path(d, name)))
+            self.assertEqual(Path(result).read_bytes(), b'cover')
+
+
     def test_incomplete_metadata_is_safe_without_anilist_id_or_cover(self):
         with tempfile.TemporaryDirectory() as d:
             client = AniListClient(d)

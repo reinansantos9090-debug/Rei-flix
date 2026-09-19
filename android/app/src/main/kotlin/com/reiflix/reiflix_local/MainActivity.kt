@@ -52,6 +52,7 @@ class MainActivity : FlutterFragmentActivity() {
         handleNativeIntent(intent)
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handleNativeIntent(intent) }
+    override fun onResume() { super.onResume(); applyImmersiveSystemUi() }
 
     @Deprecated("Use OnBackInvokedDispatcher on newer Android versions when available")
     override fun onBackPressed() {

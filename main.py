@@ -48,7 +48,7 @@ async def main(page: ft.Page):
                                   store.toggle_favorite, library.playback_target))
         elif navigation.current == "settings":
             show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,login,logout,account(),account_state[0],
-                                    folder_selection_pending=lambda: saf_selection.pending))
+                                    folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match))
         elif navigation.current == "player":
             path, title, progress = player_context[0]
             show(PlayerView.build(page, path, title, navigate_back, None, start_native_player, progress))
@@ -106,6 +106,17 @@ async def main(page: ft.Page):
         store.remove_folder(reference)
         on_catalog_changed()
         refresh_settings_if_active()
+    async def resolve_match(lookup_title, anilist_id):
+        try:
+            await asyncio.to_thread(library.resolve_match, lookup_title, anilist_id)
+            page.snack_bar = ft.SnackBar(ft.Text("Associação AniList salva. Atualize a biblioteca para aplicar os metadados ao catálogo."))
+            page.snack_bar.open = True
+            refresh_settings_if_active()
+        except Exception as exc:
+            page.snack_bar = ft.SnackBar(ft.Text(str(exc)))
+            page.snack_bar.open = True
+            page.update()
+
     def account(): return store.account()
     def navigate_settings():
         navigation.push("settings")

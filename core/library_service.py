@@ -38,26 +38,29 @@ class LibraryService:
             return False
         if associated_id and cached["anilist_id"] != associated_id:
             return False
-        updated_at = cached.get("metadata_updated_at")
-        if not updated_at:
+
+        try:
+            updated_at = float(cached.get("metadata_updated_at") or 0)
+        except (TypeError, ValueError):
             return False
         age = time.time() - updated_at
         if age >= self.METADATA_CACHE_SECONDS:
             return False
 
-        cover_url = str(cached.get("cover_url") or "").strip()
+        # An empty cover_cache is a valid state: metadata may have been
+        # refreshed successfully even when the cover download failed.
         cover_cache = str(cached.get("cover_cache") or "").strip()
-        cover_is_missing = False
-        if cover_url:
-            if not cover_cache:
-                cover_is_missing = True
-            else:
-                cover_path = Path(cover_cache)
-                try:
-                    cover_is_missing = not cover_path.is_file() or cover_path.stat().st_size <= 0
-                except OSError:
-                    cover_is_missing = True
-        if cover_is_missing:
+        if not cover_cache:
+            return True
+
+        # A recorded cache path that is unavailable is retried independently
+        # from the normal metadata TTL. Until then, keep the metadata usable.
+        cover_path = Path(cover_cache)
+        try:
+            cover_available = cover_path.is_file() and cover_path.stat().st_size > 0
+        except OSError:
+            cover_available = False
+        if not cover_available:
             return age < self.COVER_RETRY_SECONDS
 
         return True

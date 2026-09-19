@@ -1151,6 +1151,33 @@ class OrganizeTests(unittest.TestCase):
                              [('Ação', 1), ('Comédia', 1), ('Fantasia', 2)])
             self.assertNotIn('Drama', [item['name'] for item in genres])
 
+    def test_browse_completed_ignores_missing_local_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('completed-missing', {'title': 'Completed Missing', 'genres': '[]'})
+            available = '/library/available.mkv'
+            missing = '/library/missing.mkv'
+            store.upsert_episode(anime, available, 'Available', 1, 1)
+            store.upsert_episode(anime, missing, 'Missing', 1, 2)
+            store.save_progress(available, 95, 100)
+            with store._conn() as con:
+                con.execute('UPDATE episodes SET missing=1 WHERE path=?', (missing,))
+            catalog = store.catalog()
+            self.assertEqual([item['id'] for item in LibraryService.browse_catalog(catalog, state='Concluídos')], [anime])
+
+    def test_final_completed_episode_does_not_wrap_to_first_episode(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('final', {'title': 'Final', 'genres': '[]'})
+            first = '/library/final-01.mkv'
+            last = '/library/final-02.mkv'
+            store.upsert_episode(anime, first, 'Final 01', 1, 1)
+            store.upsert_episode(anime, last, 'Final 02', 1, 2)
+            store.save_progress(first, 95, 100)
+            store.save_progress(last, 95, 100)
+            self.assertIsNone(store.next_episode(last))
+            self.assertEqual(store.playback_target(anime)['path'], first)
+
     def test_organize_filters_reuse_favorites_progress_and_missing_rules(self):
         with tempfile.TemporaryDirectory() as d:
             store, action, comedy, plain, paths = self._catalog(d)

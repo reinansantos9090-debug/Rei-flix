@@ -126,10 +126,19 @@ async def main(page: ft.Page):
             if saf_folders and bridge.available:
                 # Native SAF scans finish through the mailbox; retain the lock
                 # until their result/error event arrives.
-                pending_native_scans[0] = len(saf_folders)
+                pending_native_scans[0] = 0
                 for folder in saf_folders:
-                    await bridge.rescan_tree(folder['path'])
-                return "Atualização iniciada. Verificando as pastas autorizadas…", True
+                    try:
+                        await bridge.rescan_tree(folder['path'])
+                        pending_native_scans[0] += 1
+                    except Exception:
+                        # A tree that could not be handed to Android must not
+                        # leave the refresh lock waiting forever.
+                        store.update_folder_status(folder['path"], "error", "Não foi possível iniciar a varredura SAF.")
+                if pending_native_scans[0] > 0:
+                    return "Atualização iniciada. Verificando as pastas autorizadas…", True
+                scan_in_progress[0] = False
+                return "Nenhuma pasta autorizada pôde iniciar uma varredura.", False
             result = await asyncio.to_thread(library.scan)
             return result.message(), False
         except Exception:

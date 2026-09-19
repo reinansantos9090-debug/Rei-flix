@@ -84,6 +84,7 @@ jobs:
       - name: Validate Python application
         run: |
           python -m compileall -q main.py app_config.py core views
+          python -m unittest discover -s tests -v
           git diff --check
 
       - name: Prepare Flet build template with Android host

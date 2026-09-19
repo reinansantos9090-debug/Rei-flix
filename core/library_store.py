@@ -243,7 +243,7 @@ class LibraryStore:
                 if active:
                     anime["current_episode"] = max(active, key=lambda episode: episode["last_played_at"] or 0)
                     continue
-                completed = [episode for episode in rows if episode["watched"]]
+                completed = [episode for episode in available if episode["watched"]]
                 last_completed = max(completed, key=lambda episode: episode["last_played_at"] or 0) if completed else None
                 anime["current_episode"] = self._adjacent_from_rows(last_completed, available, 1) if last_completed else None
             return animes

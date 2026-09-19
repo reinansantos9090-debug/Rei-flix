@@ -66,7 +66,7 @@ for permission, max_sdk in permission_specs:
     attrs = {permission_attr: permission}
     if max_sdk is not None:
         attrs["{" + ANDROID + "}maxSdkVersion"] = max_sdk
-    manifest.append(ET.Element("uses-permission", attrs))
+    manifest.insert(0, ET.Element("uses-permission", attrs))
 theme_attr = "{" + ANDROID + "}theme"
 launch_attr = "{" + ANDROID + "}launchMode"
 config_attr = "{" + ANDROID + "}configChanges"

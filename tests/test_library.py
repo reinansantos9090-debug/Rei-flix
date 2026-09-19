@@ -950,6 +950,18 @@ class DetailsDomainTests(unittest.TestCase):
             store, anime, paths = self._store_with_episodes(d)
             self.assertEqual(store.playback_target(anime)['path'], paths[0])
 
+    def test_adjacent_episode_carries_anime_title_for_native_player(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('player-title', {'title': 'Player Title', 'genres': '[]'})
+            first = '/library/player-01.mkv'
+            second = '/library/player-02.mkv'
+            store.upsert_episode(anime, first, 'Player - 01.mkv', 1, 1)
+            store.upsert_episode(anime, second, 'Player - 02.mkv', 1, 2)
+            target = store.next_episode(first)
+            self.assertEqual(target['path'], second)
+            self.assertEqual(target['anime_title'], 'Player Title')
+
     def test_catalog_persists_resume_and_next_episode_after_reopen(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

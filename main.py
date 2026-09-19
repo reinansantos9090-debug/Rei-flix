@@ -260,7 +260,19 @@ async def main(page: ft.Page):
                     tree_uri = payload.get('treeUri')
                     if tree_uri:
                         if payload.get('granted'):
-                            store.update_folder_status(tree_uri, 'granted')
+                            # A freshly selected tree must be registered before
+                            # scanning so a provider failure does not make the
+                            # user's persisted permission disappear from Settings.
+                            if payload.get('selected'):
+                                store.add_folder(
+                                    tree_uri,
+                                    name=payload.get('name') or tree_uri.rsplit('/', 1)[-1],
+                                    kind='saf',
+                                    authorization='granted',
+                                    account_id=store.account().get('id'),
+                                )
+                            else:
+                                store.update_folder_status(tree_uri, 'granted')
                         else:
                             store.update_folder_status(tree_uri, 'revoked', 'A permissão desta pasta foi removida.')
                         refresh_settings_if_active()

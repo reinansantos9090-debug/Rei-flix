@@ -122,7 +122,13 @@ class LibraryService:
         run_id = self.store.begin_scan()
         scan_errors = list(scan_errors or [])
         scan_stats = scan_stats or {}
-        self.store.add_folder(tree_uri, name=folder_name or tree_uri.rsplit("/", 1)[-1], kind="saf", authorization="granted")
+        self.store.add_folder(
+            tree_uri,
+            name=folder_name or tree_uri.rsplit("/", 1)[-1],
+            kind="saf",
+            authorization="granted",
+            account_id=self.store.account().get("id"),
+        )
         metadata = {}
         seen = []
         for document in documents:

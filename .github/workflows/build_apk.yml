@@ -136,6 +136,13 @@ jobs:
           apk="${{ steps.apk.outputs.path }}"
           python scripts/verify_android_host.py "$apk"
 
+      - name: Print APK signing certificate fingerprints
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$apksigner" verify --verbose --print-certs "$apk" || true
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:

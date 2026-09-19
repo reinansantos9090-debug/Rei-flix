@@ -1,7 +1,7 @@
 """Bridge protocol shared with the Android host without ever fabricating paths.
 
 The Android overlay writes short JSON events into the application's private
-files directory.  Flet invokes it through the app-owned `reiflix://` intent;
+files directory. Flet invokes it through the app-owned `reiflix://` intent;
 Python periodically drains the mailbox and inserts document URIs into SQLite.
 Desktop deliberately reports this bridge as unavailable.
 """
@@ -11,6 +11,8 @@ import logging
 import os
 from pathlib import Path
 from urllib.parse import urlencode
+
+import flet as ft
 
 logger = logging.getLogger("reiflix.android")
 MAILBOX = "reiflix-native-events.json"
@@ -23,9 +25,6 @@ class AndroidBridge:
 
     @property
     def available(self) -> bool:
-        # Flet supplies a PagePlatform enum on Android.  ``str(enum)`` is
-        # ``PagePlatform.ANDROID`` (not ``android``), which previously made the
-        # real APK report the native bridge as unavailable.
         platform = getattr(self.page, "platform", None) if self.page else None
         value = getattr(platform, "value", platform)
         return (
@@ -38,17 +37,17 @@ class AndroidBridge:
         if not self.available:
             raise RuntimeError("A ponte Android está disponível somente no APK ReiFlix.")
         query = urlencode({"action": action, **{k: v for k, v in params.items() if v is not None}})
-        self.page.launch_url(f"reiflix://native?{query}")
+        url = f"reiflix://native?{query}"
+        # The bridge URI belongs to the Rei-flix Android host, not a browser.
+        # Explicitly selecting the non-browser resolver avoids Android/Flet
+        # treating the custom scheme as a web URL and silently doing nothing.
+        self.page.launch_url(url, mode=ft.LaunchMode.EXTERNAL_NON_BROWSER_APPLICATION)
 
     def select_tree(self): self._launch("select_tree")
     def rescan_tree(self, tree_uri: str): self._launch("scan_tree", tree_uri=tree_uri)
     def verify_tree(self, tree_uri: str): self._launch("verify_tree", tree_uri=tree_uri)
     def sign_in(self, server_client_id: str): self._launch("google_sign_in", server_client_id=server_client_id)
     def play(self, uri: str, title: str, position_ms: int = 0, *, can_next=False, can_previous=False):
-        # The bridge is deliberately incapable of opening a remote stream.
-        # SAF produces content:// references; desktop development may use a
-        # local path or file:// URI. Everything else is rejected before an
-        # Android intent is created.
         if not self.is_local_media_reference(uri):
             raise ValueError("A reprodução aceita somente arquivos locais ou URIs content://.")
         self._launch("play", uri=uri, title=title, position_ms=max(0, int(position_ms)),
@@ -59,28 +58,17 @@ class AndroidBridge:
         return bool(uri) and (uri.startswith(("content://", "file://")) or "://" not in uri)
 
     def drain(self) -> list[dict]:
-        """Claim a complete native batch; call :meth:`acknowledge` after handling it.
-
-        A claimed file survives a Python restart. This is important for SAF:
-        SQLite ingestion can take time and a valid result must not disappear
-        merely because the process exits between reading and persisting it.
-        """
         consumed = self.mailbox.with_suffix(".consumed")
         if self._claimed:
             return []
         try:
             if consumed.exists():
-                # A previous process claimed this complete publication but did
-                # not acknowledge it. Replay is safe because SQLite upserts
-                # document URIs and preserves progress.
                 pass
             elif self.mailbox.exists():
                 self.mailbox.replace(consumed)
             else:
                 return []
             events = json.loads(consumed.read_text(encoding="utf-8"))
-            # Ignore malformed/unknown payload shapes; the event loop must not
-            # be able to crash because a native queue contains one bad entry.
             if not isinstance(events, list):
                 consumed.unlink(missing_ok=True)
                 return []
@@ -95,7 +83,6 @@ class AndroidBridge:
             return []
 
     def acknowledge(self) -> None:
-        """Delete a claimed batch only after its events have been processed."""
         if not self._claimed:
             return
         try:

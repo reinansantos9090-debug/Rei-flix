@@ -959,6 +959,15 @@ class LibraryBrowseTests(unittest.TestCase):
 
 
 class DetailsDomainTests(unittest.TestCase):
+    class FakePage:
+        def __init__(self):
+            self.controls = []
+            self.snack_bar = None
+            self.updates = 0
+
+        def update(self):
+            self.updates += 1
+
     def _store_with_episodes(self, directory):
         store = LibraryStore(directory)
         anime = store.upsert_anime('details', {'title': 'Details', 'genres': '[]'})

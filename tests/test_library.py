@@ -1628,13 +1628,6 @@ class OrganizeTests(unittest.TestCase):
             self.assertEqual([e["type"] for e in bridge.drain()], ["two"])
             bridge.acknowledge()
 
-if __name__ == '__main__':
-    unittest.main()
-
-if __name__ == '__main__':
-    unittest.main()
-
-
 class SafLibraryHardeningTests(unittest.TestCase):
     def test_saf_ingest_rejects_non_content_media_reference(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1680,3 +1673,6 @@ class SafLibraryHardeningTests(unittest.TestCase):
             self.assertFalse(rows[second["uri"]]["missing"])
             self.assertEqual(rows[first["uri"]]["source_folder"], first_tree)
             self.assertEqual(rows[second["uri"]]["source_folder"], second_tree)
+
+if __name__ == '__main__':
+    unittest.main()

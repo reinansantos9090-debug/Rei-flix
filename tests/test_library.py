@@ -680,6 +680,42 @@ class IdentificationTests(unittest.TestCase):
             self.assertEqual([season['season_name'] for season in second[0]['seasons']], ['Temporada 1', 'Temporada 2'])
             self.assertEqual(sum(len(s['episodes']) for s in first[0]['seasons']), 2)
 
+    def test_missing_cover_retries_after_short_cover_window(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, service = self._service(d)
+            stale = time.time() - service.COVER_RETRY_SECONDS - 1
+            store.upsert_anime('naruto', {
+                'title': 'Naruto',
+                'genres': '[]',
+                'anilist_id': 1,
+                'cover_url': 'https://example/cover.jpg',
+                'cover_cache': str(Path(d) / 'missing.jpg'),
+                'metadata_updated_at': stale,
+            })
+            store.set_association('naruto', 1)
+            with patch.object(service.anilist, 'by_id', return_value=None) as by_id:
+                metadata = service._identify('naruto', 'Naruto', lambda _: None)
+            by_id.assert_called_once_with(1)
+            self.assertEqual(metadata['title'], 'Naruto')
+
+    def test_recent_missing_cover_does_not_trigger_remote_refresh(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, service = self._service(d)
+            recent = time.time() - 60
+            store.upsert_anime('naruto', {
+                'title': 'Naruto',
+                'genres': '[]',
+                'anilist_id': 1,
+                'cover_url': 'https://example/cover.jpg',
+                'cover_cache': str(Path(d) / 'missing.jpg'),
+                'metadata_updated_at': recent,
+            })
+            store.set_association('naruto', 1)
+            with patch.object(service.anilist, 'by_id') as by_id:
+                metadata = service._identify('naruto', 'Naruto', lambda _: None)
+            by_id.assert_not_called()
+            self.assertEqual(metadata['title'], 'Naruto')
+
     def test_expired_cached_metadata_is_preserved_when_refresh_fails(self):
         with tempfile.TemporaryDirectory() as d:
             store, service = self._service(d)

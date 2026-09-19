@@ -26,6 +26,16 @@ object SafScanner {
             permission.uri == treeUri && permission.isReadPermission
         }
 
+    fun isAuthorizedDocument(context: Context, documentUri: Uri): Boolean {
+        if (documentUri.scheme != "content") return false
+        val documentId = runCatching { DocumentsContract.getDocumentId(documentUri) }.getOrNull() ?: return false
+        return context.contentResolver.persistedUriPermissions.any { permission ->
+            if (!permission.isReadPermission || permission.uri.authority != documentUri.authority) return@any false
+            val treeId = runCatching { DocumentsContract.getTreeDocumentId(permission.uri) }.getOrNull() ?: return@any false
+            documentId == treeId || documentId.startsWith("$treeId:")
+        }
+    }
+
     fun scan(context: Context, treeUri: Uri): JSONObject {
         check(hasPersistedReadPermission(context, treeUri)) { "A permissão desta pasta foi removida." }
         val root = DocumentFile.fromTreeUri(context, treeUri) ?: throw IllegalArgumentException("Árvore SAF inválida")
@@ -48,7 +58,8 @@ object SafScanner {
                 } else {
                     stats.put("files", stats.getInt("files") + 1)
                     val extension = name.substringAfterLast('.', "").lowercase()
-                    if (extension in videoExtensions) {
+                    val isVideo = extension in videoExtensions || (file.type?.startsWith("video/") == true)
+                    if (isVideo) {
                         files.put(JSONObject()
                             .put("uri", file.uri.toString())
                             .put("name", name)

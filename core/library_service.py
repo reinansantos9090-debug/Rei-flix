@@ -59,14 +59,24 @@ class LibraryService:
         """
         cached = self.store.anime_metadata(lookup_title)
         associated_id = self.store.association(lookup_title)
-        if self._cached_metadata_is_current(cached, associated_id):
+        cached_id = cached.get("anilist_id") if cached else None
+        refresh_id = associated_id or cached_id
+        if self._cached_metadata_is_current(cached, refresh_id):
             return cached
 
         on_status(f"Identificando {display_title}…")
-        if associated_id:
-            media = self.anilist.by_id(associated_id)
+        if refresh_id:
+            media = self.anilist.by_id(refresh_id)
             if media:
-                return self.anilist.metadata_from_media(display_title, media)
+                refreshed = self.anilist.metadata_from_media(display_title, media)
+                refreshed["anilist_id"] = refresh_id
+                if cached:
+                    refreshed["cover_cache"] = cached.get("cover_cache") or refreshed.get("cover_cache") or ""
+                try:
+                    self.store.upsert_anime(lookup_title, refreshed)
+                except Exception:
+                    logger.exception("Falha ao persistir metadados AniList para %s", display_title)
+                return refreshed
             return cached or {"title": display_title, "genres": "[]"}
 
         candidates = self.anilist.search(display_title)

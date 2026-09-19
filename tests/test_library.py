@@ -252,7 +252,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(store.catalog()[0]['main_title'], 'Naruto')
             self.assertEqual(store.get_preference('missing', 'default'), 'default')
             with store._conn() as con:
-                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], 11)
+                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], 12)
 
     def test_clear_anilist_cache_preserves_library_favorite_progress_history_and_association(self):
         with tempfile.TemporaryDirectory() as d:
@@ -368,7 +368,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             LibraryStore(d)
             LibraryStore(d)
             with LibraryStore(d)._conn() as con:
-                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=11').fetchone()[0], 1)
+                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=12').fetchone()[0], 1)
 
     def test_invalid_progress_is_rejected_and_overflow_is_normalized(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1700,6 +1700,18 @@ class PersistenceRecoveryTests(unittest.TestCase):
             scan = reopened.last_scan()
             self.assertEqual(scan["status"], "completed")
             self.assertEqual(reopened.interrupted_scans(), [])
+
+    def test_recover_interrupted_scans_finalizes_a_running_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            run_id = store.begin_scan()
+            with store._conn() as con:
+                con.execute("UPDATE scan_runs SET status='running',finished_at=NULL WHERE id=?", (run_id,))
+            recovered = store.recover_interrupted_scans()
+            self.assertEqual(recovered, 1)
+            row = store.last_scan()
+            self.assertEqual(row["status"], "interrupted")
+            self.assertIsNotNone(row["finished_at"])
 
     def test_schema_migration_adds_scan_status_to_legacy_database(self):
         with tempfile.TemporaryDirectory() as d:

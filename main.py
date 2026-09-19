@@ -290,6 +290,7 @@ async def main(page: ft.Page):
                         store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
                     else:
                         store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento ainda não foi concedido.')
+                        finish_native_scan()
                     refresh_settings_if_active()
                 elif event_type == 'broad_storage_error':
                     store.update_folder_status('broad-storage', 'revoked', event.get('message', 'Não foi possível acessar o armazenamento local.'))

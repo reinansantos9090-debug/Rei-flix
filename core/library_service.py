@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 import json
-import logging
+import logging\nfrom urllib.parse import unquote, urlparse
 from pathlib import Path
 from dataclasses import dataclass, field
 from core.anilist import AniListClient
@@ -168,7 +168,7 @@ class LibraryService:
             # Native media documents are the local-media contract. Rejecting
             # anything else here prevents a malformed bridge payload from
             # silently creating a playable row that Android cannot authorize.
-            if not isinstance(uri, str) or not uri.startswith("content://"):
+            if not isinstance(uri, str) or not (uri.startswith("content://") or uri.startswith("file://")):
                 scan_errors.append(f"Referência local inválida para {name}.")
                 continue
             seen.append(uri)

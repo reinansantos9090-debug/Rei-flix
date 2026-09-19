@@ -57,10 +57,10 @@ async def main(page: ft.Page):
     def navigate_organize():
         navigation.push("organize")
         render_current()
-    def start_native_player(path, title, position_ms=0):
+    async def start_native_player(path, title, position_ms=0):
         # Sequence decisions stay in LibraryStore; Android receives only the
         # selected local URI and booleans for the native controls.
-        bridge.play(path, title, position_ms,
+        await bridge.play(path, title, position_ms,
                     can_next=library.next_episode(path) is not None,
                     can_previous=library.previous_episode(path) is not None)
 
@@ -100,7 +100,7 @@ async def main(page: ft.Page):
         if scan_in_progress[0] or not saf_selection.begin():
             return
         try:
-            bridge.select_tree()
+            await bridge.select_tree()
         except Exception as exc:
             saf_selection.finish()
             page.snack_bar=ft.SnackBar(ft.Text(str(exc))); page.snack_bar.open=True; page.update()
@@ -118,7 +118,7 @@ async def main(page: ft.Page):
                 # until their result/error event arrives.
                 pending_native_scans[0] = len(saf_folders)
                 for folder in saf_folders:
-                    bridge.rescan_tree(folder['path'])
+                    await bridge.rescan_tree(folder['path'])
                 return "Atualização iniciada. Verificando as pastas autorizadas…", True
             result = await asyncio.to_thread(library.scan)
             return result.message(), False
@@ -134,7 +134,7 @@ async def main(page: ft.Page):
                 account_state[0] = 'configuration_required'; navigate_settings()
                 page.snack_bar=ft.SnackBar(ft.Text('Login Google não configurado neste APK. Configure um Web Client ID público antes de tentar novamente.')); page.snack_bar.open=True; page.update(); return
             account_state[0] = 'connecting'; navigate_settings()
-            bridge.sign_in(GOOGLE_WEB_CLIENT_ID); return
+            await bridge.sign_in(GOOGLE_WEB_CLIENT_ID); return
         account_state[0] = 'connecting'; navigate_settings()
         if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URL:
             account_state[0] = 'error'; navigate_settings()
@@ -199,7 +199,7 @@ async def main(page: ft.Page):
                     uri = payload.get('uri', '')
                     target = library.next_episode(uri) if event_type == 'player_next_request' else library.previous_episode(uri)
                     if target:
-                        start_native_player(target['path'], target['file_name'], 0)
+                        await start_native_player(target['path'], target['file_name'], 0)
                 elif event_type == 'player_error':
                     page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível reproduzir este arquivo.'))); page.snack_bar.open=True; page.update()
                     # Invalid/unreadable URIs can fail before Media3 creates a

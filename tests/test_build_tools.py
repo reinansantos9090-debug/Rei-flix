@@ -131,6 +131,11 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn('File(context.filesDir, "data")', mailbox)
         self.assertIn('val target = File(dataDirectory, FILE)', mailbox)
 
+    def test_refresh_library_skips_revoked_saf_trees_until_permission_returns(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("folder.get('kind') == 'saf' and folder.get('authorization') == 'granted'", source)
+        self.assertIn("await bridge.verify_tree(folder['path'])", source)
+
     def test_refresh_library_waits_for_every_saf_scan_result_or_error(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("pending_native_scans[0] = len(saf_folders)", source)

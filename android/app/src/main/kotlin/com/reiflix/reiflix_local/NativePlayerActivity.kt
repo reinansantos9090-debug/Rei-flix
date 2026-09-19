@@ -50,7 +50,7 @@ class NativePlayerActivity : ComponentActivity() {
         val rawUri = intent.getStringExtra("uri")
         if (rawUri.isNullOrBlank()) { reportError("Arquivo local inválido."); finish(); return }
         uri = Uri.parse(rawUri)
-        if (!((uri.scheme == "content" && SafScanner.isAuthorizedDocument(this, uri)) || MediaStoreScanner.isAuthorizedDocument(this, uri))) {
+        if (!((uri.scheme == "content" && SafScanner.isAuthorizedDocument(this, uri)) || MediaStoreScanner.isAuthorizedDocument(this, uri) || BroadStorageScanner.isAuthorizedFile(this, uri))) {
             reportError("Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix.")
             finish()
             return

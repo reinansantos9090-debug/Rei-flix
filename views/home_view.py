@@ -13,7 +13,7 @@ class HomeView:
         selected_state = [view_state.get("state", "Todos")]
         selected_genre = [view_state.get("genre", "Todos")]
         selected_sort = [view_state.get("sort", "Mais recentes")]
-        search_visible = [bool(view_state.get("search_visible", False))]
+        search_visible = [bool(view_state.get("search_visible", False)]
 
         def save_view_state():
             view_state.update(state=selected_state[0], genre=selected_genre[0], sort=selected_sort[0],
@@ -62,7 +62,11 @@ class HomeView:
             return media_artwork(source, height, icon_size=icon_size)
 
         def play_continuation(item):
-            on_play_episode(item["path"], item["file_name"], progress_seconds=item.get("progress", 0))
+            on_play_episode(
+                item["path"],
+                f"{item.get('anime_title', 'Anime local')} • T{item.get('season', 1)} E{item.get('number') if item.get('number') is not None else '—'}",
+                progress_seconds=item.get("progress", 0),
+            )
 
         def render_continue():
             continue_row.controls.clear()
@@ -168,11 +172,6 @@ class HomeView:
             save_view_state()
             render_library()
 
-        def refresh_catalog():
-            # Re-read durable SQLite state after returning from the player or details.
-            # No SAF scan or remote metadata request is triggered here.
-            load_catalog()
-
         def load_catalog():
             status.controls = [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT), ft.Text("Carregando biblioteca local…", color=TEXT_MUTED, size=12)]
             status.visible = True
@@ -186,7 +185,7 @@ class HomeView:
                     catalog = library.catalog()
                     continuing = library.continue_watching(limit=8)
                     status.visible = False
-                except Exception as exc:
+                except Exception:
                     catalog, continuing = [], []
                     status.controls = [
                         ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FFB4AB", size=18),
@@ -213,7 +212,6 @@ class HomeView:
             ft.Row([library_label, sort], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), feedback, grid,
         ], expand=True, spacing=14)
 
-        # Refresh is intentionally delayed to the end so all controls exist.
         status.visible = True
         load_catalog()
         return ft.Container(content=layout, padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=18, bottom=8), bgcolor=BACKGROUND)

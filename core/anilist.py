@@ -1,6 +1,6 @@
 """Cliente AniList somente para metadados, com falha segura e cache de capas."""
 from __future__ import annotations
-import hashlib, json, logging, os, tempfile, urllib.request
+import hashlib, json, logging, os, tempfile, urllib.error, urllib.request
 
 logger = logging.getLogger(__name__)
 
@@ -15,14 +15,25 @@ class AniListClient:
         req=urllib.request.Request(self.endpoint,data=data,headers={'Content-Type':'application/json','Accept':'application/json','User-Agent':'ReiFlix/1.0'})
         try:
             with urllib.request.urlopen(req,timeout=10) as r:
-                payload=json.loads(r.read())
-            if payload.get('errors') or not isinstance(payload.get('data'), dict):
-                logger.warning("AniList retornou erro GraphQL: %s", payload.get('errors'))
-                return None
-            return payload['data']
-        except Exception as exc:
+                raw = r.read()
+            payload = json.loads(raw)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, OSError) as exc:
             logger.warning("AniList indisponível: %s", exc)
             return None
+        except Exception as exc:
+            logger.warning("Falha inesperada na comunicação com AniList: %s", exc)
+            return None
+        if not isinstance(payload, dict):
+            logger.warning("AniList retornou uma resposta inválida.")
+            return None
+        if payload.get('errors'):
+            logger.warning("AniList retornou erro GraphQL: %s", payload.get('errors'))
+            return None
+        data = payload.get('data')
+        if not isinstance(data, dict):
+            logger.warning("AniList não retornou dados GraphQL válidos.")
+            return None
+        return data
     def search(self,title):
         data=self._request(self.query, {'search':title})
         return ((data or {}).get('Page') or {}).get('media') or []
@@ -32,7 +43,11 @@ class AniListClient:
     def metadata(self,title,chosen_id=None):
         media=self.by_id(chosen_id) if chosen_id else None
         if not media:
-            results=self.search(title); media=next((m for m in results if m['id']==chosen_id),results[0] if results else None)
+            results=self.search(title)
+            if chosen_id is not None:
+                media = next((m for m in results if m.get('id') == chosen_id), None)
+            if media is None:
+                media = results[0] if results else None
         return self.metadata_from_media(title, media)
     def metadata_from_media(self, title, media):
         if not media: return {'title':title,'genres':'[]'}

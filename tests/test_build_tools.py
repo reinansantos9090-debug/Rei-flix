@@ -69,6 +69,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
             hook_path = template / "hooks" / "post_gen_project.py"
             hook = hook_path.read_text(encoding="utf-8")
             self.assertIn("NativePlayerActivity", hook)
+            self.assertIn("SystemUiController.kt", hook)
             self.assertIn("media3-exoplayer:1.5.1", hook)
             self.assertNotIn("__REIFLIX_OVERLAY_APP__", hook)
             self.assertIn(f'Path({str((template / "reiflix_android_overlay" / "app").resolve())!r})', hook)
@@ -142,6 +143,11 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("private var suppressExitEvent = false", player)
         self.assertIn("suppressExitEvent = true", player)
         self.assertIn("if (!suppressExitEvent) saveProgress(\"player_exited\", force = true)", player)
+
+    def test_template_requires_the_immersive_system_ui_controller(self):
+        source = PREPARE_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("SystemUiController.kt", source)
+        self.assertIn("immersive host theme", source)
 
     def test_native_mailbox_uses_the_flet_application_data_subdirectory(self):
         mailbox = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativeMailbox.kt").read_text(encoding="utf-8")

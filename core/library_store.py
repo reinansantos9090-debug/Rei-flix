@@ -8,7 +8,7 @@ import time
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 10
+    SCHEMA_VERSION = 11
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -27,7 +27,7 @@ class LibraryStore:
             c.executescript('''
             CREATE TABLE IF NOT EXISTS folders (
               path TEXT PRIMARY KEY, name TEXT, kind TEXT NOT NULL DEFAULT 'path',
-              authorization TEXT NOT NULL DEFAULT 'unknown', added_at REAL NOT NULL,
+              authorization TEXT NOT NULL DEFAULT 'unknown', account_id TEXT, added_at REAL NOT NULL,
               last_scan_at REAL, last_error TEXT
             );
             CREATE TABLE IF NOT EXISTS anime (
@@ -56,7 +56,7 @@ class LibraryStore:
             existing = {r[1] for r in c.execute("PRAGMA table_info(folders)")}
             for column, definition in {
                 "name": "TEXT", "kind": "TEXT NOT NULL DEFAULT 'path'", "authorization": "TEXT NOT NULL DEFAULT 'unknown'",
-                "last_scan_at": "REAL", "last_error": "TEXT",
+                "last_scan_at": "REAL", "last_error": "TEXT", "account_id": "TEXT",
             }.items():
                 if column not in existing:
                     c.execute(f"ALTER TABLE folders ADD COLUMN {column} {definition}")
@@ -72,6 +72,7 @@ class LibraryStore:
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_source_folder ON episodes(source_folder)")
             # Version records make the additive Phase 10 migration auditable
             # while CREATE IF NOT EXISTS keeps all earlier databases intact.
+            c.execute("CREATE INDEX IF NOT EXISTS idx_folders_account ON folders(account_id)")
             c.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?,?)", (self.SCHEMA_VERSION, time.time()))
 
     def get_preference(self, key, default=None):
@@ -109,13 +110,14 @@ class LibraryStore:
         with self._conn() as c:
             return [dict(r) for r in c.execute("SELECT * FROM folders ORDER BY added_at")]
 
-    def add_folder(self, reference, name=None, kind="path", authorization="granted"):
+    def add_folder(self, reference, name=None, kind="path", authorization="granted", account_id=None):
         name = name or os.path.basename(reference.rstrip("/")) or reference
         with self._conn() as c:
-            c.execute("""INSERT INTO folders(path,name,kind,authorization,added_at) VALUES (?,?,?,?,?)
+            c.execute("""INSERT INTO folders(path,name,kind,authorization,account_id,added_at) VALUES (?,?,?,?,?,?)
                          ON CONFLICT(path) DO UPDATE SET name=excluded.name,kind=excluded.kind,
-                         authorization=excluded.authorization,last_error=NULL""",
-                      (reference, name, kind, authorization, time.time()))
+                         authorization=excluded.authorization,account_id=COALESCE(excluded.account_id,folders.account_id),
+                         last_error=NULL""",
+                      (reference, name, kind, authorization, account_id, time.time()))
 
     def update_folder_status(self, reference, authorization, error=None):
         with self._conn() as c:

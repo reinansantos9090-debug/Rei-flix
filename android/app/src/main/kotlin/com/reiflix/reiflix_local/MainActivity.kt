@@ -35,6 +35,14 @@ class MainActivity : FlutterFragmentActivity() {
         try {
             Log.i(tag, "SAF result received")
             SafScanner.persistPermission(this, uri, resultIntent.flags)
+            // Register the user's grant before scanning. If the provider later
+            // fails or exposes a partial tree, Settings must still remember the
+            // authorized SAF tree and let the user retry without selecting it again.
+            NativeMailbox.write(this, JSONObject().put("type", "saf_permission").put("payload", JSONObject()
+                .put("treeUri", uri.toString())
+                .put("granted", true)
+                .put("selected", true)
+                .put("name", SafScanner.displayName(this, uri))))
             scanTree(uri.toString())
         } catch (exception: Exception) {
             Log.e(tag, "SAF selection failed", exception)
@@ -70,7 +78,12 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
     private fun scanTree(reference: String?) {
-        if (reference.isNullOrBlank()) return
+        if (reference.isNullOrBlank()) {
+            NativeMailbox.write(this, JSONObject().put("type", "saf_error")
+                .put("message", "A pasta SAF não foi informada corretamente.")
+                .put("payload", JSONObject()))
+            return
+        }
         val treeUri = Uri.parse(reference)
         if (!SafScanner.hasPersistedReadPermission(this, treeUri)) {
             Log.w(tag, "SAF permission revoked")

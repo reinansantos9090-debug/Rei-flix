@@ -237,7 +237,6 @@ async def main(page: ft.Page):
             storage_onboarding["dialog_open"] = False
             storage_onboarding["waiting_for_result"] = True
             dismiss_dialog(page, dialog)
-            await asyncio.sleep(0)
             try:
                 if is_media:
                     await request_video_access()
@@ -679,9 +678,9 @@ async def main(page: ft.Page):
         page.snack_bar.open = True
         page.update()
     if bridge.available:
-        # onResume in the native host publishes the same snapshot, but this
-        # explicit request starts onboarding only after Python has mounted UI.
-        page.run_task(bridge.check_storage_access)
+        # MainActivity publishes the authoritative storage snapshot from its
+        # lifecycle. Avoid a Python -> reiflix://native self-launch during
+        # startup, which can re-enter the same Activity while Flet is mounting.
         for folder in store.folders():
             if folder.get('kind') == 'saf':
                 await bridge.verify_tree(folder['path'])

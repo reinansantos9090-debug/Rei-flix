@@ -9,6 +9,7 @@ import html
 import re
 
 import flet as ft
+from core.consumption import consumption_state, is_completed, progress_ratio
 from core.dialogs import dismiss_dialog
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, media_artwork, section_title
 
@@ -24,11 +25,14 @@ class DetailView:
         alternate_titles = [metadata.get(key) for key in ("english", "romaji", "native")]
         alternate_title = next((value for value in alternate_titles if value and value != title), None)
         seasons = anime_group.get("seasons") or []
-        episodes = [episode for season in seasons for episode in season.get("episodes", [])]
-        episodes.extend(episode for group in (anime_group.get("specials") or []) for episode in group.get("episodes", []))
-        episodes.extend(anime_group.get("media_files") or [])
+        regular_episodes = [episode for season in seasons for episode in season.get("episodes", [])]
+        special_episodes = [episode for group in (anime_group.get("specials") or []) for episode in group.get("episodes", [])]
+        movie_episodes = list(anime_group.get("media_files") or [])
+        episodes = [*regular_episodes, *special_episodes, *movie_episodes]
         available = [episode for episode in episodes if not episode.get("missing")]
         missing_count = len(episodes) - len(available)
+        media_kind = str(anime_group.get("media_kind") or metadata.get("media_kind") or "series").casefold()
+        is_movie = media_kind == "movie" or bool(movie_episodes and not regular_episodes and not special_episodes)
         favorite = [bool(anime_group.get("favorite"))]
         pinned = [bool(anime_group.get("is_pinned"))]
         selected_season = [0]
@@ -36,7 +40,7 @@ class DetailView:
         current = anime_group.get("current_episode") or {}
         primary_target = get_playback_target(anime_group["id"]) if get_playback_target else (current or next((item for item in available), None))
         last_completed = max(
-            (item for item in episodes if item.get("watched") and not item.get("missing")),
+            (item for item in regular_episodes if is_completed(item) and not item.get("missing")),
             key=lambda item: item.get("last_played_at") or 0,
             default=None,
         )
@@ -47,8 +51,7 @@ class DetailView:
         )
 
         def ratio(episode):
-            duration = float(episode.get("duration") or 0)
-            return min(float(episode.get("progress") or 0) / duration, 1.0) if duration > 0 else None
+            return progress_ratio(episode) if episode and float(episode.get("duration") or 0) > 0 else None
 
         def placeholder(height=198):
             return media_artwork(None, height, width=132, icon_size=38)
@@ -222,10 +225,10 @@ class DetailView:
             primary_label = "Continuar assistindo"
         elif is_next_after_completion:
             primary_label = "Próximo episódio"
-        elif primary_target and available and all(item.get("watched") for item in available):
-            primary_label = "Reassistir episódio"
+        elif primary_target and available and all(is_completed(item) for item in available):
+            primary_label = "Reassistir filme" if is_movie else "Reassistir episódio"
         elif primary_target:
-            primary_label = "Assistir episódio"
+            primary_label = "Assistir filme" if is_movie else "Assistir episódio"
         else:
             primary_label = "Sem episódios disponíveis"
         metadata_status = str(metadata.get("metadata_status") or "unresolved").casefold()
@@ -277,12 +280,13 @@ class DetailView:
             episode_ratio = ratio(episode)
             number = episode.get("number")
             number_label = f"EP {int(number):02d}" if isinstance(number, (int, float)) else "EP —"
+            state = consumption_state(episode)
             if episode.get("missing"):
                 icon, status, color = ft.Icons.ERROR_OUTLINE, "Arquivo indisponível", WARNING
-            elif episode.get("watched"):
-                icon, status, color = ft.Icons.CHECK_CIRCLE, "Assistido", SUCCESS
-            elif episode_ratio is not None and episode_ratio > 0:
-                icon, status, color = ft.Icons.PLAY_CIRCLE_FILL, f"Em andamento • {int(episode_ratio * 100)}%", ACCENT
+            elif state.value in {"completed", "watched"}:
+                icon, status, color = ft.Icons.CHECK_CIRCLE, "Concluído" if state.value == "completed" else "Assistido", SUCCESS
+            elif state.value == "in_progress":
+                icon, status, color = ft.Icons.PLAY_CIRCLE_FILL, f"Em andamento • {int((episode_ratio or 0) * 100)}%", ACCENT
             else:
                 icon, status, color = ft.Icons.PLAY_CIRCLE_OUTLINE, "Disponível localmente", "#AAA7B6"
             if episode.get("manual_override"):
@@ -308,7 +312,7 @@ class DetailView:
                 ft.Text(status, size=11, color=color),
                 ft.Text(identification, size=10, color="#AAA7B6"),
             ], spacing=4, expand=True)
-            if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing"):
+            if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing") and state.value == "in_progress":
                 details.controls.append(ft.ProgressBar(value=episode_ratio, color="#E50914", bgcolor="#454252", bar_height=4))
             is_missing = bool(episode.get("missing"))
             clickable = None if is_missing else lambda _, item=episode: play(item)
@@ -322,22 +326,33 @@ class DetailView:
 
         def render_episodes():
             episode_column.controls.clear()
-            if not seasons:
+            if is_movie:
+                if movie_episodes:
+                    episode_column.controls.extend(episode_item(item) for item in movie_episodes)
+                else:
+                    episode_column.controls.append(ft.Text("Nenhum arquivo de filme foi indexado.", color="#AAA7B6", size=13))
+                page.update()
+                return
+            if not seasons and not special_episodes:
                 episode_column.controls.append(ft.Container(
                     content=ft.Text("Nenhum episódio foi indexado para este anime.", color="#AAA7B6", size=13),
                     padding=14, bgcolor=SURFACE, border_radius=RADIUS,
                 ))
             else:
-                selected = seasons[selected_season[0]]
-                if resolve_artwork:
-                    season_number = selected.get("season")
-                    if season_number is not None:
-                        resolved_season = resolve_artwork("season", f"{anime_group['id']}:season:{season_number}", "season_poster", allow_network=False)
-                        if resolved_season:
-                            season_path = resolved_season.get("local_path") or resolved_season.get("external_url")
-                            if season_path:
-                                episode_column.controls.append(media_artwork(season_path, 150, width=100, icon_size=24))
-                episode_column.controls.extend(episode_item(item) for item in selected.get("episodes", []))
+                if seasons:
+                    selected = seasons[min(selected_season[0], len(seasons) - 1)]
+                    if resolve_artwork:
+                        season_number = selected.get("season")
+                        if season_number is not None:
+                            resolved_season = resolve_artwork("season", f"{anime_group['id']}:season:{season_number}", "season_poster", allow_network=False)
+                            if resolved_season:
+                                season_path = resolved_season.get("local_path") or resolved_season.get("external_url")
+                                if season_path:
+                                    episode_column.controls.append(media_artwork(season_path, 150, width=100, icon_size=24))
+                    episode_column.controls.extend(episode_item(item) for item in selected.get("episodes", []))
+                if special_episodes:
+                    episode_column.controls.append(section_title("Especiais", ft.Icons.STAR_OUTLINE))
+                    episode_column.controls.extend(episode_item(item) for item in special_episodes)
             page.update()
 
         def change_season(event):
@@ -353,7 +368,7 @@ class DetailView:
                 for index, season in enumerate(seasons)
             ],
             color="#F7F5FA", text_size=13, bgcolor="#252331",
-            border_color="#39364B", border_radius=12, visible=len(seasons) > 1,
+            border_color="#39364B", border_radius=12, visible=bool(seasons) and len(seasons) > 1 and not is_movie,
         )
         season_picker.on_select = change_season
 
@@ -362,14 +377,15 @@ class DetailView:
             current_ratio = ratio(current)
             season = current.get("season")
             number = current.get("number")
-            progress_label = "Concluído" if current.get("watched") else (f"{int(current_ratio * 100)}% assistido" if current_ratio is not None else "Em andamento")
+            current_state = consumption_state(current)
+            progress_label = "Concluído" if current_state.value in {"completed", "watched"} else (f"{int((current_ratio or 0) * 100)}% assistido" if current_ratio is not None else "Em andamento")
             progress_section = [
                 ft.Text("CONTINUAR", size=12, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
                 ft.Container(content=ft.Column([
-                    ft.Text(f"Temporada {season or '—'} • Episódio {number if number is not None else '—'}", color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD),
+                    ft.Text(("Filme" if is_movie else f"Temporada {season or '—'} • Episódio {number if number is not None else '—'}"), color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD),
                     ft.Text(progress_label, color="#B9B5C4", size=11),
                     ft.ProgressBar(value=current_ratio, color="#E50914", bgcolor="#454252", bar_height=4,
-                                   visible=current_ratio is not None and not current.get("watched")),
+                                   visible=current_ratio is not None and current_state.value == "in_progress"),
                 ], spacing=6), padding=12, bgcolor=SURFACE, border_radius=RADIUS),
             ]
 
@@ -417,7 +433,7 @@ class DetailView:
             ])
         layout_controls.extend(progress_section)
         layout_controls.extend([
-            section_title("Episódios", ft.Icons.FORMAT_LIST_NUMBERED),
+            section_title("Filme" if is_movie else "Episódios", ft.Icons.MOVIE_OUTLINED if is_movie else ft.Icons.FORMAT_LIST_NUMBERED),
             season_picker,
             episode_column,
         ])

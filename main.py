@@ -452,11 +452,19 @@ async def main(page: ft.Page):
                             refresh_settings_if_active()
                             maybe_show_storage_onboarding()
                         elif event_type == 'broad_storage_permission':
-                            storage_onboarding["broad"] = bool(payload.get('granted'))
+                            granted = bool(payload.get('granted'))
+                            was_waiting = storage_onboarding["waiting_for_result"]
+                            storage_onboarding["broad"] = granted
                             storage_onboarding["waiting_for_result"] = False
-                            if payload.get('granted'):
+                            if granted:
+                                storage_onboarding["dismissed"] = False
                                 store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
                             else:
+                                if was_waiting:
+                                    # The native host emits a status event immediately before
+                                    # opening Android Settings. Do not reopen the onboarding modal
+                                    # over that external flow.
+                                    storage_onboarding["dismissed"] = True
                                 store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento ainda não foi concedido.')
                                 finish_native_scan()
                             refresh_settings_if_active()

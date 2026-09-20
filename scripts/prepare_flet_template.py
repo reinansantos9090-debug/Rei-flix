@@ -71,6 +71,7 @@ for permission, max_sdk in permission_specs:
     manifest.insert(0, ET.Element("uses-permission", attrs))
 theme_attr = "{" + ANDROID + "}theme"
 launch_attr = "{" + ANDROID + "}launchMode"
+document_launch_attr = "{" + ANDROID + "}documentLaunchMode"
 config_attr = "{" + ANDROID + "}configChanges"
 screen_attr = "{" + ANDROID + "}screenOrientation"
 pip_attr = "{" + ANDROID + "}supportsPictureInPicture"
@@ -86,7 +87,8 @@ main = next((activity for activity in activities if activity.get(name) in [".Mai
 if main is None:
     raise RuntimeError("Rendered Flet manifest has no MainActivity to replace")
 main.set(name, "com.reiflix.reiflix_local.MainActivity")
-main.set(launch_attr, "singleTop")
+main.set(launch_attr, "singleTask")
+main.set(document_launch_attr, "never")
 main.set(config_attr, "orientation|screenSize|keyboardHidden")
 
 # Reiflix bridge deep-link retained alongside Flet's launcher intent filter.

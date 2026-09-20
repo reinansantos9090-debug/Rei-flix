@@ -107,7 +107,7 @@ class ProfessionalMetadataTests(unittest.TestCase):
             "genres": ["Action"],
             "seasonYear": 2013,
         }
-        with patch.object(self.service.anilist, "by_id", return_value=media):
+        with patch.object(self.service.anilist, "search", return_value=[media]):
             refreshed = self.service.refresh_metadata("attack on titan", "Attack on Titan", force=True)
         self.assertEqual(refreshed["title"], "Meu Título")
         self.assertEqual(refreshed["description"], "Minha descrição")
@@ -150,12 +150,12 @@ class ProfessionalMetadataTests(unittest.TestCase):
     def test_refresh_is_idempotent(self):
         self._anime()
         media = {"id": 16498, "title": {"english": "Attack on Titan", "romaji": "AOT"}, "genres": ["Action"]}
-        with patch.object(self.service.anilist, "by_id", return_value=media) as by_id:
+        with patch.object(self.service.anilist, "search", return_value=[media]) as search:
             first = self.service.refresh_metadata("attack on titan", "Attack on Titan", force=True)
             second = self.service.refresh_metadata("attack on titan", "Attack on Titan", force=True)
         self.assertEqual(first["anilist_id"], second["anilist_id"])
         self.assertEqual(self.store.association("attack on titan"), 16498)
-        self.assertEqual(by_id.call_count, 1)
+        self.assertEqual(search.call_count, 1)
 
     def test_stale_state_is_read_only_and_does_not_fake_refresh(self):
         self._anime()

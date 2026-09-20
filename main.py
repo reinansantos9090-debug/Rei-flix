@@ -41,7 +41,7 @@ async def main(page: ft.Page):
     saf_selection = SafSelectionState()
     # Runtime snapshots are deliberately not stored in SQLite: only Android is
     # proof of a current grant.  ``dismissed`` prevents an automatic prompt loop.
-    storage_onboarding = {"media": None, "broad": None, "dismissed": False,
+    storage_onboarding = {"media": None, "broad": None, "saf": None, "dismissed": False,
                           "dialog_open": False, "waiting_for_result": False}
     def show(control): page.clean(); page.add(control); page.update()
     def render_current():
@@ -215,10 +215,10 @@ async def main(page: ft.Page):
         await bridge.open_broad_storage_settings()
 
     def storage_state():
-        saf_available = any(
-            folder.get("kind") == "saf" and folder.get("authorization") == "granted"
-            for folder in store.folders()
-        )
+        # SAF is authoritative only after MainActivity has published its current
+        # persisted URI grant inventory. The durable folder row is not proof of
+        # a current Android grant across process restarts.
+        saf_available = storage_onboarding["saf"] is True
         return storage_access_state(
             storage_onboarding["media"],
             bool(storage_onboarding["broad"]),
@@ -230,7 +230,11 @@ async def main(page: ft.Page):
         """Show at most one post-render explanation based on Android's snapshot."""
         if not bridge.available or storage_onboarding["dialog_open"] or storage_onboarding["waiting_for_result"]:
             return
-        if storage_onboarding["media"] is None or storage_onboarding["broad"] is None:
+        if (
+            storage_onboarding["media"] is None
+            or storage_onboarding["broad"] is None
+            or storage_onboarding["saf"] is None
+        ):
             return
         state = storage_state()
         if state != StorageAccessState.NEEDS_MEDIA_PERMISSION:
@@ -637,6 +641,7 @@ async def main(page: ft.Page):
                                 for item in trees
                                 if isinstance(item, dict) and item.get('treeUri')
                             }
+                            storage_onboarding["saf"] = bool(current_uris)
                             logger.info(
                                 "[STORAGE] action=saf_inventory native_result=received "
                                 "count=%s lifecycle=%s",
@@ -659,6 +664,7 @@ async def main(page: ft.Page):
                                         'A autorização SAF desta pasta não está mais presente no Android.',
                                     )
                             refresh_settings_if_active()
+                            maybe_show_storage_onboarding()
                         elif event_type == 'saf_cancelled':
                             saf_selection.finish()
                             storage_onboarding["waiting_for_result"] = False
@@ -666,6 +672,8 @@ async def main(page: ft.Page):
                             refresh_settings_if_active()
                         elif event_type == 'saf_permission':
                             storage_onboarding["waiting_for_result"] = False
+                            if payload.get('granted'):
+                                storage_onboarding["saf"] = True
                             tree_uri = payload.get('treeUri')
                             if tree_uri:
                                 if payload.get('granted'):

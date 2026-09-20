@@ -182,6 +182,18 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
             low,
         )
 
+    def test_all_supported_special_types_never_enter_regular_navigation(self):
+        from core.consumption import is_regular_episode
+        for index, episode_type in enumerate(("special", "ova", "oad", "ona", "extra"), start=1):
+            path = f"content://cycle/special-{index}"
+            self.assertFalse(
+                is_regular_episode({"episode_type": episode_type}),
+                episode_type,
+            )
+            self.episode(path, 1, index, episode_type=episode_type)
+        regular = self.episode("content://cycle/regular-after-specials", 1, 20)
+        self.assertIsNone(self.store.previous_episode(regular))
+
     def test_special_only_library_has_playback_target_without_joining_regular_sequence(self):
         special = self.episode("content://cycle/special-only", 1, 1, episode_type="ova")
         self.assertEqual(

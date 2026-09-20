@@ -58,6 +58,11 @@ class AndroidBridge:
         request_id = uuid.uuid4().hex
         query = urlencode({"action": action, "request_id": request_id, **{k: v for k, v in params.items() if v is not None}})
         url = f"reiflix://native?{query}"
+        logger.info(
+            "[STORAGE] request_id=%s action=%s python_callback=dispatch launch_url=true",
+            request_id,
+            action,
+        )
         # Flet delivers the custom-scheme intent through Android's external URL
         # resolver. Every command gets a unique request id so MainActivity can
         # distinguish a real repeated command from duplicate delivery of the same

@@ -224,8 +224,8 @@ object BroadStorageScanner {
                 if (!child.isFile || child.extension.lowercase() !in videoExtensions) continue
                 val file = runCatching { child.canonicalFile }.getOrNull() ?: continue
                 val root = rootForFile(file, rootFiles)
-                val volumeName = root?.let { volumeKey(context, it) } ?: ""
-                val relative = root?.let { relativePath(file, it) } ?: file.name
+                val volumeName = root?.let { volumeKey(context, it.file) } ?: ""
+                val relative = root?.let { relativePath(file, it.file) } ?: file.name
                 docs.put(JSONObject().put("uri",Uri.fromFile(file).toString()).put("path",file.path)
                     .put("name",file.name).put("relativePath",relative).put("volumeName",volumeName)
                     .put("mimeType",mimeFor(file.extension))

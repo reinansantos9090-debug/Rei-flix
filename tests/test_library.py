@@ -335,7 +335,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             store.set_episode_identification('/library/demo.mkv', season=3, number=12, episode_type='special', title='Final alternativo')
             store.upsert_episode(anime, '/library/demo.mkv', 'Demo S01E01.mkv', 1, 1,
                                  episode_type='regular', identification_source='sxxexx', identification_confidence='high')
-            episode = store.catalog()[0]['seasons'][0]['episodes'][0]
+            episode = store.catalog()[0]['specials'][0]['episodes'][0]
             self.assertEqual((episode['season'], episode['number'], episode['episode_type']), (3, 12, 'special'))
             self.assertTrue(episode['manual_override'])
             self.assertEqual((episode['progress'], episode['duration']), (30, 100))

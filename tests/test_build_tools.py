@@ -162,7 +162,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("private var suppressExitEvent = false", player)
         self.assertIn("suppressExitEvent = true", player)
-        self.assertIn("if (!suppressExitEvent) saveProgress(\"player_exited\", force = true)", player)
+        self.assertIn("if (!suppressExitEvent && !isChangingConfigurations)", player)
 
     def test_template_requires_the_immersive_system_ui_controller(self):
         source = PREPARE_TEMPLATE.read_text(encoding="utf-8")

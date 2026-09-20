@@ -56,6 +56,19 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         self.assertEqual(0, row["duration"])
         self.assertFalse(row["watched"])
 
+    def test_invalid_playback_values_and_created_at_are_rejected(self):
+        path = self.episode("content://cycle/invalid", 1, 4)
+        self.assertFalse(self.store.save_progress(path, float("nan"), 100))
+        self.assertFalse(self.store.save_progress(path, 50, float("inf")))
+        self.assertFalse(self.store.save_progress(path, 50, 100, event_created_at=float("nan")))
+        self.assertFalse(self.store.save_progress(path, 50, 100, event_created_at=float("inf")))
+        row = self.store.physical_row(path)
+        self.assertEqual(0, row["progress"])
+        self.assertEqual(0, row["duration"])
+        self.assertFalse(row["watched"])
+        self.assertIsNone(row["last_played_at"])
+
+
     def test_duplicate_and_out_of_order_native_events_do_not_regress_state(self):
         path = self.episode("content://cycle/order", 1, 3)
         t1 = int(time.time() * 1000)

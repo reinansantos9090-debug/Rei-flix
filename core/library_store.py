@@ -700,8 +700,8 @@ class LibraryStore:
             return False
         if not (math.isfinite(position) and math.isfinite(duration)):
             return False
-        if event_time is not None and not math.isfinite(event_time):
-            event_time = None
+        if event_created_at is not None and (event_time is None or not math.isfinite(event_time)):
+            return False
         if position < 0 or duration < 0:
             return False
         if duration > 0:
@@ -724,8 +724,14 @@ class LibraryStore:
                 if durable_time and event_time < durable_time - 0.001:
                     return False
                 updated = c.execute(
-                    "UPDATE episodes SET progress=?,duration=?,watched=CASE WHEN ? > 0 AND (? / ?) >= 0.90 THEN 1 ELSE watched END,last_played_at=? WHERE path=?",
-                    (position, duration, duration, position, duration, event_time, path),
+                    "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
+                    (
+                        position,
+                        duration,
+                        int(is_completed({"progress": position, "duration": duration, "watched": bool(row["watched"])})),
+                        event_time,
+                        path,
+                    ),
                 ).rowcount
             self._last_playback_event_at[path] = event_time
             return bool(updated)
@@ -733,9 +739,7 @@ class LibraryStore:
             row = c.execute("SELECT watched FROM episodes WHERE path=?", (path,)).fetchone()
             if not row:
                 return False
-            watched = int(bool(row["watched"]))
-            if duration > 0 and position / duration >= 0.90:
-                watched = 1
+            watched = int(is_completed({"progress": position, "duration": duration, "watched": bool(row["watched"])}))
             updated = c.execute(
                 "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
                 (position, duration, watched, now, path),

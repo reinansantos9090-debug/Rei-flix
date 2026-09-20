@@ -7,7 +7,6 @@ from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIR
 from core.android_bridge import AndroidBridge
 from core.navigation import NavigationController, SafSelectionState
 from core.storage_access import StorageAccessState, storage_access_state
-from core.dialogs import dismiss_dialog
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
 from core.google_account import normalize_google_profile

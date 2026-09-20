@@ -65,6 +65,13 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("targetSdkVersion:'36'", workflow)
         self.assertIn("MANAGE_EXTERNAL_STORAGE", workflow)
 
+    def test_workflow_generated_json_validation_uses_safe_heredoc(self):
+        workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
+        self.assertIn("python - <<'PY'", workflow)
+        self.assertIn("Invalid generated JSON {path}: {exc}", workflow)
+        self.assertNotIn("python -c \\\"", workflow)
+        self.assertNotIn("|| true", workflow)
+
     def test_template_preparation_copies_overlay_and_installs_post_generation_hook(self):
         with tempfile.TemporaryDirectory() as d:
             template = Path(d) / "template"; template.mkdir()

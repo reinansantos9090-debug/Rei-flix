@@ -111,7 +111,7 @@ jobs:
           for path in glob.glob("build/flet-build-template/**/*.json", recursive=True):
               with open(path, "r", encoding="utf-8") as handle:
                   raw = handle.read()
-              cleaned = re.sub(r",(\\s*[\\}\\]])", r"\\1", raw)
+              cleaned = re.sub(r",(\s*[\}\]])", r"\1", raw)
               try:
                   data = json.loads(cleaned)
               except json.JSONDecodeError as exc:

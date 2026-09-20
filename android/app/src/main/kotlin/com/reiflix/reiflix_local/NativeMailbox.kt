@@ -31,7 +31,9 @@ object NativeMailbox {
             temporary = temp
             val payload = JSONObject(event.toString())
                 .put("eventId", id)
+                .put("eventVersion", 1)
                 .put("createdAt", System.currentTimeMillis())
+                .put("timestamp", System.currentTimeMillis())
             FileOutputStream(temp).use { stream ->
                 stream.write(payload.toString().toByteArray(Charsets.UTF_8))
                 stream.fd.sync()

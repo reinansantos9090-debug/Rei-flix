@@ -224,12 +224,13 @@ class SearchFilterSort:
         state = self.state
         active = any(_numeric(e.get("progress"), 0) > 0 and not e.get("watched") for e in available)
         watched = bool(available) and all(bool(e.get("watched")) for e in available)
+        any_watched = any(bool(e.get("watched")) for e in available)
         unwatched = any(not e.get("watched") for e in available)
         if state == "Favoritos" and not anime.get("favorite"):
             return False
         if state == "Fixados" and not anime.get("is_pinned"):
             return False
-        if state == "Assistidos" and not watched:
+        if state == "Assistidos" and not any_watched:
             return False
         if state == "Não assistidos" and not unwatched:
             return False

@@ -38,7 +38,6 @@ class NativePlayerActivity : ComponentActivity() {
     private var suppressExitEvent = false
     private var initialSeekApplied = false
     private var autoplayNext = true
-    private var restoredPositionMs = 0L
     private var completionReported = false
     private var sleepDeadline = 0L
     private lateinit var playerView: PlayerView
@@ -233,19 +232,6 @@ class NativePlayerActivity : ComponentActivity() {
         }
         if (::playerView.isInitialized) outState.putInt("resize_mode", playerView.resizeMode)
         outState.putBoolean("autoplay_next", autoplayNext)
-        super.onSaveInstanceState(outState)
-    }
-    override fun onSaveInstanceState(outState: Bundle) {
-        if (::player.isInitialized) {
-            outState.putLong("position_ms", player.currentPosition.coerceAtLeast(0L))
-        } else {
-            outState.putLong("position_ms", restoredPositionMs.coerceAtLeast(0L))
-        }
-        outState.putBoolean("autoplay_next", autoplayNext)
-        // Configuration recreation is not a real player exit. Progress is
-        // flushed here/lifecycle, while the replacement Activity resumes the
-        // same media and position.
-        suppressExitEvent = true
         super.onSaveInstanceState(outState)
     }
     override fun onPause() { saveProgress("player_paused", force = true); super.onPause() }

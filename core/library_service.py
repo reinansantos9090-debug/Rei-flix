@@ -140,14 +140,16 @@ class LibraryService:
             if key not in metadata:
                 try:
                     metadata[key] = self._identify(key, item.anime_title, on_status)
+                    metadata[key]["media_kind"] = "movie" if item.episode_type == "movie" else "series"
                 except Exception as exc:
                     # Metadata must never make a locally readable file vanish.
                     metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
                     result.errors.append(f"{item.anime_title}: AniList indisponível ({exc})")
                     logger.warning("Metadata lookup failed for local title %s: %s", item.anime_title, exc)
-            anime_id=self.store.upsert_anime(key,metadata[key]); self.store.upsert_episode(anime_id,path,os.path.basename(path),item.season,item.episode,source_folder=source_folder,
+                metadata[key]["media_kind"] = "movie" if item.episode_type == "movie" else "series"
+            anime_id=self.store.upsert_anime(key,metadata[key]); self.store.upsert_episode(anime_id,path,os.path.basename(path),item.season,item.episode,source_folder=source_folder, absolute_number=item.absolute_number,
                 episode_type=item.episode_type, episode_title=item.display_title, identification_source=item.identification_source, identification_confidence=item.confidence)
-        result.catalog=self.store.catalog(); result.animes=len(result.catalog); result.episodes=sum(len(s['episodes']) for a in result.catalog for s in a['seasons'])
+        result.catalog=self.store.catalog(); result.animes=len(result.catalog); result.episodes=sum(len(s["episodes"]) for a in result.catalog for s in a["seasons"]) + sum(len(a.get("media_files", [])) for a in result.catalog)
         self.store.finish_scan(run_id, result.__dict__); on_status(result.message()); return result
     def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *, folder_name=None, scan_errors=None, scan_stats=None, source_kind="saf"):
         """Persist video document URIs enumerated by Android's ContentResolver."""
@@ -190,16 +192,18 @@ class LibraryService:
             if key not in metadata:
                 try:
                     metadata[key] = self._identify(key, item.anime_title, on_status)
+                    metadata[key]["media_kind"] = "movie" if item.episode_type == "movie" else "series"
                 except Exception as exc:
                     metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
                     logger.warning("Metadata lookup failed for SAF title %s: %s", item.anime_title, exc)
+                metadata[key]["media_kind"] = "movie" if item.episode_type == "movie" else "series"
             anime_id = self.store.upsert_anime(key, metadata[key])
             self.store.upsert_episode(
                 anime_id, uri, name, item.season, item.episode,
                 document.get("mimeType"), document.get("size"), document.get("modifiedAt"), tree_uri,
                 local_media_identity(uri=uri, source_kind=source_kind, relative_path=relative_path,
                                      size=document.get("size"), modified_at=document.get("modifiedAt"),
-                                     volume_id=document.get("volumeId")),
+                                     volume_id=document.get("volumeId")), item.absolute_number,
                 episode_type=item.episode_type, episode_title=item.display_title,
                 identification_source=item.identification_source, identification_confidence=item.confidence,
             )
@@ -219,7 +223,7 @@ class LibraryService:
             files=int(scan_stats.get("files") or len(documents)),
             videos=int(scan_stats.get("videos") or len(documents)),
             animes=len(catalog),
-            episodes=sum(len(season["episodes"]) for anime in catalog for season in anime["seasons"]),
+            episodes=sum(len(season["episodes"]) for anime in catalog for season in anime["seasons"]) + sum(len(anime.get("media_files", [])) for anime in catalog),
             errors=scan_errors,
         )
         self.store.finish_scan(run_id, result.__dict__)

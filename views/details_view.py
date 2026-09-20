@@ -25,6 +25,8 @@ class DetailView:
         alternate_title = next((value for value in alternate_titles if value and value != title), None)
         seasons = anime_group.get("seasons") or []
         episodes = [episode for season in seasons for episode in season.get("episodes", [])]
+        episodes.extend(episode for group in (anime_group.get("specials") or []) for episode in group.get("episodes", []))
+        episodes.extend(anime_group.get("media_files") or [])
         available = [episode for episode in episodes if not episode.get("missing")]
         missing_count = len(episodes) - len(available)
         favorite = [bool(anime_group.get("favorite"))]

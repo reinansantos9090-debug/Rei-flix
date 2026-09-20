@@ -62,6 +62,8 @@ class HomeView:
             return media_artwork(source, height, icon_size=icon_size)
 
         def player_episode_title(anime_title, episode):
+            if episode.get("episode_type") == "movie":
+                return anime_title
             season = episode.get("season")
             number = episode.get("number")
             if season is not None and number is not None:
@@ -92,7 +94,7 @@ class HomeView:
                 return
             for item in continuing[:8]:
                 progress = ratio(item)
-                episode_label = f"T{item.get('season', 1)} • E{item.get('number') if item.get('number') is not None else '—'}"
+                episode_label = "FILME" if item.get("episode_type") == "movie" else f"T{item.get('season', 1)} • E{item.get('number') if item.get('number') is not None else '—'}"
                 card = ft.Container(
                     width=270, bgcolor=SURFACE, border_radius=RADIUS, padding=10, ink=True,
                     on_click=lambda _, entry=item: play_continuation(entry),
@@ -116,6 +118,8 @@ class HomeView:
 
         def card(anime):
             episodes = [episode for season in anime.get("seasons", []) for episode in season.get("episodes", [])]
+            episodes.extend(episode for group in anime.get("specials", []) for episode in group.get("episodes", []))
+            episodes.extend(anime.get("media_files", []))
             available = [episode for episode in episodes if not episode.get("missing")]
             watched = sum(bool(episode.get("watched")) for episode in available)
             current = anime.get("current_episode") or {}

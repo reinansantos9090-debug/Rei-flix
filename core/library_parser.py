@@ -26,6 +26,7 @@ class ParsedEpisode:
     episode_type: str = "unknown"
     identification_source: str = "unknown"
     confidence: str = "low"
+    absolute_number: int | None = None
 
 
 def _parts(path: str, library_root: str | None) -> list[str]:
@@ -69,6 +70,7 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
     parent = folders[-1] if folders else os.path.basename(os.path.dirname(path))
     season = _folder_season(folders)
     episode = None
+    absolute_number = None
     kind, source, confidence = "unknown", "unknown", "low"
     marker = None
 
@@ -81,6 +83,9 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
     elif _MOVIE.search(stem):
         kind, source, confidence, marker = "movie", "movie_marker", "high", _MOVIE.search(stem)
     else:
+        absolute_match = re.search(r"\b(?:ABS(?:OLUTE)?|ANIME[- ._]?EP)[ ._-]*(\d{1,4})\b", stem, re.I)
+        if absolute_match:
+            absolute_number = int(absolute_match.group(1))
         explicit = _SXXEXX.search(stem)
         cross = _X_EPISODE.search(stem)
         word = _WORD_EPISODE.search(stem)
@@ -95,7 +100,7 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
             season = season or 1
             kind, source, confidence = "regular", "episode_marker", "high"
         else:
-            candidates = list(re.finditer(r"(?<!\d)(\d{1,4})(?:v\d+)?\b", stem))
+            candidates = [] if re.fullmatch(r"\s*\d{1,4}(?:v\d+)?\s*", stem) else list(re.finditer(r"(?<!\d)(\d{1,4})(?:v\d+)?\b", stem))
             if candidates:
                 candidate = candidates[-1]
                 value = int(candidate.group(1))
@@ -113,4 +118,4 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
         title = _clean_title(folders[-2])
     if not title:
         title = "Arquivo não identificado"
-    return ParsedEpisode(title, season, episode, stem, extension.lower(), kind, source, confidence)
+    return ParsedEpisode(title, season, episode, stem, extension.lower(), kind, source, confidence, absolute_number)

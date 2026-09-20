@@ -193,7 +193,7 @@ object BroadStorageScanner {
         var videos = 0
         var excludedNoMedia = 0
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE)
-            .put("directories",0).put("files",0).put("videos",0).put("nomediaDirectories",0))
+            .put("directories",0).put("files",0).put("videos",0).put("excludedNoMedia",0))
         while (pending.isNotEmpty()) {
             val (dir, root) = pending.removeLast()
             val canonical = runCatching { dir.canonicalFile }.getOrElse { dir }
@@ -236,7 +236,7 @@ object BroadStorageScanner {
                     Log.i(TAG, "VIDEO_PROGRESS: videos=$videos, files=$files, directories=$directories")
                 }
                 if (videos % 100 == 0) onProgress?.invoke(JSONObject().put("phase","scanning")
-                    .put("source",SOURCE).put("directories",directories).put("files",files).put("videos",videos).put("nomediaDirectories",nomediaDirectories))
+                    .put("source",SOURCE).put("directories",directories).put("files",files).put("videos",videos).put("excludedNoMedia",excludedNoMedia))
             }
         }
         Log.i(TAG, "SCAN_COMPLETED: directories=$directories, files=$files, videos=$videos, nomedia=$excludedNoMedia, errors=${errors.length()}")

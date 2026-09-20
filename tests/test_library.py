@@ -1111,8 +1111,12 @@ class DetailsDomainTests(unittest.TestCase):
             )
             texts = []
             def walk(control):
-                if control.__class__.__name__ == "Text" and getattr(control, "value", None):
-                    texts.append(control.value)
+                value = getattr(control, "value", None)
+                button_text = getattr(control, "text", None)
+                if value:
+                    texts.append(value)
+                if button_text:
+                    texts.append(button_text)
                 for child in getattr(control, "controls", []) or []:
                     walk(child)
                 if getattr(control, "content", None) is not None:
@@ -1147,8 +1151,12 @@ class DetailsDomainTests(unittest.TestCase):
             )
             texts = []
             def walk(control):
-                if control.__class__.__name__ == "Text" and getattr(control, "value", None):
-                    texts.append(control.value)
+                value = getattr(control, "value", None)
+                button_text = getattr(control, "text", None)
+                if value:
+                    texts.append(value)
+                if button_text:
+                    texts.append(button_text)
                 for child in getattr(control, "controls", []) or []:
                     walk(child)
                 if getattr(control, "content", None) is not None:
@@ -1182,8 +1190,12 @@ class DetailsDomainTests(unittest.TestCase):
             )
             texts = []
             def walk(control):
-                if control.__class__.__name__ == "Text" and getattr(control, "value", None):
-                    texts.append(control.value)
+                value = getattr(control, "value", None)
+                button_text = getattr(control, "text", None)
+                if value:
+                    texts.append(value)
+                if button_text:
+                    texts.append(button_text)
                 for child in getattr(control, "controls", []) or []:
                     walk(child)
                 if getattr(control, "content", None) is not None:

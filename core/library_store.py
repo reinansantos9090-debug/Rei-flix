@@ -456,15 +456,17 @@ class LibraryStore:
             c.execute("UPDATE anime SET metadata_manual_fields=?,metadata_status=?,metadata_source=? WHERE id=?", (json.dumps(sorted(manual_fields), ensure_ascii=False), "available" if row["anilist_id"] else "unresolved", "anilist" if row["anilist_id"] else "local", row["id"]))
             return True
 
-    def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None, modified_at=None, source_folder=None, media_identity=None, absolute_number=None, episode_type="regular", episode_title=None, *, identification_source=None, identification_confidence=None, identity_key=None):
-        """Upsert by URI, then by proven cross-source identity."""
+    def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None,
+                       modified_at=None, source_folder=None, media_identity=None, absolute_number=None,
+                       episode_type="regular", episode_title=None, *, identification_source=None,
+                       identification_confidence=None, identity_key=None):
+        """Upsert by URI, then by proven cross-source identity.
+
+        Season 0 is the explicit unknown bucket when no season evidence exists;
+        it is never treated as Season 1.
+        """
         season = 0 if season is None else season
         media_identity = media_identity or identity_key
-        identification_source = identification_source or "legacy"
-        identification_confidence = identification_confidence or "medium"
-        media_identity = media_identity or identity_key
-        identification_source = identification_source or "legacy"
-        identification_confidence = identification_confidence or "medium"
         with self._conn() as c:
             by_path = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
             by_identity = None
@@ -474,14 +476,32 @@ class LibraryStore:
                     (media_identity,),
                 ).fetchone()
 
+            def effective_identification(existing):
+                manual = bool(existing and existing["manual_override"])
+                if manual and identification_source is None and identification_confidence is None:
+                    return (
+                        existing["episode_type"],
+                        existing["episode_title"],
+                        existing["identification_source"],
+                        existing["identification_confidence"],
+                    )
+                return (
+                    episode_type,
+                    episode_title,
+                    identification_source or (existing["identification_source"] if existing else "legacy"),
+                    identification_confidence or (existing["identification_confidence"] if existing else "medium"),
+                )
+
             def update_existing(row_id, new_path=None):
+                existing = c.execute("SELECT * FROM episodes WHERE id=?", (row_id,)).fetchone()
+                effective_type, effective_title, effective_source, effective_confidence = effective_identification(existing)
                 if new_path is None:
                     c.execute(
                         """UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                            episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE id=?""",
                         (anime_id,file_name,season,number,mime_type,file_size,modified_at,source_folder,
-                         media_identity,absolute_number,episode_type,episode_title,identification_source,identification_confidence,row_id),
+                         media_identity,absolute_number,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )
                 else:
                     c.execute(
@@ -489,7 +509,7 @@ class LibraryStore:
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                            episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE id=?""",
                         (anime_id,new_path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
-                         media_identity,absolute_number,episode_type,episode_title,identification_source,identification_confidence,row_id),
+                         media_identity,absolute_number,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )
                 return row_id
 
@@ -497,12 +517,34 @@ class LibraryStore:
                 progress = max(float(by_path["progress"] or 0), float(by_identity["progress"] or 0))
                 watched = max(int(by_path["watched"] or 0), int(by_identity["watched"] or 0))
                 last_played = max(float(by_path["last_played_at"] or 0), float(by_identity["last_played_at"] or 0)) or None
+                duplicate_source = (
+                    by_identity["identification_source"] if by_identity["manual_override"]
+                    else by_path["identification_source"] if by_path["manual_override"]
+                    else identification_source or "legacy"
+                )
+                duplicate_confidence = (
+                    by_identity["identification_confidence"] if by_identity["manual_override"]
+                    else by_path["identification_confidence"] if by_path["manual_override"]
+                    else identification_confidence or "medium"
+                )
+                duplicate_type = (
+                    by_identity["episode_type"] if by_identity["manual_override"]
+                    else by_path["episode_type"] if by_path["manual_override"]
+                    else episode_type
+                )
+                duplicate_title = (
+                    by_identity["episode_title"] if by_identity["manual_override"]
+                    else by_path["episode_title"] if by_path["manual_override"]
+                    else episode_title
+                )
                 c.execute(
                     """UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,
                        file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
-                       episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0,progress=?,watched=?,last_played_at=? WHERE id=?""",
+                       episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,
+                       missing=0,progress=?,watched=?,last_played_at=? WHERE id=?""",
                     (anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
-                     media_identity,absolute_number,episode_type,episode_title,identification_source,identification_confidence,progress,watched,last_played,by_identity["id"]),
+                     media_identity,absolute_number,duplicate_type,duplicate_title,duplicate_source,
+                     duplicate_confidence,progress,watched,last_played,by_identity["id"]),
                 )
                 c.execute("DELETE FROM episodes WHERE id=?", (by_path["id"],))
                 return by_identity["id"]
@@ -514,10 +556,12 @@ class LibraryStore:
 
             cur = c.execute(
                 """INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,
-                                         source_folder,missing,media_identity,absolute_number,episode_type,episode_title,identification_source,identification_confidence)
-                   VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)""",
+                                         source_folder,missing,media_identity,absolute_number,episode_type,episode_title,
+                                         identification_source,identification_confidence)
+                   VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?)""",
                 (anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
-                 media_identity,absolute_number,episode_type,episode_title,identification_source,identification_confidence),
+                 media_identity,absolute_number,episode_type,episode_title,
+                 identification_source or "legacy", identification_confidence or "medium"),
             )
             return cur.lastrowid
 

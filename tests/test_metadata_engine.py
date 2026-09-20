@@ -155,7 +155,7 @@ class ProfessionalMetadataTests(unittest.TestCase):
             second = self.service.refresh_metadata("attack on titan", "Attack on Titan", force=True)
         self.assertEqual(first["anilist_id"], second["anilist_id"])
         self.assertEqual(self.store.association("attack on titan"), 16498)
-        self.assertEqual(by_id.call_count, 2)
+        self.assertEqual(by_id.call_count, 1)
 
     def test_stale_state_is_read_only_and_does_not_fake_refresh(self):
         self._anime()

@@ -37,6 +37,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var suppressExitEvent = false
     private var initialSeekApplied = false
     private var autoplayNext = true
+    private var completionReported = false
     private var sleepDeadline = 0L
     private lateinit var playerView: PlayerView
     private val title get() = intent.getStringExtra("title") ?: "Episódio"
@@ -63,7 +64,7 @@ class NativePlayerActivity : ComponentActivity() {
         }
 
         player = ExoPlayer.Builder(this).build()
-        autoplayNext = getSharedPreferences("reiflix_player", MODE_PRIVATE).getBoolean("autoplay_next", true)
+        autoplayNext = intent.getBooleanExtra("autoplay", true)
         playerView = PlayerView(this).apply {
             player = this@NativePlayerActivity.player
             useController = true
@@ -85,7 +86,8 @@ class NativePlayerActivity : ComponentActivity() {
                     }
                     handler.removeCallbacks(progressReporter)
                     handler.postDelayed(progressReporter, PROGRESS_INTERVAL_MS)
-                } else if (state == Player.STATE_ENDED) {
+                } else if (state == Player.STATE_ENDED && !completionReported) {
+                    completionReported = true
                     saveProgress("player_completed", force = true)
                     if (autoplayNext && intent.getBooleanExtra("canNext", false)) requestEpisode("player_next_request")
                 }
@@ -135,7 +137,9 @@ class NativePlayerActivity : ComponentActivity() {
             setOnClickListener {
                 autoplayNext = !autoplayNext
                 text = if (autoplayNext) "Autoplay: ON" else "Autoplay: OFF"
-                getSharedPreferences("reiflix_player", MODE_PRIVATE).edit().putBoolean("autoplay_next", autoplayNext).apply()
+                NativeMailbox.write(this@NativePlayerActivity, JSONObject()
+                    .put("type", "player_autoplay_changed")
+                    .put("payload", JSONObject().put("enabled", autoplayNext)))
             }
         }, bottomParams(Gravity.TOP or Gravity.END, 24))
         root.addView(Button(this).apply {
@@ -195,7 +199,7 @@ class NativePlayerActivity : ComponentActivity() {
         handler.removeCallbacks(progressReporter)
         handler.removeCallbacks(sleepReporter)
         if (::player.isInitialized) {
-            if (!suppressExitEvent) saveProgress("player_exited", force = true)
+            if (!suppressExitEvent && !completionReported) saveProgress("player_exited", force = true)
             player.release()
         }
         super.onDestroy()
@@ -222,12 +226,20 @@ class NativePlayerActivity : ComponentActivity() {
     }
     private fun saveProgress(eventType: String, force: Boolean = false) {
         if (!::player.isInitialized) return
-        val position = player.currentPosition.coerceAtLeast(0L)
+        val rawPosition = player.currentPosition
+        val rawDuration = player.duration
+        val position = rawPosition.takeIf { it >= 0L }?.coerceAtMost(
+            rawDuration.takeIf { it > 0L } ?: Long.MAX_VALUE
+        ) ?: 0L
+        val duration = rawDuration.takeIf { it > 0L } ?: 0L
         if (!force && (position - lastSavedPosition) < PROGRESS_INTERVAL_MS) return
+        // Lifecycle callbacks can fire back-to-back (pause -> stop -> destroy).
+        // Avoid emitting identical snapshots while still flushing meaningful events.
+        if (force && position == lastSavedPosition && eventType != "player_completed") return
         lastSavedPosition = position
         NativeMailbox.write(this, JSONObject().put("type", eventType).put("payload", JSONObject()
             .put("uri", uri.toString()).put("positionMs", position)
-            .put("durationMs", player.duration.coerceAtLeast(0L))))
+            .put("durationMs", duration)))
     }
     private fun reportError(message: String) {
         NativeMailbox.write(this, JSONObject().put("type", "player_error").put("message", message))

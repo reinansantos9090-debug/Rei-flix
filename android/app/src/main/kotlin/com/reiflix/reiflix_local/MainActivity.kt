@@ -30,6 +30,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var mediaPermissionRequestPending = false
     private var activityResumed = false
     private var pendingLifecycleAction: String? = null
+    private var lastHandledNativeRequestId: String? = null
     private val activeNativeScans = mutableSetOf<String>()
 
     @Synchronized
@@ -101,8 +102,15 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun logLifecycle(event: String, intent: Intent? = null) {
-        val action = intent?.data?.getQueryParameter("action")
-        Log.i(tag, "LIFECYCLE $event instance=${System.identityHashCode(this)} task=$taskId resumed=$activityResumed finishing=$isFinishing action=${action ?: "-"} flags=0x${intent?.flags?.toString(16) ?: "0"}")
+        val data = intent?.data
+        val action = data?.getQueryParameter("action")
+        val requestId = data?.getQueryParameter("request_id")
+        Log.i(
+            tag,
+            "LIFECYCLE $event instance=${System.identityHashCode(this)} task=$taskId resumed=$activityResumed " +
+                "focused=${window?.decorView?.hasWindowFocus() == true} finishing=$isFinishing " +
+                "action=${action ?: "-"} requestId=${requestId ?: "-"} flags=0x${intent?.flags?.toString(16) ?: "0"}"
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -172,7 +180,21 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun handleNativeIntent(intent: Intent?) {
-        val action = intent?.data?.getQueryParameter("action") ?: return
+        val data = intent?.data ?: return
+        if (data.scheme != "reiflix" || data.host != "native") {
+            Log.w(tag, "Ignoring unsupported native intent: $data")
+            return
+        }
+        val action = data.getQueryParameter("action") ?: return
+        val requestId = data.getQueryParameter("request_id")
+        if (!requestId.isNullOrBlank() && requestId == lastHandledNativeRequestId) {
+            Log.i(tag, "Ignoring duplicate native request: action=$action requestId=$requestId")
+            return
+        }
+        if (!requestId.isNullOrBlank()) {
+            lastHandledNativeRequestId = requestId
+        }
+        Log.i(tag, "NATIVE_INTENT action=$action requestId=${requestId ?: "-"} task=$taskId resumed=$activityResumed flags=0x${intent.flags.toString(16)}")
         when (action) {
             "select_tree" -> openTreePicker()
             "scan_tree" -> scanTree(intent.data?.getQueryParameter("tree_uri"))
@@ -261,7 +283,15 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         mediaPermissionRequestPending = true
-        mediaPermissionRequester.launch(permissions)
+        try {
+            mediaPermissionRequester.launch(permissions)
+        } catch (exception: Exception) {
+            mediaPermissionRequestPending = false
+            Log.e(tag, "Media permission launcher failed", exception)
+            NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
+                .put("message", "Não foi possível abrir a solicitação de permissão para vídeos.")
+                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
+        }
     }
 
     private fun publishStorageStatus() {
@@ -283,8 +313,6 @@ class MainActivity : FlutterFragmentActivity() {
             publishStorageStatus()
             return
         }
-        NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
-            .put("payload", JSONObject().put("granted", false).put("source", BroadStorageScanner.SOURCE)))
         if (Build.VERSION.SDK_INT >= 30) {
             broadStoragePermissionPending = true
             val packageIntent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)

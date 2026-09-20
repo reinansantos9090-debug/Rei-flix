@@ -5,7 +5,6 @@ out of Flet controls.  It intentionally reads only compact store projections.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 
 import flet as ft
@@ -68,8 +67,6 @@ class SettingsView:
                 busy["permission"] = True
                 try:
                     dismiss_dialog(page, dialog)
-                    # Yield after the Flet patch is queued before opening Android UI.
-                    await asyncio.sleep(0)
                     await on_request_video_access()
                     notice("Solicitação de permissão para ler vídeos enviada ao Android…")
                 except Exception:
@@ -100,7 +97,6 @@ class SettingsView:
                 busy["permission"] = True
                 try:
                     dismiss_dialog(page, dialog)
-                    await asyncio.sleep(0)
                     await on_open_broad_storage()
                     notice("Abrindo as configurações do Android para permitir o acesso ao armazenamento…")
                 except Exception:

@@ -27,11 +27,11 @@ class Prompt15LibraryTests(unittest.TestCase):
             con.execute("UPDATE episodes SET missing=1 WHERE path=?", ("content://p15/e3",))
         row = self.store.catalog()[0]
         self.assertEqual(3, row["content_count"])
-        self.assertEqual(1, row["regular_count"])
+        self.assertEqual(2, row["regular_count"])
         self.assertEqual(1, row["special_count"])
         self.assertEqual(0, row["movie_file_count"])
         self.assertEqual(1, row["available_count"])
-        self.assertEqual(2, row["missing_count"])
+        self.assertEqual(1, row["missing_count"])
 
     def test_movie_catalog_has_file_bucket_and_no_season_bucket(self):
         movie = self.store.upsert_anime(

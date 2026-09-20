@@ -323,7 +323,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(store.catalog()[0]['main_title'], 'Naruto')
             self.assertEqual(store.get_preference('missing', 'default'), 'default')
             with store._conn() as con:
-                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], 20)
+                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], 21)
 
     def test_manual_episode_identification_survives_rescan_and_migration_fields(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1118,9 +1118,9 @@ class DetailsDomainTests(unittest.TestCase):
                 if getattr(control, "content", None) is not None:
                     walk(control.content)
             walk(view)
-            self.assertIn("Arquivo local", texts)
+            self.assertIn("ARQUIVO LOCAL", texts)
             self.assertNotIn("S01E01", " ".join(map(str, texts)))
-            self.assertIn("Duração • 120min", texts)
+            self.assertIn("Duração • 2h 00min", texts)
 
     def test_details_special_only_uses_special_playback_action(self):
         class FakePage:
@@ -1189,7 +1189,7 @@ class DetailsDomainTests(unittest.TestCase):
                 if getattr(control, "content", None) is not None:
                     walk(control.content)
             walk(view)
-            self.assertIn("Especiais", texts)
+            self.assertIn("ESPECIAIS", texts)
             self.assertIn("OVA", texts)
 
     def test_catalog_orders_seasons_and_episodes_deterministically(self):

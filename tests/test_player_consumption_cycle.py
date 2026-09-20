@@ -134,6 +134,28 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         row = self.store.physical_row(path)
         self.assertEqual(47, row["progress"])
 
+
+
+    def test_out_of_order_event_is_still_rejected_after_store_reopen(self):
+        path = self.episode("content://cycle/reopen-order", 1, 6)
+        t1 = int(time.time() * 1000)
+        self.assertTrue(self.store.save_progress(path, 80, 100, event_created_at=t1))
+        reopened = LibraryStore(self.tmp.name)
+        self.assertFalse(reopened.save_progress(path, 40, 100, event_created_at=t1 - 1000))
+        self.assertEqual(80, reopened.physical_row(path)["progress"])
+
+    def test_replaying_older_completed_episode_does_not_move_next_episode_backwards(self):
+        e1 = self.episode("content://cycle/replay-e1", 1, 1)
+        e2 = self.episode("content://cycle/replay-e2", 1, 2)
+        e3 = self.episode("content://cycle/replay-e3", 1, 3)
+        self.store.save_progress(e1, 100, 100)
+        self.store.save_progress(e2, 100, 100)
+        self.assertEqual(e3, self.store.next_episode(e2)["path"])
+        self.store.save_progress(e1, 20, 100)
+        self.assertEqual(e2, self.store.playback_target(self.anime)["path"])
+        self.store.save_progress(e1, 100, 100)
+        self.assertEqual(e3, self.store.playback_target(self.anime)["path"])
+
     def test_native_player_contract_uses_single_autoplay_preference(self):
         from pathlib import Path
         root = Path(__file__).resolve().parents[1]

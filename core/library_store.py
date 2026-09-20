@@ -715,11 +715,15 @@ class LibraryStore:
                 if not row:
                     return False
                 durable_time = float(row["last_played_at"] or 0.0)
-                if event_time < durable_time - 0.001:
+                # last_played_at is also the durable playback-event clock. Older
+                # events must never overwrite a newer event, including after a
+                # Python process restart. This avoids using wall-clock processing
+                # time, which could be later than the event that was just queued.
+                if durable_time and event_time < durable_time - 0.001:
                     return False
                 updated = c.execute(
                     "UPDATE episodes SET progress=?,duration=?,watched=CASE WHEN ? > 0 AND (? / ?) >= 0.90 THEN 1 ELSE watched END,last_played_at=? WHERE path=?",
-                    (position, duration, duration, position, duration, now, path),
+                    (position, duration, duration, position, duration, event_time, path),
                 ).rowcount
             self._last_playback_event_at[path] = event_time
             return bool(updated)
@@ -919,16 +923,11 @@ class LibraryStore:
                 if not episode["missing"] and (is_movie or is_regular_episode(episode))
             ]
             active = [episode for episode in available if is_in_progress(episode)]
-            latest_played = max((episode.get("last_played_at") or 0 for episode in available), default=0)
-            if active:
-                episode = max(active, key=lambda entry: entry.get("last_played_at") or 0)
-            else:
-                completed = [episode for episode in available if episode["watched"]]
-                episode = self._adjacent_from_rows(max(completed, key=lambda entry: entry.get("last_played_at") or 0), available, 1) if completed else None
-            if not episode:
+            if not active:
+                # Continue Watching is strictly a projection of resumable media.
+                # The next episode belongs to the separate Next Episode projection.
                 continue
-            episode = dict(episode)
-            episode["last_played_at"] = episode.get("last_played_at") or latest_played
+            episode = max(active, key=lambda entry: entry.get("last_played_at") or 0)
             first = episodes[0]
             items.append({"anime_id": anime_id, "anime_title": first["anime_title"],
                           "cover": first["cover_cache"] or first["cover_url"], **episode})

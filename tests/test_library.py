@@ -894,7 +894,8 @@ class LibraryStateTests(unittest.TestCase):
             current = store.current_episode(anime)
             self.assertEqual(current['path'], paths[2])
             continuation = store.continue_watching()
-            self.assertEqual(continuation[0]['path'], paths[2])
+            self.assertEqual(continuation, [])
+            self.assertEqual(store.next_episode(paths[1])['path'], paths[2])
 
     def test_metadata_refresh_preserves_cached_cover_when_new_download_fails(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1585,9 +1586,9 @@ class OrganizeTests(unittest.TestCase):
             with store._conn() as con:
                 con.execute('UPDATE episodes SET missing=1 WHERE path=?', (missing,))
             items = store.continue_watching()
-            self.assertEqual(len(items), 1)
-            self.assertEqual(items[0]['path'], second)
-            self.assertFalse(items[0]['watched'])
+            self.assertEqual(items, [])
+            self.assertEqual(store.next_episode(first)['path'], second)
+            self.assertFalse(store.physical_row(second)['watched'])
 
     def test_final_completed_episode_does_not_wrap_to_first_episode(self):
         with tempfile.TemporaryDirectory() as d:

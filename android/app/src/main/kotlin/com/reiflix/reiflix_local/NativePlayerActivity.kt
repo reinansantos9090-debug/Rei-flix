@@ -65,13 +65,20 @@ class NativePlayerActivity : ComponentActivity() {
         }
 
         player = ExoPlayer.Builder(this).build()
-        autoplayNext = intent.getBooleanExtra("autoplay", true)
+        autoplayNext = savedInstanceState?.takeIf { it.containsKey("autoplay_next") }?.getBoolean("autoplay_next")
+            ?: intent.getBooleanExtra("autoplay", true)
         playerView = PlayerView(this).apply {
             player = this@NativePlayerActivity.player
             useController = true
             controllerShowTimeoutMs = 3500
             controllerAutoShow = true
             contentDescription = title
+            resizeMode = savedInstanceState?.takeIf { it.containsKey("resize_mode") }?.getInt(
+                "resize_mode", PlayerView.RESIZE_MODE_FIT
+            ) ?: PlayerView.RESIZE_MODE_FIT
+        }
+        savedInstanceState?.takeIf { it.containsKey("playback_speed") }?.getFloat("playback_speed")?.let { speed ->
+            if (speed > 0f && speed.isFinite()) player.setPlaybackSpeed(speed)
         }
         setContentView(FrameLayout(this).apply {
             setBackgroundColor(android.graphics.Color.BLACK)
@@ -82,7 +89,8 @@ class NativePlayerActivity : ComponentActivity() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     if (!initialSeekApplied) {
-                        seekToSavedPosition()
+                        val savedPosition = savedInstanceState?.takeIf { it.containsKey("position_ms") }?.getLong("position_ms")
+                        seekToSavedPosition(savedPosition)
                         initialSeekApplied = true
                     }
                     handler.removeCallbacks(progressReporter)
@@ -104,8 +112,9 @@ class NativePlayerActivity : ComponentActivity() {
                 }
             }
             override fun onPlayerError(error: PlaybackException) {
-                // player_error is the terminal signal for an unreadable media item.
-                // Suppress player_exited here so Python does not navigate back twice.
+                // An error is never completion, but the last reliable position is
+                // still useful for Resume. Flush it before leaving the Activity.
+                saveProgress("player_progress", force = true)
                 suppressExitEvent = true
                 reportError("Não foi possível reproduzir este arquivo neste dispositivo.")
                 finish()
@@ -187,10 +196,21 @@ class NativePlayerActivity : ComponentActivity() {
         handler.removeCallbacks(sleepReporter)
         if (sleepDeadline > 0) handler.postDelayed(sleepReporter, 1_000L)
     }
-    private val sleepReporter = object : Runnable { override fun run() { if (sleepDeadline > 0 && System.currentTimeMillis() >= sleepDeadline) { player.pause(); sleepDeadline = 0; Toast.makeText(this@NativePlayerActivity, "Timer de sono concluído", Toast.LENGTH_SHORT).show() } else if (sleepDeadline > 0) handler.postDelayed(this, 1_000L) } }
+    private val sleepReporter = object : Runnable {
+        override fun run() {
+            if (sleepDeadline > 0 && System.currentTimeMillis() >= sleepDeadline) {
+                saveProgress("player_paused", force = true)
+                player.pause()
+                sleepDeadline = 0
+                Toast.makeText(this@NativePlayerActivity, "Timer de sono concluído", Toast.LENGTH_SHORT).show()
+            } else if (sleepDeadline > 0) {
+                handler.postDelayed(this, 1_000L)
+            }
+        }
+    }
 
     private fun requestEpisode(eventType: String) {
-        saveProgress("player_progress", force = true)
+        if (!completionReported) saveProgress("player_progress", force = true)
         // The incoming replacement player owns the next screen state; avoid
         // emitting a misleading normal-exit event while changing episodes.
         suppressExitEvent = true
@@ -198,19 +218,29 @@ class NativePlayerActivity : ComponentActivity() {
         finish()
     }
 
-    private fun seekToSavedPosition() {
-        val requested = intent.getLongExtra("positionMs", 0L).coerceAtLeast(0L)
+    private fun seekToSavedPosition(savedPositionMs: Long? = null) {
+        val requested = (savedPositionMs ?: intent.getLongExtra("positionMs", 0L)).coerceAtLeast(0L)
         val duration = player.duration
         if (requested > 0 && (duration == C.TIME_UNSET || requested < duration)) player.seekTo(requested)
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (::player.isInitialized) {
+            outState.putLong("position_ms", player.currentPosition.coerceAtLeast(0L))
+            outState.putLong("duration_ms", player.duration.coerceAtLeast(0L))
+            outState.putFloat("playback_speed", player.playbackParameters.speed)
+        }
+        if (::playerView.isInitialized) outState.putInt("resize_mode", playerView.resizeMode)
+        outState.putBoolean("autoplay_next", autoplayNext)
+        super.onSaveInstanceState(outState)
+    }
     override fun onPause() { saveProgress("player_paused", force = true); super.onPause() }
     override fun onStop() { saveProgress("player_progress", force = true); super.onStop() }
     override fun onDestroy() {
         handler.removeCallbacks(progressReporter)
         handler.removeCallbacks(sleepReporter)
         if (::player.isInitialized) {
-            if (!suppressExitEvent && !completionReported) saveProgress("player_exited", force = true)
+            if (!suppressExitEvent) saveProgress("player_exited", force = true)
             player.release()
         }
         super.onDestroy()
@@ -246,7 +276,8 @@ class NativePlayerActivity : ComponentActivity() {
         if (!force && abs(position - lastSavedPosition) < PROGRESS_INTERVAL_MS) return
         // Lifecycle callbacks can fire back-to-back (pause -> stop -> destroy).
         // Avoid emitting identical snapshots while still flushing meaningful events.
-        if (force && position == lastSavedPosition && eventType != "player_completed") return
+        if (force && position == lastSavedPosition &&
+            eventType != "player_completed" && eventType != "player_exited") return
         lastSavedPosition = position
         NativeMailbox.write(this, JSONObject().put("type", eventType).put("payload", JSONObject()
             .put("uri", uri.toString()).put("positionMs", position)

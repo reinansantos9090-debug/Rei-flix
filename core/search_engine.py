@@ -203,7 +203,7 @@ def _query_matches(anime: dict, query: str) -> bool:
         return True
     episodes = _episodes(anime)
     compact = normalize_text(query).replace(" ", "")
-    looks_like_identifier = bool(re.fullmatch(r"(?:s\\d{1,3}(?:e\\d{1,5})?|(?:e|ep|episodio|episode)\\d{1,5}|(?:absolute|abs)\\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)", compact))
+    looks_like_identifier = bool(re.fullmatch(r"(?:s\d{1,3}(?:e\d{1,5})?|(?:e|ep|episodio|episode)\d{1,5}|(?:absolute|abs)\d+(?:\.\d+)?|\d+(?:\.\d+)?)", compact))
     if len(query_tokens) == 1 and looks_like_identifier:
         return _identifier_match(query, episodes)
     haystack = " ".join(_search_values(anime))

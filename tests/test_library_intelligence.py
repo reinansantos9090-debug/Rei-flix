@@ -83,7 +83,7 @@ class LibraryIntelligenceTests(unittest.TestCase):
         self.store.save_progress("content://demo/2", 100, 100)
         self.store.save_progress("content://demo/3", 20, 100)
         rows = self.store.continue_watching()
-        self.assertEqual({"content://demo/1", "content://demo/3"}, {row["path"] for row in rows})
+        self.assertEqual(["content://demo/3"], [row["path"] for row in rows])
 
     def test_special_and_movie_never_become_regular_next_episode(self):
         self.store.upsert_episode(self.anime, "content://demo/special", "Demo OVA.mkv", 1, 99, episode_type="ova")

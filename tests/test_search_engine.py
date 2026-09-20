@@ -82,7 +82,7 @@ class SearchEngineTests(unittest.TestCase):
             tags=["Favorito"], favorite=True, pinned=True, note="assistir depois",
             artwork=True, added_at=30,
             seasons=[
-                episode("One Piece", 1, 1, absolute=1, last_played_at=10, modified_at=30, file_size=100),
+                episode("One Piece", 1, 1, absolute=1, progress=10, last_played_at=10, modified_at=30, file_size=100),
                 episode("One Piece", 1, 2, absolute=2, watched=True, progress=100, last_played_at=20, modified_at=40, file_size=200),
                 episode("One Piece", 1, 10, absolute=100, modified_at=50, file_size=300),
             ],

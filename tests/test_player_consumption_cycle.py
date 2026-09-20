@@ -75,6 +75,42 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         self.store.save_progress(e1, 90, 100)
         self.assertEqual(e2, self.store.playback_target(self.anime)["path"])
 
+
+    def test_event_order_survives_store_reopen(self):
+        path = self.episode("content://cycle/reopen-order", 1, 6)
+        first = int(time.time() * 1000)
+        self.assertTrue(self.store.save_progress(path, 80, 100, event_created_at=first))
+        reopened = LibraryStore(self.tmp.name)
+        self.assertFalse(reopened.save_progress(path, 40, 100, event_created_at=first - 1000))
+        self.assertEqual(80, reopened.physical_row(path)["progress"])
+        self.assertTrue(reopened.save_progress(path, 30, 100, event_created_at=first + 1000))
+        self.assertEqual(30, reopened.physical_row(path)["progress"])
+
+    def test_completed_media_is_not_continue_watching_but_has_next_episode(self):
+        first = self.episode("content://cycle/s1e1", 1, 1)
+        second = self.episode("content://cycle/s1e2", 1, 2)
+        self.store.save_progress(first, 90, 100, event_created_at=int(time.time() * 1000))
+        self.assertEqual([], self.store.continue_watching())
+        self.assertEqual(second, self.store.next_episode(first)["path"])
+
+    def test_home_and_search_reflect_completion_from_the_same_store_state(self):
+        from core.library_service import LibraryService
+
+        first = self.episode("content://cycle/home-e1", 1, 1)
+        second = self.episode("content://cycle/home-e2", 1, 2)
+        self.store.save_progress(first, 90, 100, event_created_at=int(time.time() * 1000))
+        service = LibraryService(self.store)
+        home = service.media_center_home()
+        self.assertFalse(any(item["path"] == first for item in home["continue_watching"]))
+        self.assertTrue(any(
+            item.get("next_episode", {}).get("path") == second
+            for item in home["next_episode"]
+        ))
+        watched = service.browse_catalog(self.store.catalog(), state="Assistidos")
+        active = service.browse_catalog(self.store.catalog(), state="Em andamento")
+        self.assertEqual([item["main_title"] for item in watched], ["Cycle"])
+        self.assertEqual([], active)
+
     def test_movie_has_progress_but_never_next_episode(self):
         movie = self.store.upsert_anime(
             "movie", {"title": "Movie", "genres": "[]", "media_kind": "movie"}
@@ -109,6 +145,12 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         self.assertIn('intent.getBooleanExtra("autoplay", true)', player)
         self.assertIn('"player_autoplay_changed"', player)
         self.assertNotIn('getSharedPreferences("reiflix_player"', player)
+        self.assertIn('onSaveInstanceState(outState: Bundle)', player)
+        self.assertIn('savedInstanceState?.takeIf { it.containsKey("position_ms") }', player)
+        self.assertIn('savedInstanceState?.takeIf { it.containsKey("autoplay_next") }', player)
+        self.assertIn('saveProgress("player_progress", force = true)', player)
+        self.assertIn('saveProgress("player_paused", force = true)', player)
+        self.assertIn('if (!suppressExitEvent) saveProgress("player_exited", force = true)', player)
 
 
 if __name__ == "__main__":

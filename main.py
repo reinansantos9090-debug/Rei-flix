@@ -54,7 +54,8 @@ async def main(page: ft.Page):
         elif navigation.current == "details":
             show(DetailView.build(page, current[0], play_episode, navigate_back,
                                   store.toggle_favorite, library.playback_target, library.set_user_tags,
-                                  library.toggle_pinned, library.set_personal_note))
+                                  library.toggle_pinned, library.set_personal_note, store.set_episode_identification,
+                                  refresh_current_details))
         elif navigation.current == "settings":
             show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
                                     folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match))
@@ -88,6 +89,16 @@ async def main(page: ft.Page):
         anime_id = anime.get('id') if anime else None
         current[0] = next((item for item in library.catalog() if item['id'] == anime_id), anime)
         navigation.push("details")
+        render_current()
+    def refresh_current_details():
+        """Reload the durable record after an in-place Details edit.
+
+        A manual season correction can move an episode between groups, so a
+        local widget patch is insufficient; rebuild from SQLite without
+        pushing another navigation entry.
+        """
+        anime_id = current[0].get("id") if current[0] else None
+        current[0] = next((item for item in library.catalog() if item["id"] == anime_id), current[0])
         render_current()
     def on_catalog_changed():
         # The active screen owns rendering; returning home always reads the SQLite catalog again.

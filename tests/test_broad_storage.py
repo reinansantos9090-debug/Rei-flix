@@ -9,9 +9,25 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
         self.assertIn("MANAGE_EXTERNAL_STORAGE", manifest)
         self.assertIn("Environment.isExternalStorageManager()", scanner)
-        self.assertIn("Environment.getStorageDirectory()", scanner)
         self.assertIn("fun accessSnapshot(context: Context): JSONObject", scanner)
         self.assertIn('child == "data" || child == "obb"', scanner)
+        self.assertIn("data class StorageRoot", scanner)
+        self.assertIn("StorageManager::class.java", scanner)
+
+    def test_volume_directory_is_strictly_api_30_guarded(self):
+        scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
+        # Both uses are inside explicit API-30 branches; do not regress to an
+        # API-24 storageVolumes guard, which crashes on Android 7--10.
+        self.assertEqual(scanner.count("volume.directory"), 2)
+        self.assertGreaterEqual(scanner.count("Build.VERSION.SDK_INT >= 30"), 3)
+
+    def test_global_scan_uses_discovered_roots_and_volume_relative_paths(self):
+        scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("storageVolumes", scanner)
+        self.assertIn("pending.addLast(it.file to it)", scanner)
+        self.assertIn("file.relativeTo(root.file)", scanner)
+        self.assertIn('put("volumeId", root.volumeId)', scanner)
+        self.assertNotIn('File("/storage/emulated/0")', scanner)
 
     def test_bridge_accepts_content_and_file_uris(self):
         from core.android_bridge import AndroidBridge
@@ -70,6 +86,12 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         self.assertIn("ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION", source)
         self.assertIn("ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION", source)
         self.assertIn("ACTION_APPLICATION_DETAILS_SETTINGS", source)
+
+    def test_player_pip_has_manifest_and_device_feature_fallback(self):
+        manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        player = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
+        self.assertIn('android:supportsPictureInPicture="true"', manifest)
+        self.assertIn("PackageManager.FEATURE_PICTURE_IN_PICTURE", player)
 
 if __name__ == "__main__":
     unittest.main()

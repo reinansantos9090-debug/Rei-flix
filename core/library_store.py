@@ -930,7 +930,7 @@ class LibraryStore:
                 active = [e for e in available if is_in_progress(e)]
                 eligible = [e for e in regulars if not e["missing"]]
                 movie_available = [e for e in movie_eps if not e["missing"]]
-                current = self._current_from_rows(movie_available) if a["media_kind"] == "movie" else self._current_from_rows(eligible)
+                current = self._current_from_rows(movie_available, include_movies=True) if a["media_kind"] == "movie" else self._current_from_rows(eligible)
                 next_ep = None
                 if a["media_kind"] != "movie":
                     if current and not is_completed(current):
@@ -1174,11 +1174,11 @@ class LibraryStore:
         return self.adjacent_episode(path, -1)
 
     @staticmethod
-    def _current_from_rows(episodes):
-        """Choose a playable current episode using one shared availability policy."""
+    def _current_from_rows(episodes, *, include_movies=False):
+        """Choose a playable current item using the central availability policy."""
         available = [episode for episode in episodes
                      if not episode.get("missing", False)
-                     and is_regular_episode(episode)]
+                     and (include_movies and episode.get("episode_type") == "movie" or is_regular_episode(episode))]
         available.sort(key=LibraryStore._episode_order_key)
         if not available:
             return None

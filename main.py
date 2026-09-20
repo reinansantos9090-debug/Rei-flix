@@ -661,9 +661,11 @@ async def main(page: ft.Page):
                             refresh_settings_if_active()
                         elif event_type == 'saf_cancelled':
                             saf_selection.finish()
+                            storage_onboarding["waiting_for_result"] = False
                             page.snack_bar=ft.SnackBar(ft.Text('Seleção de pasta cancelada.')); page.snack_bar.open=True; page.update()
                             refresh_settings_if_active()
                         elif event_type == 'saf_permission':
+                            storage_onboarding["waiting_for_result"] = False
                             tree_uri = payload.get('treeUri')
                             if tree_uri:
                                 if payload.get('granted'):
@@ -696,6 +698,7 @@ async def main(page: ft.Page):
                             page.snack_bar=ft.SnackBar(ft.Text('Entrada com Google cancelada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
                         elif event_type in {'saf_error','google_error'}:
                             if event_type == 'saf_error':
+                                storage_onboarding["waiting_for_result"] = False
                                 saf_selection.finish()
                                 tree_uri = payload.get('treeUri')
                                 if tree_uri and tree_uri in pending_folder_removals:

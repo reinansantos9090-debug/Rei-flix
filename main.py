@@ -47,7 +47,8 @@ async def main(page: ft.Page):
                                     view_state=organize_state))
         elif navigation.current == "details":
             show(DetailView.build(page, current[0], play_episode, navigate_back,
-                                  store.toggle_favorite, library.playback_target, library.set_user_tags))
+                                  store.toggle_favorite, library.playback_target, library.set_user_tags,
+                                  library.toggle_pinned, library.set_personal_note))
         elif navigation.current == "settings":
             show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
                                     folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match))
@@ -405,6 +406,10 @@ async def main(page: ft.Page):
                                 episode_label = f"T{target.get('season', '—')} E{target.get('number') if target.get('number') is not None else '—'}"
                                 player_title = f"{target.get('anime_title') or target.get('file_name')} • {episode_label}"
                                 await start_native_player(target['path'], player_title, 0)
+                        elif event_type in {'player_mark_watched', 'player_mark_unwatched'}:
+                            uri = payload.get('uri', '')
+                            if uri:
+                                store.set_watched(uri, event_type == 'player_mark_watched')
                         elif event_type == 'player_error':
                             page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível reproduzir este arquivo.'))); page.snack_bar.open=True; page.update()
                             # Invalid/unreadable URIs can fail before Media3 creates a

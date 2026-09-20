@@ -245,6 +245,10 @@ class LibraryService:
     def next_episode(self, path): return self.store.next_episode(path)
     def previous_episode(self, path): return self.store.previous_episode(path)
     def set_user_tags(self, anime_id, tags): return self.store.set_user_tags(anime_id, tags)
+    def toggle_pinned(self, anime_id): return self.store.toggle_pinned(anime_id)
+    def set_personal_note(self, anime_id, note): return self.store.set_personal_note(anime_id, note)
+    def library_statistics(self): return self.store.library_statistics()
+    def last_scan(self): return self.store.last_scan()
 
     def clear_anilist_cache(self):
         """Clear only refreshable AniList artifacts, never local library state.
@@ -289,7 +293,7 @@ class LibraryService:
         return {"genres": sorted(genres.values(), key=lambda item: item["name"].casefold()), "states": states}
 
     @staticmethod
-    def browse_catalog(catalog, query="", state="Todos", genre="Todos", sort="Mais recentes"):
+    def browse_catalog(catalog, query="", state="Todos", genre="Todos", sort="Mais recentes", tag="Todos"):
         """Filter an already loaded local catalog; never queries AniList or SQLite."""
         query = query.casefold().strip()
 
@@ -301,6 +305,7 @@ class LibraryService:
             available = [item for item in items if not item.get("missing")]
             in_progress = any(item.get("progress", 0) > 0 and not item.get("watched") for item in available)
             completed = bool(available) and all(item.get("watched") for item in available)
+            not_started = bool(available) and not any(item.get("progress", 0) > 0 or item.get("watched") for item in available)
             metadata = anime.get("meta", {})
             aliases = metadata.get("aliases") or "[]"
             try:
@@ -312,7 +317,16 @@ class LibraryService:
                 return False
             if genre != "Todos" and genre not in anime.get("genres", []):
                 return False
-            return {"Todos": True, "Favoritos": bool(anime.get("favorite")), "Em andamento": in_progress, "Concluídos": completed}.get(state, True)
+            tags = anime.get("user_tags") or []
+            if tag == "Sem etiqueta" and tags:
+                return False
+            if tag not in ("Todos", "Sem etiqueta") and tag not in tags:
+                return False
+            return {"Todos": True, "Favoritos": bool(anime.get("favorite")), "Fixados": bool(anime.get("is_pinned")),
+                    "Em andamento": in_progress, "Concluídos": completed, "Não iniciados": not_started,
+                    "Com nota": bool((anime.get("personal_note") or "").strip()), "Sem nota": not bool((anime.get("personal_note") or "").strip()),
+                    "Sem metadata": not bool(metadata.get("anilist_id")),
+                    "Sem capa": not bool(metadata.get("cover_cache") or metadata.get("cover_url"))}.get(state, True)
 
         result = [anime for anime in catalog if matches(anime)]
         if sort == "Nome A-Z":
@@ -330,4 +344,13 @@ class LibraryService:
                 ),
                 reverse=True,
             )
+        if sort == "Fixados primeiro":
+            return sorted(result, key=lambda anime: (not anime.get("is_pinned", False), anime.get("main_title", "").casefold()))
+        if sort == "Favoritos primeiro":
+            return sorted(result, key=lambda anime: (not anime.get("favorite", False), anime.get("main_title", "").casefold()))
+        if sort == "Progresso":
+            def progress_value(anime):
+                values = [min(float(item.get("progress") or 0) / float(item.get("duration") or 1), 1) for item in episodes(anime) if not item.get("missing") and item.get("duration")]
+                return sum(values) / len(values) if values else -1
+            return sorted(result, key=lambda anime: (-progress_value(anime), anime.get("main_title", "").casefold()))
         return sorted(result, key=lambda anime: anime.get("meta", {}).get("added_at") or 0, reverse=True)

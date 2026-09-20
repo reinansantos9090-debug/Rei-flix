@@ -1085,6 +1085,113 @@ class DetailsDomainTests(unittest.TestCase):
             self.assertEqual(target['path'], second)
             self.assertEqual(target['anime_title'], 'Player Title')
 
+    def test_details_movie_uses_local_media_presentation_without_fake_episode_structure(self):
+        class FakePage:
+            def __init__(self):
+                self.overlay = []
+                self.snack_bar = None
+            def update(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime_id = store.upsert_anime(
+                "movie-details",
+                {"title": "Movie Details", "genres": "[]", "media_kind": "movie"},
+            )
+            store.upsert_episode(
+                anime_id, "content://movie/details", "Movie Details.mkv", 0, None,
+                episode_type="movie",
+            )
+            store.save_progress("content://movie/details", 3600, 7200)
+            anime = store.catalog()[0]
+            view = DetailView.build(
+                FakePage(), anime, lambda *args, **kwargs: None,
+                lambda: None, lambda _: True, store.playback_target,
+            )
+            texts = []
+            def walk(control):
+                if control.__class__.__name__ == "Text" and getattr(control, "value", None):
+                    texts.append(control.value)
+                for child in getattr(control, "controls", []) or []:
+                    walk(child)
+                if getattr(control, "content", None) is not None:
+                    walk(control.content)
+            walk(view)
+            self.assertIn("Arquivo local", texts)
+            self.assertNotIn("S01E01", " ".join(map(str, texts)))
+            self.assertIn("Duração • 120min", texts)
+
+    def test_details_special_only_uses_special_playback_action(self):
+        class FakePage:
+            def __init__(self):
+                self.overlay = []
+                self.snack_bar = None
+            def update(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime_id = store.upsert_anime(
+                "special-only-details",
+                {"title": "Special Only", "genres": "[]", "media_kind": "series"},
+            )
+            store.upsert_episode(
+                anime_id, "content://special/only-ova", "OVA01.mkv", 1, 1,
+                episode_type="ova",
+            )
+            anime = store.catalog()[0]
+            view = DetailView.build(
+                FakePage(), anime, lambda *args, **kwargs: None,
+                lambda: None, lambda _: True, store.playback_target,
+            )
+            texts = []
+            def walk(control):
+                if control.__class__.__name__ == "Text" and getattr(control, "value", None):
+                    texts.append(control.value)
+                for child in getattr(control, "controls", []) or []:
+                    walk(child)
+                if getattr(control, "content", None) is not None:
+                    walk(control.content)
+            walk(view)
+            self.assertIn("Assistir especial", texts)
+
+    def test_details_specials_are_kept_separate_from_regular_episode_section(self):
+        class FakePage:
+            def __init__(self):
+                self.overlay = []
+                self.snack_bar = None
+            def update(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime_id = store.upsert_anime(
+                "special-details",
+                {"title": "Special Details", "genres": "[]", "media_kind": "series"},
+            )
+            store.upsert_episode(anime_id, "content://special/e1", "E01.mkv", 1, 1)
+            store.upsert_episode(
+                anime_id, "content://special/ova", "OVA01.mkv", 1, 1,
+                episode_type="ova",
+            )
+            anime = store.catalog()[0]
+            view = DetailView.build(
+                FakePage(), anime, lambda *args, **kwargs: None,
+                lambda: None, lambda _: True, store.playback_target,
+            )
+            texts = []
+            def walk(control):
+                if control.__class__.__name__ == "Text" and getattr(control, "value", None):
+                    texts.append(control.value)
+                for child in getattr(control, "controls", []) or []:
+                    walk(child)
+                if getattr(control, "content", None) is not None:
+                    walk(control.content)
+            walk(view)
+            self.assertIn("Especiais", texts)
+            self.assertIn("OVA", texts)
+
     def test_catalog_orders_seasons_and_episodes_deterministically(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

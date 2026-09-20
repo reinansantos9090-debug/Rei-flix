@@ -1,7 +1,9 @@
 """Local-library exploration view for genres and durable playback states."""
 from __future__ import annotations
 
+import math
 import flet as ft
+from core.consumption import consumption_state, progress_ratio
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title
 
 
@@ -57,13 +59,20 @@ class OrganizeView:
 
         def progress(anime):
             current = anime.get("current_episode") or {}
-            duration = float(current.get("duration") or 0)
-            return min(float(current.get("progress") or 0) / duration, 1.0) if duration > 0 else None
+            if not current:
+                return None
+            try:
+                duration = float(current.get("duration") or 0)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(duration) or duration <= 0:
+                return None
+            return progress_ratio(current)
 
         def anime_card(anime):
             all_episodes = episodes(anime)
             available = [episode for episode in all_episodes if not episode.get("missing")]
-            watched = sum(bool(episode.get("watched")) for episode in available)
+            watched = sum(consumption_state(episode).value in {"completed", "watched"} for episode in available)
             ratio = progress(anime)
             cover = (anime.get("meta") or {}).get("cover_cache") or (anime.get("meta") or {}).get("cover_url")
             subtitle = f"{watched}/{len(available)} assistidos" if available else "Sem arquivos disponíveis"
@@ -79,7 +88,7 @@ class OrganizeView:
                             color="#F7F5FA", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.Text(subtitle, size=10, color="#AAA7B6", max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.ProgressBar(value=ratio, color="#E50914", bgcolor="#3C3948", bar_height=3,
-                                   visible=ratio is not None and ratio > 0 and not (anime.get("current_episode") or {}).get("watched")),
+                                   visible=ratio is not None and ratio > 0 and consumption_state(anime.get("current_episode") or {}).value == "in_progress"),
                 ], spacing=5),
             )
 

@@ -7,6 +7,7 @@ machine without a persistence requirement.
 from __future__ import annotations
 from enum import Enum
 from typing import Any
+import math
 
 COMPLETION_RATIO = 0.90
 
@@ -21,7 +22,7 @@ def _number(value: Any, default: float = 0.0) -> float:
         number = float(value)
     except (TypeError, ValueError):
         return default
-    return number if number == number else default
+    return number if math.isfinite(number) else default
 
 def normalized_progress(episode: dict) -> float:
     progress = max(0.0, _number(episode.get("progress"), 0.0))

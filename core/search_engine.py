@@ -5,12 +5,13 @@ calls metadata providers, opens media files, or mutates library state.
 """
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from core.consumption import consumption_state
+from core.consumption import consumption_state, progress_ratio
 
 
 _SPECIAL_TYPES = {"special", "ova", "oad", "ona", "extra"}
@@ -65,16 +66,14 @@ def _regular_episodes(anime: dict) -> list[dict]:
 
 def _numeric(value: Any, default: float = -1) -> float:
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return default
+    return number if math.isfinite(number) else default
 
 
 def _ratio(episode: dict) -> float:
-    duration = _numeric(episode.get("duration"), 0)
-    if duration <= 0:
-        return 0.0
-    return max(0.0, min(_numeric(episode.get("progress"), 0) / duration, 1.0))
+    return progress_ratio(episode)
 
 
 def _title(anime: dict) -> str:

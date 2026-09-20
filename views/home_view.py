@@ -1,4 +1,5 @@
 import flet as ft
+from core.consumption import consumption_state, progress_ratio
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title
 
 
@@ -97,7 +98,7 @@ class HomeView:
                     ft.Text(title, size=13, weight=ft.FontWeight.BOLD, color=TEXT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.Text(subtitle, size=11, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.ProgressBar(value=ratio(item), color=ACCENT, bgcolor="#3C3948", height=3,
-                                   visible=bool(item.get("duration") and item.get("progress") and not item.get("watched"))),
+                                   visible=consumption_state(item).value == "in_progress"),
                 ], spacing=5)
             )
 
@@ -120,8 +121,7 @@ class HomeView:
         )
 
         def ratio(item):
-            duration = float(item.get("duration") or 0)
-            return min(float(item.get("progress") or 0) / duration, 1.0) if duration else 0.0
+            return progress_ratio(item)
 
         def chip(label, active, handler, icon=None):
             return ft.OutlinedButton(
@@ -192,16 +192,17 @@ class HomeView:
             episodes.extend(episode for group in anime.get("specials", []) for episode in group.get("episodes", []))
             episodes.extend(anime.get("media_files", []))
             available = [episode for episode in episodes if not episode.get("missing")]
-            watched = sum(bool(episode.get("watched")) for episode in available)
+            completed = sum(consumption_state(episode).value in {"completed", "watched"} for episode in available)
             current = anime.get("current_episode") or {}
+            current_state = consumption_state(current) if current else None
             progress = ratio(current)
             cover = anime.get("meta", {}).get("cover_cache") or anime.get("meta", {}).get("cover_url")
             subtitle = f"{len(available)} episódios" if len(available) == len(episodes) else f"{len(available)}/{len(episodes)} disponíveis"
-            status = "Concluído" if available and len(available) == len(episodes) and watched == len(available) else (f"{watched} vistos" if watched else subtitle)
+            status = "Concluído" if available and len(available) == len(episodes) and completed == len(available) else (f"{completed} concluídos" if completed else subtitle)
             indicators = []
             if anime.get("favorite"):
                 indicators.append(ft.Container(content=ft.Icon(ft.Icons.STAR, color="#FFD54F", size=16), top=7, right=7, bgcolor="#181720CC", border_radius=12, padding=4))
-            if current.get("watched"):
+            if current_state and current_state.value in {"completed", "watched"}:
                 indicators.append(ft.Container(content=ft.Icon(ft.Icons.CHECK, color="#FFFFFF", size=15), bottom=7, right=7, bgcolor="#27845ACC", border_radius=12, padding=4))
             return ft.Container(
                 ink=True, on_click=lambda _, item=anime: on_select_anime(item), border_radius=14,
@@ -209,7 +210,7 @@ class HomeView:
                     ft.Stack([ft.Container(content=artwork(cover, 198), height=198), *indicators]),
                     ft.Text(anime.get("main_title", "Anime local"), size=13, weight=ft.FontWeight.BOLD, color=TEXT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.Text(status, size=11, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                    ft.ProgressBar(value=progress, color=ACCENT, bgcolor="#3C3948", height=3, visible=progress > 0 and not current.get("watched")),
+                    ft.ProgressBar(value=progress, color=ACCENT, bgcolor="#3C3948", height=3, visible=current_state is not None and current_state.value == "in_progress"),
                 ], spacing=5),
             )
 

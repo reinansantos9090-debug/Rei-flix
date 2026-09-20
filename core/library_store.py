@@ -610,7 +610,7 @@ class LibraryStore:
                     "missing": bool(e["missing"]), "last_played_at": e["last_played_at"],
                     "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"],
                     "source_folder": e["source_folder"], "source_kind": folder_kinds.get(e["source_folder"]),
-                    "relative_path": e["relative_path"],
+                    "relative_path": e["relative_path"], "media_identity": e["media_identity"],
                     "volume_id": e["volume_id"], "volume_uuid": e["volume_uuid"],
                 }
 
@@ -771,21 +771,25 @@ class LibraryStore:
 
     @staticmethod
     def _episode_order_key(episode):
-        number = episode.get("number")
-        if number is None:
-            return (
-                episode.get("season") if episode.get("season") is not None else 1,
-                0,
-                (episode.get("file_name") or "").casefold(),
-                (episode.get("path") or "").casefold(),
-            )
-        return (
-            episode.get("season") if episode.get("season") is not None else 1,
-            1,
-            number,
-            (episode.get("file_name") or "").casefold(),
-            (episode.get("path") or "").casefold(),
-        )
+        def numeric(value, default=10**6):
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return default
+            return number if math.isfinite(number) else default
+
+        season = numeric(episode.get("season"))
+        number = numeric(episode.get("number"))
+        absolute = numeric(episode.get("absolute_number"))
+        identity = str(episode.get("media_identity") or "")
+        file_name = str(episode.get("file_name") or "").casefold()
+        path = str(episode.get("path") or "").casefold()
+
+        if number < 10**6:
+            return (season, 1, number, absolute, identity, file_name, path)
+        if absolute < 10**6:
+            return (season, 0, absolute, identity, file_name, path)
+        return (season, 0, 10**6, identity, file_name, path)
 
     @staticmethod
     def _adjacent_from_rows(current, available, direction):
@@ -906,13 +910,22 @@ class LibraryStore:
                 "SELECT * FROM episodes WHERE anime_id=? AND missing=0",
                 (anime_id,),
             ).fetchall()
-        is_movie = str(self._conn_media_kind(anime_id) or "series").casefold() == "movie"
+        media_kind = str(self._conn_media_kind(anime_id) or "series").casefold()
         candidates = [
             dict(row) for row in rows
-            if is_movie or is_regular_episode(row)
+            if media_kind == "movie" or is_regular_episode(row)
         ]
         ordered = sorted(candidates, key=self._episode_order_key)
-        return ordered[0] if ordered else None
+        if ordered:
+            return ordered[0]
+        # A library containing only specials still needs a valid Details
+        # playback target, but specials must never become part of the regular
+        # episode sequence used by next/previous/autoplay.
+        specials = [
+            dict(row) for row in rows
+            if str(row["episode_type"] or "").casefold() in {"special", "ova", "oad", "ona", "extra"}
+        ]
+        return sorted(specials, key=self._episode_order_key)[0] if specials else None
 
     def continue_watching(self, limit=12):
         """One playable continuation per anime, ordered by latest playback."""

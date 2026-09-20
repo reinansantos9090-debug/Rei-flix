@@ -541,14 +541,17 @@ async def main(page: ft.Page):
                                 catalog = store.catalog()
                                 if scopes:
                                     for scope in scopes:
-                                        if not isinstance(scope, dict) or not scope.get('volumeId') or not scope.get('complete'):
+                                        if not isinstance(scope, dict) or not scope.get('volumeId'):
                                             continue
                                         volume = str(scope.get('volumeId'))
                                         scan_id = (payload.get('scanId') or 'mediastore') + ':' + volume
+                                        scope_stats = dict(stats)
+                                        if not scope.get('complete'):
+                                            scope_stats['partial'] = True
                                         catalog = await asyncio.to_thread(
                                             library.ingest_documents, source, scope.get('documents') or [],
                                             folder_name=payload.get('name') or 'Vídeos do dispositivo',
-                                            scan_errors=[], scan_stats=stats, source_kind='mediastore',
+                                            scan_errors=[], scan_stats=scope_stats, source_kind='mediastore',
                                             scan_id=scan_id, scope_kind='volume', scope_ref=volume,
                                             scan_generation=scope.get('scanGeneration'),
                                         )

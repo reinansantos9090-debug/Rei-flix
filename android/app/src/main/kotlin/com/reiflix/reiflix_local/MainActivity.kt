@@ -31,6 +31,12 @@ class MainActivity : FlutterFragmentActivity() {
     private var activityResumed = false
     private var pendingLifecycleAction: String? = null
     private var lastHandledNativeRequestId: String? = null
+
+    companion object {
+        private const val STATE_LAST_NATIVE_REQUEST_ID = "reiflix.lastNativeRequestId"
+        private const val STATE_PENDING_LIFECYCLE_ACTION = "reiflix.pendingLifecycleAction"
+        private const val STATE_BROAD_SETTINGS_PENDING = "reiflix.broadSettingsPending"
+    }
     private val activeNativeScans = mutableSetOf<String>()
 
     @Synchronized
@@ -115,6 +121,9 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        lastHandledNativeRequestId = savedInstanceState?.getString(STATE_LAST_NATIVE_REQUEST_ID)
+        pendingLifecycleAction = savedInstanceState?.getString(STATE_PENDING_LIFECYCLE_ACTION)
+        broadStoragePermissionPending = savedInstanceState?.getBoolean(STATE_BROAD_SETTINGS_PENDING) ?: false
         logLifecycle("onCreate", intent)
         systemUiController = SystemUiController(window)
         onBackPressedDispatcher.addCallback(this, backCallback)
@@ -177,6 +186,13 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onDestroy() {
         logLifecycle("onDestroy")
         super.onDestroy()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(STATE_LAST_NATIVE_REQUEST_ID, lastHandledNativeRequestId)
+        outState.putString(STATE_PENDING_LIFECYCLE_ACTION, pendingLifecycleAction)
+        outState.putBoolean(STATE_BROAD_SETTINGS_PENDING, broadStoragePermissionPending)
+        super.onSaveInstanceState(outState)
     }
 
     private fun handleNativeIntent(intent: Intent?) {

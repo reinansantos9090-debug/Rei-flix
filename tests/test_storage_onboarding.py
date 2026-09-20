@@ -76,7 +76,9 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("await add_folder()", onboarding)
         self.assertIn('ft.TextButton("ESCOLHER PASTA"', onboarding)
         self.assertIn('ft.FilledButton("PERMITIR"', onboarding)
-        self.assertIn('storage_access_state(', onboarding)
+        source_state = source[source.index("def storage_state()"):source.index("def maybe_show_storage_onboarding")]
+        self.assertIn("storage_access_state(", source_state)
+        self.assertIn('storage_onboarding["saf"] is True', source_state)
 
     def test_storage_onboarding_cancel_uses_managed_flet_dialog_stack(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")

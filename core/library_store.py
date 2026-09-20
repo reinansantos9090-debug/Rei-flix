@@ -675,6 +675,44 @@ class LibraryStore:
                 })
             return result
 
+    def set_episode_identification(self, path, *, season=None, number=None, episode_type="regular", title=None):
+        """Persist an explicit user identification without changing consumption data."""
+        try:
+            normalized_season = 0 if season is None else int(season)
+        except (TypeError, ValueError):
+            raise ValueError("Temporada inválida.")
+        if normalized_season < 0:
+            raise ValueError("Temporada inválida.")
+        if number is None:
+            normalized_number = None
+        else:
+            try:
+                normalized_number = float(number)
+            except (TypeError, ValueError):
+                raise ValueError("Número do episódio inválido.")
+            if not math.isfinite(normalized_number) or normalized_number < 0:
+                raise ValueError("Número do episódio inválido.")
+        normalized_type = str(episode_type or "regular").casefold()
+        allowed = {"regular", "special", "ova", "oad", "ona", "extra", "movie", "unknown"}
+        if normalized_type not in allowed:
+            raise ValueError("Tipo de episódio inválido.")
+        clean_title = (str(title).strip() if title is not None else "") or None
+        with self._conn() as c:
+            row = c.execute("SELECT id FROM episodes WHERE path=?", (path,)).fetchone()
+            if not row:
+                raise ValueError("Arquivo local não encontrado.")
+            c.execute(
+                "UPDATE episodes SET season=?,number=?,episode_type=?,episode_title=?,"
+                "identification_source='manual',identification_confidence='high',manual_override=1,missing=0 WHERE id=?",
+                (normalized_season, normalized_number, normalized_type, clean_title, row["id"]),
+            )
+            if normalized_type == "movie":
+                c.execute(
+                    "UPDATE anime SET media_kind='movie' WHERE id=(SELECT anime_id FROM episodes WHERE id=?)",
+                    (row["id"],),
+                )
+        return True
+
     def apply_episode_identification(self, path, *, absolute_number=None, relative_path=None, volume_id=None, volume_uuid=None, episode_type="regular", episode_title=None, identification_source="legacy", identification_confidence="medium"):
         with self._conn() as c:
             row=c.execute("SELECT manual_override FROM episodes WHERE path=?",(path,)).fetchone()
@@ -713,7 +751,7 @@ class LibraryStore:
             if event_time <= last_seen:
                 return False
             with self._conn() as c:
-                row = c.execute("SELECT last_played_at FROM episodes WHERE path=?", (path,)).fetchone()
+                row = c.execute("SELECT last_played_at, watched FROM episodes WHERE path=?", (path,)).fetchone()
                 if not row:
                     return False
                 durable_time = float(row["last_played_at"] or 0.0)
@@ -913,7 +951,7 @@ class LibraryStore:
         media_kind = str(self._conn_media_kind(anime_id) or "series").casefold()
         candidates = [
             dict(row) for row in rows
-            if media_kind == "movie" or is_regular_episode(row)
+            if media_kind == "movie" or is_regular_episode(dict(row))
         ]
         ordered = sorted(candidates, key=self._episode_order_key)
         if ordered:

@@ -59,7 +59,8 @@ class FletTemplateManifestTests(unittest.TestCase):
             main = next(
                 (
                     activity for activity in manifest.findall(".//activity")
-                    if activity.get("{http://schemas.android.com/apk/res/android}name") == ".MainActivity"
+                    if activity.get("{http://schemas.android.com/apk/res/android}name")
+                    in {".MainActivity", "com.reiflix.reiflix_local.MainActivity"}
                 ),
                 None,
             )

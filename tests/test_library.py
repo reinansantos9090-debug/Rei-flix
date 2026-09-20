@@ -764,7 +764,7 @@ class IdentificationTests(unittest.TestCase):
             with patch.object(service.anilist, 'search', return_value=[media]) as search:
                 first = service.scan().catalog
                 second = service.scan().catalog
-            self.assertEqual(search.call_count, 1)
+            self.assertEqual(search.call_count, 0)
             self.assertEqual([season['season_name'] for season in second[0]['seasons']], ['Temporada 1', 'Temporada 2'])
             self.assertEqual(sum(len(s['episodes']) for s in first[0]['seasons']), 2)
 

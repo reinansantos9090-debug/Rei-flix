@@ -100,7 +100,7 @@ object MediaStoreScanner {
                     }
                 }?:localErrors.put("O MediaStore não conseguiu consultar o volume "+volumeName+".")
                 for(i in 0 until localErrors.length())errors.put(localErrors.getString(i))
-                val complete=localErrors.length()==0&&!shouldCancel();if(shouldCancel())cancelled=true
+                val complete=access=="full"&&localErrors.length()==0&&!shouldCancel();if(shouldCancel())cancelled=true
                 val prepared=NativeIndex.prepare(context,SOURCE,scopeKey,raw,complete,JSONObject().put("mediaStoreVersion",version).put("mediaStoreGeneration",generation).put("accessLevel",access).put("volumeId",volumeName))
                 for(i in 0 until prepared.documents.length())documents.put(prepared.documents.getJSONObject(i))
                 volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",prepared.generation).put("documents",prepared.documents).put("complete",complete).put("reused",false).put("new",prepared.newItems).put("changed",prepared.changedItems).put("unchanged",prepared.unchangedItems).put("duplicates",prepared.duplicates).put("removed",prepared.removedItems))
@@ -109,6 +109,6 @@ object MediaStoreScanner {
         }catch(security:SecurityException){Log.w(TAG,"MediaStore permission/query denied",security);errors.put("O acesso aos vídeos do dispositivo foi negado.")}
         catch(exception:Exception){Log.w(TAG,"MediaStore query failed",exception);errors.put("Não foi possível consultar os vídeos do dispositivo.")}
         onProgress?.invoke(JSONObject().put("phase","finished").put("source",SOURCE).put("files",files).put("videos",videos))
-        return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("documents",documents).put("volumeScopes",volumeScopes).put("stats",JSONObject().put("files",files).put("videos",videos).put("errors",errors)).put("partial",errors.length()>0||cancelled).put("cancelled",cancelled)
+        return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("documents",documents).put("volumeScopes",volumeScopes).put("stats",JSONObject().put("files",files).put("videos",videos).put("errors",errors).put("access",access)).put("partial",errors.length()>0||cancelled||access!="full").put("cancelled",cancelled)
     }
 }

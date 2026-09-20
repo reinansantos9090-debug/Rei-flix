@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -54,10 +55,13 @@ class AndroidBridge:
     async def _launch(self, action: str, **params):
         if not self.available:
             raise RuntimeError("A ponte Android está disponível somente no APK ReiFlix.")
-        query = urlencode({"action": action, **{k: v for k, v in params.items() if v is not None}})
+        request_id = uuid.uuid4().hex
+        query = urlencode({"action": action, "request_id": request_id, **{k: v for k, v in params.items() if v is not None}})
         url = f"reiflix://native?{query}"
-        # Flet's URL launcher is asynchronous. Without await, Android never
-        # receives the custom-scheme intent.
+        # Flet delivers the custom-scheme intent through Android's external URL
+        # resolver. Every command gets a unique request id so MainActivity can
+        # distinguish a real repeated command from duplicate delivery of the same
+        # onNewIntent payload.
         await self.page.launch_url(
             url, mode=ft.LaunchMode.EXTERNAL_NON_BROWSER_APPLICATION
         )

@@ -103,19 +103,22 @@ jobs:
       - name: Fix generated JSON files
         shell: bash
         run: |
-          python -c "
-          import glob, json, re
-          for path in glob.glob('build/flet-build-template/**/*.json', recursive=True):
-              with open(path, 'r', encoding='utf-8') as f:
-                  content = f.read()
-              cleaned = re.sub(r',(\s*[\}\]])', r'\1', content)
+          python - <<'PY'
+          import glob
+          import json
+          import re
+
+          for path in glob.glob("build/flet-build-template/**/*.json", recursive=True):
+              with open(path, "r", encoding="utf-8") as handle:
+                  raw = handle.read()
+              cleaned = re.sub(r",(\\s*[\\}\\]])", r"\\1", raw)
               try:
                   data = json.loads(cleaned)
               except json.JSONDecodeError as exc:
                   raise SystemExit(f"Invalid generated JSON {path}: {exc}") from exc
-              with open(path, 'w', encoding='utf-8') as f:
-                  json.dump(data, f, indent=2)
-          "
+              with open(path, "w", encoding="utf-8") as handle:
+                  json.dump(data, handle, indent=2)
+          PY
 
       - name: Build APK
         run: flet build apk --template build/flet-build-template --yes -v

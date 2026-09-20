@@ -478,7 +478,7 @@ class LibraryStore:
 
             def effective_identification(existing):
                 manual = bool(existing and existing["manual_override"])
-                if manual and identification_source is None and identification_confidence is None:
+                if manual:
                     return (
                         existing["season"],
                         existing["number"],

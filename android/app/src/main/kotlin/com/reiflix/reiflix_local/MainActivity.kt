@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.provider.Settings
 import android.util.Log
 import androidx.activity.OnBackPressedCallback
@@ -220,7 +221,7 @@ class MainActivity : FlutterFragmentActivity() {
         if (!requestId.isNullOrBlank()) {
             lastHandledNativeRequestId = requestId
         }
-        Log.i(tag, "NATIVE_INTENT action=$action requestId=\${requestId ?: "-"} task=$taskId resumed=$activityResumed focus=\${window?.decorView?.hasWindowFocus() == true} flags=0x\${intent.flags.toString(16)}")
+        Log.i(tag, "NATIVE_INTENT action=$action requestId=${requestId ?: "-"} task=$taskId resumed=$activityResumed focus=${window?.decorView?.hasWindowFocus() == true} flags=0x${intent.flags.toString(16)}")
         when (action) {
             "select_tree" -> openTreePicker()
             "scan_tree" -> scanTree(intent.data?.getQueryParameter("tree_uri"))

@@ -78,6 +78,7 @@ class AndroidBridge:
     async def check_storage_access(self): await self._launch("check_storage_access")
     async def open_broad_storage_settings(self): await self._launch("open_broad_storage_settings")
     async def scan_all_storage(self): await self._launch("scan_all_storage")
+    async def cancel_scans(self): await self._launch("cancel_scan")
     async def verify_tree(self, tree_uri: str): await self._launch("verify_tree", tree_uri=tree_uri)
     async def release_tree(self, tree_uri: str): await self._launch("release_tree", tree_uri=tree_uri)
     async def sign_in(self, server_client_id: str): await self._launch("google_sign_in", server_client_id=server_client_id)
@@ -149,6 +150,21 @@ class AndroidBridge:
                 path.unlink(missing_ok=True)
             self._claimed = []
             return []
+
+    def requeue_event_ids(self, event_ids: set[str]) -> None:
+        wanted = {str(item).strip() for item in event_ids if str(item).strip()}
+        if not wanted:
+            return
+        for consumed in list(self._claimed):
+            try:
+                payload = json.loads(consumed.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(payload, dict) and str(payload.get("eventId") or "").strip() in wanted:
+                try:
+                    consumed.replace(consumed.with_suffix(".json"))
+                except OSError as exc:
+                    logger.warning("[ANDROID] Failed to requeue native event %s: %s", consumed.name, exc)
 
     def acknowledge(self) -> None:
         if not self._claimed:

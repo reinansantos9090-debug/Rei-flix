@@ -144,15 +144,10 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("payload", BroadStorageScanner.accessSnapshot(this)))
             }
         }
-    }
-
-    override fun onPostResume() {
-        super.onPostResume()
-        logLifecycle("onPostResume")
         val pending = pendingLifecycleAction
         if (pending != null) {
             pendingLifecycleAction = null
-            Log.i(tag, "Executing queued lifecycle action: $pending")
+            Log.i(tag, "Executing queued lifecycle action after onResume: $pending")
             when (pending) {
                 "request_media_access" -> requestMediaAccess()
                 "open_broad_storage_settings" -> openBroadStorageSettings()

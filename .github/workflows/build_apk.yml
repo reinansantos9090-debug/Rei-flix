@@ -106,12 +106,44 @@ jobs:
           python - <<'PY'
           import glob
           import json
-          import re
+
+          def strip_trailing_commas(raw):
+              out = []
+              in_string = False
+              escaped = False
+              i = 0
+              while i < len(raw):
+                  char = raw[i]
+                  if in_string:
+                      out.append(char)
+                      if escaped:
+                          escaped = False
+                      elif char == chr(92):
+                          escaped = True
+                      elif char == chr(34):
+                          in_string = False
+                      i += 1
+                      continue
+                  if char == chr(34):
+                      in_string = True
+                      out.append(char)
+                      i += 1
+                      continue
+                  if char == chr(44):
+                      j = i + 1
+                      while j < len(raw) and raw[j] in " \t\r\n":
+                          j += 1
+                      if j < len(raw) and raw[j] in "}]":
+                          i = j
+                          continue
+                  out.append(char)
+                  i += 1
+              return "".join(out)
 
           for path in glob.glob("build/flet-build-template/**/*.json", recursive=True):
               with open(path, "r", encoding="utf-8") as handle:
                   raw = handle.read()
-              cleaned = re.sub(r",(\s*[\}\]])", r"\1", raw)
+              cleaned = strip_trailing_commas(raw)
               try:
                   data = json.loads(cleaned)
               except json.JSONDecodeError as exc:

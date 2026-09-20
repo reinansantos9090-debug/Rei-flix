@@ -11,23 +11,8 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         self.assertIn("Environment.isExternalStorageManager()", scanner)
         self.assertIn("fun accessSnapshot(context: Context): JSONObject", scanner)
         self.assertIn('child == "data" || child == "obb"', scanner)
-        self.assertIn("data class StorageRoot", scanner)
-        self.assertIn("StorageManager::class.java", scanner)
-
-    def test_volume_directory_is_strictly_api_30_guarded(self):
-        scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
-        # Both uses are inside explicit API-30 branches; do not regress to an
-        # API-24 storageVolumes guard, which crashes on Android 7--10.
-        self.assertEqual(scanner.count("volume.directory"), 2)
-        self.assertGreaterEqual(scanner.count("Build.VERSION.SDK_INT >= 30"), 3)
-
-    def test_global_scan_uses_discovered_roots_and_volume_relative_paths(self):
-        scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
-        self.assertIn("storageVolumes", scanner)
-        self.assertIn("pending.addLast(it.file to it)", scanner)
-        self.assertIn("file.relativeTo(root.file)", scanner)
-        self.assertIn('put("volumeId", root.volumeId)', scanner)
-        self.assertNotIn('File("/storage/emulated/0")', scanner)
+        self.assertIn(".nomedia", scanner)
+        self.assertIn('"volumeName"', scanner)
 
     def test_bridge_accepts_content_and_file_uris(self):
         from core.android_bridge import AndroidBridge

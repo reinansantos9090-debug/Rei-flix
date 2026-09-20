@@ -6,29 +6,8 @@ import re
 from dataclasses import dataclass, field
 
 
-VIDEO_EXTENSIONS = {
-    ".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v",
-    ".ts", ".m2ts", ".flv", ".wmv",
-}
-
-_TECHNICAL_PATTERNS = (
-    re.compile(r"(?<![A-Za-z0-9])(?:2160p|1080p|720p|480p|4320p|4k)(?![A-Za-z0-9])", re.I),
-    re.compile(r"(?<![A-Za-z0-9])(?:x264|x265|h264|h\.264|h265|h\.265|hevc|av1|avc)(?![A-Za-z0-9])", re.I),
-    re.compile(r"(?<![A-Za-z0-9])(?:8bit|10bit|12bit|hdr10|hdr|dv|dolby[ ._-]*vision)(?![A-Za-z0-9])", re.I),
-    re.compile(r"(?<![A-Za-z0-9])(?:web[ ._-]*dl|webrip|bluray|bdrip|bdremux|hdtv)(?![A-Za-z0-9])", re.I),
-    re.compile(r"(?<![A-Za-z0-9])(?:aac|ac3|eac3|flac|dts|dual[ ._-]*audio|multi[ ._-]*audio)(?![A-Za-z0-9])", re.I),
-    re.compile(r"(?<![A-Za-z0-9])(?:pt[-_ ]?br|pt|portugu[eê]s|eng|english|jpn|japanese|dub|dublado|sub|legendado)(?![A-Za-z0-9])", re.I),
-)
-_SEASON = re.compile(r"(?:\bS|\bseason[ ._-]*|\btemporada[ ._-]*|\btemp[ ._-]*)(\d{1,2})(?=\b|[ ._-]*E)", re.I)
-_SXXEXX = re.compile(r"\bS(\d{1,3})[ ._-]*E(?:P(?:ISODE)?)?[ ._-]*(\d{1,4})(?:v\d+)?(?=\b|E\d)", re.I)
-_X_EPISODE = re.compile(r"\b(\d{1,2})\s*[xX]\s*(\d{1,4})(?:v\d+)?\b")
-_WORD_EPISODE = re.compile(r"\b(?:E(?:P(?:ISODE)?)?|EPISODE)[ ._-]*(\d{1,4})(?:v\d+)?\b", re.I)
-_SPECIAL = re.compile(r"\b(OVA|OAD|ONA|SPECIALS?|SP|EXTRA)(?:\b|(?=\d))[ ._-]*(\d{1,4})?", re.I)
-_MOVIE = re.compile(r"\b(?:MOVIE|FILM)\b", re.I)
-_ABSOLUTE = re.compile(r"\b(?:ABS(?:OLUTE)?|ANIME[- ._]?EP)[ ._-]*(\d{1,4})\b", re.I)
-_YEAR = re.compile(r"^(?:19\d{2}|20\d{2})$")
-_TECH_NUMBER = re.compile(r"^(?:264|265|4320|2160|1080|720|480|8|10|12)$")
-_VOLUME_OR_DISC = re.compile(r"\b(?:vol(?:ume)?|disc|disk)[ ._-]*\d{1,3}\b", re.I)
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".ts", ".m2ts", ".flv", ".wmv"}
+_NOISE = re.compile(r"\b(1080p|720p|480p|bluray|web[- .]?dl|webrip|x26[45]|hevc|aac|dublado|dual audio|legendado)\b", re.I)
 
 
 @dataclass(frozen=True)

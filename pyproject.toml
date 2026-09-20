@@ -15,3 +15,7 @@ company = "ReiFlix"
 # optional broad-storage special access used by the local-library scanner.
 [tool.flet.android.permission]
 "android.permission.INTERNET" = true
+"android.permission.MANAGE_EXTERNAL_STORAGE" = true
+
+[tool.flet.android]
+target_sdk_version = 36

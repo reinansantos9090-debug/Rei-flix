@@ -13,6 +13,7 @@ from core.anilist import AniListClient
 from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
 from core.media_identity import local_media_identity
 from core.organizer_ai import AnimeOrganizer
+from core.media_identity import identity_from_document
 
 logger = logging.getLogger(__name__)
 
@@ -122,143 +123,140 @@ class LibraryService:
             refresh_id = associated_id or cached_id
             if cached and cached.get("metadata_fetched_at"):
                 try:
-                    if time.time() - float(cached["metadata_fetched_at"]) < self.REQUEST_DEDUPE_SECONDS:
-                        return cached
-                except (TypeError, ValueError):
-                    pass
-            if not force and self._cached_metadata_is_current(cached, refresh_id):
-                return cached
-            self.store.set_metadata_status(lookup_title, "refreshing") if cached else None
+                    self.store.upsert_anime(lookup_title, refreshed)
+                except Exception:
+                    logger.exception("Falha ao persistir metadados AniList para %s", display_title)
+                return refreshed
+            return cached or {"title": display_title, "genres": "[]"}
+
+        candidates = self.anilist.search(display_title)
+        selected, confident, ranked = AnimeOrganizer.choose(display_title, candidates)
+        if selected and confident:
+            self.store.set_association(lookup_title, selected["id"])
+            return self.anilist.metadata_from_media(display_title, selected)
+        if ranked:
+            self.store.set_pending_match(lookup_title, display_title, ranked[:5])
+        # Never persist an uncertain result as if it were a confirmed anime.
+        # A previously cached record remains useful when the network is down.
+        return cached or {"title": display_title, "genres": "[]"}
+    def scan(self, on_status=lambda _ : None):
+        run_id=self.store.begin_scan(); result=ScanResult(catalog=[]); parsed=[]
+        folders=self.store.folders(); result.folders=len(folders); on_status('Verificando pastas autorizadas…')
+        for folder in folders:
+            reference=folder['path']
+            # A content:// URI is deliberately not converted into a fake filesystem path.
+            # A Flet-only APK has no ContentResolver bridge to enumerate it.
+            if folder['kind'] == 'saf' or reference.startswith('content://'):
+                error='A URI SAF exige a ponte Android ContentResolver; não foi tratada como caminho.'
+                # Native scan results are ingested through AndroidBridge; do not revoke its persisted grant here.
+                result.errors.append(f"{folder['name']}: aguardando scanner Android"); continue
+            if not os.path.isdir(reference):
+                error='Pasta indisponível, removida ou sem autorização para este processo.'
+                self.store.update_folder_status(reference, 'revoked', error); result.errors.append(f"{folder['name']}: {error}"); continue
+            self.store.update_folder_status(reference, 'granted')
+            on_status(f"Encontrando vídeos em {folder['name']}…")
             try:
-                if refresh_id:
-                    media = self.anilist.by_id(refresh_id)
-                    if media:
-                        refreshed = self.anilist.metadata_from_media(display_title, media)
-                        refreshed["anilist_id"] = refresh_id
-                        self.store.upsert_anime(lookup_title, refreshed, source="anilist", confidence="high", status="available", fetched_at=time.time())
-                        return self.store.anime_metadata(lookup_title) or refreshed
-                    if cached:
-                        self.store.set_metadata_status(lookup_title, "stale", confidence=cached.get("metadata_confidence") or "high")
-                        return self.store.anime_metadata(lookup_title) or cached
-                    return {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "unresolved", "metadata_confidence": "low"}
-
-                candidates = self.anilist.search(display_title)
-                selected, confident, ranked = AnimeOrganizer.choose(display_title, candidates)
-                if selected and confident:
-                    self.store.set_association(lookup_title, selected["id"])
-                    refreshed = self.anilist.metadata_from_media(display_title, selected)
-                    refreshed["anilist_id"] = selected["id"]
-                    score = float(selected.get("match_score") or 0.0)
-                    confidence = "high" if score >= 0.9 else "medium"
-                    self.store.upsert_anime(lookup_title, refreshed, source="anilist", confidence=confidence, status="available", fetched_at=time.time())
-                    return self.store.anime_metadata(lookup_title) or refreshed
-                if ranked:
-                    self.store.set_pending_match(lookup_title, display_title, ranked[:5])
-                    if cached:
-                        self.store.set_metadata_status(lookup_title, "ambiguous", confidence="medium")
-                        return cached
-                    local = {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "ambiguous", "metadata_confidence": "low"}
-                    self.store.upsert_anime(lookup_title, local, source="local", confidence="low", status="ambiguous")
-                    return self.store.anime_metadata(lookup_title) or local
-                if cached:
-                    self.store.set_metadata_status(lookup_title, "unresolved", confidence="low")
-                    return cached
-                local = {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "unresolved", "metadata_confidence": "low"}
-                self.store.upsert_anime(lookup_title, local, source="local", confidence="low", status="unresolved")
-                return self.store.anime_metadata(lookup_title) or local
-            except Exception as exc:
-                logger.warning("Metadata AniList indisponível para %s: %s", display_title, exc)
-                if cached:
-                    self.store.set_metadata_status(lookup_title, "stale", confidence=cached.get("metadata_confidence") or "low")
-                    return cached
-                local = {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "unresolved", "metadata_confidence": "low"}
-                self.store.upsert_anime(lookup_title, local, source="local", confidence="low", status="unresolved")
-                return local
-
-    def set_manual_metadata(self, lookup_title, values):
-        return self.store.set_manual_metadata(lookup_title, values)
-
-    @staticmethod
-    def _document_relative_path(document, name, uri):
-        relative_path = document.get("relativePath") or document.get("path") or name
-        if uri.startswith("file://") and not document.get("relativePath") and not document.get("path"):
-            relative_path = unquote(urlparse(uri).path)
-        return str(relative_path).replace(chr(92), "/").strip("/")
-
-    @staticmethod
-    def _physical_unchanged(existing, *, source_folder, file_size, modified_at, relative_path, volume_id):
-        if not existing or existing.get("missing"):
-            return False
-        return (
-            existing.get("source_folder") == source_folder
-            and existing.get("file_size") == file_size
-            and existing.get("modified_at") == modified_at
-            and (existing.get("relative_path") or "") == (relative_path or "")
-            and (existing.get("volume_id") or "") == (volume_id or "")
+                seen = []
+                for root, dirs, files in os.walk(reference):
+                    if ".nomedia" in files:
+                        dirs[:] = []
+                        continue
+                    dirs[:] = [directory for directory in dirs if not (Path(root) / directory / ".nomedia").is_file()]
+                    for name in files:
+                        result.files += 1
+                        if os.path.splitext(name)[1].lower() in VIDEO_EXTENSIONS:
+                            path = os.path.join(root, name)
+                            try:
+                                item = parse_video_path(path, reference)
+                            except (OSError, ValueError, UnicodeError) as exc:
+                                result.errors.append(f"{folder['name']}: não foi possível ler {name}: {exc}")
+                                continue
+                            seen.append(path); parsed.append((path, item, reference)); result.videos += 1
+                # A successful scan may legitimately find no videos.  Limit the
+                # missing update to this folder so another unavailable folder
+                # cannot hide its saved episodes.
+                self.store.mark_missing(reference, seen)
+            except OSError as exc:
+                error=f'Erro ao ler pasta: {exc}'; self.store.update_folder_status(reference, 'revoked', error); result.errors.append(f"{folder['name']}: {error}")
+        metadata={}
+        for path,item,source_folder in parsed:
+            key=item.anime_title.casefold()
+            if key not in metadata:
+                try:
+                    metadata[key] = self._identify(key, item.anime_title, on_status)
+                except Exception as exc:
+                    # Metadata must never make a locally readable file vanish.
+                    metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
+                    result.errors.append(f"{item.anime_title}: AniList indisponível ({exc})")
+                    logger.warning("Metadata lookup failed for local title %s: %s", item.anime_title, exc)
+            anime_id=self.store.upsert_anime(key,metadata[key]); self.store.upsert_episode(anime_id,path,os.path.basename(path),item.season,item.episode,source_folder=source_folder,media_identity=identity_from_document(Path(path).as_uri(), path))
+        result.catalog=self.store.catalog(); result.animes=len(result.catalog); result.episodes=sum(len(s['episodes']) for a in result.catalog for s in a['seasons'])
+        self.store.finish_scan(run_id, result.__dict__); on_status(result.message()); return result
+    def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *, folder_name=None, scan_errors=None, scan_stats=None, source_kind="saf"):
+        """Persist video document URIs enumerated by Android's ContentResolver."""
+        run_id = self.store.begin_scan()
+        scan_errors = list(scan_errors or [])
+        scan_stats = scan_stats or {}
+        self.store.add_folder(
+            tree_uri,
+            name=folder_name or tree_uri.rsplit("/", 1)[-1],
+            kind=source_kind,
+            authorization="granted",
+            account_id=self.store.account().get("id"),
         )
-
-    def _record_document(self, *, document, source_folder, source_kind, metadata, result):
-        uri = document.get("uri")
-        name = document.get("name")
-        if not isinstance(uri, str) or not uri or not isinstance(name, str) or not name.strip():
-            result.ignored += 1
-            result.errors.append("Documento local incompleto recebido da ponte Android.")
-            return None
-
-        relative_path = self._document_relative_path(document, name, uri)
-        is_local_reference = (
-            uri.startswith("content://")
-            or uri.startswith("file://")
-            or (source_kind == "filesystem" and os.path.isabs(uri))
-        )
-        if not is_local_reference:
-            result.ignored += 1
-            result.errors.append(f"Referência local inválida para {name}.")
-            return None
-
-        file_size = document.get("size")
-        modified_at = document.get("modifiedAt")
-        volume_id = document.get("volumeId")
-        volume_uuid = document.get("volumeUuid")
-        existing = self.store.physical_row(uri)
-        if self._physical_unchanged(
-            existing, source_folder=source_folder, file_size=file_size,
-            modified_at=modified_at, relative_path=relative_path, volume_id=volume_id,
-        ):
-            result.unchanged += 1
-            return uri
-
-        try:
-            item = parse_video_path(relative_path, source_folder)
-        except (OSError, ValueError, UnicodeError) as exc:
-            result.ignored += 1
-            result.errors.append(f"Não foi possível identificar {name}: {exc}")
-            return None
-
-        key = item.anime_title.casefold()
-        if item.episode_type == "unknown" or not item.anime_title or item.anime_title == "Arquivo não identificado":
-            result.unknown += 1
-
-        if key not in metadata:
+        metadata = {}
+        seen = []
+        for document in documents:
+            uri, name = document.get("uri"), document.get("name")
+            if not isinstance(uri, str) or not uri or not isinstance(name, str) or not name:
+                scan_errors.append("Documento nativo sem URI/nome válidos.")
+                continue
+            relative_path = document.get("relativePath") or document.get("path") or name
+            if uri.startswith("file://") and not document.get("relativePath") and not document.get("path"):
+                relative_path = unquote(urlparse(uri).path)
+            # Native media documents are the local-media contract. Rejecting
+            # anything else here prevents a malformed bridge payload from
+            # silently creating a playable row that Android cannot authorize.
+            if not (uri.startswith("content://") or uri.startswith("file://")):
+                scan_errors.append(f"Referência local inválida para {name}.")
+                continue
+            seen.append(uri)
+            media_identity = identity_from_document(uri, relative_path, document.get("volumeName"), tree_uri)
             try:
-                metadata[key] = self._identify(key, item.anime_title, lambda message: None, allow_network=False)
-            except Exception as exc:
-                metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
-                result.errors.append(f"{item.anime_title}: metadata indisponível ({exc})")
-            metadata[key] = dict(metadata[key] or {})
-            if item.episode_type == "movie":
-                metadata[key]["media_kind"] = "movie"
-            elif item.episode_type == "unknown":
-                metadata[key]["media_kind"] = "unknown"
-            else:
-                metadata[key]["media_kind"] = metadata[key].get("media_kind") or "series"
-
-        identity_volume = volume_id
-        if source_kind == "filesystem":
-            identity_volume = source_folder
-        identity = local_media_identity(
-            uri=uri, source_kind=("broad_storage" if source_kind == "filesystem" else source_kind), relative_path=relative_path,
-            size=file_size, modified_at=modified_at, volume_id=identity_volume,
+                item = parse_video_path(relative_path, tree_uri)
+            except (OSError, ValueError, UnicodeError) as exc:
+                scan_errors.append(f"Não foi possível ler {name}: {exc}")
+                continue
+            key = item.anime_title.casefold()
+            if key not in metadata:
+                try:
+                    metadata[key] = self._identify(key, item.anime_title, on_status)
+                except Exception as exc:
+                    metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
+                    logger.warning("Metadata lookup failed for SAF title %s: %s", item.anime_title, exc)
+            anime_id = self.store.upsert_anime(key, metadata[key])
+            self.store.upsert_episode(anime_id, uri, name, item.season, item.episode, document.get("mimeType"), document.get("size"), document.get("modifiedAt"), tree_uri, media_identity)
+        # Do not infer removals from a partial SAF scan: a SecurityException in
+        # one subdirectory means its previous documents may simply be unreadable.
+        # On a complete scan, absent documents become missing while keeping their
+        # SQLite progress so they can be restored later.
+        if scan_errors:
+            self.store.update_folder_status(tree_uri, "granted", "; ".join(map(str, scan_errors)))
+        else:
+            self.store.mark_missing(tree_uri, seen)
+            self.store.update_folder_status(tree_uri, "granted")
+        merged = self.store.merge_duplicate_media_identities()
+        if merged:
+            logger.info("Merged %s duplicate episode row(s) across media sources", merged)
+        catalog = self.store.catalog()
+        result = ScanResult(
+            catalog=catalog,
+            folders=1,
+            files=int(scan_stats.get("files") or len(documents)),
+            videos=int(scan_stats.get("videos") or len(documents)),
+            animes=len(catalog),
+            episodes=sum(len(season["episodes"]) for anime in catalog for season in anime["seasons"]),
+            errors=scan_errors,
         )
         anime_id = self.store.upsert_anime(key, metadata[key], source=metadata[key].get("metadata_source") or "local", confidence=metadata[key].get("metadata_confidence"), status=metadata[key].get("metadata_status"))
         row_id = self.store.upsert_episode(

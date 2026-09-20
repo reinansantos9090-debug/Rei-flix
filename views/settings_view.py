@@ -57,8 +57,7 @@ class SettingsView:
         media_folder = next((f for f in folders if f.get("kind") == "mediastore"), None)
         broad_granted = bool(broad_folder and broad_folder.get("authorization") == "granted")
         media_granted = bool(media_folder and media_folder.get("authorization") == "granted")
-        media_error = str(media_folder.get("last_error") or "") if media_folder else ""
-        media_is_partial = "parcial" in media_error.lower()
+        media_partial = bool(media_folder and "parcial" in str(media_folder.get("last_error") or "").casefold())
 
         def show_video_permission_dialog(_=None):
             if busy["permission"]:
@@ -112,7 +111,10 @@ class SettingsView:
                 modal=True,
                 icon=ft.Icon(ft.Icons.FOLDER_OPEN_OUTLINED, size=40),
                 title=ft.Text("Permissão necessária"),
-                content=ft.Text("Acesso ao armazenamento para procurar vídeos nas pastas locais."),
+                content=ft.Column([
+                    ft.Text("Acesso amplo ao armazenamento compartilhado para procurar vídeos em várias pastas locais."),
+                    ft.Text("Este acesso é opcional: o Rei-Flix também pode usar os vídeos do dispositivo e pastas específicas escolhidas por você.", color=TEXT_MUTED, size=11),
+                ], spacing=6),
                 actions=[
                     ft.TextButton("CANCELAR", on_click=lambda _: dismiss_dialog(page, dialog)),
                     ft.FilledButton("PERMITIR", on_click=allow),
@@ -221,14 +223,18 @@ class SettingsView:
             media_permission_color = "#FFB4AB"
 
         permission_lines = [
-            ft.Text(media_permission_text, color=media_permission_color, size=11),
             ft.Text(
-                "✓ Acesso amplo ao armazenamento" if broad_granted else "⚠ Acesso amplo ao armazenamento ainda não concedido",
-                color="#9FE3B1" if broad_granted else "#FFB4AB", size=11,
+                ("✓ Permissão para ler vídeos (acesso parcial)" if media_partial else "✓ Permissão para ler vídeos")
+                if media_granted else "⚠ Permissão para ler vídeos ainda não concedida",
+                color="#9FE3B1" if media_granted else "#FFB4AB", size=11,
+            ),
+            ft.Text(
+                "✓ Acesso amplo ao armazenamento concedido" if broad_granted else "○ Acesso amplo opcional não concedido — use uma pasta SAF como alternativa",
+                color="#9FE3B1" if broad_granted else "#AAA7B6", size=11,
             ),
             ft.Row([video_permission_button, broad_storage_button], wrap=True, spacing=8, run_spacing=8),
             ft.Text(
-                "O acesso amplo permite procurar vídeos em várias pastas locais. Se a tela de configurações não abrir diretamente, acesse Configurações do Dispositivo > Aplicativos > Rei-Flix e conceda Acesso a Todos os Arquivos.",
+                "Use acesso amplo para uma varredura geral do armazenamento compartilhado. Para um controle mais restrito, escolha uma pasta específica em “Adicionar pasta”.",
                 color="#AAA7B6", size=10,
             ),
         ]

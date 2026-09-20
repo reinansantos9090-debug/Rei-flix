@@ -232,6 +232,7 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
 
     if kind == "regular" and episode is not None and episode <= 0:
         kind = "unknown"
+        episode = None
         source = "invalid_episode_number"
         confidence = "low"
         unresolved.append("invalid_regular_episode_number")

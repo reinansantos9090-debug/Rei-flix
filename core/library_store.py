@@ -178,6 +178,17 @@ class LibraryStore:
                 "recorded_seconds": float(episodes["recorded_seconds"] or 0), "available_duration_seconds": float(episodes["duration_seconds"] or 0)}
 
     @staticmethod
+    def _normalize_json_list(value):
+        if isinstance(value, str):
+            return value
+        if value is None:
+            return "[]"
+        try:
+            return json.dumps(list(value), ensure_ascii=False)
+        except (TypeError, ValueError):
+            return "[]"
+
+    @staticmethod
     def _decode_tags(value):
         try:
             decoded = json.loads(value or "[]")
@@ -528,12 +539,12 @@ class LibraryStore:
             "romaji": metadata.get("romaji"),
             "english": metadata.get("english"),
             "native": metadata.get("native"),
-            "aliases": metadata.get("aliases", "[]"),
+            "aliases": self._normalize_json_list(metadata.get("aliases", "[]")),
             "description": metadata.get("description"),
             "cover_url": metadata.get("cover_url", ""),
             "cover_cache": metadata.get("cover_cache", ""),
             "banner_url": metadata.get("banner_url", ""),
-            "genres": metadata.get("genres", "[]"),
+            "genres": self._normalize_json_list(metadata.get("genres", "[]")),
             "year": metadata.get("year"),
             "season": metadata.get("season"),
             "status": metadata.get("status"),
@@ -604,6 +615,9 @@ class LibraryStore:
         """Persist explicit editorial corrections without touching user state."""
         allowed = {"title", "romaji", "english", "native", "aliases", "description", "genres", "year", "season", "status", "episodes_count", "duration", "score", "format", "studio"}
         values = {key: value for key, value in (values or {}).items() if key in allowed}
+        for key in ("aliases", "genres"):
+            if key in values:
+                values[key] = self._normalize_json_list(values[key])
         if not values:
             raise ValueError("Nenhum campo de metadata manual válido foi informado.")
         with self._conn() as c:

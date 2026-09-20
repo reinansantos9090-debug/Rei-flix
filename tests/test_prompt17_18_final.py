@@ -24,7 +24,7 @@ class Prompt17And18FinalTests(unittest.TestCase):
         parsed = parse_video_path("Show/Season 00/Show S00E01.mkv")
         self.assertEqual("special", parsed.episode_type)
         self.assertEqual(1, parsed.episode)
-        self.assertEqual(1, parse_video_path("Show/Season 00/Show E02.mkv").episode)
+        self.assertEqual(2, parse_video_path("Show/Season 00/Show E02.mkv").episode)
         self.assertEqual("special", parse_video_path("Show/Season 00/Show E02.mkv").episode_type)
 
     def test_movie_word_does_not_override_explicit_episode(self):

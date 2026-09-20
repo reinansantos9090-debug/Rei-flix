@@ -875,6 +875,11 @@ class LibraryStore:
             return episodes[0] if episodes else None
         return self._current_from_rows(episodes)
 
+    def _conn_media_kind(self, anime_id):
+        with self._conn() as c:
+            row = c.execute("SELECT media_kind FROM anime WHERE id=?", (anime_id,)).fetchone()
+            return row["media_kind"] if row else None
+
     def playback_target(self, anime_id):
         """Return the single local episode the Details primary action should play.
 
@@ -889,16 +894,18 @@ class LibraryStore:
                 "SELECT * FROM episodes WHERE anime_id=? AND missing=0",
                 (anime_id,),
             ).fetchall()
-        ordered = sorted(
-            (dict(row) for row in rows),
-            key=self._episode_order_key,
-        )
+        is_movie = str(self._conn_media_kind(anime_id) or "series").casefold() == "movie"
+        candidates = [
+            dict(row) for row in rows
+            if is_movie or is_regular_episode(row)
+        ]
+        ordered = sorted(candidates, key=self._episode_order_key)
         return ordered[0] if ordered else None
 
     def continue_watching(self, limit=12):
         """One playable continuation per anime, ordered by latest playback."""
         with self._conn() as c:
-            rows = c.execute("""SELECT e.*, a.title AS anime_title, a.cover_cache, a.cover_url
+            rows = c.execute("""SELECT e.*, a.title AS anime_title, a.media_kind, a.cover_cache, a.cover_url
                 FROM episodes e JOIN anime a ON a.id=e.anime_id
                 ORDER BY e.anime_id, e.season, e.number, e.file_name""").fetchall()
         groups = {}
@@ -906,7 +913,11 @@ class LibraryStore:
             groups.setdefault(row["anime_id"], []).append(dict(row))
         items = []
         for anime_id, episodes in groups.items():
-            available = [episode for episode in episodes if not episode["missing"]]
+            is_movie = str(episodes[0].get("media_kind") or "series").casefold() == "movie"
+            available = [
+                episode for episode in episodes
+                if not episode["missing"] and (is_movie or is_regular_episode(episode))
+            ]
             active = [episode for episode in available if is_in_progress(episode)]
             latest_played = max((episode.get("last_played_at") or 0 for episode in available), default=0)
             if active:

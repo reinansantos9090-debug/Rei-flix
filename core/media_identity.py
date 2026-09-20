@@ -42,10 +42,8 @@ def local_media_identity(*, uri: str, source_kind: str | None, relative_path: st
     elif source_kind not in {"mediastore", "broad_storage"}:
         return None
     relative = _shared_relative(candidate)
-    # A Broad Storage document supplies its real StorageVolume identifier. A
-    # MediaStore row has no portable volume UUID in this projection, so its
-    # source remains distinct unless a future Android contract supplies one.
-    # This deliberately favours duplicate rows over merging same-named files
-    # from an internal volume, SD card, or USB volume.
+    # Broad Storage supplies a StorageVolume identity. MediaStore supplies the
+    # specific MediaStore volume name when the scanner queries per-volume; never
+    # fall back to a synthetic aggregate identity when a volume is known.
     volume = (volume_id or ("mediastore" if source_kind == "mediastore" else "")).strip().casefold()
     return f"shared-local:{volume}:{relative}|{size}|{modified_at}" if relative and volume else None

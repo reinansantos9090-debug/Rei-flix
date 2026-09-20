@@ -94,6 +94,20 @@ Detalhes (por exemplo, `Prioridade` ou `Assistir com amigos`). Essas etiquetas
 são privadas, ficam no SQLite local, aparecem em buscas locais e não são
 enviadas ao AniList ou ao Google.
 
+## Biblioteca pessoal e player local
+
+A biblioteca também mantém, exclusivamente no SQLite local, **pins** e notas
+pessoais (até 2000 caracteres). A tela de detalhes permite editar ambos; as
+projeções locais podem filtrar por favorito, pin, progresso, nota, metadata,
+capa e etiqueta. Configurações mostra estatísticas agregadas e o relatório
+real do último scan, sem abrir arquivos nem chamar serviços de metadata.
+
+O player Android usa Media3 1.5.1 para conteúdo autorizado localmente. Ele
+preserva retomada/progresso via `NativeMailbox` e inclui velocidade entre
+0,5x–2x, fit/fill/zoom, reinício, marcar visto/não visto, autoplay do próximo
+episódio e timer de sono de sessão. PiP, codecs e reprodução devem ser
+validados em APK/dispositivo; não há streaming, download ou legenda online.
+
 ## Permissões
 
 O Android usa três mecanismos complementares para a biblioteca local:

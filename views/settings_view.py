@@ -45,6 +45,7 @@ class SettingsView:
 
         folders = store.folders()
         summary = store.library_summary()
+        statistics = library.library_statistics()
         broad_folder = next((f for f in folders if f.get("kind") == "broad_storage"), None)
         media_folder = next((f for f in folders if f.get("kind") == "mediastore"), None)
         broad_granted = bool(broad_folder and broad_folder.get("authorization") == "granted")
@@ -322,6 +323,16 @@ class SettingsView:
             diagnostic = f"Última varredura: {last['videos']} vídeos, {last['animes']} animes, {last['episodes']} episódios."
             if errors:
                 diagnostic += " Há itens que precisam de atenção."
+            if last.get("status"):
+                diagnostic += f" Status: {last['status']}."
+
+        stats_text = (
+            f"{statistics['animes']} animes • {statistics['episodes_available']}/{statistics['episodes']} episódios disponíveis\n"
+            f"{statistics['animes_completed']} concluídos • {statistics['animes_in_progress']} em andamento • {statistics['animes_not_started']} não iniciados\n"
+            f"{statistics['episodes_watched']} episódios concluídos • {statistics['favorites']} favoritos • {statistics['pinned']} fixados\n"
+            f"{statistics['tags']} etiquetas distintas • {statistics['notes']} notas pessoais\n"
+            f"{statistics['without_metadata']} sem metadata • {statistics['without_cover']} sem capa"
+        )
 
         account_content = ft.Row([
             ft.Image(src=account.get("picture"), width=42, height=42, border_radius=21) if account.get("picture") else ft.Icon(ft.Icons.ACCOUNT_CIRCLE_OUTLINED, size=42, color="#C7C5D0"),
@@ -337,6 +348,11 @@ class SettingsView:
                 ft.Row([add_folder_button, scan_button], wrap=True),
                 ft.Text(diagnostic, color="#AAA7B6", size=11),
             ], spacing=8)),
+            section("ESTATÍSTICAS OFFLINE", ft.Icons.INSIGHTS_OUTLINED, ft.Column([
+                ft.Text(stats_text, color="#C7C5D0", size=12),
+                ft.Text("“Registrado” representa a posição atual salva nos episódios disponíveis; não é tempo histórico assistido.", color=TEXT_MUTED, size=10),
+                ft.Text(diagnostic, color="#AAA7B6", size=11),
+            ], spacing=7)),
             section("REPRODUÇÃO", ft.Icons.PLAY_CIRCLE_OUTLINE, ft.Column([
                 resume_switch,
                 ft.Text("O próximo episódio continua sendo uma ação explícita no player local.", color="#AAA7B6", size=11),

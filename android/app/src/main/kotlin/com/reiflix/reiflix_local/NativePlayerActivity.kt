@@ -6,6 +6,8 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.app.PictureInPictureParams
+import android.os.Build
 import android.view.Gravity
 import android.widget.Button
 import android.widget.FrameLayout
@@ -33,6 +35,9 @@ class NativePlayerActivity : ComponentActivity() {
     // must still publish an exit when the user closes this activity.
     private var suppressExitEvent = false
     private var initialSeekApplied = false
+    private var autoplayNext = true
+    private var sleepDeadline = 0L
+    private lateinit var playerView: PlayerView
     private val title get() = intent.getStringExtra("title") ?: "Episódio"
     private val progressReporter = object : Runnable {
         override fun run() {
@@ -57,7 +62,8 @@ class NativePlayerActivity : ComponentActivity() {
         }
 
         player = ExoPlayer.Builder(this).build()
-        val playerView = PlayerView(this).apply {
+        autoplayNext = getSharedPreferences("reiflix_player", MODE_PRIVATE).getBoolean("autoplay_next", true)
+        playerView = PlayerView(this).apply {
             player = this@NativePlayerActivity.player
             useController = true
             controllerShowTimeoutMs = 3500
@@ -80,6 +86,7 @@ class NativePlayerActivity : ComponentActivity() {
                     handler.postDelayed(progressReporter, PROGRESS_INTERVAL_MS)
                 } else if (state == Player.STATE_ENDED) {
                     saveProgress("player_completed", force = true)
+                    if (autoplayNext && intent.getBooleanExtra("canNext", false)) requestEpisode("player_next_request")
                 }
             }
             override fun onPlayerError(error: PlaybackException) {
@@ -110,7 +117,61 @@ class NativePlayerActivity : ComponentActivity() {
                 setMargins(24, 0, 24, 28)
             })
         }
+        root.addView(Button(this).apply {
+            text = "1.0x"
+            setOnClickListener { cycleSpeed(this) }
+        }, bottomParams(Gravity.CENTER, 150))
+        root.addView(Button(this).apply {
+            text = "Ajustar"
+            setOnClickListener { cycleAspect(this) }
+        }, bottomParams(Gravity.CENTER, 88))
+        root.addView(Button(this).apply {
+            text = "Reiniciar"
+            setOnClickListener { player.seekTo(0); saveProgress("player_progress", true) }
+        }, bottomParams(Gravity.CENTER, 26))
+        root.addView(Button(this).apply {
+            text = if (autoplayNext) "Autoplay: ON" else "Autoplay: OFF"
+            setOnClickListener {
+                autoplayNext = !autoplayNext
+                text = if (autoplayNext) "Autoplay: ON" else "Autoplay: OFF"
+                getSharedPreferences("reiflix_player", MODE_PRIVATE).edit().putBoolean("autoplay_next", autoplayNext).apply()
+            }
+        }, bottomParams(Gravity.TOP or Gravity.END, 24))
+        root.addView(Button(this).apply {
+            text = "15 min"
+            setOnClickListener { setSleepTimer(this) }
+        }, bottomParams(Gravity.TOP or Gravity.START, 24))
+        root.addView(Button(this).apply {
+            text = "Visto"
+            setOnClickListener { NativeMailbox.write(this@NativePlayerActivity, JSONObject().put("type", "player_mark_watched").put("payload", JSONObject().put("uri", uri.toString()))); saveProgress("player_progress", true) }
+        }, bottomParams(Gravity.CENTER or Gravity.TOP, 24))
+        root.addView(Button(this).apply {
+            text = "Não visto"
+            setOnClickListener { NativeMailbox.write(this@NativePlayerActivity, JSONObject().put("type", "player_mark_unwatched").put("payload", JSONObject().put("uri", uri.toString()))) }
+        }, bottomParams(Gravity.CENTER or Gravity.TOP, 76))
     }
+
+    private fun bottomParams(gravity: Int, bottom: Int) = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply { this.gravity = gravity; setMargins(18, 18, 18, bottom) }
+    private fun cycleSpeed(button: Button) {
+        val speeds = floatArrayOf(.5f, .75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+        val current = player.playbackParameters.speed
+        val next = speeds[((speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 2) + 1) % speeds.size]
+        player.setPlaybackSpeed(next); button.text = "${next}x"
+    }
+    private fun cycleAspect(button: Button) {
+        val modes = intArrayOf(PlayerView.RESIZE_MODE_FIT, PlayerView.RESIZE_MODE_FILL, PlayerView.RESIZE_MODE_ZOOM)
+        val index = modes.indexOf(playerView.resizeMode)
+        playerView.resizeMode = modes[(index + 1) % modes.size]
+        button.text = arrayOf("Ajustar", "Preencher", "Zoom")[(index + 1) % modes.size]
+    }
+    private fun setSleepTimer(button: Button) {
+        val minutes = when ((sleepDeadline - System.currentTimeMillis()).coerceAtLeast(0L)) { 0L -> 15; in 1..900_000 -> 30; in 900_001..1_800_000 -> 45; else -> 0 }
+        sleepDeadline = if (minutes == 0) 0 else System.currentTimeMillis() + minutes * 60_000L
+        button.text = if (minutes == 0) "Timer: off" else "$minutes min"
+        handler.removeCallbacks(sleepReporter)
+        if (sleepDeadline > 0) handler.postDelayed(sleepReporter, 1_000L)
+    }
+    private val sleepReporter = object : Runnable { override fun run() { if (sleepDeadline > 0 && System.currentTimeMillis() >= sleepDeadline) { player.pause(); sleepDeadline = 0; Toast.makeText(this@NativePlayerActivity, "Timer de sono concluído", Toast.LENGTH_SHORT).show() } else if (sleepDeadline > 0) handler.postDelayed(this, 1_000L) } }
 
     private fun requestEpisode(eventType: String) {
         saveProgress("player_progress", force = true)
@@ -131,6 +192,7 @@ class NativePlayerActivity : ComponentActivity() {
     override fun onStop() { saveProgress("player_progress", force = true); super.onStop() }
     override fun onDestroy() {
         handler.removeCallbacks(progressReporter)
+        handler.removeCallbacks(sleepReporter)
         if (::player.isInitialized) {
             if (!suppressExitEvent) saveProgress("player_exited", force = true)
             player.release()
@@ -138,6 +200,7 @@ class NativePlayerActivity : ComponentActivity() {
         super.onDestroy()
     }
     override fun onResume() { super.onResume(); enterImmersiveMode() }
+    override fun onUserLeaveHint() { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && player.isPlaying) enterPictureInPictureMode(PictureInPictureParams.Builder().build()); super.onUserLeaveHint() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) enterImmersiveMode() }
 
     private fun enterImmersiveMode() {

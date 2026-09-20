@@ -1,6 +1,7 @@
 """Local-library exploration view for genres and durable playback states."""
 from __future__ import annotations
 
+import math
 import flet as ft
 from core.consumption import consumption_state, progress_ratio
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title
@@ -58,7 +59,13 @@ class OrganizeView:
 
         def progress(anime):
             current = anime.get("current_episode") or {}
-            if not current or not float(current.get("duration") or 0):
+            if not current:
+                return None
+            try:
+                duration = float(current.get("duration") or 0)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(duration) or duration <= 0:
                 return None
             return progress_ratio(current)
 

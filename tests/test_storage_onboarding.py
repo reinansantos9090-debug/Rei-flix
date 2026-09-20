@@ -30,6 +30,24 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertNotIn("dialog.close(", sources)
         self.assertIn("dismiss_dialog", (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8"))
 
+    def test_permission_intent_is_single_task_and_lifecycle_queued(self):
+        manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn('android:launchMode="singleTask"', manifest)
+        self.assertIn('android:documentLaunchMode="never"', manifest)
+        self.assertIn("setIntent(intent)", source)
+        self.assertIn("pendingLifecycleAction", source)
+        self.assertIn("override fun onPostResume()", source)
+        self.assertIn("activityResumed", source)
+        self.assertIn("LIFECYCLE", source)
+
+    def test_permission_request_is_not_launched_from_a_non_resumed_activity(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        request_block = source.split("private fun requestMediaAccess()", 1)[1].split("private fun publishStorageStatus()", 1)[0]
+        self.assertIn('if (!activityResumed)', request_block)
+        self.assertIn('pendingLifecycleAction = "request_media_access"', request_block)
+        self.assertIn("mediaPermissionRequester.launch(permissions)", request_block)
+
     def test_native_host_rechecks_and_never_scans_before_authorization(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("override fun onResume()", source)

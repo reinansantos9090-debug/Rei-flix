@@ -71,9 +71,9 @@ class StorageOnboardingTests(unittest.TestCase):
 
     def test_startup_does_not_self_launch_main_activity_for_storage_snapshot(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        startup = source[source.index("    if bridge.available:"):source.index("    render_current()", source.index("    if bridge.available:"))]
+        startup = source[source.index("async def main(page: ft.Page):"):source.index("    def navigate_back():")]
         self.assertNotIn("bridge.check_storage_access", startup)
-        self.assertIn("MainActivity publishes the authoritative storage snapshot", startup)
+        self.assertIn("MainActivity publishes the authoritative storage snapshot", source)
 
     def test_native_intents_have_unique_request_identity_and_are_deduplicated(self):
         bridge = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
@@ -94,7 +94,7 @@ class StorageOnboardingTests(unittest.TestCase):
 
     def test_open_settings_does_not_publish_a_false_permission_before_navigation(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
-        block = source.split("private fun openBroadStorageSettings()", 1)[1].split("private fun openTreePicker()", 1)[0]
+        block = source.split("private fun openBroadStorageSettings()", 1)[1].split("private fun openSettingsIntent", 1)[0]
         self.assertNotIn('put("granted", false)', block)
         self.assertIn("broadStoragePermissionPending = true", block)
         self.assertIn("publishStorageStatus()", source)

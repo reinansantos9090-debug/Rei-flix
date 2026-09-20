@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class TestMediaStoreAndroidHost(unittest.TestCase):
     def test_media_store_scanner_uses_content_uris_and_media_store_video(self):
         source = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MediaStoreScanner.kt").read_text(encoding="utf-8")
-        self.assertIn("MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)", source)
+        self.assertIn("MediaStore.Video.Media.getContentUri(volumeName)", source)
         self.assertIn("MediaStore.Video.Media.EXTERNAL_CONTENT_URI", source)
         self.assertIn("ContentUris.withAppendedId", source)
         self.assertIn("content://", source) if "content://" in source else self.assertIn("uri.toString()", source)

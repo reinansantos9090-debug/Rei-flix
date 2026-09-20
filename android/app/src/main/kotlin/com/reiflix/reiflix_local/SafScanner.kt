@@ -263,5 +263,6 @@ object SafScanner {
             .put("documents", files)
             .put("stats", stats)
             .put("partial", partial)
+            .put("cancelled", cancelled)
     }
 }

@@ -182,11 +182,7 @@ class ArtworkEngine:
                 return None
             return dict(row)
 
-    def discover_episode(self, episode_id):
-        row = self._episode_row(episode_id)
-        if not row:
-            return []
-        path = row["path"]
+    def _discover_episode_path(self, episode_id, path):
         if not isinstance(path, str) or not path.startswith("/") or not os.path.isfile(path):
             return []
         directory = Path(path).parent
@@ -197,6 +193,10 @@ class ArtworkEngine:
                 if self.add_local("episode", episode_id, kind, candidate):
                     found.append(candidate)
         return found
+
+    def discover_episode(self, episode_id):
+        row = self._episode_row(episode_id)
+        return self._discover_episode_path(episode_id, row["path"]) if row else []
 
     def discover_anime(self, anime_id):
         with self.store._conn() as con:
@@ -254,7 +254,7 @@ class ArtworkEngine:
                          source="cache", source_ref=cover_url or cover_cache,
                          local_path=cover_cache, external_url=cover_url)
         elif cover_url:
-            self._upsert(entity_type="anime", entity_id=anime_id, artwork_type="poster",
+            self._upsert(entity_type=entity_type, entity_id=anime_id, artwork_type="poster",
                          source="anilist", source_ref=cover_url, external_url=cover_url,
                          status="available")
         if banner_url:
@@ -263,13 +263,45 @@ class ArtworkEngine:
                          status="available")
         self.discover_anime(anime_id)
 
+    def reindex_entity(self, anime_id):
+        """Discover entity/season artwork once for one source batch."""
+        with self.store._conn() as con:
+            anime = con.execute("SELECT media_kind FROM anime WHERE id=?", (int(anime_id),)).fetchone()
+            rows = con.execute(
+                "SELECT path,season FROM episodes WHERE anime_id=? AND missing=0",
+                (int(anime_id),),
+            ).fetchall()
+        entity_type = "movie" if anime and str(anime["media_kind"] or "series").casefold() == "movie" else "anime"
+        entity_dirs = set()
+        season_dirs = {}
+        for row in rows:
+            path = row["path"]
+            if not isinstance(path, str) or not path.startswith("/") or not os.path.isfile(path):
+                continue
+            directory = Path(path).parent
+            entity_dirs.add(directory)
+            if row["season"] is not None:
+                season_dirs.setdefault(int(row["season"]), set()).add(directory)
+
+        found = []
+        for directory in sorted(entity_dirs, key=lambda p: str(p).casefold()):
+            for kind in ("poster", "backdrop"):
+                for candidate in self._candidates(kind, directory):
+                    if self.add_local(entity_type, anime_id, kind, candidate):
+                        found.append(candidate)
+        for season, directories in sorted(season_dirs.items()):
+            entity_id = f"{anime_id}:season:{season}"
+            for directory in sorted(directories, key=lambda p: str(p).casefold()):
+                for candidate in self._candidates("season_poster", directory):
+                    if self.add_local("season", entity_id, "season_poster", candidate):
+                        found.append(candidate)
+        return found
+
     def reindex_episode(self, episode_id):
         found = self.discover_episode(episode_id)
         row = self._episode_row(episode_id)
         if row:
-            self.discover_anime(row["anime_id"])
-            if row.get("season") is not None:
-                self.discover_season(row["anime_id"], row["season"])
+            self.reindex_entity(row["anime_id"])
         return found
 
     def reindex_anime(self, anime_id):

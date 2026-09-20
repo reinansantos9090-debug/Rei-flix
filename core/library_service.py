@@ -223,7 +223,7 @@ class LibraryService:
             and (existing.get("volume_id") or "") == (volume_id or "")
         )
 
-    def _record_document(self, *, document, source_folder, source_kind, metadata, result):
+    def _record_document(self, *, document, source_folder, source_kind, metadata, result, affected_anime_ids=None):
         uri = document.get("uri")
         name = document.get("name")
         if not isinstance(uri, str) or not uri or not isinstance(name, str) or not name.strip():
@@ -297,7 +297,11 @@ class LibraryService:
             identification_source=item.identification_source,
             identification_confidence=item.confidence,
         )
-        self.artwork.reindex_episode(row_id)
+        # Per-episode thumbnails are discovered immediately. Poster/season
+        # discovery is deferred to one pass per affected entity.
+        self.artwork.discover_episode(row_id)
+        if affected_anime_ids is not None:
+            affected_anime_ids.add(anime_id)
 
         if existing:
             result.updated += 1
@@ -363,8 +367,18 @@ class LibraryService:
                     except OSError as exc:
                         result.errors.append(f"{folder['name']}: erro ao ler pasta: {exc}")
                 metadata = {}
+                affected_anime_ids = set()
                 for document, source_folder, source_kind in parsed:
-                    self._record_document(document=document, source_folder=source_folder, source_kind=source_kind, metadata=metadata, result=result)
+                    self._record_document(
+                        document=document,
+                        source_folder=source_folder,
+                        source_kind=source_kind,
+                        metadata=metadata,
+                        result=result,
+                        affected_anime_ids=affected_anime_ids,
+                    )
+                for anime_id in sorted(affected_anime_ids):
+                    self.artwork.reindex_entity(anime_id)
                 result.catalog = self.store.catalog()
                 result.animes = len(result.catalog)
                 result.episodes = sum(len(s["episodes"]) for a in result.catalog for s in a["seasons"]) + sum(len(a.get("media_files", [])) for a in result.catalog)
@@ -397,6 +411,7 @@ class LibraryService:
                     account_id=self.store.account().get("id"),
                 )
                 metadata = {}
+                affected_anime_ids = set()
                 seen = set()
                 for document in documents or []:
                     uri = document.get("uri") if isinstance(document, dict) else None
@@ -412,9 +427,13 @@ class LibraryService:
                         source_kind=source_kind,
                         metadata=metadata,
                         result=result,
+                        affected_anime_ids=affected_anime_ids,
                     )
                     if accepted:
                         result.videos += 1
+
+                for anime_id in sorted(affected_anime_ids):
+                    self.artwork.reindex_entity(anime_id)
 
                 result.errors.extend(str(error) for error in scan_errors)
                 if scan_errors:
@@ -481,9 +500,13 @@ class LibraryService:
         return metadata
     def catalog(self, favorites_only=False): return self.store.catalog(favorites_only)
 
-    def media_center_home(self, limit=12):
-        """Build all Home sections from one already-aggregated local catalog."""
-        catalog = self.store.catalog()
+    def media_center_home(self, limit=12, *, catalog=None):
+        """Build all Home sections from one already-aggregated local catalog.
+
+        A preloaded catalog can be supplied by callers such as Home to avoid
+        materializing the same full SQLite projection twice.
+        """
+        catalog = self.store.catalog() if catalog is None else catalog
         episodes = [e for anime in catalog for season in anime.get("seasons", [])
                     for e in season.get("episodes", [])]
         specials = [e for anime in catalog for group in anime.get("specials", [])
@@ -549,13 +572,9 @@ class LibraryService:
 
     @staticmethod
     def organize_summary(catalog):
-        """Summarize one loaded local catalog for the Organizar landing page.
-
-        This is deliberately an in-memory projection: it makes no database or
-        network requests, and all state counts reuse ``browse_catalog`` so Home
-        and Organizar cannot disagree about favorite/progress semantics.
-        """
+        """Summarize one loaded local catalog without repeated filtering passes."""
         genres = {}
+        state_counts = {"Todos": len(catalog), "Favoritos": 0, "Em andamento": 0, "Concluídos": 0}
         for anime in catalog:
             cover = (anime.get("meta") or {}).get("cover_cache") or (anime.get("meta") or {}).get("cover_url")
             for genre in anime.get("genres") or []:
@@ -565,10 +584,21 @@ class LibraryService:
                 entry["count"] += 1
                 if not entry["cover"] and cover:
                     entry["cover"] = cover
-        states = [
-            {"name": state, "count": len(LibraryService.browse_catalog(catalog, state=state))}
-            for state in ("Todos", "Favoritos", "Em andamento", "Concluídos")
-        ]
+
+            if anime.get("favorite"):
+                state_counts["Favoritos"] += 1
+
+            episodes = [episode for season in anime.get("seasons") or [] for episode in season.get("episodes") or []]
+            episodes.extend(episode for group in anime.get("specials") or [] for episode in group.get("episodes") or [])
+            episodes.extend(anime.get("media_files") or [])
+            available = [episode for episode in episodes if not episode.get("missing")]
+            states = [consumption_state(episode) for episode in available]
+            if any(state.value == "in_progress" for state in states):
+                state_counts["Em andamento"] += 1
+            if available and all(state.value in {"completed", "watched"} for state in states):
+                state_counts["Concluídos"] += 1
+
+        states = [{"name": name, "count": state_counts[name]} for name in ("Todos", "Favoritos", "Em andamento", "Concluídos")]
         return {"genres": sorted(genres.values(), key=lambda item: item["name"].casefold()), "states": states}
 
     @staticmethod

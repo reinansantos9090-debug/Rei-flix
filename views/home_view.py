@@ -158,6 +158,8 @@ class HomeView:
                 progress_seconds=episode.get("progress", 0) or 0,
             )
 
+        catalog_by_id = {}
+        
         def render_continue():
             continue_row.controls.clear()
             continuation_section.visible = bool(continuing)
@@ -166,7 +168,7 @@ class HomeView:
             for item in continuing[:8]:
                 progress = ratio(item)
                 episode_label = "FILME" if item.get("episode_type") == "movie" else f"T{item.get('season', 1)} • E{item.get('number') if item.get('number') is not None else '—'}"
-                owner = next((anime for anime in catalog if anime.get("id") == item.get("anime_id")), None)
+                owner = catalog_by_id.get(item.get("anime_id"))
                 continue_button = ft.OutlinedButton(
                     "Continuar", icon=ft.Icons.PLAY_ARROW,
                     on_click=lambda _, entry=item: play_continuation(entry),
@@ -314,8 +316,10 @@ class HomeView:
                     # Home is strictly a local presentation. Scanning belongs to
                     # the explicit library/SAF flow and must not trigger AniList
                     # work every time the user returns to this screen.
-                    home_data = library.media_center_home(limit=12)
                     catalog = library.catalog()
+                    catalog_by_id.clear()
+                    catalog_by_id.update({anime.get("id"): anime for anime in catalog})
+                    home_data = library.media_center_home(limit=12, catalog=catalog)
                     refresh_filter_options()
                     continuing = home_data.get("continue_watching", [])
                     status.visible = False

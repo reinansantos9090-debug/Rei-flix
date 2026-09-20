@@ -154,12 +154,20 @@ class LibraryStore:
                 SUM(CASE WHEN missing=0 THEN progress ELSE 0 END) AS recorded_seconds,
                 SUM(CASE WHEN missing=0 THEN duration ELSE 0 END) AS duration_seconds FROM episodes""").fetchone()
             tags = c.execute("SELECT user_tags FROM anime").fetchall()
+            anime_state_rows = c.execute("""SELECT anime_id,
+                SUM(CASE WHEN missing=0 THEN 1 ELSE 0 END) AS available,
+                SUM(CASE WHEN missing=0 AND watched=1 THEN 1 ELSE 0 END) AS watched,
+                SUM(CASE WHEN missing=0 AND progress>0 AND watched=0 THEN 1 ELSE 0 END) AS active
+                FROM episodes GROUP BY anime_id""").fetchall()
         tag_count = len({str(tag).casefold() for entry in tags for tag in self._decode_tags(entry["user_tags"])})
+        state_completed = sum(bool(r["available"]) and r["watched"] == r["available"] for r in anime_state_rows)
+        state_active = sum(bool(r["active"]) for r in anime_state_rows)
+        state_not_started = sum(bool(r["available"]) and not r["watched"] and not r["active"] for r in anime_state_rows)
         available = int(episodes["available"] or 0)
         watched = int(episodes["watched"] or 0)
         return {"animes": int(row["animes"] or 0), "episodes": int(episodes["total"] or 0), "episodes_available": available,
-                "episodes_watched": watched, "animes_in_progress": self._anime_state_count("in_progress"),
-                "animes_completed": self._anime_state_count("completed"), "animes_not_started": self._anime_state_count("not_started"),
+                "episodes_watched": watched, "animes_in_progress": state_active,
+                "animes_completed": state_completed, "animes_not_started": state_not_started,
                 "favorites": int(row["favorites"] or 0), "pinned": int(row["pinned"] or 0), "notes": int(row["notes"] or 0),
                 "tags": tag_count, "without_metadata": int(row["without_metadata"] or 0), "without_cover": int(row["without_cover"] or 0),
                 "recorded_seconds": float(episodes["recorded_seconds"] or 0), "available_duration_seconds": float(episodes["duration_seconds"] or 0)}

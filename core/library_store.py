@@ -8,7 +8,7 @@ import time
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 14
+    SCHEMA_VERSION = 15
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -35,7 +35,8 @@ class LibraryStore:
               title TEXT NOT NULL, romaji TEXT, english TEXT, native TEXT, aliases TEXT DEFAULT '[]', description TEXT,
               cover_url TEXT, cover_cache TEXT, banner_url TEXT, genres TEXT, year INTEGER,
               season TEXT, status TEXT, episodes_count INTEGER, duration INTEGER, score INTEGER, studio TEXT,
-              metadata_updated_at REAL, favorite INTEGER NOT NULL DEFAULT 0, user_tags TEXT NOT NULL DEFAULT '[]', added_at REAL NOT NULL);
+              metadata_updated_at REAL, favorite INTEGER NOT NULL DEFAULT 0, user_tags TEXT NOT NULL DEFAULT '[]',
+              is_pinned INTEGER NOT NULL DEFAULT 0, personal_note TEXT, added_at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS episodes (
               id INTEGER PRIMARY KEY, anime_id INTEGER NOT NULL REFERENCES anime(id) ON DELETE CASCADE,
               path TEXT UNIQUE NOT NULL, file_name TEXT NOT NULL, season INTEGER NOT NULL,
@@ -61,7 +62,7 @@ class LibraryStore:
                 if column not in existing:
                     c.execute(f"ALTER TABLE folders ADD COLUMN {column} {definition}")
             anime_columns = {r[1] for r in c.execute("PRAGMA table_info(anime)")}
-            for column, definition in {"aliases": "TEXT DEFAULT '[]'", "score": "INTEGER", "metadata_updated_at": "REAL", "favorite": "INTEGER NOT NULL DEFAULT 0", "user_tags": "TEXT NOT NULL DEFAULT '[]'"}.items():
+            for column, definition in {"aliases": "TEXT DEFAULT '[]'", "score": "INTEGER", "metadata_updated_at": "REAL", "favorite": "INTEGER NOT NULL DEFAULT 0", "user_tags": "TEXT NOT NULL DEFAULT '[]'", "is_pinned": "INTEGER NOT NULL DEFAULT 0", "personal_note": "TEXT"}.items():
                 if column not in anime_columns:
                     c.execute(f"ALTER TABLE anime ADD COLUMN {column} {definition}")
             episode_columns = {r[1] for r in c.execute("PRAGMA table_info(episodes)")}
@@ -78,6 +79,7 @@ class LibraryStore:
             if "status" not in scan_columns:
                 c.execute("ALTER TABLE scan_runs ADD COLUMN status TEXT NOT NULL DEFAULT 'running'")
             c.execute("CREATE INDEX IF NOT EXISTS idx_scan_runs_status ON scan_runs(status, started_at)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_anime_pinned ON anime(is_pinned, added_at)")
             c.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?,?)", (self.SCHEMA_VERSION, time.time()))
         # A process can disappear between begin_scan() and finish_scan().
         # Recovering here keeps startup deterministic while leaving the
@@ -109,6 +111,50 @@ class LibraryStore:
                 "episodes": c.execute("SELECT COUNT(*) FROM episodes").fetchone()[0],
                 "history": c.execute("SELECT COUNT(*) FROM episodes WHERE last_played_at IS NOT NULL").fetchone()[0],
             }
+
+    def library_statistics(self):
+        """Offline aggregate projection for Settings; never opens media or uses network."""
+        with self._conn() as c:
+            row = c.execute("""SELECT
+                COUNT(*) AS animes, SUM(CASE WHEN favorite=1 THEN 1 ELSE 0 END) AS favorites,
+                SUM(CASE WHEN is_pinned=1 THEN 1 ELSE 0 END) AS pinned,
+                SUM(CASE WHEN NULLIF(TRIM(personal_note), '') IS NOT NULL THEN 1 ELSE 0 END) AS notes,
+                SUM(CASE WHEN anilist_id IS NULL THEN 1 ELSE 0 END) AS without_metadata,
+                SUM(CASE WHEN NULLIF(TRIM(cover_cache), '') IS NULL AND NULLIF(TRIM(cover_url), '') IS NULL THEN 1 ELSE 0 END) AS without_cover
+                FROM anime""").fetchone()
+            episodes = c.execute("""SELECT COUNT(*) AS total, SUM(CASE WHEN missing=0 THEN 1 ELSE 0 END) AS available,
+                SUM(CASE WHEN missing=0 AND watched=1 THEN 1 ELSE 0 END) AS watched,
+                SUM(CASE WHEN missing=0 AND progress>0 AND watched=0 THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN missing=0 THEN progress ELSE 0 END) AS recorded_seconds,
+                SUM(CASE WHEN missing=0 THEN duration ELSE 0 END) AS duration_seconds FROM episodes""").fetchone()
+            tags = c.execute("SELECT user_tags FROM anime").fetchall()
+        tag_count = len({str(tag).casefold() for entry in tags for tag in self._decode_tags(entry["user_tags"])})
+        available = int(episodes["available"] or 0)
+        watched = int(episodes["watched"] or 0)
+        return {"animes": int(row["animes"] or 0), "episodes": int(episodes["total"] or 0), "episodes_available": available,
+                "episodes_watched": watched, "animes_in_progress": self._anime_state_count("in_progress"),
+                "animes_completed": self._anime_state_count("completed"), "animes_not_started": self._anime_state_count("not_started"),
+                "favorites": int(row["favorites"] or 0), "pinned": int(row["pinned"] or 0), "notes": int(row["notes"] or 0),
+                "tags": tag_count, "without_metadata": int(row["without_metadata"] or 0), "without_cover": int(row["without_cover"] or 0),
+                "recorded_seconds": float(episodes["recorded_seconds"] or 0), "available_duration_seconds": float(episodes["duration_seconds"] or 0)}
+
+    @staticmethod
+    def _decode_tags(value):
+        try:
+            decoded = json.loads(value or "[]")
+            return decoded if isinstance(decoded, list) else []
+        except (TypeError, json.JSONDecodeError):
+            return []
+
+    def _anime_state_count(self, state):
+        # A single grouped query keeps aggregate state semantics aligned with the catalog.
+        with self._conn() as c:
+            rows = c.execute("""SELECT anime_id, SUM(CASE WHEN missing=0 THEN 1 ELSE 0 END) available,
+                SUM(CASE WHEN missing=0 AND watched=1 THEN 1 ELSE 0 END) watched,
+                SUM(CASE WHEN missing=0 AND progress>0 AND watched=0 THEN 1 ELSE 0 END) active FROM episodes GROUP BY anime_id""").fetchall()
+        if state == "completed": return sum(bool(r["available"]) and r["watched"] == r["available"] for r in rows)
+        if state == "in_progress": return sum(bool(r["active"]) for r in rows)
+        return sum(bool(r["available"]) and not r["watched"] and not r["active"] for r in rows)
 
     def clear_anilist_metadata_cache(self):
         """Expire metadata and cover paths, preserving library rows and associations."""
@@ -212,6 +258,21 @@ class LibraryStore:
             row = c.execute("SELECT favorite FROM anime WHERE id=?", (anime_id,)).fetchone()
             return bool(row and row[0])
 
+    def toggle_pinned(self, anime_id):
+        with self._conn() as c:
+            if not c.execute("UPDATE anime SET is_pinned=1-is_pinned WHERE id=?", (anime_id,)).rowcount:
+                raise ValueError("Anime local não encontrado.")
+            return bool(c.execute("SELECT is_pinned FROM anime WHERE id=?", (anime_id,)).fetchone()[0])
+
+    def set_personal_note(self, anime_id, note):
+        note = "" if note is None else str(note).strip()
+        if len(note) > 2000:
+            raise ValueError("A nota pessoal pode ter no máximo 2000 caracteres.")
+        with self._conn() as c:
+            if not c.execute("UPDATE anime SET personal_note=? WHERE id=?", (note or None, anime_id)).rowcount:
+                raise ValueError("Anime local não encontrado.")
+        return note or None
+
     def is_favorite(self, anime_id):
         with self._conn() as c:
             row = c.execute("SELECT favorite FROM anime WHERE id=?", (anime_id,)).fetchone()
@@ -303,7 +364,7 @@ class LibraryStore:
                     user_tags = json.loads(a["user_tags"] or "[]")
                 except (TypeError, json.JSONDecodeError):
                     user_tags = []
-                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "user_tags": user_tags, "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"], "source_folder": e["source_folder"]} for e in sorted(values, key=lambda episode: (episode["number"] if episode["number"] is not None else -1, episode["file_name"].casefold(), episode["path"].casefold()))]} for s, values in ordered_seasons]})
+                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "is_pinned": bool(a["is_pinned"]), "personal_note": a["personal_note"] or "", "user_tags": user_tags, "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"], "source_folder": e["source_folder"]} for e in sorted(values, key=lambda episode: (episode["number"] if episode["number"] is not None else -1, episode["file_name"].casefold(), episode["path"].casefold()))]} for s, values in ordered_seasons]})
             for anime in animes:
                 rows = episodes_by_anime[anime["id"]]
                 anime["current_episode"] = self._current_from_rows(rows)
@@ -324,6 +385,17 @@ class LibraryStore:
         with self._conn() as c:
             updated = c.execute("UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?", (position, duration, watched, time.time(), path)).rowcount
         return bool(updated)
+
+    def set_watched(self, path, watched):
+        """Set the existing episode completion state without a second player state."""
+        with self._conn() as c:
+            row = c.execute("SELECT duration FROM episodes WHERE path=?", (path,)).fetchone()
+            if not row:
+                return False
+            duration = float(row["duration"] or 0)
+            progress = duration if watched and duration > 0 else (0 if not watched else 0)
+            c.execute("UPDATE episodes SET watched=?,progress=?,last_played_at=? WHERE path=?", (int(bool(watched)), progress, time.time(), path))
+        return True
 
     @staticmethod
     def _episode_order_key(episode):

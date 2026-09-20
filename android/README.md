@@ -24,14 +24,15 @@ that cannot be implemented by Python:
 | Android Gradle Plugin | `8.6.1` |
 | Kotlin | `2.0.21` |
 | Java toolchain | 17 |
-| compile / target SDK | 35 / 35 |
+| compile / target SDK | 36 / 36 |
 | minimum SDK | 23 |
 | Media3 | `1.5.1` for ExoPlayer and UI |
 
 The repository does **not** commit an APK. The workflow builds one and refuses
 to publish it unless DEX contains `MainActivity`, `NativeMailbox`,
-`SafScanner`, and `NativePlayerActivity`. This prevents accidentally releasing
-the stock Flet client, which would not understand `reiflix://native`.
+`SafScanner`, `MediaStoreScanner`, `BroadStorageScanner`,
+`NativePlayerActivity`, and `GoogleIdentity`. This prevents accidentally
+releasing the stock Flet client, which would not understand `reiflix://native`.
 
 ## Required Flet host integration
 

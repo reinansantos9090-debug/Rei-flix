@@ -32,14 +32,14 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools build-tools;35.0.0 platforms;android-35 cmdline-tools;latest'
+          packages: 'platform-tools build-tools;36.0.0 platforms;android-36 cmdline-tools;latest'
 
       - name: Accept Android SDK Licenses
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
 
-      - name: Install Android platform
-        run: sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Android 16 platform
+        run: sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -141,8 +141,8 @@ jobs:
         shell: bash
         run: |
           apk="${{ steps.apk.outputs.path }}"
-          apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-          "$apksigner" verify --verbose --print-certs "$apk" || true
+          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          "$apksigner" verify --verbose --print-certs "$apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -150,4 +150,3 @@ jobs:
           name: reiflix-local-apk
           path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
-

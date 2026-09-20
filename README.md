@@ -18,7 +18,7 @@ O banco SQLite e o cache de capas ficam no diretório privado definido por
 ## Android e APK
 
 O projeto fixa `flet==0.86.5`. A própria distribuição instalada declara
-**Flutter 3.44.8**; Java 17 e Android SDK 35 são o contrato de build. O código
+**Flutter 3.44.8**; Java 17 e Android SDK 36 são o contrato de build. O código
 em [`android/`](android/README.md) é um overlay do host Flutter gerado pelo
 Flet, não um aplicativo Android independente.
 
@@ -31,11 +31,12 @@ python scripts/verify_android_host.py build/apk/<arquivo>.apk
 ```
 
 A última verificação é obrigatória: ela procura no DEX as classes
-`MainActivity`, `NativeMailbox`, `SafScanner` e `NativePlayerActivity`. Caso
-elas não estejam presentes, o APK é o cliente Flet stock e **não** deve ser
+`MainActivity`, `NativeMailbox`, `SafScanner`, `MediaStoreScanner`,
+`BroadStorageScanner`, `NativePlayerActivity` e `GoogleIdentity`. Caso elas
+não estejam presentes, o APK é o cliente Flet stock e **não** deve ser
 distribuído, pois a bridge `reiflix://native`, SAF e Media3 não estarão
 integrados. O workflow GitHub Actions reproduz essas etapas, configura Python,
-Java 17, Flutter 3.44.8 e Android SDK 35, e publica apenas o APK verificado.
+Java 17, Flutter 3.44.8 e Android SDK 36, e publica apenas o APK verificado.
 
 Não há APK comitado no repositório e não são incluídos secrets de Google. No
 Android, o usuário pode conceder leitura de vídeos pelo MediaStore e, para a
@@ -87,6 +88,11 @@ por anime/temporada/episódio, persistindo a URI em vez de caminho POSIX.
 AniList GraphQL pesquisa o título e mantém título, gêneros, sinopse e cache
 local de capas. Sem internet, a biblioteca/URI e capas cacheadas permanecem
 utilizáveis. A Home filtra os títulos por gêneros devolvidos pelo AniList.
+
+Além dos favoritos, cada anime pode receber etiquetas pessoais na tela de
+Detalhes (por exemplo, `Prioridade` ou `Assistir com amigos`). Essas etiquetas
+são privadas, ficam no SQLite local, aparecem em buscas locais e não são
+enviadas ao AniList ou ao Google.
 
 ## Permissões
 

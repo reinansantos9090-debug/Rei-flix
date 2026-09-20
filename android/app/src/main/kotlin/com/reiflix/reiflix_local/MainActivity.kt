@@ -1,6 +1,7 @@
 package com.reiflix.reiflix_local
 
 import android.content.Intent
+import android.content.ActivityNotFoundException
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -95,6 +96,9 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onResume() {
         super.onResume()
         applyImmersiveSystemUi()
+        // Settings may revoke access while this activity is paused. Always
+        // republish the actual Android state; a button click is never proof.
+        publishStorageStatus()
         if (broadStoragePermissionPending) {
             broadStoragePermissionPending = false
             if (BroadStorageScanner.hasAccess(this)) {
@@ -171,6 +175,10 @@ class MainActivity : FlutterFragmentActivity() {
     private fun publishStorageStatus() {
         NativeMailbox.write(this, JSONObject().put("type", "broad_storage_status")
             .put("payload", BroadStorageScanner.accessSnapshot(this)))
+        NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission").put("payload", JSONObject()
+            .put("granted", MediaStoreScanner.hasReadPermission(this))
+            .put("access", MediaStoreScanner.accessLevel(this))
+            .put("source", MediaStoreScanner.SOURCE)))
     }
 
     private fun openBroadStorageSettings() {
@@ -184,27 +192,18 @@ class MainActivity : FlutterFragmentActivity() {
             broadStoragePermissionPending = true
             var launched = false
             var attemptedIntent = "ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION"
-            try {
-                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                    .setData(Uri.parse("package:$packageName")))
-                launched = true
-            } catch (e1: Exception) {
-                Log.w(tag, "ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION failed, attempting fallback", e1)
+            launched = openSettingsIntent(
+                "ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION",
+                Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).setData(Uri.parse("package:$packageName")),
+            )
+            if (!launched) {
                 attemptedIntent = "ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION"
-                try {
-                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-                    launched = true
-                } catch (e2: Exception) {
-                    Log.w(tag, "ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION failed, attempting app details settings", e2)
-                    attemptedIntent = "ACTION_APPLICATION_DETAILS_SETTINGS"
-                    try {
-                        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                            .setData(Uri.parse("package:$packageName")))
-                        launched = true
-                    } catch (e3: Exception) {
-                        Log.e(tag, "All storage settings intents failed", e3)
-                    }
-                }
+                launched = openSettingsIntent(attemptedIntent, Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+            if (!launched) {
+                attemptedIntent = "ACTION_APPLICATION_DETAILS_SETTINGS"
+                launched = openSettingsIntent(attemptedIntent, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.parse("package:$packageName")))
             }
             if (!launched) {
                 broadStoragePermissionPending = false
@@ -218,6 +217,22 @@ class MainActivity : FlutterFragmentActivity() {
         } else {
             broadStoragePermissionPending = false
             legacyBroadPermissionRequester.launch(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE))
+        }
+    }
+
+    private fun openSettingsIntent(label: String, intent: Intent): Boolean {
+        return try {
+            startActivity(intent)
+            true
+        } catch (exception: ActivityNotFoundException) {
+            Log.w(tag, "$label is unavailable; trying the next fallback", exception)
+            false
+        } catch (exception: SecurityException) {
+            Log.w(tag, "$label was blocked; trying the next fallback", exception)
+            false
+        } catch (exception: Exception) {
+            Log.w(tag, "$label failed unexpectedly; trying the next fallback", exception)
+            false
         }
     }
 

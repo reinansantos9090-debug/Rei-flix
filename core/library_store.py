@@ -8,7 +8,7 @@ import time
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 12
+    SCHEMA_VERSION = 14
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -35,13 +35,13 @@ class LibraryStore:
               title TEXT NOT NULL, romaji TEXT, english TEXT, native TEXT, aliases TEXT DEFAULT '[]', description TEXT,
               cover_url TEXT, cover_cache TEXT, banner_url TEXT, genres TEXT, year INTEGER,
               season TEXT, status TEXT, episodes_count INTEGER, duration INTEGER, score INTEGER, studio TEXT,
-              metadata_updated_at REAL, favorite INTEGER NOT NULL DEFAULT 0, added_at REAL NOT NULL);
+              metadata_updated_at REAL, favorite INTEGER NOT NULL DEFAULT 0, user_tags TEXT NOT NULL DEFAULT '[]', added_at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS episodes (
               id INTEGER PRIMARY KEY, anime_id INTEGER NOT NULL REFERENCES anime(id) ON DELETE CASCADE,
               path TEXT UNIQUE NOT NULL, file_name TEXT NOT NULL, season INTEGER NOT NULL,
               number REAL, duration REAL DEFAULT 0, progress REAL DEFAULT 0, watched INTEGER DEFAULT 0,
               mime_type TEXT, file_size INTEGER, modified_at REAL, source_folder TEXT,
-              missing INTEGER DEFAULT 0, last_played_at REAL);
+              identity_key TEXT, missing INTEGER DEFAULT 0, last_played_at REAL);
             CREATE TABLE IF NOT EXISTS associations (lookup_title TEXT PRIMARY KEY, anilist_id INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS pending_matches (lookup_title TEXT PRIMARY KEY, display_title TEXT NOT NULL, candidates TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS account (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -61,15 +61,16 @@ class LibraryStore:
                 if column not in existing:
                     c.execute(f"ALTER TABLE folders ADD COLUMN {column} {definition}")
             anime_columns = {r[1] for r in c.execute("PRAGMA table_info(anime)")}
-            for column, definition in {"aliases": "TEXT DEFAULT '[]'", "score": "INTEGER", "metadata_updated_at": "REAL", "favorite": "INTEGER NOT NULL DEFAULT 0"}.items():
+            for column, definition in {"aliases": "TEXT DEFAULT '[]'", "score": "INTEGER", "metadata_updated_at": "REAL", "favorite": "INTEGER NOT NULL DEFAULT 0", "user_tags": "TEXT NOT NULL DEFAULT '[]'"}.items():
                 if column not in anime_columns:
                     c.execute(f"ALTER TABLE anime ADD COLUMN {column} {definition}")
             episode_columns = {r[1] for r in c.execute("PRAGMA table_info(episodes)")}
-            for column, definition in {"mime_type": "TEXT", "file_size": "INTEGER", "modified_at": "REAL", "source_folder": "TEXT", "last_played_at": "REAL"}.items():
+            for column, definition in {"mime_type": "TEXT", "file_size": "INTEGER", "modified_at": "REAL", "source_folder": "TEXT", "identity_key": "TEXT", "last_played_at": "REAL"}.items():
                 if column not in episode_columns:
                     c.execute(f"ALTER TABLE episodes ADD COLUMN {column} {definition}")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_anime_playback ON episodes(anime_id, missing, watched, last_played_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_source_folder ON episodes(source_folder)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_identity_key ON episodes(identity_key)")
             # Version records make additive schema changes auditable
             # while CREATE IF NOT EXISTS keeps all earlier databases intact.
             c.execute("CREATE INDEX IF NOT EXISTS idx_folders_account ON folders(account_id)")
@@ -216,6 +217,18 @@ class LibraryStore:
             row = c.execute("SELECT favorite FROM anime WHERE id=?", (anime_id,)).fetchone()
             return bool(row and row[0])
 
+    def set_user_tags(self, anime_id, tags):
+        """Persist a small, private set of labels without touching AniList metadata."""
+        normalized = []
+        for tag in tags or []:
+            tag = " ".join(str(tag).split()).strip()
+            if tag and tag.casefold() not in {item.casefold() for item in normalized}:
+                normalized.append(tag[:40])
+        with self._conn() as c:
+            if not c.execute("UPDATE anime SET user_tags=? WHERE id=?", (json.dumps(normalized, ensure_ascii=False), anime_id)).rowcount:
+                raise ValueError("Anime local não encontrado.")
+        return normalized
+
     def upsert_anime(self, lookup, metadata):
         title = metadata.get("title") or lookup
         fields = (metadata.get("anilist_id"), title, metadata.get("romaji"), metadata.get("english"), metadata.get("native"), metadata.get("aliases", "[]"), metadata.get("description", "Anime armazenado localmente."), metadata.get("cover_url", ""), metadata.get("cover_cache", ""), metadata.get("banner_url", ""), metadata.get("genres", "[]"), metadata.get("year"), metadata.get("season"), metadata.get("status"), metadata.get("episodes_count"), metadata.get("duration"), metadata.get("score"), metadata.get("studio"), metadata.get("metadata_updated_at", time.time()))
@@ -232,43 +245,30 @@ class LibraryStore:
             cur = c.execute("""INSERT INTO anime(lookup_title,anilist_id,title,romaji,english,native,aliases,description,cover_url,cover_cache,banner_url,genres,year,season,status,episodes_count,duration,score,studio,metadata_updated_at,added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (lookup,) + fields + (time.time(),))
             return cur.lastrowid
 
-    def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None, modified_at=None, source_folder=None):
+    def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None, modified_at=None, source_folder=None, identity_key=None):
         with self._conn() as c:
             existing = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
             if existing:
-                c.execute("""UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,missing=0 WHERE path=?""",
-                          (anime_id, file_name, season, number, mime_type, file_size, modified_at, source_folder, path))
+                c.execute("""UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,identity_key=COALESCE(?,identity_key),missing=0 WHERE path=?""",
+                          (anime_id, file_name, season, number, mime_type, file_size, modified_at, source_folder, identity_key, path))
                 return existing["id"]
 
-            candidates = c.execute("SELECT * FROM episodes WHERE anime_id=? AND LOWER(file_name)=LOWER(?) AND season=?",
-                                   (anime_id, file_name, season)).fetchall()
             matching_row = None
-            if file_size and file_size > 0:
-                for cand in candidates:
-                    cand_dict = dict(cand)
-                    cand_number = cand_dict.get("number")
-                    num_matches = (number is None and cand_number is None) or (number is not None and cand_number is not None and abs(float(number) - float(cand_number)) < 0.01)
-                    cand_size = cand_dict.get("file_size")
-                    if num_matches and cand_size and cand_size > 0 and abs(int(file_size) - int(cand_size)) == 0:
-                        matching_row = cand_dict
-                        break
-            elif modified_at and modified_at > 0:
-                for cand in candidates:
-                    cand_dict = dict(cand)
-                    cand_number = cand_dict.get("number")
-                    num_matches = (number is None and cand_number is None) or (number is not None and cand_number is not None and abs(float(number) - float(cand_number)) < 0.01)
-                    cand_mod = cand_dict.get("modified_at")
-                    if num_matches and cand_mod and cand_mod > 0 and abs(float(modified_at) - float(cand_mod)) < 2.0:
-                        matching_row = cand_dict
-                        break
+            # Filename + size is not identity: two releases can share both.
+            # identity_key exists only with a proven local relative path plus
+            # size/time evidence; cloud SAF intentionally has no such key.
+            if identity_key:
+                row = c.execute("SELECT * FROM episodes WHERE identity_key=?", (identity_key,)).fetchone()
+                if row:
+                    matching_row = dict(row)
 
             if matching_row:
-                c.execute("""UPDATE episodes SET path=?,file_name=?,season=?,number=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,missing=0 WHERE id=?""",
-                          (path, file_name, season, number, mime_type, file_size, modified_at, source_folder, matching_row["id"]))
+                c.execute("""UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,identity_key=?,missing=0 WHERE id=?""",
+                          (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder, identity_key, matching_row["id"]))
                 return matching_row["id"]
 
-            cur = c.execute("""INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,missing) VALUES(?,?,?,?,?,?,?,?,?,0)""",
-                            (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder))
+            cur = c.execute("""INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,identity_key,missing) VALUES(?,?,?,?,?,?,?,?,?,?,0)""",
+                            (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder, identity_key))
             return cur.lastrowid
 
     def mark_missing(self, source_folder, seen):
@@ -299,7 +299,11 @@ class LibraryStore:
                 except (TypeError, json.JSONDecodeError):
                     genres = []
                 ordered_seasons = sorted(seasons.items(), key=lambda item: item[0] if item[0] is not None else -1)
-                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"], "source_folder": e["source_folder"]} for e in sorted(values, key=lambda episode: (episode["number"] if episode["number"] is not None else -1, episode["file_name"].casefold(), episode["path"].casefold()))]} for s, values in ordered_seasons]})
+                try:
+                    user_tags = json.loads(a["user_tags"] or "[]")
+                except (TypeError, json.JSONDecodeError):
+                    user_tags = []
+                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "user_tags": user_tags, "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"], "source_folder": e["source_folder"]} for e in sorted(values, key=lambda episode: (episode["number"] if episode["number"] is not None else -1, episode["file_name"].casefold(), episode["path"].casefold()))]} for s, values in ordered_seasons]})
             for anime in animes:
                 rows = episodes_by_anime[anime["id"]]
                 anime["current_episode"] = self._current_from_rows(rows)

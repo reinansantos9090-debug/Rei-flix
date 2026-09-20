@@ -12,6 +12,7 @@ from pathlib import Path
 
 MAIN_ACTIVITY = "com.reiflix.reiflix_local.MainActivity"
 REQUIRED_PERMISSIONS = (
+    "android.permission.READ_EXTERNAL_STORAGE",
     "android.permission.READ_MEDIA_VIDEO",
     "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
     "android.permission.MANAGE_EXTERNAL_STORAGE",
@@ -76,6 +77,7 @@ def main() -> int:
     print("  deep-link: reiflix://native")
     for permission in REQUIRED_PERMISSIONS:
         print(f"  permission: {permission}")
+    print("  legacy media permission: READ_EXTERNAL_STORAGE (maxSdkVersion<=32 checked by source/template)")
     return 0
 
 

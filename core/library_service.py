@@ -74,7 +74,7 @@ class LibraryService:
         # only the normal metadata TTL controls freshness.
         return age < self.METADATA_CACHE_SECONDS
 
-    def _identify(self, lookup_title, display_title, on_status=lambda _ : None, *, allow_network=False):
+    def _identify(self, lookup_title, display_title, on_status=lambda _ : None, *, allow_network=True):
         """Return local/cached metadata without making the library depend on network."""
         cached = self.store.anime_metadata(lookup_title)
         associated_id = self.store.association(lookup_title)
@@ -139,7 +139,7 @@ class LibraryService:
                         return self.store.anime_metadata(lookup_title) or refreshed
                     if cached:
                         self.store.set_metadata_status(lookup_title, "stale", confidence=cached.get("metadata_confidence") or "high")
-                        return cached
+                        return self.store.anime_metadata(lookup_title) or cached
                     return {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "unresolved", "metadata_confidence": "low"}
 
                 candidates = self.anilist.search(display_title)

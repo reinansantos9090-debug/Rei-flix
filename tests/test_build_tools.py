@@ -152,8 +152,8 @@ E: manifest
 """
         block = module.extract_activity_block(sample, "com.reiflix.reiflix_local.MainActivity")
         self.assertIsNotNone(block)
-        self.assertTrue(module.has_attribute(block, "launchMode", "0x00000002", "0x2", "singleTask"))
-        self.assertTrue(module.has_attribute(block, "documentLaunchMode", "0x00000003", "0x3", "never"))
+        self.assertTrue(module.has_attribute(block, "launchMode", "0x00000002", "0x2", "=2", "singleTask"))
+        self.assertTrue(module.has_attribute(block, "documentLaunchMode", "0x00000003", "0x3", "=3", "never"))
         self.assertTrue(module.has_attribute(block, "exported", "0xffffffff", "true"))
         self.assertTrue(module.has_deep_link(block))
         self.assertTrue(module.has_launchable_activity(

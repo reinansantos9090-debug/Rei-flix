@@ -85,11 +85,11 @@ class SearchEngineTests(unittest.TestCase):
             ],
         )
         self.special = anime(
-            "Especial Café", genres=["Drama"], tags=["especial"], added_at=20,
+            "Especial Café", genres=["Drama"], tags=["especial"], added_at=20, metadata=False,
             specials=[episode("Especial Café", 1, 1, episode_type="ova", title="Café após a batalha", missing=True)],
         )
         self.movie = anime(
-            "O Filme", media_kind="movie", added_at=40,
+            "O Filme", media_kind="movie", added_at=40, metadata=False,
             movies=[episode("O Filme", 1, 1, episode_type="movie", modified_at=60, file_size=500)],
         )
         self.library = [self.show, self.special, self.movie]
@@ -150,8 +150,8 @@ class SearchEngineTests(unittest.TestCase):
         for sort in LibrarySearchEngine.options(self.library)["sorts"]:
             result = LibrarySearchEngine.search(self.library, sort=sort)
             self.assertEqual(len(result), 3)
-        self.assertEqual(self.names(LibrarySearchEngine.search(self.library, sort="Modificação")), ["O Filme", "Especial Café", "One Piece"])
-        self.assertEqual(self.names(LibrarySearchEngine.search(self.library, sort="Tamanho")), ["O Filme", "Especial Café", "One Piece"])
+        self.assertEqual(self.names(LibrarySearchEngine.search(self.library, sort="Modificação")), ["O Filme", "One Piece", "Especial Café"])
+        self.assertEqual(self.names(LibrarySearchEngine.search(self.library, sort="Tamanho")), ["One Piece", "O Filme", "Especial Café"])
 
     def test_hierarchy_and_user_state_are_not_mutated(self):
         before = copy.deepcopy(self.library)

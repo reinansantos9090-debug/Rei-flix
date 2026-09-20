@@ -49,6 +49,8 @@ class SettingsView:
         media_folder = next((f for f in folders if f.get("kind") == "mediastore"), None)
         broad_granted = bool(broad_folder and broad_folder.get("authorization") == "granted")
         media_granted = bool(media_folder and media_folder.get("authorization") == "granted")
+        media_error = str(media_folder.get("last_error") or "") if media_folder else ""
+        media_is_partial = "parcial" in media_error.lower()
 
         def show_video_permission_dialog(_=None):
             if busy["permission"]:
@@ -198,18 +200,26 @@ class SettingsView:
             disabled=broad_granted,
             on_click=show_broad_storage_dialog,
         )
+        if media_granted:
+            if media_is_partial:
+                media_permission_text = "⚠ Permissão de vídeos: Acesso parcial (alguns vídeos selecionados pelo usuário)"
+                media_permission_color = "#FFD54F"
+            else:
+                media_permission_text = "✓ Permissão para ler vídeos concedida"
+                media_permission_color = "#9FE3B1"
+        else:
+            media_permission_text = "⚠ Permissão para ler vídeos ainda não concedida"
+            media_permission_color = "#FFB4AB"
+
         permission_lines = [
-            ft.Text(
-                "✓ Permissão para ler vídeos" if media_granted else "⚠ Permissão para ler vídeos ainda não concedida",
-                color="#9FE3B1" if media_granted else "#FFB4AB", size=11,
-            ),
+            ft.Text(media_permission_text, color=media_permission_color, size=11),
             ft.Text(
                 "✓ Acesso amplo ao armazenamento" if broad_granted else "⚠ Acesso amplo ao armazenamento ainda não concedido",
                 color="#9FE3B1" if broad_granted else "#FFB4AB", size=11,
             ),
             ft.Row([video_permission_button, broad_storage_button], wrap=True, spacing=8, run_spacing=8),
             ft.Text(
-                "O acesso amplo permite procurar vídeos em várias pastas locais. O Android pode exigir uma confirmação separada nas Configurações.",
+                "O acesso amplo permite procurar vídeos em várias pastas locais. Se a tela de configurações não abrir diretamente, acesse Configurações do Dispositivo > Aplicativos > Rei-Flix e conceda Acesso a Todos os Arquivos.",
                 color="#AAA7B6", size=10,
             ),
         ]

@@ -182,11 +182,38 @@ class MainActivity : FlutterFragmentActivity() {
             .put("payload", JSONObject().put("granted", false).put("source", BroadStorageScanner.SOURCE)))
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             broadStoragePermissionPending = true
+            var launched = false
+            var attemptedIntent = "ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION"
             try {
                 startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
                     .setData(Uri.parse("package:$packageName")))
-            } catch (exception: Exception) {
-                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                launched = true
+            } catch (e1: Exception) {
+                Log.w(tag, "ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION failed, attempting fallback", e1)
+                attemptedIntent = "ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION"
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                    launched = true
+                } catch (e2: Exception) {
+                    Log.w(tag, "ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION failed, attempting app details settings", e2)
+                    attemptedIntent = "ACTION_APPLICATION_DETAILS_SETTINGS"
+                    try {
+                        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            .setData(Uri.parse("package:$packageName")))
+                        launched = true
+                    } catch (e3: Exception) {
+                        Log.e(tag, "All storage settings intents failed", e3)
+                    }
+                }
+            }
+            if (!launched) {
+                broadStoragePermissionPending = false
+                NativeMailbox.write(this, JSONObject().put("type", "broad_storage_error")
+                    .put("message", "Não foi possível abrir a tela de configurações de armazenamento do Android. Acesse as Configurações do dispositivo > Aplicativos > Rei-Flix e conceda a permissão de Acesso a Todos os Arquivos.")
+                    .put("payload", JSONObject()
+                        .put("source", BroadStorageScanner.SOURCE)
+                        .put("lastAttemptedIntent", attemptedIntent)
+                        .put("packageName", packageName)))
             }
         } else {
             broadStoragePermissionPending = false

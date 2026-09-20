@@ -57,5 +57,19 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         self.assertIn("fun hasAccess(context: Context): Boolean", scanner)
         self.assertIn("context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)", scanner)
 
+    def test_nomedia_directory_filtering_supported(self):
+        broad_scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
+        saf_scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SafScanner.kt").read_text(encoding="utf-8")
+        self.assertIn('.equals(".nomedia", ignoreCase = true)', broad_scanner)
+        self.assertIn('nomediaDirectories', broad_scanner)
+        self.assertIn('.equals(".nomedia", ignoreCase = true)', saf_scanner)
+        self.assertIn('nomediaDirectories', saf_scanner)
+
+    def test_intent_fallback_chain_in_main_activity(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION", source)
+        self.assertIn("ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION", source)
+        self.assertIn("ACTION_APPLICATION_DETAILS_SETTINGS", source)
+
 if __name__ == "__main__":
     unittest.main()

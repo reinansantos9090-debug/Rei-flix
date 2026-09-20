@@ -99,8 +99,9 @@ object BroadStorageScanner {
         var directories = 0
         var files = 0
         var videos = 0
+        var nomediaDirectories = 0
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE)
-            .put("directories",0).put("files",0).put("videos",0))
+            .put("directories",0).put("files",0).put("videos",0).put("nomediaDirectories",0))
         while (pending.isNotEmpty()) {
             val dir = pending.removeLast()
             val canonical = runCatching { dir.canonicalFile }.getOrElse { dir }
@@ -109,6 +110,10 @@ object BroadStorageScanner {
             val children = try { canonical.listFiles() } catch (_: Exception) { null }
             if (children == null) {
                 errors.put("Não foi possível acessar: ${canonical.name}")
+                continue
+            }
+            if (children.any { it.isFile && it.name.equals(".nomedia", ignoreCase = true) }) {
+                nomediaDirectories++
                 continue
             }
             for (child in children) {
@@ -123,13 +128,13 @@ object BroadStorageScanner {
                     .put("modifiedAt",runCatching{file.lastModified()}.getOrDefault(0L)))
                 videos++
                 if (videos % 100 == 0) onProgress?.invoke(JSONObject().put("phase","scanning")
-                    .put("source",SOURCE).put("directories",directories).put("files",files).put("videos",videos))
+                    .put("source",SOURCE).put("directories",directories).put("files",files).put("videos",videos).put("nomediaDirectories",nomediaDirectories))
             }
         }
         onProgress?.invoke(JSONObject().put("phase","finished").put("source",SOURCE)
-            .put("directories",directories).put("files",files).put("videos",videos))
+            .put("directories",directories).put("files",files).put("videos",videos).put("nomediaDirectories",nomediaDirectories))
         return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("documents",docs)
-            .put("stats",JSONObject().put("directories",directories).put("files",files).put("videos",videos).put("errors",errors)
+            .put("stats",JSONObject().put("directories",directories).put("files",files).put("videos",videos).put("nomediaDirectories",nomediaDirectories).put("errors",errors)
                 .put("access", snapshot))
             .put("partial",errors.length()>0)
     }

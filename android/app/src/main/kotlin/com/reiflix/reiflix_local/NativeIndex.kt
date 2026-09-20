@@ -64,10 +64,16 @@ object NativeIndex {
         if (explicit.isNotEmpty()) return explicit
         val volume = document.optString("volumeId").trim()
         val relative = cleanPath(document.optString("relativePath"))
-        if (volume.isNotEmpty() && relative.isNotEmpty()) return "shared:" + volume + ":" + relative
         val tree = document.optString("treeUri").trim()
         val documentId = document.optString("documentId").trim()
-        if (source == SOURCE_SAF && tree.isNotEmpty() && documentId.isNotEmpty()) return "saf:" + tree + ":" + documentId
+        if (source == SOURCE_SAF && documentId.isNotEmpty()) {
+            if (volume.isNotEmpty() && documentId.contains(":")) {
+                val documentPath = cleanPath(documentId.substringAfter(":"))
+                if (documentPath.isNotEmpty()) return "shared:" + volume + ":" + documentPath
+            }
+            if (tree.isNotEmpty()) return "saf:" + tree + ":" + documentId
+        }
+        if (volume.isNotEmpty() && relative.isNotEmpty()) return "shared:" + volume + ":" + relative
         val uri = document.optString("uri").trim()
         return if (uri.isNotEmpty()) "uri:" + uri else "opaque:" + sha256(document.toString())
     }

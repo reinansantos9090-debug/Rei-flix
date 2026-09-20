@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 
 MAIN_ACTIVITY = "com.reiflix.reiflix_local.MainActivity"
+MAIN_LAUNCH_MODE_ATTRIBUTE = "android:launchMode"
+MAIN_DOCUMENT_LAUNCH_MODE_ATTRIBUTE = "android:documentLaunchMode"
 REQUIRED_PERMISSIONS = (
     "android.permission.READ_EXTERNAL_STORAGE",
     "android.permission.READ_MEDIA_VIDEO",
@@ -74,7 +76,7 @@ def has_max_sdk_32_for_legacy_permission(manifest: str) -> bool:
 
 def has_launchable_activity(badging: str, activity_name: str) -> bool:
     return bool(re.search(
-        rf"launchable-activity:\s*name=["']{re.escape(activity_name)}["']",
+        rf"""launchable-activity:\s*name=['"]{re.escape(activity_name)}['"]""",
         badging,
     ))
 

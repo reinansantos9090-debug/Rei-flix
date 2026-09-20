@@ -166,10 +166,10 @@ E: manifest
         self.assertIn("python scripts/verify_apk_manifest.py", workflow)
         self.assertIn("aapt2", workflow)
         self.assertIn("sha256sum", workflow)
-        self.assertIn("android:launchMode", verifier)
-        self.assertIn("android:documentLaunchMode", verifier)
-        self.assertIn("0x00000002", verifier)
-        self.assertIn("0x00000003", verifier)
+        self.assertIn("MAIN_LAUNCH_MODE_ATTRIBUTE = \"android:launchMode\"", verifier)
+        self.assertIn("MAIN_DOCUMENT_LAUNCH_MODE_ATTRIBUTE = \"android:documentLaunchMode\"", verifier)
+        self.assertIn("has_attribute(main_block, \"launchMode\"", verifier)
+        self.assertIn("has_attribute(main_block, \"documentLaunchMode\"", verifier)
 
     def test_source_manifest_and_template_contract_cannot_revert_to_single_top(self):
         manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")

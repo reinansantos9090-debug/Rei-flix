@@ -107,7 +107,7 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn('storage_onboarding["waiting_for_result"] = True', block)
         self.assertIn("page.pop_dialog()", block)
         self.assertNotIn("asyncio.sleep(0)", block)
-        self.assertIn("async def cancel(_event):", block)
+        self.assertIn("def cancel(_event):", cancel)
         self.assertIn('storage_onboarding["dismissed"] = True', cancel)
         self.assertNotIn("request_video_access", cancel)
         self.assertNotIn("open_broad_storage_access", cancel)

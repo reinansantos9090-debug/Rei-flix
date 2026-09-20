@@ -122,4 +122,20 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("broad_granted = any(", refresh)
         self.assertIn("if broad_granted:", refresh)
 
+    def test_on_resume_does_not_publish_intermediate_denied_before_pending_request(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        resume = source[source.index("override fun onResume()"):source.index("override fun onPause()", source.index("override fun onResume()"))]
+        self.assertLess(resume.index("val pending = pendingLifecycleAction"), resume.index("publishStorageStatus()"))
+        self.assertIn("if (pending != null)", resume)
+        self.assertIn("return", resume)
+
+    def test_broad_scanner_is_guarded_in_python_refresh_flow(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        refresh = source[source.index("    async def refresh_library"):source.index("    async def login", source.index("    async def refresh_library"))]
+        self.assertIn("if broad_granted:", refresh)
+        broad_call = refresh.find("await bridge.scan_all_storage()")
+        guard = refresh.rfind("if broad_granted:", 0, broad_call)
+        self.assertGreaterEqual(broad_call, 0)
+        self.assertGreater(guard, -1)
+
 if __name__ == "__main__": unittest.main()

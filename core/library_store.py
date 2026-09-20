@@ -6,6 +6,8 @@ import os
 import sqlite3
 import time
 
+from core.consumption import consumption_state, is_completed, is_in_progress, is_regular_episode
+
 
 class LibraryStore:
     SCHEMA_VERSION = 21
@@ -602,6 +604,7 @@ class LibraryStore:
                     "episode_type": e["episode_type"], "identification_source": e["identification_source"],
                     "identification_confidence": e["identification_confidence"], "manual_override": bool(e["manual_override"]),
                     "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]),
+                    "consumption_state": consumption_state(dict(e)).value,
                     "missing": bool(e["missing"]), "last_played_at": e["last_played_at"],
                     "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"],
                     "source_folder": e["source_folder"], "source_kind": folder_kinds.get(e["source_folder"]),
@@ -637,12 +640,12 @@ class LibraryStore:
                         "season": season, "folder_path": "", "episodes": values,
                     })
                 available = [e for e in projected if not e["missing"]]
-                watched = [e for e in available if e["watched"]]
-                active = [e for e in available if e["progress"] > 0 and not e["watched"]]
+                watched = [e for e in available if is_completed(e)]
+                active = [e for e in available if is_in_progress(e)]
                 eligible = [e for e in regulars if not e["missing"]]
                 current = self._current_from_rows(eligible or [e for e in projected if e["episode_type"] != "movie"])
                 next_ep = None
-                if current and not current.get("watched"):
+                if current and not is_completed(current):
                     next_ep = current
                 elif watched:
                     latest = max(watched, key=lambda e: e.get("last_played_at") or 0)
@@ -680,20 +683,36 @@ class LibraryStore:
             return True
 
     def save_progress(self, path, position, duration):
+        """Persist normalized playback state without creating invalid completion."""
         try:
             position, duration = float(position), float(duration)
         except (TypeError, ValueError):
             return False
         if position < 0 or duration < 0:
             return False
-        if duration == 0:
-            position = 0
-        else:
+        if duration > 0:
             position = min(position, duration)
-        watched = int(duration > 0 and position / duration >= .9)
+            watched = int(position / duration >= 0.90)
+        else:
+            watched = 0
         with self._conn() as c:
-            updated = c.execute("UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?", (position, duration, watched, time.time(), path)).rowcount
+            updated = c.execute(
+                "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
+                (position, duration, watched, time.time(), path),
+            ).rowcount
         return bool(updated)
+
+    @staticmethod
+    def consumption_state(episode):
+        return consumption_state(episode).value
+
+    @staticmethod
+    def is_completed(episode):
+        return is_completed(episode)
+
+    @staticmethod
+    def is_in_progress(episode):
+        return is_in_progress(episode)
 
     def set_watched(self, path, watched):
         """Set the existing episode completion state without a second player state."""
@@ -751,6 +770,8 @@ class LibraryStore:
             current = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
             if not current:
                 return None
+            if not is_regular_episode(dict(current)):
+                return None
             rows = c.execute(
                 "SELECT e.*, a.title AS anime_title FROM episodes e JOIN anime a ON a.id=e.anime_id WHERE e.anime_id=? AND e.missing=0 AND e.episode_type NOT IN ('movie','special','ova','oad','ona','extra')",
                 (current["anime_id"],),
@@ -786,14 +807,14 @@ class LibraryStore:
                     key=lambda entry: entry.get("last_played_at") or 0,
                     reverse=True,
                 )
-                if episode.get("progress", 0) > 0 and not episode.get("watched", False)
+                if is_in_progress(episode)
             ),
             None,
         )
         if partial:
             return partial
 
-        completed = [episode for episode in available if episode.get("watched", False)]
+        completed = [episode for episode in available if is_completed(episode)]
         if completed:
             latest_completed = max(completed, key=lambda entry: entry.get("last_played_at") or 0)
             next_episode = LibraryStore._adjacent_from_rows(latest_completed, available, 1)
@@ -801,7 +822,7 @@ class LibraryStore:
                 return next_episode
 
         for episode in available:
-            if not episode.get("watched", False):
+            if not is_completed(episode):
                 return episode
 
         return available[0]
@@ -846,10 +867,8 @@ class LibraryStore:
         items = []
         for anime_id, episodes in groups.items():
             available = [episode for episode in episodes if not episode["missing"]]
+            active = [episode for episode in available if is_in_progress(episode)]
             latest_played = max((episode.get("last_played_at") or 0 for episode in available), default=0)
-            if not latest_played:
-                continue
-            active = [episode for episode in available if episode["progress"] > 0 and not episode["watched"]]
             if active:
                 episode = max(active, key=lambda entry: entry.get("last_played_at") or 0)
             else:
@@ -858,7 +877,7 @@ class LibraryStore:
             if not episode:
                 continue
             episode = dict(episode)
-            episode["last_played_at"] = latest_played
+            episode["last_played_at"] = episode.get("last_played_at") or latest_played
             first = episodes[0]
             items.append({"anime_id": anime_id, "anime_title": first["anime_title"],
                           "cover": first["cover_cache"] or first["cover_url"], **episode})

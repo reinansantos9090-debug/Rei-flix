@@ -209,7 +209,7 @@ class LibraryService:
             scan_id = str(uuid.uuid4())
             run_id = self.store.begin_scan(scan_id=scan_id, source_kind="filesystem", scope_kind="global", scope_ref=None)
             result = ScanResult(catalog=[], scan_id=scan_id)
-            try
+            try:
                 parsed = []
                 folders = self.store.folders()
                 result.folders = len(folders)

@@ -2,6 +2,7 @@ package com.reiflix.reiflix_local
 
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -200,7 +201,16 @@ class NativePlayerActivity : ComponentActivity() {
         super.onDestroy()
     }
     override fun onResume() { super.onResume(); enterImmersiveMode() }
-    override fun onUserLeaveHint() { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && player.isPlaying) enterPictureInPictureMode(PictureInPictureParams.Builder().build()); super.onUserLeaveHint() }
+    override fun onUserLeaveHint() {
+        // Some Android/TV builds omit PiP even on API 26+. Entering PiP without
+        // the feature is not a fallback; it can throw and terminate playback.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
+            ::player.isInitialized && player.isPlaying) {
+            enterPictureInPictureMode(PictureInPictureParams.Builder().build())
+        }
+        super.onUserLeaveHint()
+    }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) enterImmersiveMode() }
 
     private fun enterImmersiveMode() {

@@ -119,18 +119,22 @@ class StoreTests(unittest.TestCase):
                 row = con.execute('SELECT COUNT(*), progress, duration, file_size, modified_at FROM episodes').fetchone()
             self.assertEqual(tuple(row), (1, 12, 24, 200, 20))
 
-    def test_deduplication_across_sources_preserves_watch_progress(self):
+    def test_same_volume_identity_deduplicates_and_preserves_watch_progress(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)
             anime = store.upsert_anime('naruto', {'title': 'Naruto', 'genres': '[]'})
             from core.media_identity import local_media_identity
             media_uri = 'content://media/external/video/media/10'
             broad_uri = 'file:///storage/emulated/0/Anime/Naruto - 001.mkv'
-            media_identity = local_media_identity(uri=media_uri, source_kind='mediastore', relative_path='Anime/Naruto - 001.mkv', size=150000000, modified_at=1000)
-            broad_identity = local_media_identity(uri=broad_uri, source_kind='broad_storage', relative_path='/storage/emulated/0/Anime/Naruto - 001.mkv', size=150000000, modified_at=1000)
-            store.upsert_episode(anime, media_uri, 'Naruto - 001.mkv', 1, 1,
-                                 'video/x-matroska', 150000000, 1000, 'mediastore:external:video', media_identity)
-            store.save_progress(media_uri, 45, 100)
+            # A MediaStore row alone does not disclose a stable StorageVolume
+            # identity, so it is deliberately not merged with Broad Storage.
+            # Two Broad discoveries of the *same* primary file can be merged.
+            first_uri = 'file:///storage/emulated/0/Anime/Naruto - 001.mkv'
+            media_identity = local_media_identity(uri=first_uri, source_kind='broad_storage', relative_path='Anime/Naruto - 001.mkv', size=150000000, modified_at=1000, volume_id='primary')
+            broad_identity = local_media_identity(uri=broad_uri, source_kind='broad_storage', relative_path='Anime/Naruto - 001.mkv', size=150000000, modified_at=1000, volume_id='primary')
+            store.upsert_episode(anime, first_uri, 'Naruto - 001.mkv', 1, 1,
+                                 'video/x-matroska', 150000000, 1000, 'broad-storage', media_identity)
+            store.save_progress(first_uri, 45, 100)
 
             store.upsert_episode(anime, broad_uri, 'Naruto - 001.mkv', 1, 1,
                                  'video/x-matroska', 150000000, 1000, 'broad-storage', broad_identity)
@@ -141,6 +145,16 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(episode['path'], 'file:///storage/emulated/0/Anime/Naruto - 001.mkv')
             self.assertEqual(episode['progress'], 45)
             self.assertEqual(episode['duration'], 100)
+
+    def test_same_relative_path_on_two_volumes_is_not_merged(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('naruto', {'title': 'Naruto', 'genres': '[]'})
+            from core.media_identity import local_media_identity
+            for volume, uri in [('primary', 'file:///storage/emulated/0/Anime/Naruto-01.mkv'), ('ABCD-1234', 'file:///storage/ABCD-1234/Anime/Naruto-01.mkv')]:
+                identity = local_media_identity(uri=uri, source_kind='broad_storage', relative_path='Anime/Naruto-01.mkv', size=100, modified_at=10, volume_id=volume)
+                store.upsert_episode(anime, uri, 'Naruto-01.mkv', 1, 1, identity_key=identity, source_folder='broad-storage')
+            self.assertEqual(2, len(store.catalog()[0]['seasons'][0]['episodes']))
 
     def test_same_name_and_size_without_local_identity_are_not_merged(self):
         with tempfile.TemporaryDirectory() as d:

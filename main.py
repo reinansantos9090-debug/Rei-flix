@@ -272,11 +272,16 @@ async def main(page: ft.Page):
                 # Native sources remain independent for persistence/missing-state,
                 # while Python owns one user-visible refresh lifecycle.
                 pending_native_scans[0] = 0
-                pending_native_scans[0] += 1
-                try:
-                    await bridge.scan_all_storage()
-                except Exception:
-                    pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
+                broad_granted = any(
+                    folder.get('kind') == 'broad_storage' and folder.get('authorization') == 'granted'
+                    for folder in folders
+                )
+                if broad_granted:
+                    pending_native_scans[0] += 1
+                    try:
+                        await bridge.scan_all_storage()
+                    except Exception:
+                        pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
                 for folder in saf_folders:
                     pending_native_scans[0] += 1
                     try:
@@ -299,7 +304,7 @@ async def main(page: ft.Page):
                     missing_sources = []
                     if not mediastore_granted:
                         missing_sources.append("vídeos do dispositivo")
-                    if not any(folder.get('kind') == 'broad_storage' and folder.get('authorization') == 'granted' for folder in folders):
+                    if not broad_granted:
                         missing_sources.append("armazenamento amplo")
                     if missing_sources:
                         return "Atualização iniciada. Ainda sem acesso a " + ", ".join(missing_sources) + ".", True

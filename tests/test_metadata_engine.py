@@ -226,3 +226,5 @@ class ProfessionalMetadataTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# CI-only validation marker; not part of main.

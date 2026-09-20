@@ -212,7 +212,11 @@ class MainActivity : FlutterFragmentActivity() {
             Log.w(tag, "Ignoring unsupported native intent: $data")
             return
         }
-        val action = data.getQueryParameter("action") ?: return
+        val action = data.getQueryParameter("action")
+        if (!NativeRequestState.isSupportedAction(action)) {
+            Log.w(tag, "Ignoring malformed or unsupported native action: " + (action ?: "-"))
+            return
+        }
         val requestId = data.getQueryParameter("request_id")
         if (!nativeRequestState.acceptRequest(requestId)) {
             Log.i(tag, "Ignoring duplicate native request: action=$action requestId=$requestId")

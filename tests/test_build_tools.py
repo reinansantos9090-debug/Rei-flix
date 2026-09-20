@@ -70,7 +70,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("python - <<'PY'", workflow)
         self.assertIn("Invalid generated JSON {path}: {exc}", workflow)
         self.assertIn("def strip_trailing_commas(raw):", workflow)
-        self.assertIn('raw[j] in "}" + "]"', workflow)
+        self.assertIn('raw[j] in "}]"', workflow)
         self.assertNotIn("python -c \\\"", workflow)
         self.assertNotIn("|| true", workflow)
 

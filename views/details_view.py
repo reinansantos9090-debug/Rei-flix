@@ -18,7 +18,7 @@ class DetailView:
     def build(page: ft.Page, anime_group: dict, on_play_episode, on_back,
               on_toggle_favorite, get_playback_target=None, on_set_user_tags=None,
               on_toggle_pinned=None, on_set_personal_note=None, on_set_episode_identification=None,
-              on_identification_saved=None):
+              on_identification_saved=None, on_refresh_metadata=None):
         metadata = anime_group.get("meta") or {}
         title = metadata.get("title_official") or anime_group.get("main_title") or "Anime local"
         alternate_titles = [metadata.get(key) for key in ("english", "romaji", "native")]
@@ -355,7 +355,11 @@ class DetailView:
             ft.Text(alternate_title, size=12, color="#AAA7B6", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, visible=bool(alternate_title)),
             ft.Row(facts, wrap=True, spacing=6, run_spacing=6),
             ft.Row(genre_controls, wrap=True, spacing=6, run_spacing=6, visible=bool(genre_controls)),
-            primary_button,
+            metadata_status = str(metadata.get("metadata_status") or "unresolved").casefold()
+        status_labels = {"available": "Metadata disponível", "manual": "Metadata manual", "stale": "Metadata desatualizada", "ambiguous": "Metadata ambígua", "unresolved": "Metadata não encontrada", "refreshing": "Atualizando metadata…"}
+        metadata_state = status_labels.get(metadata_status, "Metadata parcial")
+        refresh_button = ft.OutlinedButton("Atualizar metadata", icon=ft.Icons.REFRESH, on_click=on_refresh_metadata) if on_refresh_metadata else None
+        primary_button,
             ft.Text(f"{missing_count} indisponível{'is' if missing_count != 1 else ''} na biblioteca local", size=11, color="#D5A84A", visible=missing_count > 0),
         ], spacing=9, expand=True)
 

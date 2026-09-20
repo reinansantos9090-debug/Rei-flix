@@ -62,4 +62,41 @@ class LibraryIntelligenceTests(unittest.TestCase):
         self.assertEqual(1, stats["pinned"]); self.assertEqual(1, stats["notes"])
         self.assertIsNone(self.store.last_scan())
 
+
+    def test_consumption_states_cover_progress_boundaries(self):
+        cases = [
+            (0, 100, False, "unwatched"), (1, 100, False, "in_progress"),
+            (50, 100, False, "in_progress"), (89, 100, False, "in_progress"),
+            (90, 100, False, "completed"), (99, 100, False, "completed"),
+            (100, 100, False, "completed"), (0, 0, False, "unwatched"),
+            (25, 0, False, "in_progress"), (250, 100, False, "completed"),
+            (0, 100, True, "watched"),
+        ]
+        for progress, duration, watched, expected in cases:
+            episode = {"progress": progress, "duration": duration, "watched": watched, "missing": 0, "path": "x"}
+            self.assertEqual(expected, self.store.consumption_state(episode))
+
+    def test_continue_watching_excludes_completed_and_missing(self):
+        self.store.upsert_episode(self.anime, "content://demo/2", "Demo E02.mkv", 1, 2)
+        self.store.upsert_episode(self.anime, "content://demo/3", "Demo E03.mkv", 1, 3)
+        self.store.save_progress("content://demo/1", 47, 100)
+        self.store.save_progress("content://demo/2", 100, 100)
+        self.store.save_progress("content://demo/3", 20, 100)
+        rows = self.store.continue_watching()
+        self.assertEqual({"content://demo/1", "content://demo/3"}, {row["path"] for row in rows})
+
+    def test_special_and_movie_never_become_regular_next_episode(self):
+        self.store.upsert_episode(self.anime, "content://demo/special", "Demo OVA.mkv", 1, 99, episode_type="ova")
+        self.store.upsert_episode(self.anime, "content://demo/movie", "Demo Movie.mkv", 1, 100, episode_type="movie")
+        self.assertIsNone(self.store.next_episode("content://demo/special"))
+        self.assertIsNone(self.store.next_episode("content://demo/movie"))
+
+    def test_zero_duration_preserves_resume_without_marking_complete(self):
+        self.assertTrue(self.store.save_progress("content://demo/1", 25, 0))
+        row = self.store.catalog()[0]["seasons"][0]["episodes"][0]
+        self.assertEqual(25, row["progress"])
+        self.assertEqual(0, row["duration"])
+        self.assertFalse(row["watched"])
+        self.assertFalse(self.store.save_progress("content://demo/1", -1, 100))
+
 if __name__ == "__main__": unittest.main()

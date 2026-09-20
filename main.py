@@ -399,14 +399,13 @@ async def main(page: ft.Page):
         while True:
             try:
                 events = bridge.drain()
+                failed_event_ids = set()
                 for event in events:
                     try:
                         if not isinstance(event, dict):
                             continue
                         event_id = event.get('eventId')
-                        if event_id and not store.claim_native_event(event_id):
-                            # NativeMailbox is at-least-once; duplicate delivery must be
-                            # harmless even when the event file is replayed.
+                        if event_id and store.has_native_event(event_id):
                             continue
                         event_type = event.get('type')
                         payload = event.get('payload')
@@ -434,11 +433,13 @@ async def main(page: ft.Page):
                         elif event_type == 'saf_scan':
                             try:
                                 saf_selection.finish()
+                                if payload.get('cancelled'):
+                                    finish_native_scan(); continue
                                 stats = payload.get('stats') or {}
                                 tree_uri = payload.get('treeUri', '')
                                 if not tree_uri:
                                     raise ValueError('Resultado SAF sem pasta de origem.')
-                                catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats, scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'root', scope_ref=payload.get('scopeRef') or None)
+                                catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats, scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'root', scope_ref=payload.get('scopeRef') or None, scan_generation=payload.get('scanGeneration'))
                                 videos = int(stats.get('videos') or 0)
                                 partial = bool(payload.get('partial') or stats.get('errors'))
                                 message = ("Scan concluído parcialmente. Alguns diretórios não puderam ser acessados. " if partial else "")
@@ -464,9 +465,10 @@ async def main(page: ft.Page):
                         elif event_type == 'broad_storage_scan':
                             try:
                                 stats = payload.get('stats') or {}
+                                if payload.get('cancelled'):
+                                    finish_native_scan(); continue
                                 source = payload.get('source') or 'broad-storage'
-                                catalog = await asyncio.to_thread(library.ingest_documents, source, payload.get('documents') or [], folder_name=payload.get('name') or 'Armazenamento local', scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='broad_storage', scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'global', scope_ref=payload.get('scopeRef') or source)
-                                store.add_folder(source, name=payload.get('name') or 'Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
+                                catalog = await asyncio.to_thread(library.ingest_documents, source, payload.get('documents') or [], folder_name=payload.get('name') or 'Armazenamento local', scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='broad_storage', scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'global', scope_ref=payload.get('scopeRef') or source, scan_generation=payload.get('scanGeneration'))
                                 videos = int(stats.get('videos') or 0)
                                 partial = bool(payload.get('partial') or stats.get('errors'))
                                 message = ('Armazenamento local atualizado parcialmente. ' if partial else 'Armazenamento local atualizado. ')
@@ -532,28 +534,38 @@ async def main(page: ft.Page):
                         elif event_type == 'mediastore_scan':
                             try:
                                 stats = payload.get('stats') or {}
+                                if payload.get('cancelled'):
+                                    finish_native_scan(); continue
                                 source = payload.get('source') or 'mediastore:external:video'
-                                documents = payload.get('documents') or []
-                                catalog = await asyncio.to_thread(
-                                    library.ingest_documents,
-                                    source,
-                                    documents,
-                                    folder_name=payload.get('name') or 'Vídeos do dispositivo',
-                                    scan_errors=stats.get('errors', []),
-                                    scan_stats=stats,
-                                    source_kind='mediastore',
-                                )
+                                scopes = payload.get('volumeScopes') or []
+                                catalog = store.catalog()
+                                if scopes:
+                                    for scope in scopes:
+                                        if not isinstance(scope, dict) or not scope.get('volumeId') or not scope.get('complete'):
+                                            continue
+                                        volume = str(scope.get('volumeId'))
+                                        scan_id = (payload.get('scanId') or 'mediastore') + ':' + volume
+                                        catalog = await asyncio.to_thread(
+                                            library.ingest_documents, source, scope.get('documents') or [],
+                                            folder_name=payload.get('name') or 'Vídeos do dispositivo',
+                                            scan_errors=[], scan_stats=stats, source_kind='mediastore',
+                                            scan_id=scan_id, scope_kind='volume', scope_ref=volume,
+                                            scan_generation=scope.get('scanGeneration'),
+                                        )
+                                else:
+                                    catalog = await asyncio.to_thread(
+                                        library.ingest_documents, source, payload.get('documents') or [],
+                                        folder_name=payload.get('name') or 'Vídeos do dispositivo',
+                                        scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='mediastore',
+                                        scan_id=payload.get('scanId'), scope_kind='global', scope_ref=source,
+                                        scan_generation=payload.get('scanGeneration'),
+                                    )
                                 videos = int(stats.get('videos') or 0)
-                                partial = bool(payload.get('partial') or stats.get('errors'))
-                                message = ('Atualização do dispositivo concluída parcialmente. ' if partial else 'Vídeos do dispositivo atualizados. ')
+                                message = 'Vídeos do dispositivo atualizados. '
                                 message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
-                                page.snack_bar = ft.SnackBar(ft.Text(message))
-                                page.snack_bar.open = True
-                                page.update()
+                                page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; page.update()
                             except Exception:
-                                page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar os vídeos do dispositivo.'))
-                                page.snack_bar.open = True
-                                page.update()
+                                page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar os vídeos do dispositivo.')); page.snack_bar.open=True; page.update()
                             finally:
                                 finish_native_scan()
                                 on_catalog_changed()
@@ -740,11 +752,16 @@ async def main(page: ft.Page):
                             if event_type == 'saf_error': refresh_settings_if_active()
                         elif event_type == 'android_back':
                             navigate_back()
+                        if event_id:
+                            store.claim_native_event(event_id)
                     except Exception as exc:
+                        if event_id:
+                            failed_event_ids.add(str(event_id))
                         print(f"[ANDROID] Erro ao processar evento nativo: {exc}")
                 # NativeMailbox retains the atomically claimed batch until this
                 # point, after SQLite/UI handling has completed. A process restart
                 # before acknowledgement replays the complete batch safely.
+                bridge.requeue_event_ids(failed_event_ids)
                 bridge.acknowledge()
             except Exception as exc:
                 print(f"[ANDROID] Erro no loop da ponte nativa: {exc}")

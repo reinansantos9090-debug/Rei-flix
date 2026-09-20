@@ -26,7 +26,10 @@ class MainActivity : FlutterFragmentActivity() {
     private val tag = "[REIFLIX][ANDROID]"
     private lateinit var systemUiController: SystemUiController
     private var broadStoragePermissionPending = false
+    private var legacyBroadPermissionRequestPending = false
     private var mediaPermissionRequestPending = false
+    private var activityResumed = false
+    private var pendingLifecycleAction: String? = null
     private val activeNativeScans = mutableSetOf<String>()
 
     @Synchronized
@@ -55,6 +58,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
     private val legacyBroadPermissionRequester = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        legacyBroadPermissionRequestPending = false
         val granted = grants.any { it.value } && BroadStorageScanner.hasAccess(this)
         NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission").put("payload", JSONObject()
             .put("granted", granted)
@@ -96,18 +100,37 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    private fun logLifecycle(event: String, intent: Intent? = null) {
+        val action = intent?.data?.getQueryParameter("action")
+        Log.i(tag, "LIFECYCLE $event instance=${System.identityHashCode(this)} task=$taskId resumed=$activityResumed finishing=$isFinishing action=${action ?: "-"} flags=0x${intent?.flags?.toString(16) ?: "0"}")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        logLifecycle("onCreate", intent)
         systemUiController = SystemUiController(window)
         onBackPressedDispatcher.addCallback(this, backCallback)
         applyImmersiveSystemUi()
-        // Flet owns screen history. Do not let FlutterActivity finish before
-        // its Python navigation policy receives this event.
+        // Permission-sensitive actions are queued until the Activity is resumed.
         handleNativeIntent(intent)
     }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handleNativeIntent(intent) }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        logLifecycle("onNewIntent", intent)
+        handleNativeIntent(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        logLifecycle("onStart")
+    }
+
     override fun onResume() {
         super.onResume()
+        activityResumed = true
+        logLifecycle("onResume")
         applyImmersiveSystemUi()
         // Settings may revoke access while this activity is paused. Always
         // republish the actual Android state; a button click is never proof.
@@ -123,16 +146,58 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    override fun onPostResume() {
+        super.onPostResume()
+        logLifecycle("onPostResume")
+        val pending = pendingLifecycleAction
+        if (pending != null) {
+            pendingLifecycleAction = null
+            Log.i(tag, "Executing queued lifecycle action: $pending")
+            when (pending) {
+                "request_media_access" -> requestMediaAccess()
+                "open_broad_storage_settings" -> openBroadStorageSettings()
+            }
+        }
+    }
+
+    override fun onPause() {
+        activityResumed = false
+        logLifecycle("onPause")
+        super.onPause()
+    }
+
+    override fun onStop() {
+        logLifecycle("onStop")
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        logLifecycle("onDestroy")
+        super.onDestroy()
+    }
+
     private fun handleNativeIntent(intent: Intent?) {
-        when (intent?.data?.getQueryParameter("action")) {
+        val action = intent?.data?.getQueryParameter("action") ?: return
+        when (action) {
             "select_tree" -> openTreePicker()
             "scan_tree" -> scanTree(intent.data?.getQueryParameter("tree_uri"))
             "verify_tree" -> verifyTree(intent.data?.getQueryParameter("tree_uri"))
             "release_tree" -> releaseTree(intent.data?.getQueryParameter("tree_uri"))
             "scan_media_store" -> scanMediaStore()
-            "request_media_access" -> requestMediaAccess()
+            "request_media_access", "open_broad_storage_settings" -> {
+                if (!activityResumed) {
+                    if (pendingLifecycleAction == null) {
+                        pendingLifecycleAction = action
+                        Log.i(tag, "Queued lifecycle-sensitive action until Activity is resumed: $action")
+                    } else {
+                        Log.i(tag, "Ignoring duplicate lifecycle-sensitive action: $action")
+                    }
+                    return
+                }
+                if (action == "request_media_access") requestMediaAccess()
+                else openBroadStorageSettings()
+            }
             "check_storage_access" -> publishStorageStatus()
-            "open_broad_storage_settings" -> openBroadStorageSettings()
             "scan_all_storage" -> scanAllStorage()
             "google_sign_in" -> signInWithGoogle(intent.data?.getQueryParameter("server_client_id"))
             "play" -> openPlayer(intent.data)
@@ -177,6 +242,11 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
     private fun requestMediaAccess() {
+        if (!activityResumed) {
+            pendingLifecycleAction = "request_media_access"
+            Log.i(tag, "Deferring media permission request until Activity is resumed")
+            return
+        }
         if (mediaPermissionRequestPending) {
             Log.i(tag, "Media permission request already pending")
             return
@@ -209,6 +279,11 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun openBroadStorageSettings() {
+        if (!activityResumed) {
+            pendingLifecycleAction = "open_broad_storage_settings"
+            Log.i(tag, "Deferring broad-storage Settings launch until Activity is resumed")
+            return
+        }
         if (BroadStorageScanner.hasAccess(this)) {
             publishStorageStatus()
             return
@@ -250,7 +325,12 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("fallbackOpened", true)
                     .put("source", BroadStorageScanner.SOURCE)))
         } else {
+            if (legacyBroadPermissionRequestPending) {
+                Log.i(tag, "Legacy storage permission request already pending")
+                return
+            }
             broadStoragePermissionPending = false
+            legacyBroadPermissionRequestPending = true
             legacyBroadPermissionRequester.launch(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE))
         }
     }

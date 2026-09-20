@@ -37,6 +37,15 @@ class NativeRequestStateTest {
     }
 
     @Test
+    fun malformed_native_actions_are_rejected() {
+        assertFalse(NativeRequestState.isSupportedAction(null))
+        assertFalse(NativeRequestState.isSupportedAction(""))
+        assertFalse(NativeRequestState.isSupportedAction("  unknown_action  "))
+        assertTrue(NativeRequestState.isSupportedAction("scan_tree"))
+        assertTrue(NativeRequestState.isSupportedAction("open_broad_storage_settings"))
+    }
+
+    @Test
     fun saved_request_and_pending_action_can_be_restored() {
         val state = NativeRequestState()
 

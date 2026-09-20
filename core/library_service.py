@@ -313,8 +313,23 @@ class LibraryService:
 
                 result.errors.extend(str(error) for error in scan_errors)
                 if not scan_errors:
-                    self.store.reconcile_missing(tree_uri, list(seen), scope_kind=scope_kind, scope_ref=scope_ref)
-                    result.reconciled = 1
+                    if source_kind in {"broad_storage", "mediastore"}:
+                        volumes = {}
+                        for document in documents or []:
+                            if isinstance(document, dict) and document.get("uri") in seen:
+                                volume = document.get("volumeId")
+                                if volume:
+                                    volumes.setdefault(str(volume), set()).add(document.get("uri"))
+                        if volumes:
+                            for volume, volume_seen in volumes.items():
+                                self.store.reconcile_missing(tree_uri, list(volume_seen), scope_kind="volume", scope_ref=volume)
+                            result.reconciled = len(volumes)
+                        else:
+                            self.store.reconcile_missing(tree_uri, list(seen), scope_kind=scope_kind, scope_ref=scope_ref)
+                            result.reconciled = 1
+                    else:
+                        self.store.reconcile_missing(tree_uri, list(seen), scope_kind=scope_kind, scope_ref=scope_ref)
+                        result.reconciled = 1
                     self.store.update_folder_status(tree_uri, "granted")
                 else:
                     self.store.update_folder_status(tree_uri, "granted", "; ".join(map(str, scan_errors)))

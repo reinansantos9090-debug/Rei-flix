@@ -29,12 +29,12 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
     def test_resume_completion_history_and_continue_are_one_durable_state(self):
         path = self.episode("content://cycle/1", 1, 1)
         self.store.save_progress(path, 47, 100)
-        row = self.store.episode_by_path(path)
+        row = self.store.physical_row(path)
         self.assertEqual("in_progress", self.store.consumption_state(row))
         self.assertEqual(path, self.store.continue_watching()[0]["path"])
 
         self.store.save_progress(path, 90, 100)
-        row = self.store.episode_by_path(path)
+        row = self.store.physical_row(path)
         self.assertTrue(row["watched"])
         self.assertEqual("watched", self.store.consumption_state(row))
         self.assertEqual([], self.store.continue_watching())
@@ -46,13 +46,14 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         for position, expected in ((0, "unwatched"), (89, "in_progress"),
                                    (90, "watched"), (99, "watched"), (100, "watched")):
             self.store.save_progress(path, position, 100)
-            self.assertEqual(expected, self.store.consumption_state(self.store.episode_by_path(path)))
+            self.assertEqual(expected, self.store.consumption_state(self.store.physical_row(path)))
 
-        self.store.save_progress(path, 25, 0)
-        row = self.store.episode_by_path(path)
+        zero = self.episode("content://cycle/zero", 1, 5)
+        self.store.save_progress(zero, 25, 0)
+        row = self.store.physical_row(zero)
         self.assertEqual(25, row["progress"])
         self.assertEqual(0, row["duration"])
-        self.assertTrue(row["watched"])
+        self.assertFalse(row["watched"])
 
     def test_duplicate_and_out_of_order_native_events_do_not_regress_state(self):
         path = self.episode("content://cycle/order", 1, 3)
@@ -60,9 +61,9 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         self.assertTrue(self.store.save_progress(path, 50, 100, event_created_at=t1))
         self.assertFalse(self.store.save_progress(path, 50, 100, event_created_at=t1))
         self.assertFalse(self.store.save_progress(path, 40, 100, event_created_at=t1 - 100))
-        self.assertEqual(50, self.store.episode_by_path(path)["progress"])
+        self.assertEqual(50, self.store.physical_row(path)["progress"])
         self.assertTrue(self.store.save_progress(path, 30, 100, event_created_at=t1 + 100))
-        self.assertEqual(30, self.store.episode_by_path(path)["progress"])
+        self.assertEqual(30, self.store.physical_row(path)["progress"])
 
     def test_next_episode_skips_missing_and_specials_and_crosses_season(self):
         e1 = self.episode("content://cycle/s1e12", 1, 12)
@@ -93,7 +94,7 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
             self.anime, path, "renamed.mkv", 1, 4,
             media_identity="stable-cycle-4",
         )
-        row = self.store.episode_by_path(path)
+        row = self.store.physical_row(path)
         self.assertEqual(47, row["progress"])
 
     def test_native_player_contract_uses_single_autoplay_preference(self):

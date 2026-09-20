@@ -14,6 +14,16 @@ class NativeIndexTest {
     }
 
     @Test
+    fun safExternalDocumentIdentityConvergesToPhysicalRelativePath() {
+        val saf = JSONObject().put("treeUri", "content://com.android.externalstorage.documents/tree/primary%3AMovies")
+            .put("documentId", "primary:Movies/Sub/a.mkv").put("volumeId", "external_primary")
+            .put("relativePath", "Sub/a.mkv").put("name", "a.mkv")
+        val media = JSONObject().put("uri", "content://media/1").put("volumeId", "external_primary")
+            .put("relativePath", "Movies/Sub/a.mkv").put("name", "a.mkv")
+        assertEquals(NativeIndex.stableIdentity(saf, NativeIndex.SOURCE_SAF), NativeIndex.stableIdentity(media, NativeIndex.SOURCE_MEDIASTORE))
+    }
+
+    @Test
     fun stableIdentity_doesNotUseDisplayNameAlone() {
         val a = JSONObject().put("uri", "content://media/1").put("volumeId", "external_primary").put("relativePath", "A/a.mkv").put("name", "a.mkv")
         val b = JSONObject().put("uri", "content://media/2").put("volumeId", "external_primary").put("relativePath", "B/a.mkv").put("name", "a.mkv")

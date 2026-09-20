@@ -123,3 +123,15 @@ def identity_from_document(
     if parsed.scheme == "content" and parsed.netloc and parsed.path:
         return f"uri:{parsed.netloc.casefold()}:{_clean_relative(parsed.path)}"
     return None
+
+
+def local_media_identity(*, uri, source_kind="unknown", relative_path=None, size=None, modified_at=None, volume_id=None):
+    """Backward-compatible identity facade used by scanner/tests.
+
+    Size and modified time are accepted as discovery metadata but are not part
+    of the logical identity: the stable location/volume evidence remains the
+    source of truth, so rename/move reconciliation does not manufacture a
+    different consumption identity when the physical media identity is known.
+    """
+    _ = source_kind, size, modified_at
+    return identity_from_document(uri, relative_path, volume_id, None)

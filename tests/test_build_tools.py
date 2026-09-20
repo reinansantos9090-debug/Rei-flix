@@ -100,7 +100,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
             self.assertIn("NativePlayerActivity", (rendered / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8"))
             self.assertIn("@style/ReiFlixTheme", (rendered / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8"))
             self.assertIn("media3-exoplayer:1.5.1", (rendered / "build.gradle").read_text(encoding="utf-8"))
-            self.assertIn("compileSdk = 36", (rendered / "build.gradle").read_text(encoding="utf-8"))
+            self.assertIn("compileSdk 36", (rendered / "build.gradle").read_text(encoding="utf-8"))
 
     def test_main_activity_uses_lifecycle_aware_back_and_activity_result_callbacks(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

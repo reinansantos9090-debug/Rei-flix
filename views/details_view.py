@@ -360,7 +360,8 @@ class DetailView:
             ft.Text(alternate_title, size=12, color="#AAA7B6", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, visible=bool(alternate_title)),
             ft.Row(facts, wrap=True, spacing=6, run_spacing=6),
             ft.Row(genre_controls, wrap=True, spacing=6, run_spacing=6, visible=bool(genre_controls)),
-        primary_button,
+            ft.Row(([ft.Text(metadata_state, size=11, color=TEXT_MUTED)] + ([refresh_button] if refresh_button else [])), spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            primary_button,
             ft.Text(f"{missing_count} indisponível{'is' if missing_count != 1 else ''} na biblioteca local", size=11, color="#D5A84A", visible=missing_count > 0),
         ], spacing=9, expand=True)
 

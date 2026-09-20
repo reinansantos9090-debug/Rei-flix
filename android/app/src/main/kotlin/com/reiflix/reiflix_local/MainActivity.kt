@@ -14,6 +14,7 @@ import io.flutter.embedding.android.FlutterFragmentActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
@@ -219,7 +220,7 @@ class MainActivity : FlutterFragmentActivity() {
         if (!requestId.isNullOrBlank()) {
             lastHandledNativeRequestId = requestId
         }
-        Log.i(tag, "NATIVE_INTENT action=$action requestId=${requestId ?: "-"} task=$taskId resumed=$activityResumed flags=0x${intent.flags.toString(16)}")
+        Log.i(tag, "NATIVE_INTENT action=$action requestId=\${requestId ?: "-"} task=$taskId resumed=$activityResumed focus=\${window?.decorView?.hasWindowFocus() == true} flags=0x\${intent.flags.toString(16)}")
         when (action) {
             "select_tree" -> openTreePicker()
             "scan_tree" -> scanTree(intent.data?.getQueryParameter("tree_uri"))
@@ -320,12 +321,74 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun publishStorageStatus() {
-        NativeMailbox.write(this, JSONObject().put("type", "broad_storage_status")
-            .put("payload", BroadStorageScanner.accessSnapshot(this)))
-        NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission").put("payload", JSONObject()
-            .put("granted", MediaStoreScanner.hasReadPermission(this))
-            .put("access", MediaStoreScanner.accessLevel(this))
-            .put("source", MediaStoreScanner.SOURCE)))
+        val broadAccess = BroadStorageScanner.accessSnapshot(this)
+        val mediaAccess = MediaStoreScanner.accessLevel(this)
+        val broadGranted = BroadStorageScanner.hasAccess(this)
+        NativeMailbox.write(
+            this,
+            JSONObject().put("type", "broad_storage_status")
+                .put("payload", broadAccess)
+                .put("diagnostics", JSONObject()
+                    .put("activity", javaClass.name)
+                    .put("taskId", taskId)
+                    .put("lifecycle", if (activityResumed) "RESUMED" else "PAUSED")
+                    .put("permissionState", if (broadGranted) "BROAD_STORAGE_AVAILABLE" else "BROAD_STORAGE_UNAVAILABLE"))
+        )
+        NativeMailbox.write(
+            this,
+            JSONObject().put("type", "mediastore_permission")
+                .put("payload", JSONObject()
+                    .put("granted", mediaAccess != "denied")
+                    .put("access", mediaAccess)
+                    .put("source", MediaStoreScanner.SOURCE))
+                .put("diagnostics", JSONObject()
+                    .put("activity", javaClass.name)
+                    .put("taskId", taskId)
+                    .put("lifecycle", if (activityResumed) "RESUMED" else "PAUSED")
+                    .put("permissionState", when (mediaAccess) {
+                        "full" -> "MEDIA_FULL"
+                        "partial" -> "MEDIA_PARTIAL"
+                        else -> "MEDIA_DENIED"
+                    }))
+        )
+        publishSafInventory()
+    }
+
+    /**
+     * Publish the authoritative SAF grant set after Activity resume/recreation.
+     *
+     * Python previously tried to verify every persisted tree by launching the
+     * app's own reiflix://native intent during startup. That is an avoidable
+     * task/lifecycle transition: with MainActivity singleTask, Android may
+     * bring the existing task to the foreground and route the new intent to
+     * onNewIntent(). The native Activity already owns the persisted grant set,
+     * so publish it directly through the existing NativeMailbox instead.
+     */
+    private fun publishSafInventory() {
+        val trees = JSONArray()
+        contentResolver.persistedUriPermissions
+            .asSequence()
+            .filter { it.isReadPermission }
+            .forEach { permission ->
+                val uri = permission.uri
+                if (uri.scheme != "content" || !DocumentsContract.isTreeUri(uri)) return@forEach
+                val treeId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+                    ?: return@forEach
+                trees.put(
+                    JSONObject()
+                        .put("treeUri", uri.toString())
+                        .put("documentId", treeId)
+                        .put("name", SafScanner.displayName(this, uri))
+                )
+            }
+        NativeMailbox.write(
+            this,
+            JSONObject().put("type", "saf_inventory")
+                .put("payload", JSONObject()
+                    .put("trees", trees)
+                    .put("count", trees.length())
+                    .put("lifecycle", if (activityResumed) "RESUMED" else "PAUSED"))
+        )
     }
 
     private fun openBroadStorageSettings() {

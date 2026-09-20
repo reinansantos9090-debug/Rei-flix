@@ -389,7 +389,8 @@ class LibraryStore:
                             values[key] = row[key]
                 else:
                     for key in editorial:
-                        if key not in metadata:
+                        incoming = values.get(key)
+                        if key not in metadata or incoming is None or incoming == "" or incoming == "[]":
                             values[key] = row[key]
                 if source == "anilist" and not values.get("anilist_id"):
                     values["anilist_id"] = row["anilist_id"]
@@ -461,6 +462,9 @@ class LibraryStore:
         media_identity = media_identity or identity_key
         identification_source = identification_source or "legacy"
         identification_confidence = identification_confidence or "medium"
+        media_identity = media_identity or identity_key
+        identification_source = identification_source or "legacy"
+        identification_confidence = identification_confidence or "medium"
         with self._conn() as c:
             by_path = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
             by_identity = None
@@ -483,9 +487,9 @@ class LibraryStore:
                     c.execute(
                         """UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
-                           episode_type=?,episode_title=?,missing=0 WHERE id=?""",
+                           episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE id=?""",
                         (anime_id,new_path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
-                         media_identity,absolute_number,episode_type,episode_title,row_id),
+                         media_identity,absolute_number,episode_type,episode_title,identification_source,identification_confidence,row_id),
                     )
                 return row_id
 
@@ -496,7 +500,7 @@ class LibraryStore:
                 c.execute(
                     """UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,
                        file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
-                       episode_type=?,episode_title=?,missing=0,progress=?,watched=?,last_played_at=? WHERE id=?""",
+                       episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0,progress=?,watched=?,last_played_at=? WHERE id=?""",
                     (anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
                      media_identity,absolute_number,episode_type,episode_title,identification_source,identification_confidence,progress,watched,last_played,by_identity["id"]),
                 )

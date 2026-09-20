@@ -41,7 +41,7 @@ class LibraryStore:
               id INTEGER PRIMARY KEY, anime_id INTEGER NOT NULL REFERENCES anime(id) ON DELETE CASCADE,
               path TEXT UNIQUE NOT NULL, file_name TEXT NOT NULL, season INTEGER NOT NULL,
               number REAL, duration REAL DEFAULT 0, progress REAL DEFAULT 0, watched INTEGER DEFAULT 0,
-              mime_type TEXT, file_size INTEGER, modified_at REAL, source_folder TEXT,
+              mime_type TEXT, file_size INTEGER, modified_at REAL, source_folder TEXT, absolute_number REAL, relative_path TEXT, volume_id TEXT, volume_uuid TEXT, episode_type TEXT NOT NULL DEFAULT 'regular', episode_title TEXT, identification_source TEXT NOT NULL DEFAULT 'legacy', identification_confidence TEXT NOT NULL DEFAULT 'medium', manual_override INTEGER NOT NULL DEFAULT 0,
               missing INTEGER DEFAULT 0, last_played_at REAL, media_identity TEXT);
             CREATE TABLE IF NOT EXISTS associations (lookup_title TEXT PRIMARY KEY, anilist_id INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS pending_matches (lookup_title TEXT PRIMARY KEY, display_title TEXT NOT NULL, candidates TEXT NOT NULL);
@@ -66,7 +66,7 @@ class LibraryStore:
                 if column not in anime_columns:
                     c.execute(f"ALTER TABLE anime ADD COLUMN {column} {definition}")
             episode_columns = {r[1] for r in c.execute("PRAGMA table_info(episodes)")}
-            for column, definition in {"mime_type": "TEXT", "file_size": "INTEGER", "modified_at": "REAL", "source_folder": "TEXT", "last_played_at": "REAL", "media_identity": "TEXT"}.items():
+            for column, definition in {"mime_type": "TEXT", "file_size": "INTEGER", "modified_at": "REAL", "source_folder": "TEXT", "absolute_number": "REAL", "relative_path": "TEXT", "volume_id": "TEXT", "volume_uuid": "TEXT", "episode_type": "TEXT NOT NULL DEFAULT 'regular'", "episode_title": "TEXT", "identification_source": "TEXT NOT NULL DEFAULT 'legacy'", "identification_confidence": "TEXT NOT NULL DEFAULT 'medium'", "manual_override": "INTEGER NOT NULL DEFAULT 0", "last_played_at": "REAL", "media_identity": "TEXT"}.items():
                 if column not in episode_columns:
                     c.execute(f"ALTER TABLE episodes ADD COLUMN {column} {definition}")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_anime_playback ON episodes(anime_id, missing, watched, last_played_at)")

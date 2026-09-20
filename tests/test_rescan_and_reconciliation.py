@@ -102,6 +102,30 @@ class Prompt16RescanTests(unittest.TestCase):
         self.assertFalse(self.store.claim_native_event("event-1"))
         self.assertTrue(self.store.claim_native_event("event-2"))
 
+    def test_native_event_presence_is_observable_without_claiming(self):
+        self.assertFalse(self.store.has_native_event("event-read-before-claim"))
+        self.assertTrue(self.store.claim_native_event("event-read-before-claim"))
+        self.assertTrue(self.store.has_native_event("event-read-before-claim"))
+
+    def test_older_native_generation_cannot_overwrite_newer_completed_scan(self):
+        source = "mediastore:external:video"
+        document = self.doc("content://media/generation", "Show/Show S01E01.mkv")
+        self.service.ingest_documents(source, [document], source_kind="mediastore", scan_id="generation-new", scope_kind="volume", scope_ref="external_primary", scan_generation=10)
+        self.service.ingest_documents(source, [document], source_kind="mediastore", scan_id="generation-old", scope_kind="volume", scope_ref="external_primary", scan_generation=5)
+        scan = self.store.scan_by_id("generation-old")
+        self.assertIsNone(scan)
+        self.assertFalse(self.store.physical_row(document["uri"])["missing"])
+
+    def test_native_stable_identity_is_used_for_cross_source_deduplication(self):
+        media = self.doc("content://media/cross", "Movies/Show S01E01.mkv")
+        media["stableId"] = "shared:external_primary:Movies/Show S01E01.mkv"
+        broad = self.doc("file:///storage/emulated/0/Movies/Show S01E01.mkv", "Movies/Show S01E01.mkv")
+        broad["stableId"] = media["stableId"]
+        self.ingest("mediastore:external:video", [media], source_kind="mediastore", scan_id="cross-media")
+        self.ingest("broad-storage", [broad], source_kind="broad_storage", scan_id="cross-broad")
+        rows = [episode for anime in self.store.catalog() for season in anime["seasons"] for episode in season["episodes"]]
+        self.assertEqual(1, len(rows))
+
     def test_failed_filesystem_stat_is_not_treated_as_removal(self):
         import os
         with tempfile.TemporaryDirectory() as source:

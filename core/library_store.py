@@ -659,23 +659,27 @@ class LibraryStore:
             row = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
             return dict(row) if row else None
 
-    def missing_candidate(self, anime_id, source_folder, file_size, modified_at, volume_id=None):
-        """Find one unambiguous missing row that can survive a move/rename.
-        
-        Size + mtime are only a reconciliation hint; uniqueness is required and
-        the candidate must belong to the same logical title/source/volume.
+    def missing_candidate(self, anime_id, source_folder, file_size, modified_at, volume_id=None, *, excluded_paths=None):
+        """Find one unambiguous row that can survive a move/rename.
+
+        Size + mtime are only a reconciliation hint; uniqueness is required.
+        ``excluded_paths`` contains paths confirmed present in the current
+        complete scan, so an old path can be recognized as moved before the
+        missing projection is applied.
         """
         if file_size is None or modified_at is None:
             return None
+        excluded = {str(path) for path in (excluded_paths or []) if path}
         with self._conn() as c:
             rows = c.execute(
                 """SELECT * FROM episodes
-                   WHERE anime_id=? AND source_folder=? AND missing=1
+                   WHERE anime_id=? AND source_folder=?
                      AND file_size=? AND modified_at=?
                      AND (? IS NULL OR volume_id=?)
                    ORDER BY id""",
                 (anime_id, source_folder, file_size, modified_at, volume_id, volume_id),
             ).fetchall()
+            rows = [row for row in rows if row["path"] not in excluded]
             if len(rows) != 1:
                 return None
             return dict(rows[0])

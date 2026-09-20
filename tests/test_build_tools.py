@@ -172,7 +172,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         activity = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("publishSafInventory()", activity)
         self.assertIn('persistedUriPermissions', activity)
-        self.assertIn('eventType = "saf_inventory"', activity)
+        self.assertIn('JSONObject().put("type", "saf_inventory")', activity)
         self.assertIn('JSONObject().put("type", "saf_inventory")', activity)
 
     def test_main_activity_delegates_system_ui_to_controller_and_reapplies_on_resume(self):

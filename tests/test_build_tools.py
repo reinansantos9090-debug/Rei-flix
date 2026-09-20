@@ -6,6 +6,7 @@ import unittest
 import zipfile
 from pathlib import Path
 import json
+import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,6 +80,8 @@ class AndroidHostVerificationTests(unittest.TestCase):
             self.assertIn("shutil.copytree(source, destination, dirs_exist_ok=True)", hook)
             self.assertIn("media3-exoplayer:1.5.1", hook)
             self.assertIn("MANAGE_EXTERNAL_STORAGE", hook)
+            self.assertIn('main.set(launch_attr, "singleTask")', hook)
+            self.assertIn('main.set(document_launch_attr, "never")', hook)
             self.assertIn("compileSdk = 36", hook)
             self.assertNotIn("__REIFLIX_OVERLAY_APP__", hook)
             self.assertIn(f'Path({str((template / "reiflix_android_overlay" / "app").resolve())!r})', hook)
@@ -97,10 +100,29 @@ class AndroidHostVerificationTests(unittest.TestCase):
             hook_result = subprocess.run([sys.executable, str(runtime_hook)],
                                          cwd=rendered.parents[1], capture_output=True, text=True)
             self.assertEqual(hook_result.returncode, 0, hook_result.stderr)
-            self.assertIn("NativePlayerActivity", (rendered / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8"))
-            self.assertIn("@style/ReiFlixTheme", (rendered / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8"))
+            rendered_manifest = rendered / "src" / "main" / "AndroidManifest.xml"
+            manifest_text = rendered_manifest.read_text(encoding="utf-8")
+            self.assertIn("NativePlayerActivity", manifest_text)
+            self.assertIn("@style/ReiFlixTheme", manifest_text)
+            tree = ET.parse(rendered_manifest)
+            android_ns = "http://schemas.android.com/apk/res/android"
+            main = next(
+                activity for activity in tree.getroot().find("application").findall("activity")
+                if activity.get(f"{{{android_ns}}}name") == "com.reiflix.reiflix_local.MainActivity"
+            )
+            self.assertEqual(main.get(f"{{{android_ns}}}launchMode"), "singleTask")
+            self.assertEqual(main.get(f"{{{android_ns}}}documentLaunchMode"), "never")
             self.assertIn("media3-exoplayer:1.5.1", (rendered / "build.gradle").read_text(encoding="utf-8"))
             self.assertIn("compileSdk 36", (rendered / "build.gradle").read_text(encoding="utf-8"))
+
+    def test_source_manifest_and_template_contract_cannot_revert_to_single_top(self):
+        manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        template = PREPARE_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn('android:launchMode="singleTask"', manifest)
+        self.assertIn('android:documentLaunchMode="never"', manifest)
+        self.assertIn('main.set(launch_attr, "singleTask")', template)
+        self.assertIn('main.set(document_launch_attr, "never")', template)
+        self.assertNotIn('main.set(launch_attr, "singleTop")', template)
 
     def test_main_activity_uses_lifecycle_aware_back_and_activity_result_callbacks(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

@@ -11,7 +11,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from core.anilist import AniListClient
 from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
-from core.media_identity import local_media_identity
+from core.media_identity import identity_from_document
 from core.organizer_ai import AnimeOrganizer
 
 logger = logging.getLogger(__name__)

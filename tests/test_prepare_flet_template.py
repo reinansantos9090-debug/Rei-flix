@@ -56,7 +56,13 @@ class FletTemplateManifestTests(unittest.TestCase):
 
             manifest = ET.parse(project / "android/app/src/main/AndroidManifest.xml").getroot()
             ns = {"android": "http://schemas.android.com/apk/res/android"}
-            main = manifest.find(".//activity[@android:name='.MainActivity']", ns)
+            main = next(
+                (
+                    activity for activity in manifest.findall(".//activity")
+                    if activity.get("{http://schemas.android.com/apk/res/android}name") == ".MainActivity"
+                ),
+                None,
+            )
             self.assertIsNotNone(main)
             self.assertEqual(main.get("{http://schemas.android.com/apk/res/android}launchMode"), "singleTask")
             self.assertEqual(main.get("{http://schemas.android.com/apk/res/android}documentLaunchMode"), "never")

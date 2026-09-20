@@ -1162,7 +1162,9 @@ class DetailsDomainTests(unittest.TestCase):
                 if getattr(control, "content", None) is not None:
                     walk(control.content)
             walk(view)
-            self.assertIn("Assistir especial", texts)
+            target = store.playback_target(anime_id)
+            self.assertEqual("ova", target["episode_type"])
+            self.assertIn("ESPECIAIS", texts)
 
     def test_details_specials_are_kept_separate_from_regular_episode_section(self):
         class FakePage:

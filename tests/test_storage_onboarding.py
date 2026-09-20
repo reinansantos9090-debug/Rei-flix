@@ -37,7 +37,7 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn('android:documentLaunchMode="never"', manifest)
         self.assertIn("setIntent(intent)", source)
         self.assertIn("pendingLifecycleAction", source)
-        self.assertIn("override fun onPostResume()", source)
+        self.assertIn("override fun onResume()", source)
         self.assertIn("activityResumed", source)
         self.assertIn("LIFECYCLE", source)
 

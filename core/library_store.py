@@ -234,8 +234,42 @@ class LibraryStore:
 
     def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None, modified_at=None, source_folder=None):
         with self._conn() as c:
-            c.execute("""INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,missing) VALUES(?,?,?,?,?,?,?,?,?,0)
-                ON CONFLICT(path) DO UPDATE SET anime_id=excluded.anime_id,file_name=excluded.file_name,season=excluded.season,number=excluded.number,mime_type=excluded.mime_type,file_size=excluded.file_size,modified_at=excluded.modified_at,source_folder=excluded.source_folder,missing=0""", (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder))
+            existing = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
+            if existing:
+                c.execute("""UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,missing=0 WHERE path=?""",
+                          (anime_id, file_name, season, number, mime_type, file_size, modified_at, source_folder, path))
+                return existing["id"]
+
+            candidates = c.execute("SELECT * FROM episodes WHERE anime_id=? AND LOWER(file_name)=LOWER(?) AND season=?",
+                                   (anime_id, file_name, season)).fetchall()
+            matching_row = None
+            if file_size and file_size > 0:
+                for cand in candidates:
+                    cand_dict = dict(cand)
+                    cand_number = cand_dict.get("number")
+                    num_matches = (number is None and cand_number is None) or (number is not None and cand_number is not None and abs(float(number) - float(cand_number)) < 0.01)
+                    cand_size = cand_dict.get("file_size")
+                    if num_matches and cand_size and cand_size > 0 and abs(int(file_size) - int(cand_size)) == 0:
+                        matching_row = cand_dict
+                        break
+            elif modified_at and modified_at > 0:
+                for cand in candidates:
+                    cand_dict = dict(cand)
+                    cand_number = cand_dict.get("number")
+                    num_matches = (number is None and cand_number is None) or (number is not None and cand_number is not None and abs(float(number) - float(cand_number)) < 0.01)
+                    cand_mod = cand_dict.get("modified_at")
+                    if num_matches and cand_mod and cand_mod > 0 and abs(float(modified_at) - float(cand_mod)) < 2.0:
+                        matching_row = cand_dict
+                        break
+
+            if matching_row:
+                c.execute("""UPDATE episodes SET path=?,file_name=?,season=?,number=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,missing=0 WHERE id=?""",
+                          (path, file_name, season, number, mime_type, file_size, modified_at, source_folder, matching_row["id"]))
+                return matching_row["id"]
+
+            cur = c.execute("""INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,missing) VALUES(?,?,?,?,?,?,?,?,?,0)""",
+                            (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder))
+            return cur.lastrowid
 
     def mark_missing(self, source_folder, seen):
         """Mark only one successfully scanned source, preserving other folders."""

@@ -167,7 +167,7 @@ object BroadStorageScanner {
             }
             volume?.uuid?.takeIf { it.isNotBlank() }?.let { return it }
         }
-        return root.volumeId
+        return "path:" + runCatching { root.canonicalPath }.getOrDefault(root.path)
     }
 
     fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null, shouldCancel: () -> Boolean = { false }): JSONObject {

@@ -521,9 +521,10 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
             page = Page(); bridge = AndroidBridge(d, page)
             tree = 'content://com.android.providers.media.documents/tree/video%3AAnime'
             await bridge.select_tree(); await bridge.verify_tree(tree); await bridge.rescan_tree(tree)
-            self.assertEqual(page.urls[0][0], 'reiflix://native?action=select_tree')
+            self.assertTrue(page.urls[0][0].startswith('reiflix://native?action=select_tree&request_id='))
             self.assertEqual(page.urls[0][1]['mode'], __import__('flet').LaunchMode.EXTERNAL_NON_BROWSER_APPLICATION)
             self.assertIn('action=verify_tree', page.urls[1][0])
+            self.assertIn('request_id=', page.urls[1][0])
             self.assertIn('tree_uri=content%3A%2F%2F', page.urls[1][0])
             self.assertIn('action=scan_tree', page.urls[2][0])
 

@@ -45,7 +45,7 @@ class StorageOnboardingTests(unittest.TestCase):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         request_block = source.split("private fun requestMediaAccess()", 1)[1].split("private fun publishStorageStatus()", 1)[0]
         self.assertIn('if (!activityResumed)', request_block)
-        self.assertIn('pendingLifecycleAction = "request_media_access"', request_block)
+        self.assertIn('queueLifecycleAction("request_media_access")', request_block)
         self.assertIn("mediaPermissionRequester.launch(permissions)", request_block)
 
     def test_storage_state_machine_keeps_sources_independent(self):
@@ -125,7 +125,8 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("uuid.uuid4().hex", bridge)
         self.assertIn('"request_id": request_id', bridge)
         self.assertIn('getQueryParameter("request_id")', main)
-        self.assertIn("lastHandledNativeRequestId", main)
+        self.assertIn("nativeRequestState", main)
+        self.assertIn("NativeRequestState.kt", main)
         self.assertIn("Ignoring duplicate native request", main)
 
     def test_activity_preserves_request_state_across_recreation(self):
@@ -169,7 +170,7 @@ class StorageOnboardingTests(unittest.TestCase):
     def test_on_resume_does_not_publish_intermediate_denied_before_pending_request(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         resume = source[source.index("override fun onResume()"):source.index("override fun onPause()", source.index("override fun onResume()"))]
-        self.assertLess(resume.index("val pending = pendingLifecycleAction"), resume.index("publishStorageStatus()"))
+        self.assertLess(resume.index("val pending = nativeRequestState.consumeLifecycleAction()"), resume.index("publishStorageStatus()"))
         self.assertIn("if (pending != null)", resume)
         self.assertIn("return", resume)
 

@@ -24,6 +24,7 @@ _SXXEXX = re.compile(r"\bS(\d{1,3})[ ._-]*E(?:P(?:ISODE)?)?[ ._-]*(\d{1,4})(?:v\
 _X_EPISODE = re.compile(r"\b(\d{1,2})\s*[xX]\s*(\d{1,4})(?:v\d+)?\b")
 _WORD_EPISODE = re.compile(r"\b(?:E(?:P(?:ISODE)?)?|EPISODE)[ ._-]*(\d{1,4})(?:v\d+)?\b", re.I)
 _SPECIAL = re.compile(r"\b(OVA|OAD|ONA|SPECIALS?|SP|EXTRA)(?:\b|(?=\d))[ ._-]*(\d{1,4})?", re.I)
+_SPECIAL_SEASON_ZERO = re.compile(r"\bS00(?:[ ._-]*E(?:P(?:ISODE)?)?[ ._-]*(\d{1,4}))?\b", re.I)
 _MOVIE = re.compile(r"\b(?:MOVIE|FILM)\b", re.I)
 _ABSOLUTE = re.compile(r"\b(?:ABS(?:OLUTE)?|ANIME[- ._]?EP)[ ._-]*(\d{1,4})\b", re.I)
 _YEAR = re.compile(r"^(?:19\d{2}|20\d{2})$")
@@ -141,13 +142,21 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
     marker = None
 
     special = _SPECIAL.search(stem)
+    season_zero = _SPECIAL_SEASON_ZERO.search(stem)
     movie = _MOVIE.search(stem)
     absolute = _ABSOLUTE.search(stem)
     explicit = _SXXEXX.search(stem)
     cross = _X_EPISODE.search(stem)
     word = _WORD_EPISODE.search(stem)
 
-    if special:
+    if season_zero:
+        marker = season_zero
+        value = season_zero.group(1)
+        episode = float(value) if value else None
+        kind = "special"
+        source, confidence = "s00_marker", "high"
+        evidence.append(f"SPECIAL_TYPE_TOKEN:{season_zero.group(0)}")
+    elif special:
         marker = special
         value = special.group(2)
         episode = float(value) if value else None
@@ -220,6 +229,19 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
                 evidence.append(f"NUMERIC_SUFFIX:{marker.group(0)}")
                 if len(candidates) > 1:
                     unresolved.append("multiple_numeric_candidates")
+
+    if kind == "regular" and episode is not None and episode <= 0:
+        kind = "unknown"
+        source = "invalid_episode_number"
+        confidence = "low"
+        unresolved.append("invalid_regular_episode_number")
+        evidence.append("INVALID_REGULAR_EPISODE_NUMBER")
+
+    if kind == "regular" and folder_season == 0:
+        kind = "special"
+        source = "s00_folder_context"
+        confidence = "medium"
+        evidence.append("SPECIAL_S00_FOLDER_CONTEXT")
 
     if kind == "unknown" and folder_season is not None:
         evidence.append(f"FOLDER_SEASON:{folder_season}")

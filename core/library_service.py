@@ -520,6 +520,10 @@ class LibraryService:
         self.store.resolve_match(lookup_title, anilist_id)
         return metadata
     def catalog(self, favorites_only=False): return self.store.catalog(favorites_only)
+    def create_backup(self, destination=None): return self.store.create_backup(destination)
+
+    def restore_backup(self, backup_path=None): return self.store.restore_backup(backup_path)
+
 
     def media_center_home(self, limit=12, *, catalog=None):
         """Build all Home sections from one already-aggregated local catalog.

@@ -4,8 +4,11 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
 import sqlite3
+import tempfile
 import time
+import zipfile
 
 from core.consumption import consumption_state, is_completed, is_in_progress, is_regular_episode
 
@@ -16,7 +19,9 @@ class LibraryStore:
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
         self.cache_dir = os.path.join(data_dir, "covers")
+        self.backup_dir = os.path.join(data_dir, "backups")
         os.makedirs(self.cache_dir, exist_ok=True)
+        os.makedirs(self.backup_dir, exist_ok=True)
         self._last_playback_event_at = {}
         self._init()
 
@@ -189,6 +194,133 @@ class LibraryStore:
         if state == "completed": return sum(bool(r["available"]) and r["watched"] == r["available"] for r in rows)
         if state == "in_progress": return sum(bool(r["active"]) for r in rows)
         return sum(bool(r["available"]) and not r["watched"] and not r["active"] for r in rows)
+
+
+    @staticmethod
+    def _validate_backup_database(path):
+        """Validate an extracted backup without mutating the live database."""
+        with sqlite3.connect(path) as c:
+            tables = {row[0] for row in c.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )}
+            required = {
+                "folders", "anime", "episodes", "artwork", "associations",
+                "pending_matches", "account", "preferences", "schema_migrations", "scan_runs",
+            }
+            if not required.issubset(tables):
+                missing = ", ".join(sorted(required - tables))
+                raise ValueError(f"Backup incompleto: tabelas ausentes: {missing}")
+            version = c.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
+            if int(version or 0) != LibraryStore.SCHEMA_VERSION:
+                raise ValueError(
+                    f"Schema de backup incompatível: {version or 0}; esperado {LibraryStore.SCHEMA_VERSION}."
+                )
+            if c.execute("PRAGMA foreign_key_check").fetchone():
+                raise ValueError("Backup contém inconsistências de integridade referencial.")
+
+    def create_backup(self, destination=None):
+        """Create an offline ZIP snapshot of SQLite state and managed artwork cache."""
+        if destination:
+            destination = os.path.abspath(os.path.expanduser(str(destination)))
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+        else:
+            stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+            destination = os.path.join(self.backup_dir, f"reiflix-backup-{stamp}.zip")
+
+        parent = os.path.dirname(destination)
+        fd, temp_db = tempfile.mkstemp(prefix=".backup-", suffix=".sqlite3", dir=parent)
+        os.close(fd)
+        temp_zip = f"{destination}.tmp"
+        try:
+            with sqlite3.connect(self.db_path) as source, sqlite3.connect(temp_db) as snapshot:
+                source.backup(snapshot)
+            self._validate_backup_database(temp_db)
+            manifest = {
+                "format": 1,
+                "app": "Rei-flix",
+                "schema": self.SCHEMA_VERSION,
+                "created_at": time.time(),
+                "database": "library.sqlite3",
+                "artwork_root": "covers",
+            }
+            with zipfile.ZipFile(temp_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+                archive.write(temp_db, "library.sqlite3")
+                for root, _, files in os.walk(self.cache_dir):
+                    for name in files:
+                        path = os.path.join(root, name)
+                        arcname = os.path.relpath(path, self.cache_dir).replace(os.sep, "/")
+                        archive.write(path, f"covers/{arcname}")
+            os.replace(temp_zip, destination)
+            return destination
+        finally:
+            for path in (temp_db, temp_zip):
+                try:
+                    os.unlink(path)
+                except FileNotFoundError:
+                    pass
+
+    def latest_backup(self):
+        candidates = [
+            os.path.join(self.backup_dir, name)
+            for name in os.listdir(self.backup_dir)
+            if name.endswith(".zip")
+        ]
+        return max(candidates, key=os.path.getmtime) if candidates else None
+
+    @staticmethod
+    def _safe_zip_members(archive):
+        members = []
+        for info in archive.infolist():
+            name = str(info.filename).replace("\\", "/")
+            if not name or name.startswith("/") or name.startswith("../") or "/../" in name or name == "..":
+                raise ValueError("Backup contém um caminho inválido.")
+            members.append((info, name))
+        return members
+
+    def restore_backup(self, backup_path=None):
+        """Restore a validated local snapshot atomically, without a schema migration."""
+        chosen = backup_path or self.latest_backup()
+        if not chosen:
+            raise FileNotFoundError("Nenhum backup local Rei-flix foi encontrado.")
+        backup_path = os.path.abspath(os.path.expanduser(str(chosen)))
+        if not os.path.isfile(backup_path):
+            raise FileNotFoundError("Backup local não encontrado.")
+
+        restore_root = tempfile.mkdtemp(prefix=".restore-", dir=os.path.dirname(self.db_path))
+        try:
+            with zipfile.ZipFile(backup_path, "r") as archive:
+                members = self._safe_zip_members(archive)
+                names = {name for _, name in members}
+                if not {"manifest.json", "library.sqlite3"}.issubset(names):
+                    raise ValueError("Backup inválido: manifest.json ou library.sqlite3 ausente.")
+                manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+                if manifest.get("app") != "Rei-flix" or int(manifest.get("schema", 0)) != self.SCHEMA_VERSION:
+                    raise ValueError("Backup incompatível com o schema atual do Rei-flix.")
+                archive.extract("library.sqlite3", restore_root)
+                for info, name in members:
+                    if not name.startswith("covers/") or name.endswith("/"):
+                        continue
+                    target = os.path.join(restore_root, name)
+                    os.makedirs(os.path.dirname(target), exist_ok=True)
+                    with archive.open(info) as src, open(target, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+
+            extracted_db = os.path.join(restore_root, "library.sqlite3")
+            self._validate_backup_database(extracted_db)
+            os.replace(extracted_db, self.db_path)
+            if os.path.isdir(self.cache_dir):
+                shutil.rmtree(self.cache_dir)
+            restored_covers = os.path.join(restore_root, "covers")
+            if os.path.isdir(restored_covers):
+                shutil.copytree(restored_covers, self.cache_dir)
+            else:
+                os.makedirs(self.cache_dir, exist_ok=True)
+            self._last_playback_event_at.clear()
+            self.recover_interrupted_scans()
+            return backup_path
+        finally:
+            shutil.rmtree(restore_root, ignore_errors=True)
 
     def clear_anilist_metadata_cache(self):
         """Expire metadata and cover paths, preserving library rows and associations."""
@@ -783,15 +915,19 @@ class LibraryStore:
                 watched = [e for e in available if is_completed(e)]
                 active = [e for e in available if is_in_progress(e)]
                 eligible = [e for e in regulars if not e["missing"]]
-                current = self._current_from_rows(eligible or [e for e in projected if e["episode_type"] != "movie"])
+                movie_available = [e for e in movie_eps if not e["missing"]]
+                current = self._current_from_rows(movie_available) if a["media_kind"] == "movie" else self._current_from_rows(eligible)
                 next_ep = None
-                if current and not is_completed(current):
-                    next_ep = current
-                elif watched:
-                    # History timestamp determines recency, but sequence
-                    # continuation must use the furthest completed local episode.
-                    latest = max(watched, key=self._episode_order_key)
-                    next_ep = self._adjacent_from_rows(latest, eligible, 1)
+                if a["media_kind"] != "movie":
+                    if current and not is_completed(current):
+                        next_ep = current
+                    elif watched:
+                        # History timestamp determines recency, but sequence
+                        # continuation must use the furthest completed local episode.
+                        latest_regular = [e for e in watched if is_regular_episode(e)]
+                        if latest_regular:
+                            latest = max(latest_regular, key=self._episode_order_key)
+                            next_ep = self._adjacent_from_rows(latest, eligible, 1)
                 result.append({
                     "id": a["id"], "main_title": a["title"], "meta": dict(a),
                     "favorite": bool(a["favorite"]), "is_pinned": bool(a["is_pinned"]),

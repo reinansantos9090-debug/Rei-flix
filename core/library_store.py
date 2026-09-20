@@ -650,7 +650,9 @@ class LibraryStore:
                 if current and not is_completed(current):
                     next_ep = current
                 elif watched:
-                    latest = max(watched, key=lambda e: e.get("last_played_at") or 0)
+                    # History timestamp determines recency, but sequence
+                    # continuation must use the furthest completed local episode.
+                    latest = max(watched, key=self._episode_order_key)
                     next_ep = self._adjacent_from_rows(latest, eligible, 1)
                 result.append({
                     "id": a["id"], "main_title": a["title"], "meta": dict(a),
@@ -856,8 +858,10 @@ class LibraryStore:
 
         completed = [episode for episode in available if is_completed(episode)]
         if completed:
-            latest_completed = max(completed, key=lambda entry: entry.get("last_played_at") or 0)
-            next_episode = LibraryStore._adjacent_from_rows(latest_completed, available, 1)
+            # Sequence continuation follows the furthest completed episode,
+            # so replaying an older episode cannot move Next Episode backwards.
+            furthest_completed = max(completed, key=LibraryStore._episode_order_key)
+            next_episode = LibraryStore._adjacent_from_rows(furthest_completed, available, 1)
             if next_episode:
                 return next_episode
 

@@ -21,12 +21,16 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.TrackSelectionDialogBuilder
 import androidx.media3.ui.PlayerView
 import org.json.JSONObject
 import kotlin.math.abs
 
 /** Full-screen Media3 player for one persisted local, SAF, or MediaStore URI. */
+@OptIn(UnstableApi::class)
 class NativePlayerActivity : ComponentActivity() {
     private lateinit var player: ExoPlayer
     private lateinit var uri: Uri
@@ -41,6 +45,8 @@ class NativePlayerActivity : ComponentActivity() {
     private var completionReported = false
     private var sleepDeadline = 0L
     private lateinit var playerView: PlayerView
+    private var audioButton: Button? = null
+    private var subtitleButton: Button? = null
     private val title get() = intent.getStringExtra("title") ?: "Episódio"
     private val progressReporter = object : Runnable {
         override fun run() {
@@ -74,8 +80,8 @@ class NativePlayerActivity : ComponentActivity() {
             controllerAutoShow = true
             contentDescription = title
             resizeMode = savedInstanceState?.takeIf { it.containsKey("resize_mode") }?.getInt(
-                "resize_mode", PlayerView.RESIZE_MODE_FIT
-            ) ?: PlayerView.RESIZE_MODE_FIT
+                "resize_mode", AspectRatioFrameLayout.RESIZE_MODE_FIT
+            ) ?: AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
         savedInstanceState?.takeIf { it.containsKey("playback_speed") }?.getFloat("playback_speed")?.let { speed ->
             if (speed > 0f && speed.isFinite()) player.setPlaybackSpeed(speed)
@@ -92,6 +98,12 @@ class NativePlayerActivity : ComponentActivity() {
                         val savedPosition = savedInstanceState?.takeIf { it.containsKey("position_ms") }?.getLong("position_ms")
                         seekToSavedPosition(savedPosition)
                         initialSeekApplied = true
+                    }
+                    audioButton?.isEnabled = player.currentTracks.groups.any {
+                        it.type == C.TRACK_TYPE_AUDIO && it.isSupported
+                    }
+                    subtitleButton?.isEnabled = player.currentTracks.groups.any {
+                        it.type == C.TRACK_TYPE_TEXT && it.isSupported
                     }
                     handler.removeCallbacks(progressReporter)
                     handler.postDelayed(progressReporter, PROGRESS_INTERVAL_MS)
@@ -144,6 +156,18 @@ class NativePlayerActivity : ComponentActivity() {
             text = "1.0x"
             setOnClickListener { cycleSpeed(this) }
         }, bottomParams(Gravity.CENTER, 150))
+        audioButton = Button(this).apply {
+            text = "Áudio"
+            isEnabled = false
+            setOnClickListener { showTrackSelection(C.TRACK_TYPE_AUDIO, "Áudio") }
+        }
+        root.addView(audioButton, bottomParams(Gravity.CENTER, 214))
+        subtitleButton = Button(this).apply {
+            text = "Legendas"
+            isEnabled = false
+            setOnClickListener { showTrackSelection(C.TRACK_TYPE_TEXT, "Legendas") }
+        }
+        root.addView(subtitleButton, bottomParams(Gravity.CENTER, 276))
         root.addView(Button(this).apply {
             text = "Ajustar"
             setOnClickListener { cycleAspect(this) }
@@ -177,6 +201,16 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun bottomParams(gravity: Int, bottom: Int) = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply { this.gravity = gravity; setMargins(18, 18, 18, bottom) }
+    private fun showTrackSelection(trackType: Int, label: String) {
+        if (!::player.isInitialized) return
+        if (!player.currentTracks.groups.any { it.type == trackType && it.isSupported }) return
+        TrackSelectionDialogBuilder(this, label, player, trackType)
+            .setAllowAdaptiveSelections(false)
+            .setAllowMultipleOverrides(false)
+            .build()
+            .show()
+    }
+
     private fun cycleSpeed(button: Button) {
         val speeds = floatArrayOf(.5f, .75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
         val current = player.playbackParameters.speed
@@ -184,7 +218,7 @@ class NativePlayerActivity : ComponentActivity() {
         player.setPlaybackSpeed(next); button.text = "${next}x"
     }
     private fun cycleAspect(button: Button) {
-        val modes = intArrayOf(PlayerView.RESIZE_MODE_FIT, PlayerView.RESIZE_MODE_FILL, PlayerView.RESIZE_MODE_ZOOM)
+        val modes = intArrayOf(AspectRatioFrameLayout.RESIZE_MODE_FIT, AspectRatioFrameLayout.RESIZE_MODE_FILL, AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
         val index = modes.indexOf(playerView.resizeMode)
         playerView.resizeMode = modes[(index + 1) % modes.size]
         button.text = arrayOf("Ajustar", "Preencher", "Zoom")[(index + 1) % modes.size]

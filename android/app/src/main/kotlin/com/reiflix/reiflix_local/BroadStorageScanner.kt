@@ -73,26 +73,49 @@ object BroadStorageScanner {
         return result
     }
 
-    fun roots(context: Context): List<File> {
-        val paths = LinkedHashSet<String>()
-        Environment.getExternalStorageDirectory().let { if (it.exists()) paths.add(it.absolutePath) }
+    fun roots(context: Context): List<StorageRoot> {
+        val found = LinkedHashMap<String, StorageRoot>()
+
+        fun addRoot(root: StorageRoot) {
+            val canonical = runCatching { root.file.canonicalFile }.getOrNull() ?: root.file
+            if (canonical.exists() && canonical.isDirectory) {
+                found[canonical.path] = root.copy(file = canonical)
+            }
+        }
+
+        val primary = runCatching { Environment.getExternalStorageDirectory().canonicalFile }.getOrNull()
+        if (primary != null) {
+            addRoot(
+                StorageRoot(
+                    primary,
+                    "external_primary",
+                    null,
+                    primary = true,
+                    removable = false,
+                    emulated = true,
+                    state = Environment.getExternalStorageState(primary),
+                )
+            )
+        }
+
         if (Build.VERSION.SDK_INT >= 30) {
             context.getSystemService(StorageManager::class.java)?.storageVolumes?.forEach { volume ->
-                // getDirectory is API 30+. Volumes on older Android versions
-                // remain available through the primary compatible root above
-                // and through SAF/MediaStore rather than reflection or a guess.
-                if (Build.VERSION.SDK_INT >= 30) {
-                    val directory = runCatching { volume.directory }.getOrNull()
-                    if (directory != null) add(StorageRoot(
+                val directory = runCatching { volume.directory }.getOrNull() ?: return@forEach
+                val volumeId = runCatching { volume.mediaStoreVolumeName }.getOrNull()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: volume.uuid?.takeIf { it.isNotBlank() }
+                    ?: if (volume.isPrimary) "external_primary" else "volume-${directory.name}"
+                addRoot(
+                    StorageRoot(
                         directory,
-                        volume.uuid ?: if (volume.isPrimary) "primary" else "volume-${directory.name}",
+                        volumeId,
                         volume.uuid,
                         volume.isPrimary,
                         volume.isRemovable,
                         volume.isEmulated,
-                        volume.state ?: "unknown",
-                    ))
-                }
+                        volume.state ?: Environment.getExternalStorageState(directory),
+                    )
+                )
             }
         }
         return found.values.toList()
@@ -101,7 +124,7 @@ object BroadStorageScanner {
     fun isAuthorizedFile(context: Context, uri: Uri): Boolean {
         if (uri.scheme != "file" || !hasAccess(context)) return false
         val file = runCatching { File(uri.path ?: "").canonicalFile }.getOrNull() ?: return false
-        return roots(context).any { isInside(file, it.file) } && !isRestricted(file)
+        return roots(context).any { isReadableState(it.state) && isInside(file, it.file) } && !isRestricted(file)
     }
 
     private fun isInside(file: File, root: File): Boolean =
@@ -117,8 +140,8 @@ object BroadStorageScanner {
     private fun isNoMediaDirectory(directory: File): Boolean =
         runCatching { File(directory, ".nomedia").isFile }.getOrDefault(false)
 
-    private fun rootForFile(file: File, roots: List<File>): File? =
-        roots.filter { isInside(file, it) }.maxByOrNull { it.path.length }
+    private fun rootForFile(file: File, roots: List<StorageRoot>): StorageRoot? =
+        roots.filter { isInside(file, it.file) && isReadableState(it.state) }.maxByOrNull { it.file.path.length }
 
     private fun relativePath(file: File, root: File): String =
         runCatching {
@@ -157,7 +180,13 @@ object BroadStorageScanner {
         val visited = HashSet<String>()
         val pending = ArrayDeque<Pair<File, StorageRoot>>()
         val rootFiles = roots(context)
-        rootFiles.forEach { pending.addLast(it.file to it) }
+        rootFiles.forEach { root ->
+            if (isReadableState(root.state)) {
+                pending.addLast(root.file to root)
+            } else {
+                errors.put("Volume não disponível: ${root.volumeId} (${root.state}).")
+            }
+        }
         if (rootFiles.isEmpty()) errors.put("Nenhuma raiz de armazenamento compartilhado foi encontrada.")
         var directories = 0
         var files = 0
@@ -179,13 +208,13 @@ object BroadStorageScanner {
                 null
             }
             if (children == null) {
-                if (rootFiles.any { it.path == canonical.path }) {
+                if (rootFiles.any { it.file.path == canonical.path }) {
                     errors.put("Não foi possível acessar a raiz: ${canonical.name}")
                 }
                 continue
             }
             if (children.any { it.isFile && it.name.equals(".nomedia", ignoreCase = true) }) {
-                nomediaDirectories++
+                excludedNoMedia++
                 continue
             }
             for (child in children) {

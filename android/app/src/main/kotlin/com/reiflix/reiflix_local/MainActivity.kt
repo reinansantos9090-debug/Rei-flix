@@ -3,6 +3,7 @@ package com.reiflix.reiflix_local
 import android.content.Intent
 import android.content.ActivityNotFoundException
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
@@ -25,6 +26,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val tag = "[REIFLIX][ANDROID]"
     private lateinit var systemUiController: SystemUiController
     private var broadStoragePermissionPending = false
+    private var mediaPermissionRequestPending = false
     private val activeNativeScans = mutableSetOf<String>()
 
     @Synchronized

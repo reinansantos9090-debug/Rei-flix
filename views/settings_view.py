@@ -66,7 +66,7 @@ class SettingsView:
             async def allow(_event):
                 busy["permission"] = True
                 try:
-                    dismiss_dialog(page, dialog)
+                    page.pop_dialog()
                     await on_request_video_access()
                     notice("Solicitação de permissão para ler vídeos enviada ao Android…")
                 except Exception:
@@ -85,8 +85,7 @@ class SettingsView:
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
-            page.overlay.append(dialog)
-            dialog.open = True
+            page.show_dialog(dialog)
             page.update()
 
         def show_broad_storage_dialog(_=None):
@@ -96,7 +95,7 @@ class SettingsView:
             async def allow(_event):
                 busy["permission"] = True
                 try:
-                    dismiss_dialog(page, dialog)
+                    page.pop_dialog()
                     await on_open_broad_storage()
                     notice("Abrindo as configurações do Android para permitir o acesso ao armazenamento…")
                 except Exception:
@@ -118,8 +117,7 @@ class SettingsView:
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
-            page.overlay.append(dialog)
-            dialog.open = True
+            page.show_dialog(dialog)
             page.update()
 
         pending_matches = store.pending_matches()
@@ -199,7 +197,7 @@ class SettingsView:
         video_permission_button = ft.FilledButton(
             "Permitir leitura de vídeos" if not media_granted else "Permissão de vídeos concedida",
             icon=ft.Icons.VIDEO_LIBRARY_OUTLINED,
-            disabled=media_granted,
+            disabled=media_granted and not media_partial,
             on_click=show_video_permission_dialog,
         )
         broad_storage_button = ft.OutlinedButton(

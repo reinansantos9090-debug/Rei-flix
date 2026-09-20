@@ -159,7 +159,7 @@ class LibraryService:
                         return cached
                     local = {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "ambiguous", "metadata_confidence": "low"}
                     self.store.upsert_anime(lookup_title, local, source="local", confidence="low", status="ambiguous")
-                    return self.store.anime_metadata(lookup_title) or local
+                    return local
                 if cached:
                     self.store.set_metadata_status(lookup_title, "unresolved", confidence="low")
                     return cached

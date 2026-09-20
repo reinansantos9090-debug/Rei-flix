@@ -103,8 +103,8 @@ def main() -> int:
         failed.append(f"MainActivity not found in packaged manifest: {MAIN_ACTIVITY}")
     else:
         checks = (
-            ("launchMode=singleTask", has_attribute(main_block, "launchMode", "0x00000002", "0x2", "singleTask")),
-            ("documentLaunchMode=never", has_attribute(main_block, "documentLaunchMode", "0x00000003", "0x3", "never")),
+            ("launchMode=singleTask", has_attribute(main_block, MAIN_LAUNCH_MODE_ATTRIBUTE.removeprefix("android:"), "0x00000002", "0x2", "singleTask")),
+            ("documentLaunchMode=never", has_attribute(main_block, MAIN_DOCUMENT_LAUNCH_MODE_ATTRIBUTE.removeprefix("android:"), "0x00000003", "0x3", "never")),
             ("exported=true", has_attribute(main_block, "exported", "0xffffffff", "true")),
             ("reiflix://native", has_deep_link(main_block)),
         )

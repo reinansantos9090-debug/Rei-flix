@@ -146,6 +146,10 @@ E: manifest
         self.assertTrue(module.has_attribute(block, "documentLaunchMode", "0x00000003", "0x3", "never"))
         self.assertTrue(module.has_attribute(block, "exported", "0xffffffff", "true"))
         self.assertTrue(module.has_deep_link(block))
+        self.assertTrue(module.has_launchable_activity(
+            "launchable-activity: name='com.reiflix.reiflix_local.MainActivity' label='' icon=''",
+            "com.reiflix.reiflix_local.MainActivity",
+        ))
         self.assertTrue(module.has_max_sdk_32_for_legacy_permission(sample))
 
     def test_main_handles_non_destructive_volume_change_events(self):

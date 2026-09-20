@@ -260,11 +260,62 @@ class LibraryService:
             uri=uri, source_kind=("broad_storage" if source_kind == "filesystem" else source_kind), relative_path=relative_path,
             size=file_size, modified_at=modified_at, volume_id=identity_volume,
         )
+        if not is_local_reference:
+            result.ignored += 1
+            result.errors.append(f"Referência local inválida para {name}.")
+            return None
+
+        file_size = document.get("size")
+        modified_at = document.get("modifiedAt")
+        volume_id = document.get("volumeId")
+        volume_uuid = document.get("volumeUuid")
+        existing = self.store.physical_row(uri)
+        if self._physical_unchanged(
+            existing, source_folder=source_folder, file_size=file_size,
+            modified_at=modified_at, relative_path=relative_path, volume_id=volume_id,
+        ):
+            result.unchanged += 1
+            return uri
+
+        try:
+            item = parse_video_path(relative_path, source_folder)
+        except (OSError, ValueError, UnicodeError) as exc:
+            result.ignored += 1
+            result.errors.append(f"Não foi possível identificar {name}: {exc}")
+            return None
+
+        key = item.anime_title.casefold()
+        if item.episode_type == "unknown" or not item.anime_title or item.anime_title == "Arquivo não identificado":
+            result.unknown += 1
+
+        if key not in metadata:
+            try:
+                metadata[key] = self._identify(key, item.anime_title, lambda message: None, allow_network=False)
+            except Exception as exc:
+                metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
+                result.errors.append(f"{item.anime_title}: metadata indisponível ({exc})")
+            metadata[key] = dict(metadata[key] or {})
+            if item.episode_type == "movie":
+                metadata[key]["media_kind"] = "movie"
+            elif item.episode_type == "unknown":
+                metadata[key]["media_kind"] = "unknown"
+            else:
+                metadata[key]["media_kind"] = metadata[key].get("media_kind") or "series"
+
+        identity_volume = volume_id
+        if source_kind == "filesystem":
+            identity_volume = source_folder
+        identity_uri = uri if uri.startswith(("file://", "content://")) else Path(uri).as_uri()
+        identity = identity_from_document(identity_uri, relative_path, volume_id, source_folder if source_kind == "saf" else None)
         anime_id = self.store.upsert_anime(key, metadata[key], source=metadata[key].get("metadata_source") or "local", confidence=metadata[key].get("metadata_confidence"), status=metadata[key].get("metadata_status"))
         row_id = self.store.upsert_episode(
             anime_id, uri, name, item.season, item.episode,
             document.get("mimeType"), file_size, modified_at, source_folder,
-            identity, item.absolute_number, relative_path, volume_id, volume_uuid,
+            media_identity=identity,
+        )
+        self.store.apply_episode_identification(
+            uri, absolute_number=item.absolute_number, relative_path=relative_path,
+            volume_id=volume_id, volume_uuid=volume_uuid,
             episode_type=item.episode_type, episode_title=item.display_title,
             identification_source=item.identification_source,
             identification_confidence=item.confidence,

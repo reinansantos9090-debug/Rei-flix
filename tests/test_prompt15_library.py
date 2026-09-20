@@ -30,7 +30,7 @@ class Prompt15LibraryTests(unittest.TestCase):
         self.assertEqual(2, row["regular_count"])
         self.assertEqual(1, row["special_count"])
         self.assertEqual(0, row["movie_file_count"])
-        self.assertEqual(1, row["available_count"])
+        self.assertEqual(2, row["available_count"])
         self.assertEqual(1, row["missing_count"])
 
     def test_movie_catalog_has_file_bucket_and_no_season_bucket(self):

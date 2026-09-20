@@ -162,9 +162,19 @@ if "androidx.media3:media3-exoplayer:1.5.1" not in existing:
         block = "\n// ReiFlix native host dependencies\ndependencies {\n" + "".join(f'    implementation("{item}")\n' for item in dependencies) + "}\n"
     else:
         block = "\n// ReiFlix native host dependencies\ndependencies {\n" + "".join(f"    implementation '{item}'\n" for item in dependencies) + "}\n"
-    existing += block
-if existing != original:
-    gradle.write_text(existing, encoding="utf-8")
+    gradle.write_text(existing + block, encoding="utf-8")
+
+# The source overlay is not an Android module in the generated Flet project,
+# so its build.gradle.kts is not copied. Set this contract in the generated
+# module explicitly instead of relying on Flutter template defaults.
+existing = gradle.read_text(encoding="utf-8")
+sdk_marker = "ReiFlix Android 16 SDK contract"
+if sdk_marker not in existing:
+    if gradle.suffix == ".kts":
+        sdk_block = "\\n// ReiFlix Android 16 SDK contract\\nandroid {\\n    compileSdk = 36\\n    defaultConfig { targetSdk = 36 }\\n}\\n"
+    else:
+        sdk_block = "\\n// ReiFlix Android 16 SDK contract\\nandroid {\\n    compileSdk 36\\n    defaultConfig { targetSdk 36 }\\n}\\n"
+    gradle.write_text(existing + sdk_block, encoding="utf-8")
 '''
 
 

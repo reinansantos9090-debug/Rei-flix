@@ -72,10 +72,10 @@ object MediaStoreScanner {
         check(hasReadPermission(context)) { "Permissão de vídeos não concedida." }
 
         val resolver = context.contentResolver
-        val collection = if (Build.VERSION.SDK_INT >= 30) {
-            MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        val volumeNames = if (Build.VERSION.SDK_INT >= 29) {
+            MediaStore.getExternalVolumeNames(context).ifEmpty { setOf(MediaStore.VOLUME_EXTERNAL_PRIMARY) }
         } else {
-            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            setOf(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }
 
         val projection = mutableListOf(
@@ -101,13 +101,19 @@ object MediaStoreScanner {
             .put("videos", 0))
 
         try {
-            resolver.query(
-                collection,
-                projection.toTypedArray(),
-                null,
-                null,
-                MediaStore.Video.Media.DISPLAY_NAME + " COLLATE NOCASE ASC",
-            )?.use { cursor ->
+            for (volumeName in volumeNames) {
+                val collection = if (Build.VERSION.SDK_INT >= 29) {
+                    MediaStore.Video.Media.getContentUri(volumeName)
+                } else {
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                }
+                resolver.query(
+                    collection,
+                    projection.toTypedArray(),
+                    null,
+                    null,
+                    MediaStore.Video.Media.DISPLAY_NAME + " COLLATE NOCASE ASC",
+                )?.use { cursor ->
                 val idColumn = cursor.getColumnIndex(MediaStore.Video.Media._ID)
                 val nameColumn = cursor.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
                 val mimeColumn = cursor.getColumnIndex(MediaStore.Video.Media.MIME_TYPE)
@@ -147,8 +153,8 @@ object MediaStoreScanner {
                         "$relativeDirectory/$name"
                     }
 
-                    val uri = if (Build.VERSION.SDK_INT >= 30) {
-                        MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL, id)
+                    val uri = if (Build.VERSION.SDK_INT >= 29) {
+                        MediaStore.Video.Media.getContentUri(volumeName, id)
                     } else {
                         android.content.ContentUris.withAppendedId(
                             MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
@@ -169,7 +175,9 @@ object MediaStoreScanner {
                         .put("relativePath", relativePath)
                         .put("mimeType", mimeType)
                         .put("size", size)
-                        .put("modifiedAt", modifiedAt))
+                        .put("modifiedAt", modifiedAt)
+                        .put("volumeId", volumeName)
+                        .put("volumeUuid", volumeName))
                     videos++
 
                     if (videos % 100 == 0) {
@@ -180,7 +188,8 @@ object MediaStoreScanner {
                             .put("videos", videos))
                     }
                 }
-            } ?: errors.put("O MediaStore não conseguiu consultar os vídeos.")
+                } ?: errors.put("O MediaStore não conseguiu consultar o volume $volumeName.")
+            }
         } catch (security: SecurityException) {
             Log.w(TAG, "MediaStore permission/query denied", security)
             errors.put("O acesso aos vídeos do dispositivo foi negado.")

@@ -25,6 +25,7 @@ class StorageAccessState(str, Enum):
 def storage_access_state(
     media_access: str | None,
     broad_granted: bool,
+    saf_available: bool = False,
     *,
     dismissed: bool = False,
     require_broad: bool = False,
@@ -39,12 +40,17 @@ def storage_access_state(
         return StorageAccessState.DECLINED
 
     access = str(media_access or "denied").casefold()
+    if require_broad and not broad_granted:
+        return StorageAccessState.NEEDS_BROAD_STORAGE
+    # MediaStore, SAF and broad storage are independent alternatives for local
+    # discovery. A currently authorized alternative source is enough to keep
+    # onboarding usable without forcing another permission.
+    if saf_available or broad_granted:
+        return StorageAccessState.READY
     if access == "partial":
         return StorageAccessState.MEDIA_PARTIAL
     if access != "full":
         return StorageAccessState.NEEDS_MEDIA_PERMISSION
-    if require_broad and not broad_granted:
-        return StorageAccessState.NEEDS_BROAD_STORAGE
     return StorageAccessState.READY
 
 
@@ -79,5 +85,5 @@ def storage_source_states(
         "media": media_state,
         "saf": saf_state,
         "broad": broad_state,
-        "effective": storage_access_state(media_access, broad_granted).value,
+        "effective": storage_access_state(media_access, broad_granted, bool(saf_uris)).value,
     }

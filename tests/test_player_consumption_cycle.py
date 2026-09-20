@@ -225,7 +225,7 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         self.assertIn('saveProgress("player_progress", force = true)', player)
         self.assertIn('saveProgress("player_paused", force = true)', player)
         self.assertIn('if (!suppressExitEvent && !isChangingConfigurations)', player)
-        self.assertIn('val temp = File(queue, "$PREFIX$id.json.tmp")', (root / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix_local" / "NativeMailbox.kt").read_text(encoding="utf-8"))
+        self.assertIn('val temp = File(queue, "$PREFIX$id.json.tmp")', (root / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativeMailbox.kt").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

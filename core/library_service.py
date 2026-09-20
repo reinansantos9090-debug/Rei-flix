@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlparse
 from pathlib import Path
 from dataclasses import dataclass, field
 from core.anilist import AniListClient
+from core.artwork import ArtworkEngine
 from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
 from core.media_identity import identity_from_document
 from core.organizer_ai import AnimeOrganizer
@@ -47,7 +48,7 @@ class LibraryService:
     REQUEST_DEDUPE_SECONDS = 5
 
     def __init__(self, store):
-        self.store=store; self.anilist=AniListClient(store.cache_dir); self._scan_lock=threading.Lock(); self._metadata_lock=threading.RLock()
+        self.store=store; self.anilist=AniListClient(store.cache_dir); self.artwork=ArtworkEngine(store); self._scan_lock=threading.Lock(); self._metadata_lock=threading.RLock()
 
     def _cached_metadata_is_current(self, cached, associated_id):
         if not cached:
@@ -136,6 +137,9 @@ class LibraryService:
                         refreshed = self.anilist.metadata_from_media(display_title, media)
                         refreshed["anilist_id"] = refresh_id
                         self.store.upsert_anime(lookup_title, refreshed, source="anilist", confidence="high", status="available", fetched_at=time.time())
+                        row = self.store.anime_metadata(lookup_title)
+                        if row:
+                            self.artwork.sync_anime_metadata(row["id"], row)
                         return self.store.anime_metadata(lookup_title) or refreshed
                     if cached:
                         self.store.set_metadata_status(lookup_title, "stale", confidence=cached.get("metadata_confidence") or "high")
@@ -151,6 +155,9 @@ class LibraryService:
                     score = float(selected.get("match_score") or 0.0)
                     confidence = "high" if score >= 0.9 else "medium"
                     self.store.upsert_anime(lookup_title, refreshed, source="anilist", confidence=confidence, status="available", fetched_at=time.time())
+                    row = self.store.anime_metadata(lookup_title)
+                    if row:
+                        self.artwork.sync_anime_metadata(row["id"], row)
                     return self.store.anime_metadata(lookup_title) or refreshed
                 if ranked:
                     self.store.set_pending_match(lookup_title, display_title, ranked[:5])
@@ -159,12 +166,18 @@ class LibraryService:
                         return cached
                     local = {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "ambiguous", "metadata_confidence": "low"}
                     self.store.upsert_anime(lookup_title, local, source="local", confidence="low", status="ambiguous")
+                    row = self.store.anime_metadata(lookup_title)
+                    if row:
+                        self.artwork.sync_anime_metadata(row["id"], row)
                     return local
                 if cached:
                     self.store.set_metadata_status(lookup_title, "unresolved", confidence="low")
                     return cached
                 local = {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "unresolved", "metadata_confidence": "low"}
                 self.store.upsert_anime(lookup_title, local, source="local", confidence="low", status="unresolved")
+                row = self.store.anime_metadata(lookup_title)
+                if row:
+                    self.artwork.sync_anime_metadata(row["id"], row)
                 return self.store.anime_metadata(lookup_title) or local
             except Exception as exc:
                 logger.warning("Metadata AniList indisponível para %s: %s", display_title, exc)
@@ -173,10 +186,22 @@ class LibraryService:
                     return cached
                 local = {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "unresolved", "metadata_confidence": "low"}
                 self.store.upsert_anime(lookup_title, local, source="local", confidence="low", status="unresolved")
+                row = self.store.anime_metadata(lookup_title)
+                if row:
+                    self.artwork.sync_anime_metadata(row["id"], row)
                 return local
 
     def set_manual_metadata(self, lookup_title, values):
         return self.store.set_manual_metadata(lookup_title, values)
+
+    def resolve_artwork(self, entity_type, entity_id, artwork_type, *, allow_network=True):
+        return self.artwork.resolve(entity_type, entity_id, artwork_type, allow_network=allow_network)
+
+    def set_manual_artwork(self, entity_type, entity_id, artwork_type, *, path=None, external_url=None):
+        return self.artwork.set_manual(entity_type, entity_id, artwork_type, path=path, external_url=external_url)
+
+    def clear_manual_artwork(self, entity_type, entity_id, artwork_type):
+        return self.artwork.clear_manual(entity_type, entity_id, artwork_type)
 
     @staticmethod
     def _document_relative_path(document, name, uri):
@@ -271,6 +296,8 @@ class LibraryService:
             identification_source=item.identification_source,
             identification_confidence=item.confidence,
         )
+        self.artwork.reindex_episode(row_id)
+
         if existing:
             result.updated += 1
         elif row_id is not None:

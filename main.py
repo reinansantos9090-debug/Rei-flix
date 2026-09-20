@@ -57,7 +57,7 @@ async def main(page: ft.Page):
             show(DetailView.build(page, current[0], play_episode, navigate_back,
                                   store.toggle_favorite, library.playback_target, library.set_user_tags,
                                   library.toggle_pinned, library.set_personal_note, store.set_episode_identification,
-                                  refresh_current_details, refresh_current_metadata))
+                                  refresh_current_details, refresh_current_metadata, library.resolve_artwork))
         elif navigation.current == "settings":
             show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
                                     folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match))

@@ -454,7 +454,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             LibraryStore(d)
             LibraryStore(d)
             with LibraryStore(d)._conn() as con:
-                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=20').fetchone()[0], 1)
+                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=21').fetchone()[0], 1)
 
     def test_invalid_progress_is_rejected_and_overflow_is_normalized(self):
         with tempfile.TemporaryDirectory() as d:

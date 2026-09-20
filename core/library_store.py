@@ -8,7 +8,7 @@ import time
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 20
+    SCHEMA_VERSION = 21
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -43,6 +43,19 @@ class LibraryStore:
               number REAL, duration REAL DEFAULT 0, progress REAL DEFAULT 0, watched INTEGER DEFAULT 0,
               mime_type TEXT, file_size INTEGER, modified_at REAL, source_folder TEXT, absolute_number REAL, relative_path TEXT, volume_id TEXT, volume_uuid TEXT, episode_type TEXT NOT NULL DEFAULT 'regular', episode_title TEXT, identification_source TEXT NOT NULL DEFAULT 'legacy', identification_confidence TEXT NOT NULL DEFAULT 'medium', manual_override INTEGER NOT NULL DEFAULT 0,
               missing INTEGER DEFAULT 0, last_played_at REAL, media_identity TEXT);
+            CREATE TABLE IF NOT EXISTS artwork (
+              id INTEGER PRIMARY KEY, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,
+              artwork_type TEXT NOT NULL, source TEXT NOT NULL, source_ref TEXT,
+              local_path TEXT, external_url TEXT, manual INTEGER NOT NULL DEFAULT 0,
+              priority INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ready',
+              discovered_at REAL NOT NULL, updated_at REAL NOT NULL, last_attempt_at REAL,
+              failure_count INTEGER NOT NULL DEFAULT 0,
+              UNIQUE(entity_type, entity_id, artwork_type, source_ref)
+            );
+            CREATE INDEX IF NOT EXISTS idx_artwork_entity
+              ON artwork(entity_type, entity_id, artwork_type, priority DESC);
+            CREATE INDEX IF NOT EXISTS idx_artwork_status
+              ON artwork(status, last_attempt_at);
             CREATE TABLE IF NOT EXISTS associations (lookup_title TEXT PRIMARY KEY, anilist_id INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS pending_matches (lookup_title TEXT PRIMARY KEY, display_title TEXT NOT NULL, candidates TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS account (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -569,7 +582,7 @@ class LibraryStore:
 
             def project(e):
                 return {
-                    "title": e["file_name"], "file_name": e["file_name"], "episode_title": e["episode_title"], "path": e["path"],
+                    "id": e["id"], "title": e["file_name"], "file_name": e["file_name"], "episode_title": e["episode_title"], "path": e["path"],
                     "season": e["season"], "number": e["number"], "absolute_number": e["absolute_number"],
                     "episode_type": e["episode_type"], "identification_source": e["identification_source"],
                     "identification_confidence": e["identification_confidence"], "manual_override": bool(e["manual_override"]),
@@ -597,7 +610,7 @@ class LibraryStore:
                 except (TypeError, json.JSONDecodeError):
                     genres = []
                 ordered_seasons = sorted(seasons.items(), key=lambda item: item[0] if item[0] is not None else -1)
-                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"], "source_folder": e["source_folder"], "media_identity": e["media_identity"]} for e in sorted(values, key=lambda episode: (episode["number"] if episode["number"] is not None else -1, episode["file_name"].casefold(), episode["path"].casefold()))]} for s, values in ordered_seasons]})
+                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"id": e["id"], "title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"], "source_folder": e["source_folder"], "media_identity": e["media_identity"]} for e in sorted(values, key=lambda episode: (episode["number"] if episode["number"] is not None else -1, episode["file_name"].casefold(), episode["path"].casefold()))]} for s, values in ordered_seasons]})
             for anime in animes:
                 rows = episodes_by_anime[anime["id"]]
                 eligible = [row for row in rows if row["episode_type"] not in {"movie", *special_types}]

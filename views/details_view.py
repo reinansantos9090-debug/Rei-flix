@@ -18,7 +18,7 @@ class DetailView:
     def build(page: ft.Page, anime_group: dict, on_play_episode, on_back,
               on_toggle_favorite, get_playback_target=None, on_set_user_tags=None,
               on_toggle_pinned=None, on_set_personal_note=None, on_set_episode_identification=None,
-              on_identification_saved=None, on_refresh_metadata=None):
+              on_identification_saved=None, on_refresh_metadata=None, resolve_artwork=None):
         metadata = anime_group.get("meta") or {}
         title = metadata.get("title_official") or anime_group.get("main_title") or "Anime local"
         alternate_titles = [metadata.get(key) for key in ("english", "romaji", "native")]
@@ -54,7 +54,20 @@ class DetailView:
             return media_artwork(None, height, width=132, icon_size=38)
 
         cover = metadata.get("cover_cache") or metadata.get("cover_url")
+        if resolve_artwork:
+            resolved_poster = resolve_artwork("anime", anime_group["id"], "poster", allow_network=False)
+            if resolved_poster:
+                cover = resolved_poster.get("local_path") or cover
         poster = media_artwork(cover, 198, width=132, icon_size=38)
+
+        backdrop = None
+        if resolve_artwork:
+            resolved_backdrop = resolve_artwork("anime", anime_group["id"], "backdrop", allow_network=False)
+            if resolved_backdrop:
+                backdrop_path = resolved_backdrop.get("local_path") or resolved_backdrop.get("external_url")
+                if backdrop_path:
+                    backdrop = ft.Container(content=media_artwork(backdrop_path, 150, width=None, icon_size=30),
+                                            height=150, border_radius=RADIUS)
 
         def meta_chip(label, icon=None):
             return ft.Container(
@@ -278,6 +291,13 @@ class DetailView:
                 identification = "⚠ Precisa revisar"
             else:
                 identification = "✓ Identificado"
+            thumb = None
+            if resolve_artwork and not episode.get("missing"):
+                resolved_thumb = resolve_artwork("episode", episode.get("id"), "episode_thumbnail", allow_network=False)
+                if resolved_thumb:
+                    thumb_path = resolved_thumb.get("local_path") or resolved_thumb.get("external_url")
+                    if thumb_path:
+                        thumb = media_artwork(thumb_path, 72, width=112, icon_size=20)
             details = ft.Column([
                 ft.Row([
                     ft.Text(number_label, size=10, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
@@ -292,8 +312,10 @@ class DetailView:
                 details.controls.append(ft.ProgressBar(value=episode_ratio, color="#E50914", bgcolor="#454252", bar_height=4))
             is_missing = bool(episode.get("missing"))
             clickable = None if is_missing else lambda _, item=episode: play(item)
+            content = (ft.Row([thumb, details], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                        if thumb else details)
             return ft.Container(
-                content=details, padding=12, border_radius=RADIUS, bgcolor=SURFACE,
+                content=content, padding=12, border_radius=RADIUS, bgcolor=SURFACE,
                 opacity=.58 if is_missing else 1.0, ink=not is_missing,
                 on_click=clickable,
             )
@@ -306,7 +328,16 @@ class DetailView:
                     padding=14, bgcolor=SURFACE, border_radius=RADIUS,
                 ))
             else:
-                episode_column.controls.extend(episode_item(item) for item in seasons[selected_season[0]].get("episodes", []))
+                selected = seasons[selected_season[0]]
+                if resolve_artwork:
+                    season_number = selected.get("season")
+                    if season_number is not None:
+                        resolved_season = resolve_artwork("season", f"{anime_group['id']}:season:{season_number}", "season_poster", allow_network=False)
+                        if resolved_season:
+                            season_path = resolved_season.get("local_path") or resolved_season.get("external_url")
+                            if season_path:
+                                episode_column.controls.append(media_artwork(season_path, 150, width=100, icon_size=24))
+                episode_column.controls.extend(episode_item(item) for item in selected.get("episodes", []))
             page.update()
 
         def change_season(event):
@@ -365,10 +396,13 @@ class DetailView:
             ft.Text(f"{missing_count} indisponível{'is' if missing_count != 1 else ''} na biblioteca local", size=11, color="#D5A84A", visible=missing_count > 0),
         ], spacing=9, expand=True)
 
-        layout_controls = [
+        layout_controls = []
+        if backdrop:
+            layout_controls.append(backdrop)
+        layout_controls.extend([
             header,
             ft.Row([poster, hero_text], spacing=14, vertical_alignment=ft.CrossAxisAlignment.START),
-        ]
+        ])
         if description:
             layout_controls.extend([section_title("Sinopse", ft.Icons.SUBJECT_OUTLINED), description_text, expand_button])
         if on_set_user_tags:

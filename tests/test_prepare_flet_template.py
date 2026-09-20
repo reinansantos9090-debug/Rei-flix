@@ -45,6 +45,11 @@ class FletTemplateManifestTests(unittest.TestCase):
             (overlay / "src/main/res/values/styles.xml").write_text(
                 "<resources/>", encoding="utf-8"
             )
+            (overlay / "src/test/kotlin/com/reiflix/reiflix_local").mkdir(parents=True)
+            (overlay / "src/test/kotlin/com/reiflix/reiflix_local/FixtureTest.kt").write_text(
+                "package com.reiflix.reiflix_local\nclass FixtureTest",
+                encoding="utf-8",
+            )
 
             hook = HOOK.replace("__REIFLIX_OVERLAY_APP__", repr(str(overlay)))
             previous = Path.cwd()
@@ -54,10 +59,14 @@ class FletTemplateManifestTests(unittest.TestCase):
             finally:
                 os.chdir(previous)
 
-            self.assertIn("NativeRequestState.kt", hook)
-            self.assertIn("StorageAuthorization.kt", hook)
             self.assertIn('for test_root in ("src/test", "src/androidTest")', hook)
             self.assertIn(":app:testDebugUnitTest", hook)
+            prepare_source = (Path(__file__).parents[1] / "scripts" / "prepare_flet_template.py").read_text(encoding="utf-8")
+            self.assertIn("NativeRequestState.kt", prepare_source)
+            self.assertIn("StorageAuthorization.kt", prepare_source)
+            self.assertTrue(
+                (project / "android/app/src/test/kotlin/com/reiflix/reiflix_local/FixtureTest.kt").is_file()
+            )
 
             manifest = ET.parse(project / "android/app/src/main/AndroidManifest.xml").getroot()
             ns = {"android": "http://schemas.android.com/apk/res/android"}

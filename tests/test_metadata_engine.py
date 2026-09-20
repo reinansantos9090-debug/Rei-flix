@@ -181,6 +181,38 @@ class ProfessionalMetadataTests(unittest.TestCase):
         self.assertEqual(reopened["title"], "進撃の巨人")
         self.assertIn("漢字", reopened["description"])
 
+    def test_multiple_physical_files_share_one_logical_work(self):
+        first = self.store.upsert_anime("one piece", {"title": "One Piece", "genres": "[]"}, source="local")
+        second = self.store.upsert_anime("one piece", {"title": "One Piece", "genres": "[]"}, source="local")
+        self.assertEqual(first, second)
+        self.store.upsert_episode(first, "content://one/720", "One Piece S01E01 720p.mkv", 1, 1)
+        self.store.upsert_episode(first, "content://one/1080", "One Piece S01E01 1080p.mkv", 1, 1)
+        self.assertEqual(len(self.store.catalog()[0]["seasons"][0]["episodes"]), 2)
+
+    def test_partial_scan_does_not_destroy_cached_metadata(self):
+        self._anime()
+        self.store.set_manual_metadata("attack on titan", {"title": "Título local"})
+        catalog = self.service.ingest_documents(
+            "content://partial",
+            [{"uri": "content://partial/1", "name": "Attack S01E01.mkv", "size": 10, "modifiedAt": 1}],
+            source_kind="saf",
+            scan_errors=["provider timeout"],
+        )
+        self.assertEqual(catalog[0]["meta"]["title"], "Título local")
+        self.assertFalse(self.store.physical_row("content://partial/1")["missing"])
+
+    def test_rescan_and_restart_keep_metadata_and_playback_state(self):
+        anime = self._anime()
+        self.store.upsert_episode(anime, "content://restart/1", "Show S01E01.mkv", 1, 1)
+        self.store.save_progress("content://restart/1", 25, 100)
+        self.store.toggle_pinned(anime)
+        self.store.set_manual_metadata("attack on titan", {"title": "Título persistente"})
+        reopened = LibraryStore(self.tmp.name)
+        catalog = reopened.catalog()[0]
+        self.assertEqual(catalog["meta"]["title"], "Título persistente")
+        self.assertTrue(catalog["is_pinned"])
+        self.assertEqual(catalog["seasons"][0]["episodes"][0]["progress"], 25)
+
     def test_metadata_cache_hit_does_not_call_network(self):
         self._anime()
         with self.store._conn() as con:

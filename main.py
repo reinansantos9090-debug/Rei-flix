@@ -215,8 +215,16 @@ async def main(page: ft.Page):
         await bridge.open_broad_storage_settings()
 
     def storage_state():
-        return storage_access_state(storage_onboarding["media"], bool(storage_onboarding["broad"]),
-                                    dismissed=storage_onboarding["dismissed"])
+        saf_available = any(
+            folder.get("kind") == "saf" and folder.get("authorization") == "granted"
+            for folder in store.folders()
+        )
+        return storage_access_state(
+            storage_onboarding["media"],
+            bool(storage_onboarding["broad"]),
+            saf_available,
+            dismissed=storage_onboarding["dismissed"],
+        )
 
     def maybe_show_storage_onboarding():
         """Show at most one post-render explanation based on Android's snapshot."""
@@ -225,38 +233,57 @@ async def main(page: ft.Page):
         if storage_onboarding["media"] is None or storage_onboarding["broad"] is None:
             return
         state = storage_state()
-        if state not in {StorageAccessState.NEEDS_MEDIA_PERMISSION, StorageAccessState.NEEDS_BROAD_STORAGE}:
+        if state != StorageAccessState.NEEDS_MEDIA_PERMISSION:
             return
-        is_media = state == StorageAccessState.NEEDS_MEDIA_PERMISSION
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Permissão necessária" if is_media else "Acesso ao armazenamento"),
+            title=ft.Text("Permissão necessária"),
             content=ft.Text(
-                "O Rei-flix precisa acessar seus vídeos locais para encontrar os episódios salvos no aparelho."
-                if is_media else
-                "Para encontrar vídeos em diferentes pastas do armazenamento compartilhado, o Rei-flix precisa de acesso amplo ao armazenamento."
+                "O Rei-flix precisa de uma fonte de acesso aos seus vídeos locais. "
+                "Você pode permitir o acesso aos vídeos do dispositivo ou escolher uma pasta específica."
             ),
         )
-        async def allow(_event):
+
+        async def allow_media(_event):
             storage_onboarding["dialog_open"] = False
             storage_onboarding["waiting_for_result"] = True
             page.pop_dialog()
             try:
-                if is_media:
-                    await request_video_access()
-                else:
-                    await open_broad_storage_access()
+                await request_video_access()
             except Exception:
                 storage_onboarding["waiting_for_result"] = False
-                page.snack_bar = ft.SnackBar(ft.Text("Não foi possível abrir a solicitação de acesso.")); page.snack_bar.open = True; page.update()
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("Não foi possível abrir a solicitação de acesso.")
+                )
+                page.snack_bar.open = True
+                page.update()
+
+        async def choose_folder(_event):
+            storage_onboarding["dialog_open"] = False
+            storage_onboarding["waiting_for_result"] = True
+            page.pop_dialog()
+            try:
+                await add_folder()
+            except Exception:
+                storage_onboarding["waiting_for_result"] = False
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("Não foi possível abrir o seletor de pasta.")
+                )
+                page.snack_bar.open = True
+                page.update()
+
         def cancel(_event):
             logger.info("[STORAGE] request_id=- action=cancel python_callback=received dialog_open=false")
             storage_onboarding["dialog_open"] = False
             storage_onboarding["dismissed"] = True
             page.pop_dialog()
             page.update()
-        dialog.actions = [ft.TextButton("CANCELAR", on_click=cancel),
-                          ft.FilledButton("PERMITIR" if is_media else "CONTINUAR", on_click=allow)]
+
+        dialog.actions = [
+            ft.TextButton("CANCELAR", on_click=cancel),
+            ft.TextButton("ESCOLHER PASTA", on_click=choose_folder),
+            ft.FilledButton("PERMITIR", on_click=allow_media),
+        ]
         storage_onboarding["dialog_open"] = True
         logger.info("[STORAGE] request_id=- action=onboarding_show dialog_open=true")
         page.show_dialog(dialog)

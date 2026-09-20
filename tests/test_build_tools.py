@@ -115,6 +115,17 @@ class AndroidHostVerificationTests(unittest.TestCase):
             self.assertIn("media3-exoplayer:1.5.1", (rendered / "build.gradle").read_text(encoding="utf-8"))
             self.assertIn("compileSdk 36", (rendered / "build.gradle").read_text(encoding="utf-8"))
 
+    def test_workflow_validates_effective_manifest_and_hash(self):
+        workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
+        verifier = (ROOT / "scripts/verify_apk_manifest.py").read_text(encoding="utf-8")
+        self.assertIn("python scripts/verify_apk_manifest.py", workflow)
+        self.assertIn("aapt2", workflow)
+        self.assertIn("sha256sum", workflow)
+        self.assertIn("android:launchMode", verifier)
+        self.assertIn("android:documentLaunchMode", verifier)
+        self.assertIn("0x00000002", verifier)
+        self.assertIn("0x00000003", verifier)
+
     def test_source_manifest_and_template_contract_cannot_revert_to_single_top(self):
         manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
         template = PREPARE_TEMPLATE.read_text(encoding="utf-8")

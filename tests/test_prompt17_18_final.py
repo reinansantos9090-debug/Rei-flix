@@ -137,6 +137,18 @@ class Prompt17And18FinalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.restore_backup(bad)
 
+    def test_release_identity_matches_product_source(self):
+        project = Path("pyproject.toml").read_text(encoding="utf-8")
+        android = Path("android/app/build.gradle.kts").read_text(encoding="utf-8")
+        workflow = Path(".github/workflows/build_apk.yml").read_text(encoding="utf-8")
+        self.assertIn('version = "0.2.0"', project)
+        self.assertIn('applicationId = "com.reiflix.reiflix_local"', android)
+        self.assertIn('versionCode = 1', android)
+        self.assertIn('versionName = "0.2.0"', android)
+        self.assertIn('name=\'com.reiflix.reiflix_local\'', workflow)
+        self.assertIn('versionCode=\'1\'', workflow)
+        self.assertIn('versionName=\'0.2.0\'', workflow)
+
     def test_settings_and_android_compile_regressions_are_closed_in_source(self):
         settings = Path("views/settings_view.py").read_text(encoding="utf-8")
         broad = Path("android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")

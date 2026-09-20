@@ -136,7 +136,11 @@ jobs:
         run: |
           apk="${{ steps.apk.outputs.path }}"
           aapt2="$ANDROID_HOME/build-tools/36.0.0/aapt2"
-          "$aapt2" dump badging "$apk" | grep -q "targetSdkVersion:'36'"
+          badging="$("$aapt2" dump badging "$apk")"
+          echo "$badging" | grep -q "package: name='com.reiflix.reiflix_local'"
+          echo "$badging" | grep -q "versionCode='1'"
+          echo "$badging" | grep -q "versionName='0.2.0'"
+          echo "$badging" | grep -q "targetSdkVersion:'36'"
           "$aapt2" dump permissions "$apk" | grep -q "android.permission.MANAGE_EXTERNAL_STORAGE"
           "$aapt2" dump permissions "$apk" | grep -q "android.permission.READ_MEDIA_VIDEO"
 

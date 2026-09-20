@@ -48,6 +48,13 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn('pendingLifecycleAction = "request_media_access"', request_block)
         self.assertIn("mediaPermissionRequester.launch(permissions)", request_block)
 
+    def test_broad_permission_event_does_not_reopen_onboarding_after_settings_launch(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        block = source.split("event_type == 'broad_storage_permission':", 1)[1].split("event_type == 'broad_storage_error':", 1)[0]
+        self.assertIn("was_waiting = storage_onboarding[\"waiting_for_result\"]", block)
+        self.assertIn('storage_onboarding["dismissed"] = True', block)
+        self.assertIn("Do not reopen the onboarding modal", block)
+
     def test_native_host_rechecks_and_never_scans_before_authorization(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("override fun onResume()", source)

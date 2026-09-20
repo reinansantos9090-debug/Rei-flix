@@ -143,7 +143,10 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         self.store.save_progress(e2, 100, 100)
         self.assertEqual(e3, self.store.next_episode(e2)["path"])
         self.store.save_progress(e1, 20, 100)
-        self.assertEqual(e2, self.store.playback_target(self.anime)["path"])
+        replayed = self.store.physical_row(e1)
+        self.assertTrue(replayed["watched"])
+        self.assertEqual(20, replayed["progress"])
+        self.assertEqual(e3, self.store.playback_target(self.anime)["path"])
         self.store.save_progress(e1, 100, 100)
         self.assertEqual(e3, self.store.playback_target(self.anime)["path"])
 

@@ -6,6 +6,7 @@ never contacts AniList and delegates playback selection to LibraryService.
 from __future__ import annotations
 
 import html
+import math
 import re
 
 import flet as ft
@@ -51,7 +52,25 @@ class DetailView:
         )
 
         def ratio(episode):
-            return progress_ratio(episode) if episode and float(episode.get("duration") or 0) > 0 else None
+            if not episode:
+                return None
+            try:
+                duration = float(episode.get("duration") or 0)
+            except (TypeError, ValueError):
+                return None
+            return progress_ratio(episode) if math.isfinite(duration) and duration > 0 else None
+
+        def duration_label(episode):
+            try:
+                seconds = float(episode.get("duration") or 0)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(seconds) or seconds <= 0:
+                return None
+            total = int(seconds)
+            if total >= 3600:
+                return f"{total // 3600}h {(total % 3600) // 60:02d}min"
+            return f"{total // 60}min"
 
         def placeholder(height=198):
             return media_artwork(None, height, width=132, icon_size=38)
@@ -279,7 +298,15 @@ class DetailView:
         def episode_item(episode):
             episode_ratio = ratio(episode)
             number = episode.get("number")
-            number_label = f"EP {int(number):02d}" if isinstance(number, (int, float)) else "EP —"
+            episode_type = str(episode.get("episode_type") or "regular").casefold()
+            if is_movie:
+                number_label = "ARQUIVO LOCAL"
+            elif episode_type in {"special", "ova", "oad", "ona", "extra"}:
+                number_label = episode_type.upper()
+            elif isinstance(number, (int, float)) and math.isfinite(number):
+                number_label = f"EP {int(number):02d}" if float(number).is_integer() else f"EP {number:g}"
+            else:
+                number_label = "EP —"
             state = consumption_state(episode)
             if episode.get("missing"):
                 icon, status, color = ft.Icons.ERROR_OUTLINE, "Arquivo indisponível", WARNING
@@ -302,15 +329,19 @@ class DetailView:
                     thumb_path = resolved_thumb.get("local_path") or resolved_thumb.get("external_url")
                     if thumb_path:
                         thumb = media_artwork(thumb_path, 72, width=112, icon_size=20)
+            duration = duration_label(episode)
             details = ft.Column([
                 ft.Row([
                     ft.Text(number_label, size=10, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
-                    ft.Row([ft.Icon(icon, size=17, color=color), ft.IconButton(icon=ft.Icons.EDIT_OUTLINED, icon_size=16, tooltip="Corrigir identificação", visible=on_set_episode_identification is not None, on_click=lambda _, item=episode: edit_identification(item))], tight=True),
+                    ft.Row([ft.Icon(icon, size=17, color=color), ft.IconButton(icon=ft.Icons.EDIT_OUTLINED, icon_size=16, tooltip="Corrigir identificação", visible=on_set_episode_identification is not None and not is_movie, on_click=lambda _, item=episode: edit_identification(item))], tight=True),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Text(episode.get("episode_title") or episode.get("title") or "Episódio", size=13, color="#F7F5FA", weight=ft.FontWeight.BOLD,
+                ft.Text(episode.get("episode_title") or episode.get("title") or episode.get("file_name") or "Mídia local", size=13, color="#F7F5FA", weight=ft.FontWeight.BOLD,
                         max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
-                ft.Text(status, size=11, color=color),
-                ft.Text(identification, size=10, color="#AAA7B6"),
+                ft.Text(status if not is_movie else ("Concluído" if state.value in {"completed", "watched"} else "Filme local"), size=11, color=color),
+                ft.Text(f"Duração • {duration}", size=10, color="#AAA7B6", visible=bool(duration)),
+                ft.Text(f"Absoluto • {episode.get('absolute_number')}", size=10, color="#AAA7B6",
+                        visible=episode.get("absolute_number") is not None and not is_movie),
+                ft.Text(identification, size=10, color="#AAA7B6", visible=not is_movie),
             ], spacing=4, expand=True)
             if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing") and state.value == "in_progress":
                 details.controls.append(ft.ProgressBar(value=episode_ratio, color="#E50914", bgcolor="#454252", bar_height=4))

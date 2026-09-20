@@ -280,12 +280,20 @@ class LibraryService:
             else:
                 metadata[key]["media_kind"] = metadata[key].get("media_kind") or "series"
 
-        identity_volume = volume_id
-        if source_kind == "filesystem":
-            identity_volume = source_folder
         identity_uri = uri if uri.startswith(("file://", "content://")) else Path(uri).as_uri()
         identity = identity_from_document(identity_uri, relative_path, volume_id, source_folder if source_kind == "saf" else None)
         anime_id = self.store.upsert_anime(key, metadata[key], source=metadata[key].get("metadata_source") or "local", confidence=metadata[key].get("metadata_confidence"), status=metadata[key].get("metadata_status"))
+
+        # A move/rename changes the path-derived identity. When Android/storage
+        # metadata proves that exactly one missing row for the same title/source/
+        # volume has the same size+mtime, carry forward its durable identity.
+        if existing is None:
+            candidate = self.store.missing_candidate(
+                anime_id, source_folder, file_size, modified_at, volume_id
+            )
+            if candidate and candidate.get("media_identity"):
+                identity = candidate["media_identity"]
+
         row_id = self.store.upsert_episode(
             anime_id, uri, name, item.season, item.episode,
             document.get("mimeType"), file_size, modified_at, source_folder,
@@ -348,6 +356,10 @@ class LibraryService:
                                 try:
                                     stat = os.stat(path)
                                 except OSError as exc:
+                                    # An inaccessible file is not evidence of removal.
+                                    # Block reconciliation for this source until a complete
+                                    # scan can establish absence safely.
+                                    walk_errors.append(exc)
                                     result.errors.append(f"{folder['name']}: não foi possível acessar {name}: {exc}")
                                     result.ignored += 1
                                     continue
@@ -399,6 +411,9 @@ class LibraryService:
         """Index one native source without destructive reconciliation on partial scans."""
         with self._scan_lock:
             scan_id = scan_id or str(uuid.uuid4())
+            previous = self.store.scan_by_id(scan_id)
+            if previous and previous.get("status") in {"completed", "partial"}:
+                return self.store.catalog()
             run_id = self.store.begin_scan(scan_id=scan_id, source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref or tree_uri)
             result = ScanResult(catalog=[], scan_id=scan_id)
             scan_errors = list(scan_errors or [])

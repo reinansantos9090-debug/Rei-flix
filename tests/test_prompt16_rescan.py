@@ -64,6 +64,7 @@ class Prompt16RescanTests(unittest.TestCase):
         self.store.save_progress(old["uri"], 45, 100)
         anime_id = self.store.catalog()[0]["id"]
         self.store.toggle_pinned(anime_id)
+        self.store.toggle_favorite(anime_id)
         self.store.set_user_tags(anime_id, ["favorite-local"])
         self.store.set_personal_note(anime_id, "keep this")
         self.store.set_episode_identification(old["uri"], season=1, number=1, episode_type="regular", title="Manual E01")
@@ -81,7 +82,7 @@ class Prompt16RescanTests(unittest.TestCase):
         self.assertEqual(45, row["progress"])
         self.assertTrue(row["manual_override"])
         self.assertEqual("Manual E01", row["episode_title"])
-        self.assertTrue(self.store.is_favorite(anime_id) is False)
+        self.assertTrue(self.store.is_favorite(anime_id))
         catalog = self.store.catalog()
         self.assertTrue(catalog[0]["is_pinned"])
         self.assertEqual(["favorite-local"], catalog[0]["user_tags"])
@@ -138,6 +139,30 @@ class Prompt16RescanTests(unittest.TestCase):
         self.assertEqual(100, row["progress"])
         self.assertTrue(row["manual_override"])
         self.assertEqual("Manual", row["episode_title"])
+
+    def test_missing_episode_is_restored_without_creating_a_second_entity(self):
+        source = "content://tree/recovery"
+        original = self.doc("content://media/recover", "Show/Show S01E01.mkv")
+        self.ingest(source, [original], scan_id="recovery-a")
+        self.store.save_progress(original["uri"], 35, 100)
+        self.ingest(source, [], scan_id="recovery-b")
+        missing = self.store.physical_row(original["uri"])
+        self.assertTrue(missing["missing"])
+        self.ingest(source, [original], scan_id="recovery-c")
+        restored = self.store.physical_row(original["uri"])
+        self.assertFalse(restored["missing"])
+        self.assertEqual(35, restored["progress"])
+        self.assertEqual(1, len(self.store.catalog()[0]["seasons"][0]["episodes"]))
+
+    def test_manual_metadata_survives_rescan_without_network(self):
+        source = "content://tree/metadata"
+        document = self.doc("content://media/meta", "Show/Show S01E01.mkv")
+        self.ingest(source, [document], scan_id="metadata-a")
+        self.service.set_manual_metadata("show", {"title": "Título Manual"})
+        self.ingest(source, [document], scan_id="metadata-b")
+        row = self.store.anime_metadata("show")
+        self.assertEqual("Título Manual", row["title"])
+        self.assertEqual("manual", row["metadata_status"])
 
     def test_scope_does_not_mark_other_source_missing(self):
         source_a = "content://tree/a"

@@ -107,15 +107,15 @@ jobs:
           python -c "
           import glob, json, re
           for path in glob.glob('build/flet-build-template/**/*.json', recursive=True):
+              with open(path, 'r', encoding='utf-8') as f:
+                  content = f.read()
+              cleaned = re.sub(r',(\s*[\}\]])', r'\1', content)
               try:
-                  with open(path, 'r', encoding='utf-8') as f:
-                      content = f.read()
-                  cleaned = re.sub(r',(\s*[\}\]])', r'\1', content)
                   data = json.loads(cleaned)
-                  with open(path, 'w', encoding='utf-8') as f:
-                      json.dump(data, f, indent=2)
-              except Exception as e:
-                  pass
+              except json.JSONDecodeError as exc:
+                  raise SystemExit(f"Invalid generated JSON {path}: {exc}") from exc
+              with open(path, 'w', encoding='utf-8') as f:
+                  json.dump(data, f, indent=2)
           "
 
       - name: Build APK
@@ -169,7 +169,7 @@ jobs:
         run: |
           apk="${{ steps.apk.outputs.path }}"
           apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
-          "$apksigner" verify --verbose --print-certs "$apk" || true
+          "$apksigner" verify --verbose --print-certs "$apk"
 
       - name: Upload APK and SHA-256 artifact
         uses: actions/upload-artifact@v4

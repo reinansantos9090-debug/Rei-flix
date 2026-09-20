@@ -74,10 +74,15 @@ async def main(page: ft.Page):
         render_current()
     async def start_native_player(path, title, position_ms=0):
         # Sequence decisions stay in LibraryStore; Android receives only the
-        # selected local URI and booleans for the native controls.
-        await bridge.play(path, title, position_ms,
-                    can_next=library.next_episode(path) is not None,
-                    can_previous=library.previous_episode(path) is not None)
+        # selected local URI and the already-derived autoplay preference.
+        await bridge.play(
+            path,
+            title,
+            position_ms,
+            can_next=library.next_episode(path) is not None,
+            can_previous=library.previous_episode(path) is not None,
+            autoplay=store.get_preference("autoplay_next", "true") == "true",
+        )
 
     def play_episode(path, title, on_next=None, progress_seconds=0):
         if store.get_preference("resume_playback", "true") != "true":
@@ -519,11 +524,23 @@ async def main(page: ft.Page):
                             refresh_settings_if_active()
                         elif event_type in {'player_progress', 'player_paused', 'player_exited', 'player_completed'}:
                             uri = payload.get('uri', '')
-                            if uri:
-                                store.save_progress(uri, payload.get('positionMs', 0) / 1000,
-                                                    payload.get('durationMs', 0) / 1000)
+                            if isinstance(payload, dict) and isinstance(uri, str) and uri:
+                                store.save_progress(
+                                    uri,
+                                    payload.get('positionMs', 0) / 1000,
+                                    payload.get('durationMs', 0) / 1000,
+                                    event_created_at=event.get('createdAt'),
+                                )
+                                # The durable store is the single source of truth;
+                                # refresh active projections after meaningful playback
+                                # events without rescanning or rebuilding the database.
+                                if navigation.current != 'player':
+                                    render_current()
                             if event_type == 'player_exited' and navigation.current == 'player':
                                 navigate_back()
+                        elif event_type == 'player_autoplay_changed':
+                            enabled = bool((payload or {}).get('enabled'))
+                            store.set_preference('autoplay_next', 'true' if enabled else 'false')
                         elif event_type in {'player_next_request', 'player_previous_request'}:
                             uri = payload.get('uri', '')
                             target = library.next_episode(uri) if event_type == 'player_next_request' else library.previous_episode(uri)

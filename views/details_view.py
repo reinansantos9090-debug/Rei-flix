@@ -10,7 +10,7 @@ import math
 import re
 
 import flet as ft
-from core.consumption import consumption_state, is_completed, playback_action, progress_ratio
+from core.consumption import consumption_state, is_completed, is_in_progress, playback_action, progress_ratio
 from core.dialogs import dismiss_dialog
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, media_artwork, section_title
 

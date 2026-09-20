@@ -93,6 +93,16 @@ class NativePlayerActivity : ComponentActivity() {
                     if (autoplayNext && intent.getBooleanExtra("canNext", false)) requestEpisode("player_next_request")
                 }
             }
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK ||
+                    reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
+                    saveProgress("player_progress", force = true)
+                }
+            }
             override fun onPlayerError(error: PlaybackException) {
                 // player_error is the terminal signal for an unreadable media item.
                 // Suppress player_exited here so Python does not navigate back twice.

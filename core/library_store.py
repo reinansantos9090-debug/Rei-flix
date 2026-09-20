@@ -555,7 +555,7 @@ class LibraryStore:
 
             def project(e):
                 return {
-                    "title": e["file_name"], "episode_title": e["episode_title"], "path": e["path"],
+                    "title": e["file_name"], "file_name": e["file_name"], "episode_title": e["episode_title"], "path": e["path"],
                     "season": e["season"], "number": e["number"], "absolute_number": e["absolute_number"],
                     "episode_type": e["episode_type"], "identification_source": e["identification_source"],
                     "identification_confidence": e["identification_confidence"], "manual_override": bool(e["manual_override"]),

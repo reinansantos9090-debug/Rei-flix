@@ -160,6 +160,7 @@ def _identifier_match(query: str, episodes: Iterable[dict]) -> bool:
     if not raw:
         return True
     compact = raw.replace(" ", "")
+    season_episode_match = re.fullmatch(r"s(\d{1,3})e(\d{1,5})", compact)
     season_match = re.fullmatch(r"s(\d{1,3})", compact)
     episode_match = re.fullmatch(r"(?:e|ep)(\d{1,5})", compact)
     episode_word_match = re.fullmatch(r"(?:episodio|episode)(\d{1,5})", compact)
@@ -167,6 +168,11 @@ def _identifier_match(query: str, episodes: Iterable[dict]) -> bool:
     bare_number = re.fullmatch(r"\d+(?:\.\d+)?", compact)
 
     for episode in episodes:
+        if season_episode_match and (
+            _numeric(episode.get("season")) == float(season_episode_match.group(1))
+            and _numeric(episode.get("number")) == float(season_episode_match.group(2))
+        ):
+            return True
         if season_match and _numeric(episode.get("season")) == float(season_match.group(1)):
             return True
         if episode_match or episode_word_match:

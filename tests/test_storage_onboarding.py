@@ -59,6 +59,25 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertEqual(storage_access_state("full", False, require_broad=True), StorageAccessState.NEEDS_BROAD_STORAGE)
         self.assertEqual(storage_access_state("full", False), StorageAccessState.READY)
 
+    def test_authorized_alternative_source_suppresses_media_onboarding(self):
+        self.assertEqual(
+            storage_access_state("denied", False, True),
+            StorageAccessState.READY,
+        )
+        self.assertEqual(
+            storage_access_state("denied", True, False),
+            StorageAccessState.READY,
+        )
+
+    def test_storage_onboarding_offers_saf_alternative(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        onboarding = source[source.index("def maybe_show_storage_onboarding"):source.index("async def refresh_library")]
+        self.assertIn("async def choose_folder(_event):", onboarding)
+        self.assertIn("await add_folder()", onboarding)
+        self.assertIn('ft.TextButton("ESCOLHER PASTA"', onboarding)
+        self.assertIn('ft.FilledButton("PERMITIR"', onboarding)
+        self.assertIn('storage_access_state(', onboarding)
+
     def test_storage_onboarding_cancel_uses_managed_flet_dialog_stack(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         onboarding = source[source.index("def maybe_show_storage_onboarding"):source.index("async def refresh_library")]
@@ -81,6 +100,13 @@ class StorageOnboardingTests(unittest.TestCase):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertNotIn("await bridge.verify_tree", source)
         self.assertIn("authoritative SAF grant inventory", source)
+
+    def test_saf_completion_clears_onboarding_wait_state(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        cancelled = source[source.index("event_type == 'saf_cancelled'"):source.index("event_type == 'saf_permission'")]
+        granted = source[source.index("event_type == 'saf_permission'"):source.index("event_type == 'saf_released'")]
+        self.assertIn('storage_onboarding["waiting_for_result"] = False', cancelled)
+        self.assertIn('storage_onboarding["waiting_for_result"] = False', granted)
 
     def test_main_handles_authoritative_saf_inventory_and_marks_revoked_sources(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")

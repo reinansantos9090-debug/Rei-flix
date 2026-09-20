@@ -55,7 +55,7 @@ class AniListClient:
         cache=self.cache_cover(cover) if cover else ''
         t=media.get('title') or {}; studios=((media.get('studios') or {}).get('nodes') or [])
         studios = [studio for studio in studios if isinstance(studio, dict)]
-        metadata = {'title':t.get('english') or t.get('romaji') or title,'romaji':t.get('romaji'),'english':t.get('english'),'native':t.get('native'),'aliases':json.dumps(media.get('synonyms') or [],ensure_ascii=False),'description':media.get('description') or 'Sem sinopse disponível.','cover_url':cover,'cover_cache':cache,'banner_url':media.get('bannerImage') or '','genres':json.dumps(media.get('genres') or [],ensure_ascii=False),'year':media.get('seasonYear'),'season':media.get('season'),'status':media.get('status'),'episodes_count':media.get('episodes'),'duration':media.get('duration'),'score':media.get('averageScore'),'studio':', '.join(x.get('name','') for x in studios)}
+        metadata = {'title':t.get('english') or t.get('romaji') or title,'romaji':t.get('romaji'),'english':t.get('english'),'native':t.get('native'),'aliases':json.dumps(media.get('synonyms') or [],ensure_ascii=False),'description':(media.get('description') or '').strip(),'cover_url':cover,'cover_cache':cache,'banner_url':media.get('bannerImage') or '','genres':json.dumps(media.get('genres') or [],ensure_ascii=False),'year':media.get('seasonYear'),'season':media.get('season'),'status':media.get('status'),'episodes_count':media.get('episodes'),'duration':media.get('duration'),'score':media.get('averageScore'),'studio':', '.join(x.get('name','') for x in studios)}
         if media.get('id') is not None:
             metadata['anilist_id'] = media['id']
         return metadata

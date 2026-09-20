@@ -8,7 +8,7 @@ import time
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 18
+    SCHEMA_VERSION = 19
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -35,14 +35,14 @@ class LibraryStore:
               title TEXT NOT NULL, romaji TEXT, english TEXT, native TEXT, aliases TEXT DEFAULT '[]', description TEXT,
               cover_url TEXT, cover_cache TEXT, banner_url TEXT, genres TEXT, year INTEGER,
               season TEXT, status TEXT, episodes_count INTEGER, duration INTEGER, score INTEGER, studio TEXT,
-              metadata_updated_at REAL, favorite INTEGER NOT NULL DEFAULT 0, user_tags TEXT NOT NULL DEFAULT '[]',
+              metadata_updated_at REAL, metadata_fetched_at REAL, metadata_source TEXT NOT NULL DEFAULT 'unknown', metadata_confidence TEXT NOT NULL DEFAULT 'low', metadata_status TEXT NOT NULL DEFAULT 'unresolved', metadata_manual_fields TEXT NOT NULL DEFAULT '[]', favorite INTEGER NOT NULL DEFAULT 0, user_tags TEXT NOT NULL DEFAULT '[]',
               media_kind TEXT NOT NULL DEFAULT 'series', is_pinned INTEGER NOT NULL DEFAULT 0, personal_note TEXT, added_at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS episodes (
               id INTEGER PRIMARY KEY, anime_id INTEGER NOT NULL REFERENCES anime(id) ON DELETE CASCADE,
               path TEXT UNIQUE NOT NULL, file_name TEXT NOT NULL, season INTEGER NOT NULL,
               number REAL, duration REAL DEFAULT 0, progress REAL DEFAULT 0, watched INTEGER DEFAULT 0,
-              mime_type TEXT, file_size INTEGER, modified_at REAL, source_folder TEXT,
-              identity_key TEXT, absolute_number REAL, relative_path TEXT, volume_id TEXT, volume_uuid TEXT, missing INTEGER DEFAULT 0, last_played_at REAL);
+              mime_type TEXT, file_size INTEGER, modified_at REAL, source_folder TEXT, absolute_number REAL, relative_path TEXT, volume_id TEXT, volume_uuid TEXT, episode_type TEXT NOT NULL DEFAULT 'regular', episode_title TEXT, identification_source TEXT NOT NULL DEFAULT 'legacy', identification_confidence TEXT NOT NULL DEFAULT 'medium', manual_override INTEGER NOT NULL DEFAULT 0,
+              missing INTEGER DEFAULT 0, last_played_at REAL, media_identity TEXT);
             CREATE TABLE IF NOT EXISTS associations (lookup_title TEXT PRIMARY KEY, anilist_id INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS pending_matches (lookup_title TEXT PRIMARY KEY, display_title TEXT NOT NULL, candidates TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS account (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -62,19 +62,16 @@ class LibraryStore:
                 if column not in existing:
                     c.execute(f"ALTER TABLE folders ADD COLUMN {column} {definition}")
             anime_columns = {r[1] for r in c.execute("PRAGMA table_info(anime)")}
-            for column, definition in {"aliases": "TEXT DEFAULT '[]'", "score": "INTEGER", "metadata_updated_at": "REAL", "media_kind": "TEXT NOT NULL DEFAULT 'series'", "favorite": "INTEGER NOT NULL DEFAULT 0", "user_tags": "TEXT NOT NULL DEFAULT '[]'", "is_pinned": "INTEGER NOT NULL DEFAULT 0", "personal_note": "TEXT"}.items():
+            for column, definition in {"aliases": "TEXT DEFAULT '[]'", "score": "INTEGER", "metadata_updated_at": "REAL", "metadata_fetched_at": "REAL", "metadata_source": "TEXT NOT NULL DEFAULT 'unknown'", "metadata_confidence": "TEXT NOT NULL DEFAULT 'low'", "metadata_status": "TEXT NOT NULL DEFAULT 'unresolved'", "metadata_manual_fields": "TEXT NOT NULL DEFAULT '[]'", "media_kind": "TEXT NOT NULL DEFAULT 'series'", "favorite": "INTEGER NOT NULL DEFAULT 0", "user_tags": "TEXT NOT NULL DEFAULT '[]'", "is_pinned": "INTEGER NOT NULL DEFAULT 0", "personal_note": "TEXT"}.items():
                 if column not in anime_columns:
                     c.execute(f"ALTER TABLE anime ADD COLUMN {column} {definition}")
             episode_columns = {r[1] for r in c.execute("PRAGMA table_info(episodes)")}
-            for column, definition in {"mime_type": "TEXT", "file_size": "INTEGER", "modified_at": "REAL", "source_folder": "TEXT", "identity_key": "TEXT", "absolute_number": "REAL", "relative_path": "TEXT", "volume_id": "TEXT", "volume_uuid": "TEXT", "last_played_at": "REAL", "episode_type": "TEXT NOT NULL DEFAULT 'regular'", "episode_title": "TEXT", "identification_source": "TEXT NOT NULL DEFAULT 'legacy'", "identification_confidence": "TEXT NOT NULL DEFAULT 'medium'", "manual_override": "INTEGER NOT NULL DEFAULT 0"}.items():
+            for column, definition in {"mime_type": "TEXT", "file_size": "INTEGER", "modified_at": "REAL", "source_folder": "TEXT", "absolute_number": "REAL", "relative_path": "TEXT", "volume_id": "TEXT", "volume_uuid": "TEXT", "episode_type": "TEXT NOT NULL DEFAULT 'regular'", "episode_title": "TEXT", "identification_source": "TEXT NOT NULL DEFAULT 'legacy'", "identification_confidence": "TEXT NOT NULL DEFAULT 'medium'", "manual_override": "INTEGER NOT NULL DEFAULT 0", "last_played_at": "REAL", "media_identity": "TEXT"}.items():
                 if column not in episode_columns:
                     c.execute(f"ALTER TABLE episodes ADD COLUMN {column} {definition}")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_anime_playback ON episodes(anime_id, missing, watched, last_played_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_source_folder ON episodes(source_folder)")
-            c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_scope_path ON episodes(source_folder, relative_path, volume_id)")
-            c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_physical_state ON episodes(source_folder, file_size, modified_at, missing)")
-            c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_identity_key ON episodes(identity_key)")
-            c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_identification ON episodes(manual_override, identification_confidence, episode_type)")
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_media_identity ON episodes(media_identity) WHERE media_identity IS NOT NULL")
             # Version records make additive schema changes auditable
             # while CREATE IF NOT EXISTS keeps all earlier databases intact.
             c.execute("CREATE INDEX IF NOT EXISTS idx_folders_account ON folders(account_id)")
@@ -311,69 +308,211 @@ class LibraryStore:
                 raise ValueError("Anime local não encontrado.")
         return normalized
 
-    def upsert_anime(self, lookup, metadata):
+    def upsert_anime(self, lookup, metadata, *, source=None, confidence=None, status=None, fetched_at=None):
+        """Upsert editorial metadata with source-aware, field-level merge safety.
+
+        User metadata (favorites, tags, pins, notes) is stored in separate columns.
+        Editorial fields marked manual are protected from automatic sources.
+        """
         title = metadata.get("title") or lookup
         incoming_kind = str(metadata.get("media_kind") or "series").casefold()
         if incoming_kind not in {"series", "movie", "unknown"}:
             incoming_kind = "series"
-        fields = (metadata.get("anilist_id"), title, metadata.get("romaji"), metadata.get("english"), metadata.get("native"), metadata.get("aliases", "[]"), metadata.get("description", "Anime armazenado localmente."), metadata.get("cover_url", ""), metadata.get("cover_cache", ""), metadata.get("banner_url", ""), metadata.get("genres", "[]"), metadata.get("year"), metadata.get("season"), metadata.get("status"), metadata.get("episodes_count"), metadata.get("duration"), metadata.get("score"), metadata.get("studio"), metadata.get("metadata_updated_at", time.time()), incoming_kind)
+        source = str(source or metadata.get("metadata_source") or "local").casefold()
+        if source not in {"local", "anilist", "manual", "unknown"}:
+            source = "unknown"
+        confidence = str(confidence or metadata.get("metadata_confidence") or ("high" if source == "manual" else "low")).casefold()
+        status = str(status or metadata.get("metadata_status") or ("manual" if source == "manual" else "available" if source == "anilist" else "unresolved")).casefold()
+        fetched_at = fetched_at if fetched_at is not None else metadata.get("metadata_fetched_at")
+        now = time.time()
+        metadata_updated_at = metadata.get("metadata_updated_at", now)
+        editorial = ("title", "romaji", "english", "native", "aliases", "description", "cover_url", "cover_cache", "banner_url", "genres", "year", "season", "status", "episodes_count", "duration", "score", "studio")
+        values = {
+            "anilist_id": metadata.get("anilist_id"),
+            "title": title,
+            "romaji": metadata.get("romaji"),
+            "english": metadata.get("english"),
+            "native": metadata.get("native"),
+            "aliases": metadata.get("aliases", "[]"),
+            "description": metadata.get("description"),
+            "cover_url": metadata.get("cover_url", ""),
+            "cover_cache": metadata.get("cover_cache", ""),
+            "banner_url": metadata.get("banner_url", ""),
+            "genres": metadata.get("genres", "[]"),
+            "year": metadata.get("year"),
+            "season": metadata.get("season"),
+            "status": metadata.get("status"),
+            "episodes_count": metadata.get("episodes_count"),
+            "duration": metadata.get("duration"),
+            "score": metadata.get("score"),
+            "studio": metadata.get("studio"),
+        }
         with self._conn() as c:
             row = c.execute("SELECT * FROM anime WHERE lookup_title=?", (lookup,)).fetchone()
             if row:
-                # A transient cover-download failure must never erase a previously
-                # cached image.  The same rule applies to a missing remote URL.
-                cover_cache = metadata.get("cover_cache") or row["cover_cache"] or ""
-                cover_url = metadata.get("cover_url") or row["cover_url"] or ""
+                try:
+                    manual_fields = set(json.loads(row["metadata_manual_fields"] or "[]"))
+                except (TypeError, json.JSONDecodeError):
+                    manual_fields = set()
+                if source == "manual":
+                    manual_fields.update(k for k in editorial if k in metadata)
+                if source == "anilist":
+                    # Keep a previously cached cover if the network returned none.
+                    values["cover_cache"] = values.get("cover_cache") or row["cover_cache"] or ""
+                    values["cover_url"] = values.get("cover_url") or row["cover_url"] or ""
+                    # External metadata must never replace a manually corrected field.
+                    for key in manual_fields:
+                        if key in values:
+                            values[key] = row[key]
+                else:
+                    for key in editorial:
+                        if key not in metadata:
+                            values[key] = row[key]
+                if source == "anilist" and not values.get("anilist_id"):
+                    values["anilist_id"] = row["anilist_id"]
                 media_kind = incoming_kind if incoming_kind == "movie" or not row["media_kind"] or row["media_kind"] == "unknown" else row["media_kind"]
-                fields = fields[:7] + (cover_url, cover_cache) + fields[9:]
-                c.execute("""UPDATE anime SET anilist_id=?,title=?,romaji=?,english=?,native=?,aliases=?,description=?,cover_url=?,cover_cache=?,banner_url=?,genres=?,year=?,season=?,status=?,episodes_count=?,duration=?,score=?,studio=?,metadata_updated_at=?,media_kind=? WHERE id=?""", fields + (row["id"],))
+                if source == "manual":
+                    metadata_source = "manual"
+                    metadata_status = "manual"
+                elif row["metadata_source"] == "manual" and source != "manual":
+                    metadata_source = "manual"
+                    metadata_status = "manual"
+                else:
+                    metadata_source = source
+                    metadata_status = status
+                metadata_fetched = fetched_at if source == "anilist" else row["metadata_fetched_at"]
+                metadata_conf = confidence if source in {"anilist", "manual"} else row["metadata_confidence"]
+                metadata_updated = now if source in {"anilist", "manual"} else row["metadata_updated_at"]
+                c.execute("""UPDATE anime SET anilist_id=?,title=?,romaji=?,english=?,native=?,aliases=?,description=?,cover_url=?,cover_cache=?,banner_url=?,genres=?,year=?,season=?,status=?,episodes_count=?,duration=?,score=?,studio=?,metadata_updated_at=?,metadata_fetched_at=?,metadata_source=?,metadata_confidence=?,metadata_status=?,metadata_manual_fields=?,media_kind=? WHERE id=?""",
+                          (values["anilist_id"], values["title"] or lookup, values["romaji"], values["english"], values["native"], values["aliases"], values["description"], values["cover_url"], values["cover_cache"], values["banner_url"], values["genres"], values["year"], values["season"], values["status"], values["episodes_count"], values["duration"], values["score"], values["studio"], metadata_updated, metadata_fetched, metadata_source, metadata_conf, metadata_status, json.dumps(sorted(manual_fields), ensure_ascii=False), media_kind, row["id"]))
                 return row["id"]
-            cur = c.execute("""INSERT INTO anime(lookup_title,anilist_id,title,romaji,english,native,aliases,description,cover_url,cover_cache,banner_url,genres,year,season,status,episodes_count,duration,score,studio,metadata_updated_at,media_kind,added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (lookup,) + fields + (time.time(),))
-            return cur.lastrowid
+            c.execute("""INSERT INTO anime(lookup_title,anilist_id,title,romaji,english,native,aliases,description,cover_url,cover_cache,banner_url,genres,year,season,status,episodes_count,duration,score,studio,metadata_updated_at,metadata_fetched_at,metadata_source,metadata_confidence,metadata_status,metadata_manual_fields,media_kind,added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                      (lookup, values["anilist_id"], values["title"], values["romaji"], values["english"], values["native"], values["aliases"], values["description"], values["cover_url"], values["cover_cache"], values["banner_url"], values["genres"], values["year"], values["season"], values["status"], values["episodes_count"], values["duration"], values["score"], values["studio"], metadata_updated_at, fetched_at, source, confidence, status, json.dumps(sorted(k for k in editorial if source == "manual" and k in metadata), ensure_ascii=False), incoming_kind, now))
+            return c.execute("SELECT id FROM anime WHERE lookup_title=?", (lookup,)).fetchone()[0]
 
-    def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None, modified_at=None, source_folder=None, identity_key=None, absolute_number=None, relative_path=None, volume_id=None, volume_uuid=None, *, episode_type="regular", episode_title=None, identification_source="legacy", identification_confidence="medium"):
-        # Old rows required a non-null season. Zero is the durable representation
-        # for an unknown season; catalog presentation maps it to "Sem temporada".
-        season = 0 if season is None else int(season)
+    def set_metadata_status(self, lookup, status, *, confidence=None):
         with self._conn() as c:
-            existing = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
-            if existing:
-                if existing["manual_override"]:
-                    c.execute("UPDATE episodes SET file_name=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,identity_key=COALESCE(?,identity_key),absolute_number=COALESCE(?,absolute_number),relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),missing=0 WHERE path=?",
-                              (file_name, mime_type, file_size, modified_at, source_folder, identity_key, absolute_number, relative_path, volume_id, volume_uuid, path))
-                    return existing["id"]
-                c.execute("""UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,identity_key=COALESCE(?,identity_key),absolute_number=COALESCE(?,absolute_number),relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),missing=0 WHERE path=?""",
-                          (anime_id, file_name, season, number, mime_type, file_size, modified_at, source_folder, identity_key, absolute_number, relative_path, volume_id, volume_uuid, path))
-                c.execute("UPDATE episodes SET episode_type=?,episode_title=?,identification_source=?,identification_confidence=? WHERE path=?", (episode_type, episode_title, identification_source, identification_confidence, path))
-                return existing["id"]
+            if confidence is None:
+                updated = c.execute("UPDATE anime SET metadata_status=? WHERE lookup_title=?", (status, lookup)).rowcount
+            else:
+                updated = c.execute("UPDATE anime SET metadata_status=?,metadata_confidence=? WHERE lookup_title=?", (status, confidence, lookup)).rowcount
+            return bool(updated)
 
-            matching_row = None
-            # Filename + size is not identity: two releases can share both.
-            # identity_key exists only with a proven local relative path plus
-            # size/time evidence; cloud SAF intentionally has no such key.
-            if identity_key:
-                row = c.execute("SELECT * FROM episodes WHERE identity_key=?", (identity_key,)).fetchone()
-                if row:
-                    matching_row = dict(row)
+    def set_manual_metadata(self, lookup, values):
+        """Persist explicit editorial corrections without touching user state."""
+        allowed = {"title", "romaji", "english", "native", "aliases", "description", "genres", "year", "season", "status", "episodes_count", "duration", "score", "studio"}
+        values = {key: value for key, value in (values or {}).items() if key in allowed}
+        if not values:
+            raise ValueError("Nenhum campo de metadata manual válido foi informado.")
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM anime WHERE lookup_title=?", (lookup,)).fetchone()
+            if not row:
+                raise ValueError("Obra local não encontrada.")
+            try:
+                manual_fields = set(json.loads(row["metadata_manual_fields"] or "[]"))
+            except (TypeError, json.JSONDecodeError):
+                manual_fields = set()
+            manual_fields.update(values)
+            assignments = ",".join(f"{key}=?" for key in values)
+            params = list(values.values()) + [json.dumps(sorted(manual_fields), ensure_ascii=False), time.time(), "manual", "high", "manual", row["id"]]
+            c.execute(f"UPDATE anime SET {assignments},metadata_manual_fields=?,metadata_updated_at=?,metadata_source=?,metadata_confidence=?,metadata_status=? WHERE id=?", tuple(params))
+            return dict(c.execute("SELECT * FROM anime WHERE id=?", (row["id"],)).fetchone())
 
-            if matching_row:
-                if matching_row["manual_override"]:
-                    c.execute("UPDATE episodes SET path=?,file_name=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,identity_key=?,absolute_number=COALESCE(?,absolute_number),relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),missing=0 WHERE id=?", (path, file_name, mime_type, file_size, modified_at, source_folder, identity_key, absolute_number, relative_path, volume_id, volume_uuid, matching_row["id"]))
-                    return matching_row["id"]
-                c.execute("""UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,identity_key=?,absolute_number=COALESCE(?,absolute_number),relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),missing=0 WHERE id=?""",
-                          (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder, identity_key, absolute_number, relative_path, volume_id, volume_uuid, matching_row["id"]))
-                c.execute("UPDATE episodes SET episode_type=?,episode_title=?,identification_source=?,identification_confidence=? WHERE id=?", (episode_type, episode_title, identification_source, identification_confidence, matching_row["id"]))
-                return matching_row["id"]
+    def clear_manual_metadata(self, lookup, fields=None):
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM anime WHERE lookup_title=?", (lookup,)).fetchone()
+            if not row:
+                raise ValueError("Obra local não encontrada.")
+            try:
+                manual_fields = set(json.loads(row["metadata_manual_fields"] or "[]"))
+            except (TypeError, json.JSONDecodeError):
+                manual_fields = set()
+            remove = set(fields or manual_fields) & manual_fields
+            manual_fields -= remove
+            c.execute("UPDATE anime SET metadata_manual_fields=?,metadata_status=?,metadata_source=? WHERE id=?", (json.dumps(sorted(manual_fields), ensure_ascii=False), "available" if row["anilist_id"] else "unresolved", "anilist" if row["anilist_id"] else "local", row["id"]))
+            return True
 
-            cur = c.execute("""INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,identity_key,absolute_number,relative_path,volume_id,volume_uuid,episode_type,episode_title,identification_source,identification_confidence,missing) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,0)""",
-                            (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder, identity_key, absolute_number, relative_path, volume_id, volume_uuid, episode_type, episode_title, identification_source, identification_confidence))
+    def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None, modified_at=None, source_folder=None, media_identity=None):
+        """Upsert by URI, then by proven cross-source identity.
+
+        If an older URI row and an identity row both exist, merge them while
+        preserving the richest playback state before removing the duplicate.
+        """
+        with self._conn() as c:
+            by_path = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
+            by_identity = None
+            if media_identity:
+                by_identity = c.execute(
+                    "SELECT * FROM episodes WHERE media_identity=? ORDER BY id LIMIT 1",
+                    (media_identity,),
+                ).fetchone()
+
+            if by_path and by_identity and by_path["id"] != by_identity["id"]:
+                progress = max(float(by_path["progress"] or 0), float(by_identity["progress"] or 0))
+                watched = max(int(by_path["watched"] or 0), int(by_identity["watched"] or 0))
+                last_played = max(float(by_path["last_played_at"] or 0), float(by_identity["last_played_at"] or 0)) or None
+                c.execute(
+                    "UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,media_identity=?,missing=0,progress=?,watched=?,last_played_at=? WHERE id=?",
+                    (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder, media_identity, progress, watched, last_played, by_identity["id"]),
+                )
+                c.execute("DELETE FROM episodes WHERE id=?", (by_path["id"],))
+                return by_identity["id"]
+
+            if by_path:
+                c.execute(
+                    """UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,
+                       file_size=?,modified_at=?,source_folder=?,media_identity=?,missing=0 WHERE id=?""",
+                    (anime_id, file_name, season, number, mime_type, file_size, modified_at, source_folder, media_identity, by_path["id"]),
+                )
+                return by_path["id"]
+
+            if by_identity:
+                c.execute(
+                    """UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,
+                       file_size=?,modified_at=?,source_folder=?,missing=0 WHERE id=?""",
+                    (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder, by_identity["id"]),
+                )
+                return by_identity["id"]
+
+            cur = c.execute(
+                """INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,
+                                         source_folder,missing,media_identity)
+                   VALUES(?,?,?,?,?,?,?,?,?,0,?)""",
+                (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder, media_identity),
+            )
             return cur.lastrowid
 
-    def set_episode_identification(self, path, *, season=None, number=None, episode_type="regular", title=None):
-        """Persist an explicit user correction which automatic scans cannot replace."""
-        season = 0 if season is None else int(season)
-        if episode_type not in {"regular", "special", "ova", "oad", "ona", "extra", "movie", "unknown"}:
-            raise ValueError("Tipo de episódio inválido.")
+    def merge_duplicate_media_identities(self):
+        """Merge legacy duplicate rows that now resolve to one media identity."""
+        with self._conn() as c:
+            duplicate_keys = [row[0] for row in c.execute(
+                "SELECT media_identity FROM episodes WHERE media_identity IS NOT NULL GROUP BY media_identity HAVING COUNT(*) > 1"
+            )]
+            merged = 0
+            for identity in duplicate_keys:
+                rows = c.execute(
+                    """SELECT * FROM episodes WHERE media_identity=?
+                       ORDER BY CASE WHEN last_played_at IS NULL THEN 0 ELSE 1 END DESC,
+                                last_played_at DESC, watched DESC, id ASC""",
+                    (identity,),
+                ).fetchall()
+                if len(rows) < 2:
+                    continue
+                survivor = rows[0]
+                best_progress = max(float(row["progress"] or 0) for row in rows)
+                best_watched = max(int(row["watched"] or 0) for row in rows)
+                best_played = max((float(row["last_played_at"] or 0) for row in rows), default=0)
+                c.execute(
+                    "UPDATE episodes SET progress=?,watched=?,last_played_at=?,missing=? WHERE id=?",
+                    (best_progress, best_watched, best_played or None, min(int(row["missing"] or 1) for row in rows), survivor["id"]),
+                )
+                for row in rows[1:]:
+                    c.execute("DELETE FROM episodes WHERE id=?", (row["id"],))
+                    merged += 1
+            return merged
+
+    def mark_missing(self, source_folder, seen):
+        """Mark only one successfully scanned source, preserving other folders."""
         with self._conn() as c:
             if not c.execute("UPDATE episodes SET season=?,number=?,episode_type=?,episode_title=?,identification_source='manual',identification_confidence='high',manual_override=1 WHERE path=?", (season, number, episode_type, (title or "").strip() or None, path)).rowcount:
                 raise ValueError("Arquivo local não encontrado.")
@@ -443,29 +582,24 @@ class LibraryStore:
                     genres = json.loads(a["genres"] or "[]")
                 except (TypeError, json.JSONDecodeError):
                     genres = []
-                try:
-                    user_tags = json.loads(a["user_tags"] or "[]")
-                except (TypeError, json.JSONDecodeError):
-                    user_tags = []
-                season_projection = [{
-                    "season_name": f"Temporada {season}" if season else "Sem temporada",
-                    "season": season, "folder_path": "",
-                    "episodes": sorted(values, key=self._episode_order_key),
-                } for season, values in sorted(seasons.items(), key=lambda item: item[0] if item[0] is not None else -1)]
-                animes.append({
-                    "id": a["id"], "main_title": a["title"], "media_kind": media_kind,
-                    "is_movie": media_kind == "movie", "meta": dict(a),
-                    "favorite": bool(a["favorite"]), "is_pinned": bool(a["is_pinned"]),
-                    "personal_note": a["personal_note"] or "", "user_tags": user_tags, "genres": genres,
-                    "seasons": [] if media_kind == "movie" else season_projection,
-                    "specials": [{"season_name": "Especiais", "season": 0, "folder_path": "", "episodes": sorted(specials, key=self._episode_order_key)}] if specials else [],
-                    "media_files": sorted(movies, key=self._episode_order_key) if media_kind == "movie" else [],
-                })
+                ordered_seasons = sorted(seasons.items(), key=lambda item: item[0] if item[0] is not None else -1)
+                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"], "source_folder": e["source_folder"], "media_identity": e["media_identity"]} for e in sorted(values, key=lambda episode: (episode["number"] if episode["number"] is not None else -1, episode["file_name"].casefold(), episode["path"].casefold()))]} for s, values in ordered_seasons]})
             for anime in animes:
                 rows = episodes_by_anime[anime["id"]]
                 eligible = [row for row in rows if row["episode_type"] not in {"movie", *special_types}]
                 anime["current_episode"] = self._current_from_rows(eligible or [row for row in rows if row["episode_type"] != "movie"])
             return animes
+
+    def apply_episode_identification(self, path, *, absolute_number=None, relative_path=None, volume_id=None, volume_uuid=None, episode_type="regular", episode_title=None, identification_source="legacy", identification_confidence="medium"):
+        with self._conn() as c:
+            row=c.execute("SELECT manual_override FROM episodes WHERE path=?",(path,)).fetchone()
+            if not row:
+                raise ValueError("Arquivo local não encontrado.")
+            if row["manual_override"]:
+                c.execute("UPDATE episodes SET absolute_number=COALESCE(?,absolute_number),relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),missing=0 WHERE path=?",(absolute_number,relative_path,volume_id,volume_uuid,path))
+            else:
+                c.execute("UPDATE episodes SET absolute_number=?,relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE path=?",(absolute_number,relative_path,volume_id,volume_uuid,episode_type,episode_title,identification_source,identification_confidence,path))
+            return True
 
     def save_progress(self, path, position, duration):
         try:

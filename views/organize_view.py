@@ -10,7 +10,8 @@ class OrganizeView:
 
     @staticmethod
     def build(page: ft.Page, library, on_select_anime, on_back, on_open_settings,
-              on_request_storage_access=None, on_scan_storage=None, view_state=None):
+              on_request_storage_access=None, on_scan_storage=None, on_request_video_access=None,
+              on_add_folder=None, view_state=None):
         catalog = []
         view_state = view_state if view_state is not None else {}
 
@@ -23,6 +24,18 @@ class OrganizeView:
         def handle_scan_storage(_=None):
             if on_scan_storage:
                 res = on_scan_storage()
+                if hasattr(res, "__await__"):
+                    page.run_task(lambda: res)
+
+        def handle_request_video_access(_=None):
+            if on_request_video_access:
+                res = on_request_video_access()
+                if hasattr(res, "__await__"):
+                    page.run_task(lambda: res)
+
+        def handle_add_folder(_=None):
+            if on_add_folder:
+                res = on_add_folder()
                 if hasattr(res, "__await__"):
                     page.run_task(lambda: res)
         selected_genre = [view_state.get("genre", "Todos")]
@@ -127,16 +140,20 @@ class OrganizeView:
 
         def empty_catalog():
             actions = []
+            if on_request_video_access:
+                actions.append(ft.FilledButton("Permitir leitura de vídeos", icon=ft.Icons.VIDEO_LIBRARY_OUTLINED, on_click=handle_request_video_access))
             if on_request_storage_access:
-                actions.append(ft.FilledButton("Solicitar acesso ao armazenamento", icon=ft.Icons.FOLDER_OPEN_OUTLINED, on_click=handle_request_storage))
+                actions.append(ft.OutlinedButton("Acesso amplo", icon=ft.Icons.FOLDER_OPEN_OUTLINED, on_click=handle_request_storage))
+            if on_add_folder:
+                actions.append(ft.OutlinedButton("Adicionar pasta", icon=ft.Icons.CREATE_NEW_FOLDER, on_click=handle_add_folder))
             if on_scan_storage:
-                actions.append(ft.OutlinedButton("Varrer armazenamento", icon=ft.Icons.REFRESH, on_click=handle_scan_storage))
+                actions.append(ft.OutlinedButton("Varrer", icon=ft.Icons.REFRESH, on_click=handle_scan_storage))
             actions.append(ft.TextButton("Abrir configurações", icon=ft.Icons.SETTINGS, on_click=lambda _: on_open_settings()))
             return ft.Container(
                 content=ft.Column([
                     ft.Icon(ft.Icons.VIDEO_LIBRARY_OUTLINED, size=48, color=ACCENT),
                     ft.Text("Seu catálogo está vazio", size=18, weight=ft.FontWeight.BOLD, color=TEXT),
-                    ft.Text("Solicite acesso ao armazenamento local para localizar seus vídeos de anime.", size=12, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER),
+                    ft.Text("Permita a leitura de vídeos, use acesso amplo quando disponível, ou escolha uma pasta específica para montar sua biblioteca local.", size=12, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER),
                     ft.Column(actions, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12),
                 alignment=ft.Alignment(0, 0), padding=24,

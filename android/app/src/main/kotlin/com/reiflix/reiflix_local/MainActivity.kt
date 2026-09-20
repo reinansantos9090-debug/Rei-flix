@@ -25,7 +25,15 @@ class MainActivity : FlutterFragmentActivity() {
     private val tag = "[REIFLIX][ANDROID]"
     private lateinit var systemUiController: SystemUiController
     private var broadStoragePermissionPending = false
-    private var mediaPermissionRequestPending = false
+    private val activeNativeScans = mutableSetOf<String>()
+
+    @Synchronized
+    private fun tryBeginNativeScan(key: String): Boolean = activeNativeScans.add(key)
+
+    @Synchronized
+    private fun endNativeScan(key: String) {
+        activeNativeScans.remove(key)
+    }
     private val backCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
             NativeMailbox.write(this@MainActivity, JSONObject().put("type", "android_back"))
@@ -143,6 +151,12 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject().put("treeUri", reference)))
             return
         }
+        val scanKey = "saf:$reference"
+        if (!tryBeginNativeScan(scanKey)) {
+            NativeMailbox.write(this, JSONObject().put("type", "saf_scan_progress")
+                .put("payload", JSONObject().put("treeUri", reference).put("phase", "already_running")))
+            return
+        }
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan_progress").put("payload", JSONObject().put("treeUri", reference).put("scanId", scanId).put("phase", "started")))
@@ -155,6 +169,8 @@ class MainActivity : FlutterFragmentActivity() {
                 Log.e(tag, "SAF scan failed", exception)
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_error").put("message", "Não foi possível atualizar esta pasta autorizada.")
                     .put("payload", JSONObject().put("treeUri", reference)))
+            } finally {
+                endNativeScan(scanKey)
             }
         }
     }
@@ -195,32 +211,42 @@ class MainActivity : FlutterFragmentActivity() {
             publishStorageStatus()
             return
         }
-        if (android.os.Build.VERSION.SDK_INT >= 30) {
+        NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
+            .put("payload", JSONObject().put("granted", false).put("source", BroadStorageScanner.SOURCE)))
+        if (Build.VERSION.SDK_INT >= 30) {
             broadStoragePermissionPending = true
-            var launched = false
-            var attemptedIntent = "ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION"
-            launched = openSettingsIntent(
-                "ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION",
-                Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).setData(Uri.parse("package:$packageName")),
-            )
-            if (!launched) {
-                attemptedIntent = "ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION"
-                launched = openSettingsIntent(attemptedIntent, Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            val packageIntent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                .setData(Uri.parse("package:$packageName"))
+            val globalIntent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+            try {
+                startActivity(packageIntent)
+                Log.i(tag, "Opened app-specific all-files settings")
+                return
+            } catch (specificException: Exception) {
+                Log.w(tag, "App-specific all-files settings unavailable", specificException)
             }
-            if (!launched) {
-                attemptedIntent = "ACTION_APPLICATION_DETAILS_SETTINGS"
-                launched = openSettingsIntent(attemptedIntent, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                    .setData(Uri.parse("package:$packageName")))
+            try {
+                startActivity(globalIntent)
+                Log.i(tag, "Opened global all-files settings")
+                return
+            } catch (globalException: Exception) {
+                Log.w(tag, "Global all-files settings unavailable", globalException)
             }
-            if (!launched) {
-                broadStoragePermissionPending = false
-                NativeMailbox.write(this, JSONObject().put("type", "broad_storage_error")
-                    .put("message", "Não foi possível abrir a tela de configurações de armazenamento do Android. Acesse as Configurações do dispositivo > Aplicativos > Rei-Flix e conceda a permissão de Acesso a Todos os Arquivos.")
-                    .put("payload", JSONObject()
-                        .put("source", BroadStorageScanner.SOURCE)
-                        .put("lastAttemptedIntent", attemptedIntent)
-                        .put("packageName", packageName)))
-            }
+            broadStoragePermissionPending = false
+            val appDetailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.parse("package:$packageName"))
+            runCatching { startActivity(appDetailsIntent) }
+                .onFailure { Log.w(tag, "Application details settings unavailable", it) }
+            NativeMailbox.write(this, JSONObject().put("type", "broad_storage_error")
+                .put("message", "O Android não conseguiu abrir diretamente a tela de acesso amplo. Abra as configurações do aplicativo e procure por acesso a todos os arquivos.")
+                .put("payload", JSONObject()
+                    .put("api", Build.VERSION.SDK_INT)
+                    .put("specificIntent", Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                    .put("globalIntent", Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                    .put("appDetailsIntent", Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .put("hasAccess", BroadStorageScanner.hasAccess(this))
+                    .put("fallbackOpened", true)
+                    .put("source", BroadStorageScanner.SOURCE)))
         } else {
             broadStoragePermissionPending = false
             legacyBroadPermissionRequester.launch(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE))
@@ -253,6 +279,11 @@ class MainActivity : FlutterFragmentActivity() {
         }
         NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
             .put("payload", JSONObject().put("granted", true).put("source", BroadStorageScanner.SOURCE)))
+        if (!tryBeginNativeScan(BroadStorageScanner.SOURCE)) {
+            NativeMailbox.write(this, JSONObject().put("type", "broad_storage_scan_progress")
+                .put("payload", JSONObject().put("phase", "already_running").put("source", BroadStorageScanner.SOURCE)))
+            return
+        }
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val result = BroadStorageScanner.scan(this@MainActivity) { progress ->
@@ -266,6 +297,8 @@ class MainActivity : FlutterFragmentActivity() {
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "broad_storage_error")
                     .put("message", "Não foi possível varrer o armazenamento local.")
                     .put("payload", JSONObject().put("source", BroadStorageScanner.SOURCE)))
+            } finally {
+                endNativeScan(BroadStorageScanner.SOURCE)
             }
         }
     }
@@ -278,6 +311,11 @@ class MainActivity : FlutterFragmentActivity() {
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
                 .put("message", "A permissão para ler vídeos ainda não foi concedida.")
                 .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
+            return
+        }
+        if (!tryBeginNativeScan(MediaStoreScanner.SOURCE)) {
+            NativeMailbox.write(this, JSONObject().put("type", "mediastore_scan_progress")
+                .put("payload", JSONObject().put("phase", "already_running").put("source", MediaStoreScanner.SOURCE)))
             return
         }
         CoroutineScope(Dispatchers.IO).launch {
@@ -295,6 +333,8 @@ class MainActivity : FlutterFragmentActivity() {
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_error")
                     .put("message", "Não foi possível atualizar os vídeos do dispositivo.")
                     .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
+            } finally {
+                endNativeScan(MediaStoreScanner.SOURCE)
             }
         }
     }

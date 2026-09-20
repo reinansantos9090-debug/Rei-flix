@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.storage.StorageManager
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -14,6 +15,7 @@ import java.util.ArrayDeque
 import java.util.HashSet
 
 object BroadStorageScanner {
+    private const val TAG = "[REIFLIX][SCANNER]"
     const val SOURCE = "broad-storage"
     const val DISPLAY_NAME = "Armazenamento local"
     private val videoExtensions = setOf("mp4","mkv","webm","avi","mov","m4v","ts","m2ts","flv","wmv")
@@ -60,10 +62,8 @@ object BroadStorageScanner {
                     .put("primary", volume.isPrimary)
                     .put("removable", volume.isRemovable)
                     .put("state", volume.state ?: "unknown")
-                // StorageVolume.getDirectory() was introduced in API 30.  Do
-                // not hide an API violation in runCatching: API 24--29 must
-                // never resolve this method at runtime.
                 if (Build.VERSION.SDK_INT >= 30) {
+                    volume.mediaStoreVolumeName?.let { item.put("mediaStoreVolumeName", it) }
                     runCatching { volume.directory?.canonicalPath }.getOrNull()?.let { item.put("directory", it) }
                 }
                 volumes.put(item)
@@ -73,19 +73,10 @@ object BroadStorageScanner {
         return result
     }
 
-    fun roots(context: Context): List<StorageRoot> {
-        val found = LinkedHashMap<String, StorageRoot>()
-        fun add(root: StorageRoot) {
-            if (!isReadableState(root.state)) return
-            val canonical = runCatching { root.file.canonicalFile }.getOrNull() ?: return
-            // Canonical paths deduplicate the legacy primary-root fallback and
-            // its API-30 StorageVolume representation without merging volumes.
-            found.putIfAbsent(canonical.path, root.copy(file = canonical))
-        }
-        // The legacy API remains the compatible primary shared-storage root on
-        // API 23--29; it intentionally is not a hard-coded /storage path.
-        Environment.getExternalStorageDirectory().let { add(StorageRoot(it, "primary", null, true, false, true, Environment.getExternalStorageState())) }
-        if (Build.VERSION.SDK_INT >= 24) {
+    fun roots(context: Context): List<File> {
+        val paths = LinkedHashSet<String>()
+        Environment.getExternalStorageDirectory().let { if (it.exists()) paths.add(it.absolutePath) }
+        if (Build.VERSION.SDK_INT >= 30) {
             context.getSystemService(StorageManager::class.java)?.storageVolumes?.forEach { volume ->
                 // getDirectory is API 30+. Volumes on older Android versions
                 // remain available through the primary compatible root above
@@ -123,8 +114,43 @@ object BroadStorageScanner {
         return child == "data" || child == "obb"
     }
 
+    private fun isNoMediaDirectory(directory: File): Boolean =
+        runCatching { File(directory, ".nomedia").isFile }.getOrDefault(false)
+
+    private fun rootForFile(file: File, roots: List<File>): File? =
+        roots.filter { isInside(file, it) }.maxByOrNull { it.path.length }
+
+    private fun relativePath(file: File, root: File): String =
+        runCatching {
+            val prefix = root.canonicalPath.trimEnd(File.separatorChar) + File.separator
+            file.canonicalPath.removePrefix(prefix).replace(File.separatorChar, '/')
+        }.getOrDefault(file.name)
+
+    private fun volumeKey(context: Context, root: File): String {
+        val primary = runCatching { Environment.getExternalStorageDirectory().canonicalFile }.getOrNull()
+        if (primary != null && primary == runCatching { root.canonicalFile }.getOrNull()) {
+            return "external_primary"
+        }
+        if (Build.VERSION.SDK_INT >= 24) {
+            val volume = if (Build.VERSION.SDK_INT >= 30) {
+                context.getSystemService(StorageManager::class.java)?.storageVolumes?.firstOrNull {
+                    runCatching { it.directory?.canonicalFile == root.canonicalFile }.getOrDefault(false)
+                }
+            } else {
+                null
+            }
+            if (Build.VERSION.SDK_INT >= 30) {
+                volume?.mediaStoreVolumeName?.takeIf { it.isNotBlank() }?.let { return it }
+            }
+            volume?.uuid?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return root.name.ifBlank { root.path }
+    }
+
     fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null): JSONObject {
-        check(hasAccess(context))
+        val access = hasAccess(context)
+        Log.i(TAG, "SCAN_STARTED: api=${Build.VERSION.SDK_INT}, granted=$access")
+        check(access) { "Acesso amplo ao armazenamento não foi concedido." }
         val docs = JSONArray()
         val errors = JSONArray()
         val snapshot = accessSnapshot(context)
@@ -136,17 +162,26 @@ object BroadStorageScanner {
         var directories = 0
         var files = 0
         var videos = 0
-        var nomediaDirectories = 0
+        var excludedNoMedia = 0
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE)
             .put("directories",0).put("files",0).put("videos",0).put("nomediaDirectories",0))
         while (pending.isNotEmpty()) {
             val (dir, root) = pending.removeLast()
             val canonical = runCatching { dir.canonicalFile }.getOrElse { dir }
             if (!visited.add(canonical.path) || isRestricted(canonical)) continue
+            if (isNoMediaDirectory(canonical)) {
+                excludedNoMedia++
+                continue
+            }
             directories++
-            val children = try { canonical.listFiles() } catch (_: Exception) { null }
+            val children = try { canonical.listFiles() } catch (exception: Exception) {
+                Log.w(TAG, "DIRECTORY_ACCESS_DENIED: ${canonical.path}", exception)
+                null
+            }
             if (children == null) {
-                errors.put("Não foi possível acessar: ${canonical.name}")
+                if (rootFiles.any { it.path == canonical.path }) {
+                    errors.put("Não foi possível acessar a raiz: ${canonical.name}")
+                }
                 continue
             }
             if (children.any { it.isFile && it.name.equals(".nomedia", ignoreCase = true) }) {
@@ -159,23 +194,28 @@ object BroadStorageScanner {
                 files++
                 if (!child.isFile || child.extension.lowercase() !in videoExtensions) continue
                 val file = runCatching { child.canonicalFile }.getOrNull() ?: continue
-                val relativePath = runCatching { file.relativeTo(root.file).path.replace(File.separatorChar, '/') }.getOrNull()
-                    ?: continue
+                val root = rootForFile(file, rootFiles)
+                val volumeName = root?.let { volumeKey(context, it) } ?: ""
+                val relative = root?.let { relativePath(file, it) } ?: file.name
                 docs.put(JSONObject().put("uri",Uri.fromFile(file).toString()).put("path",file.path)
-                    .put("name",file.name).put("relativePath",relativePath).put("volumeId", root.volumeId)
-                    .put("volumeUuid", root.volumeUuid ?: "").put("mimeType",mimeFor(file.extension))
+                    .put("name",file.name).put("relativePath",relative).put("volumeName",volumeName)
+                    .put("mimeType",mimeFor(file.extension))
                     .put("size",runCatching{file.length()}.getOrDefault(0L))
                     .put("modifiedAt",runCatching{file.lastModified()}.getOrDefault(0L)))
                 videos++
+                if (videos % 100 == 0) {
+                    Log.i(TAG, "VIDEO_PROGRESS: videos=$videos, files=$files, directories=$directories")
+                }
                 if (videos % 100 == 0) onProgress?.invoke(JSONObject().put("phase","scanning")
                     .put("source",SOURCE).put("directories",directories).put("files",files).put("videos",videos).put("nomediaDirectories",nomediaDirectories))
             }
         }
+        Log.i(TAG, "SCAN_COMPLETED: directories=$directories, files=$files, videos=$videos, nomedia=$excludedNoMedia, errors=${errors.length()}")
         onProgress?.invoke(JSONObject().put("phase","finished").put("source",SOURCE)
-            .put("directories",directories).put("files",files).put("videos",videos).put("nomediaDirectories",nomediaDirectories))
+            .put("directories",directories).put("files",files).put("videos",videos).put("excludedNoMedia",excludedNoMedia))
         return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("documents",docs)
-            .put("stats",JSONObject().put("directories",directories).put("files",files).put("videos",videos).put("nomediaDirectories",nomediaDirectories).put("errors",errors)
-                .put("access", snapshot))
+            .put("stats",JSONObject().put("directories",directories).put("files",files).put("videos",videos)
+                .put("excludedNoMedia",excludedNoMedia).put("errors",errors).put("access", snapshot))
             .put("partial",errors.length()>0)
     }
 

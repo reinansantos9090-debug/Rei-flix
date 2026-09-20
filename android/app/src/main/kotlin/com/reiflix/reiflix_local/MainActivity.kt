@@ -31,8 +31,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var legacyBroadPermissionRequestPending = false
     private var mediaPermissionRequestPending = false
     private var activityResumed = false
-    private var pendingLifecycleAction: String? = null
-    private var lastHandledNativeRequestId: String? = null
+    private val nativeRequestState = NativeRequestState()
 
     companion object {
         private const val STATE_LAST_NATIVE_REQUEST_ID = "reiflix.lastNativeRequestId"
@@ -123,8 +122,10 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        lastHandledNativeRequestId = savedInstanceState?.getString(STATE_LAST_NATIVE_REQUEST_ID)
-        pendingLifecycleAction = savedInstanceState?.getString(STATE_PENDING_LIFECYCLE_ACTION)
+        nativeRequestState.restore(
+            savedInstanceState?.getString(STATE_LAST_NATIVE_REQUEST_ID),
+            savedInstanceState?.getString(STATE_PENDING_LIFECYCLE_ACTION),
+        )
         broadStoragePermissionPending = savedInstanceState?.getBoolean(STATE_BROAD_SETTINGS_PENDING) ?: false
         logLifecycle("onCreate", intent)
         systemUiController = SystemUiController(window)
@@ -157,9 +158,8 @@ class MainActivity : FlutterFragmentActivity() {
         // publish an intermediate "denied" snapshot first: Python could treat
         // that snapshot as the final result and close the onboarding while the
         // real Android permission/settings UI is only about to open.
-        val pending = pendingLifecycleAction
+        val pending = nativeRequestState.consumeLifecycleAction()
         if (pending != null) {
-            pendingLifecycleAction = null
             Log.i(tag, "Executing queued lifecycle action after onResume: $pending")
             when (pending) {
                 "request_media_access" -> requestMediaAccess()
@@ -200,8 +200,8 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putString(STATE_LAST_NATIVE_REQUEST_ID, lastHandledNativeRequestId)
-        outState.putString(STATE_PENDING_LIFECYCLE_ACTION, pendingLifecycleAction)
+        outState.putString(STATE_LAST_NATIVE_REQUEST_ID, nativeRequestState.lastHandledRequestId)
+        outState.putString(STATE_PENDING_LIFECYCLE_ACTION, nativeRequestState.pendingLifecycleAction)
         outState.putBoolean(STATE_BROAD_SETTINGS_PENDING, broadStoragePermissionPending)
         super.onSaveInstanceState(outState)
     }
@@ -214,12 +214,9 @@ class MainActivity : FlutterFragmentActivity() {
         }
         val action = data.getQueryParameter("action") ?: return
         val requestId = data.getQueryParameter("request_id")
-        if (!requestId.isNullOrBlank() && requestId == lastHandledNativeRequestId) {
+        if (!nativeRequestState.acceptRequest(requestId)) {
             Log.i(tag, "Ignoring duplicate native request: action=$action requestId=$requestId")
             return
-        }
-        if (!requestId.isNullOrBlank()) {
-            lastHandledNativeRequestId = requestId
         }
         Log.i(tag, "NATIVE_INTENT action=$action requestId=${requestId ?: "-"} task=$taskId resumed=$activityResumed focus=${window?.decorView?.hasWindowFocus() == true} flags=0x${intent.flags.toString(16)}")
         when (action) {
@@ -230,8 +227,7 @@ class MainActivity : FlutterFragmentActivity() {
             "scan_media_store" -> scanMediaStore()
             "request_media_access", "open_broad_storage_settings" -> {
                 if (!activityResumed) {
-                    if (pendingLifecycleAction == null) {
-                        pendingLifecycleAction = action
+                    if (nativeRequestState.queueLifecycleAction(action)) {
                         Log.i(tag, "Queued lifecycle-sensitive action until Activity is resumed: $action")
                     } else {
                         Log.i(tag, "Ignoring duplicate lifecycle-sensitive action: $action")

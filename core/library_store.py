@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import sqlite3
 import time
@@ -16,6 +17,7 @@ class LibraryStore:
         self.db_path = os.path.join(data_dir, "library.sqlite3")
         self.cache_dir = os.path.join(data_dir, "covers")
         os.makedirs(self.cache_dir, exist_ok=True)
+        self._last_playback_event_at = {}
         self._init()
 
     def _conn(self):
@@ -682,23 +684,55 @@ class LibraryStore:
                 c.execute("UPDATE episodes SET absolute_number=?,relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE path=?",(absolute_number,relative_path,volume_id,volume_uuid,episode_type,episode_title,identification_source,identification_confidence,path))
             return True
 
-    def save_progress(self, path, position, duration):
-        """Persist normalized playback state without creating invalid completion."""
+    def save_progress(self, path, position, duration, *, event_created_at=None):
+        """Persist one normalized playback event through the central consumption policy.
+
+        Native events may be duplicated or arrive late.  A newer event is allowed
+        to seek backwards (a real user seek), while an older event is ignored so
+        a delayed callback cannot regress durable state.
+        """
         try:
             position, duration = float(position), float(duration)
+            event_time = None if event_created_at is None else float(event_created_at)
         except (TypeError, ValueError):
             return False
+        if not (math.isfinite(position) and math.isfinite(duration)):
+            return False
+        if event_time is not None and not math.isfinite(event_time):
+            event_time = None
         if position < 0 or duration < 0:
             return False
         if duration > 0:
             position = min(position, duration)
-            watched = int(position / duration >= 0.90)
-        else:
-            watched = 0
+        now = time.time()
+        if event_time is not None:
+            event_time = event_time / 1000.0 if event_time > 10_000_000_000 else event_time
+            last_seen = self._last_playback_event_at.get(path, 0.0)
+            if event_time <= last_seen:
+                return False
+            with self._conn() as c:
+                row = c.execute("SELECT last_played_at FROM episodes WHERE path=?", (path,)).fetchone()
+                if not row:
+                    return False
+                durable_time = float(row["last_played_at"] or 0.0)
+                if event_time < durable_time - 0.001:
+                    return False
+                updated = c.execute(
+                    "UPDATE episodes SET progress=?,duration=?,watched=CASE WHEN ? > 0 AND (? / ?) >= 0.90 THEN 1 ELSE watched END,last_played_at=? WHERE path=?",
+                    (position, duration, duration, position, duration, now, path),
+                ).rowcount
+            self._last_playback_event_at[path] = event_time
+            return bool(updated)
         with self._conn() as c:
+            row = c.execute("SELECT watched FROM episodes WHERE path=?", (path,)).fetchone()
+            if not row:
+                return False
+            watched = int(bool(row["watched"]))
+            if duration > 0 and position / duration >= 0.90:
+                watched = 1
             updated = c.execute(
                 "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
-                (position, duration, watched, time.time(), path),
+                (position, duration, watched, now, path),
             ).rowcount
         return bool(updated)
 
@@ -795,7 +829,9 @@ class LibraryStore:
     @staticmethod
     def _current_from_rows(episodes):
         """Choose a playable current episode using one shared availability policy."""
-        available = [episode for episode in episodes if not episode.get("missing", False)]
+        available = [episode for episode in episodes
+                     if not episode.get("missing", False)
+                     and is_regular_episode(episode)]
         available.sort(key=LibraryStore._episode_order_key)
         if not available:
             return None
@@ -829,11 +865,20 @@ class LibraryStore:
 
     def current_episode(self, anime_id):
         with self._conn() as c:
+            anime = c.execute("SELECT media_kind FROM anime WHERE id=?", (anime_id,)).fetchone()
             rows = c.execute(
-                "SELECT * FROM episodes WHERE anime_id=?",
+                "SELECT * FROM episodes WHERE anime_id=? AND missing=0",
                 (anime_id,),
             ).fetchall()
-        return self._current_from_rows([dict(row) for row in rows])
+        episodes = [dict(row) for row in rows]
+        if anime and str(anime["media_kind"] or "series").casefold() == "movie":
+            return episodes[0] if episodes else None
+        return self._current_from_rows(episodes)
+
+    def _conn_media_kind(self, anime_id):
+        with self._conn() as c:
+            row = c.execute("SELECT media_kind FROM anime WHERE id=?", (anime_id,)).fetchone()
+            return row["media_kind"] if row else None
 
     def playback_target(self, anime_id):
         """Return the single local episode the Details primary action should play.
@@ -849,16 +894,18 @@ class LibraryStore:
                 "SELECT * FROM episodes WHERE anime_id=? AND missing=0",
                 (anime_id,),
             ).fetchall()
-        ordered = sorted(
-            (dict(row) for row in rows),
-            key=self._episode_order_key,
-        )
+        is_movie = str(self._conn_media_kind(anime_id) or "series").casefold() == "movie"
+        candidates = [
+            dict(row) for row in rows
+            if is_movie or is_regular_episode(row)
+        ]
+        ordered = sorted(candidates, key=self._episode_order_key)
         return ordered[0] if ordered else None
 
     def continue_watching(self, limit=12):
         """One playable continuation per anime, ordered by latest playback."""
         with self._conn() as c:
-            rows = c.execute("""SELECT e.*, a.title AS anime_title, a.cover_cache, a.cover_url
+            rows = c.execute("""SELECT e.*, a.title AS anime_title, a.media_kind, a.cover_cache, a.cover_url
                 FROM episodes e JOIN anime a ON a.id=e.anime_id
                 ORDER BY e.anime_id, e.season, e.number, e.file_name""").fetchall()
         groups = {}
@@ -866,7 +913,11 @@ class LibraryStore:
             groups.setdefault(row["anime_id"], []).append(dict(row))
         items = []
         for anime_id, episodes in groups.items():
-            available = [episode for episode in episodes if not episode["missing"]]
+            is_movie = str(episodes[0].get("media_kind") or "series").casefold() == "movie"
+            available = [
+                episode for episode in episodes
+                if not episode["missing"] and (is_movie or is_regular_episode(episode))
+            ]
             active = [episode for episode in available if is_in_progress(episode)]
             latest_played = max((episode.get("last_played_at") or 0 for episode in available), default=0)
             if active:

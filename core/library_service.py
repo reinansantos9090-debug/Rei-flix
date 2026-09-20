@@ -174,11 +174,19 @@ class LibraryService:
                 metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
                 result.errors.append(f"{item.anime_title}: metadata indisponível ({exc})")
             metadata[key] = dict(metadata[key] or {})
-            metadata[key]["media_kind"] = "movie" if item.episode_type == "movie" else metadata[key].get("media_kind", "series")
+            if item.episode_type == "movie":
+                metadata[key]["media_kind"] = "movie"
+            elif item.episode_type == "unknown":
+                metadata[key]["media_kind"] = "unknown"
+            else:
+                metadata[key]["media_kind"] = metadata[key].get("media_kind") or "series"
 
+        identity_volume = volume_id
+        if source_kind == "filesystem":
+            identity_volume = source_folder
         identity = local_media_identity(
-            uri=uri, source_kind=source_kind, relative_path=relative_path,
-            size=file_size, modified_at=modified_at, volume_id=volume_id,
+            uri=uri, source_kind=("broad_storage" if source_kind == "filesystem" else source_kind), relative_path=relative_path,
+            size=file_size, modified_at=modified_at, volume_id=identity_volume,
         )
         anime_id = self.store.upsert_anime(key, metadata[key])
         row_id = self.store.upsert_episode(
@@ -197,11 +205,10 @@ class LibraryService:
 
     def scan(self, on_status=lambda _ : None):
         with self._scan_lock:
-            run_id = self.store.begin_scan(source_kind="filesystem", scope_kind="global", scope_ref=None)
-            result = ScanResult(catalog=[])
-            try:
-                last = self.store.last_scan()
-                result.scan_id = last.get("scan_id") if last else None
+            scan_id = str(uuid.uuid4())
+            run_id = self.store.begin_scan(scan_id=scan_id, source_kind="filesystem", scope_kind="global", scope_ref=None)
+            result = ScanResult(catalog=[], scan_id=scan_id)
+            try
                 parsed = []
                 folders = self.store.folders()
                 result.folders = len(folders)
@@ -220,7 +227,11 @@ class LibraryService:
                     on_status(f"Encontrando vídeos em {folder['name']}…")
                     try:
                         seen = []
-                        for root, _, files in os.walk(reference):
+                        walk_errors = []
+                        def _on_walk_error(error):
+                            walk_errors.append(error)
+                            result.errors.append(f"{folder['name']}: diretório não pôde ser lido: {getattr(error, 'filename', error)}")
+                        for root, _, files in os.walk(reference, onerror=_on_walk_error):
                             for name in files:
                                 result.files += 1
                                 if os.path.splitext(name)[1].lower() not in VIDEO_EXTENSIONS:
@@ -243,7 +254,10 @@ class LibraryService:
                                     "modifiedAt": stat.st_mtime_ns // 1_000_000,
                                 }, reference, "filesystem"))
                                 result.videos += 1
-                        self.store.reconcile_missing(reference, seen, scope_kind="source")
+                        if not walk_errors:
+                            self.store.reconcile_missing(reference, seen, scope_kind="source")
+                        else:
+                            self.store.update_folder_status(reference, "granted", "Scan parcial; reconciliação de ausência não aplicada.")
                     except OSError as exc:
                         result.errors.append(f"{folder['name']}: erro ao ler pasta: {exc}")
                 metadata = {}

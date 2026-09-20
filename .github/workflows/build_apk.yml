@@ -150,6 +150,18 @@ jobs:
           apk="${{ steps.apk.outputs.path }}"
           python scripts/verify_android_host.py "$apk"
 
+      - name: Verify effective APK AndroidManifest
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          python scripts/verify_apk_manifest.py "$apk" --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2"
+
+      - name: Print APK SHA-256
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          sha256sum "$apk"
+
       - name: Print APK signing certificate fingerprints
         shell: bash
         run: |

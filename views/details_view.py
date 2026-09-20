@@ -395,7 +395,27 @@ class DetailView:
                                 season_path = resolved_season.get("local_path") or resolved_season.get("external_url")
                                 if season_path:
                                     episode_column.controls.append(media_artwork(season_path, 150, width=100, icon_size=24))
-                    episode_column.controls.extend(episode_item(item) for item in selected.get("episodes", []))
+                    season_items = selected.get("episodes", [])
+                    season_available = [item for item in season_items if not item.get("missing")]
+                    season_watched = [item for item in season_available if is_completed(item)]
+                    season_active = [item for item in season_available if is_in_progress(item)]
+                    season_remaining = max(0, len(season_available) - len(season_watched))
+                    season_progress = (len(season_watched) / len(season_available)) if season_available else 0.0
+                    episode_column.controls.extend(episode_item(item) for item in season_items)
+                    episode_column.controls.append(
+                        ft.Text(
+                            f"{len(season_watched)}/{len(season_available)} concluídos • {season_remaining} restantes"
+                            + (f" • {len(season_active)} em andamento" if season_active else ""),
+                            color="#AAA7B6", size=10,
+                        )
+                    )
+                    episode_column.controls.append(
+                        ft.ProgressBar(
+                            value=max(0.0, min(season_progress, 1.0)),
+                            color="#E50914", bgcolor="#454252", bar_height=4,
+                            visible=bool(season_available),
+                        )
+                    )
                 if special_episodes:
                     episode_column.controls.append(section_title("Especiais", ft.Icons.STAR_OUTLINE))
                     episode_column.controls.extend(episode_item(item) for item in special_episodes)
@@ -409,12 +429,7 @@ class DetailView:
             value="0", options=[
                 ft.dropdown.Option(
                     key=str(index),
-                    text=(
-                        f"{season.get('season_name') or f'Temporada {index + 1}'} • "
-                        f"{season.get('watched_count', 0)}/{season.get('available_count', 0)} concluídos • "
-                        f"{season.get('remaining_count', 0)} restantes"
-                        + (f" • {season.get('active_count', 0)} em andamento" if season.get('active_count') else "")
-                    ),
+                    text=f"{season.get('season_name') or f'Temporada {index + 1}'} • {sum(1 for item in season.get('episodes', []) if not item.get('missing'))}/{len(season.get('episodes', []))} locais",
                 )
                 for index, season in enumerate(seasons)
             ],

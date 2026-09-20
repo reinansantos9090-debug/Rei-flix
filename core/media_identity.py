@@ -14,12 +14,13 @@ def _shared_relative(value: str) -> str | None:
 
 
 def local_media_identity(*, uri: str, source_kind: str | None, relative_path: str | None,
-                         size: object = None, modified_at: object = None) -> str | None:
+                         size: object = None, modified_at: object = None,
+                         volume_id: str | None = None) -> str | None:
     """Identify one shared local file, never an arbitrary cloud document.
 
     A handle from MediaStore/SAF is not enough to infer that two files match.
-    Cross-scanner identity therefore requires a shared relative path plus size
-    and modification time. Cloud DocumentsProviders stay source-isolated.
+    Cross-scanner identity therefore requires a volume identity, relative path,
+    size and modification time. Cloud DocumentsProviders stay source-isolated.
     """
     try:
         size, modified_at = int(size), int(float(modified_at))
@@ -41,4 +42,10 @@ def local_media_identity(*, uri: str, source_kind: str | None, relative_path: st
     elif source_kind not in {"mediastore", "broad_storage"}:
         return None
     relative = _shared_relative(candidate)
-    return f"shared-local:{relative}|{size}|{modified_at}" if relative else None
+    # A Broad Storage document supplies its real StorageVolume identifier. A
+    # MediaStore row has no portable volume UUID in this projection, so its
+    # source remains distinct unless a future Android contract supplies one.
+    # This deliberately favours duplicate rows over merging same-named files
+    # from an internal volume, SD card, or USB volume.
+    volume = (volume_id or ("mediastore" if source_kind == "mediastore" else "")).strip().casefold()
+    return f"shared-local:{volume}:{relative}|{size}|{modified_at}" if relative and volume else None

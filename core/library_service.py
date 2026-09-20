@@ -193,7 +193,8 @@ class LibraryService:
                 anime_id, uri, name, item.season, item.episode,
                 document.get("mimeType"), document.get("size"), document.get("modifiedAt"), tree_uri,
                 local_media_identity(uri=uri, source_kind=source_kind, relative_path=relative_path,
-                                     size=document.get("size"), modified_at=document.get("modifiedAt")),
+                                     size=document.get("size"), modified_at=document.get("modifiedAt"),
+                                     volume_id=document.get("volumeId")),
             )
         # Do not infer removals from a partial SAF scan: a SecurityException in
         # one subdirectory means its previous documents may simply be unreadable.

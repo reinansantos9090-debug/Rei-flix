@@ -33,6 +33,7 @@ class ScanResult:
     unknown: int = 0
     reconciled: int = 0
     scan_id: str | None = None
+    status: str = "completed"
 
     def message(self):
         if self.videos == 0:
@@ -270,6 +271,7 @@ class LibraryService:
                 return result
             except Exception as exc:
                 result.errors.append(f"Falha geral no scan: {exc}")
+                result.status = "error"
                 self.store.finish_scan(run_id, result.__dict__)
                 raise
 
@@ -312,6 +314,8 @@ class LibraryService:
                         result.videos += 1
 
                 result.errors.extend(str(error) for error in scan_errors)
+                if scan_errors:
+                    result.status = "partial"
                 if not scan_errors:
                     if source_kind in {"broad_storage", "mediastore"}:
                         volumes = {}
@@ -343,6 +347,7 @@ class LibraryService:
                 return catalog
             except Exception as exc:
                 result.errors.append(f"Falha ao indexar a fonte: {exc}")
+                result.status = "error"
                 self.store.finish_scan(run_id, result.__dict__)
                 raise
 

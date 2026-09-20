@@ -18,6 +18,11 @@ enum class SafAccessLevel {
     REVOKED,
 }
 
+enum class BroadStorageAccessLevel {
+    AVAILABLE,
+    UNAVAILABLE,
+}
+
 object StorageAuthorization {
     fun mediaAccess(
         apiLevel: Int,
@@ -50,8 +55,8 @@ object StorageAuthorization {
         }
     }
 
-    fun broadAccess(hasAllFilesAccess: Boolean): SafAccessLevel =
-        if (hasAllFilesAccess) SafAccessLevel.AVAILABLE else SafAccessLevel.REVOKED
+    fun broadAccess(hasAllFilesAccess: Boolean): BroadStorageAccessLevel =
+        if (hasAllFilesAccess) BroadStorageAccessLevel.AVAILABLE else BroadStorageAccessLevel.UNAVAILABLE
 
     fun canScanMediaStore(access: MediaAccessLevel): Boolean =
         access != MediaAccessLevel.DENIED

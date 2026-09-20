@@ -166,10 +166,6 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
                 "special": "special", "specials": "special"}.get(token, "special")
         source, confidence = "special_marker", "high"
         evidence.append(f"SPECIAL_TYPE_TOKEN:{special.group(0)}")
-    elif movie:
-        marker = movie
-        kind, source, confidence = "movie", "movie_marker", "high"
-        evidence.append(f"MOVIE_TYPE_TOKEN:{movie.group(0)}")
     else:
         if absolute:
             absolute_number = int(absolute.group(1))
@@ -199,6 +195,10 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
             season = season or 1
             kind, source, confidence = "regular", "episode_marker", "high"
             evidence.append(f"EXPLICIT_EPISODE_TOKEN:{word.group(0)}")
+        elif movie:
+            marker = movie
+            kind, source, confidence = "movie", "movie_marker", "high"
+            evidence.append(f"MOVIE_TYPE_TOKEN:{movie.group(0)}")
         else:
             candidates = []
             for candidate in re.finditer(r"(?<!\d)(\d{1,4})(?:v\d+)?\b", stem):

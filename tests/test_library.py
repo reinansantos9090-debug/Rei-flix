@@ -1101,8 +1101,9 @@ class DetailsDomainTests(unittest.TestCase):
             )
             store.upsert_episode(
                 anime_id, "content://movie/details", "Movie Details.mkv", 0, None,
-                duration=7200, episode_type="movie",
+                episode_type="movie",
             )
+            store.save_progress("content://movie/details", 3600, 7200)
             anime = store.catalog()[0]
             view = DetailView.build(
                 FakePage(), anime, lambda *args, **kwargs: None,

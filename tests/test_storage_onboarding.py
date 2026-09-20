@@ -127,7 +127,7 @@ class StorageOnboardingTests(unittest.TestCase):
 
     def test_cancel_and_allow_callbacks_are_lifecycle_safe(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        start = source.index("        async def allow(_event):")
+        start = source.index("        async def allow_media(_event):")
         end = source.index("        dialog.actions =", start)
         block = source[start:end]
         cancel_end = source.index("        dialog.actions =", source.index("        def cancel(_event):"))

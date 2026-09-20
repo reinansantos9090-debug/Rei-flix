@@ -165,10 +165,15 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("Intent.FLAG_GRANT_PREFIX_URI_PERMISSION", main)
         self.assertNotIn("Intent.FLAG_GRANT_WRITE_URI_PERMISSION", main)
 
-    def test_startup_saf_permission_verification_is_awaited(self):
+    def test_startup_uses_activity_saf_inventory_instead_of_self_deep_link(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn("await bridge.verify_tree(folder['path'])", source)
-        self.assertIn("authorization", source)
+        self.assertNotIn("await bridge.verify_tree(folder['path'])", source)
+        self.assertIn("authoritative SAF grant inventory", source)
+        activity = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("publishSafInventory()", activity)
+        self.assertIn('persistedUriPermissions', activity)
+        self.assertIn('eventType = "saf_inventory"', activity)
+        self.assertIn('JSONObject().put("type", "saf_inventory")', activity)
 
     def test_main_activity_delegates_system_ui_to_controller_and_reapplies_on_resume(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
@@ -251,7 +256,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
     def test_refresh_library_skips_revoked_saf_trees_until_permission_returns(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("folder.get('kind') == 'saf' and folder.get('authorization') == 'granted'", source)
-        self.assertIn("await bridge.verify_tree(folder['path'])", source)
+        self.assertIn("await bridge.rescan_tree(folder['path'])", source)
 
     def test_refresh_library_waits_for_every_saf_scan_result_or_error(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")

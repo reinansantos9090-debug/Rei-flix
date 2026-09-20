@@ -104,7 +104,7 @@ object BroadStorageScanner {
                 val volumeId = runCatching { volume.mediaStoreVolumeName }.getOrNull()
                     ?.takeIf { it.isNotBlank() }
                     ?: volume.uuid?.takeIf { it.isNotBlank() }
-                    ?: if (volume.isPrimary) "external_primary" else "volume-${directory.name}"
+                    ?: if (volume.isPrimary) "external_primary" else "path:" + runCatching { directory.canonicalPath }.getOrDefault(directory.path)
                 addRoot(
                     StorageRoot(
                         directory,
@@ -170,7 +170,7 @@ object BroadStorageScanner {
         return root.name.ifBlank { root.path }
     }
 
-    fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null): JSONObject {
+    fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null, shouldCancel: () -> Boolean = { false }): JSONObject {
         val access = hasAccess(context)
         Log.i(TAG, "SCAN_STARTED: api=${Build.VERSION.SDK_INT}, granted=$access")
         check(access) { "Acesso amplo ao armazenamento não foi concedido." }
@@ -192,9 +192,11 @@ object BroadStorageScanner {
         var files = 0
         var videos = 0
         var excludedNoMedia = 0
+        var cancelled = false
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE)
             .put("directories",0).put("files",0).put("videos",0).put("excludedNoMedia",0))
         while (pending.isNotEmpty()) {
+            if (shouldCancel()) { cancelled = true; break }
             val (dir, root) = pending.removeLast()
             val canonical = runCatching { dir.canonicalFile }.getOrElse { dir }
             if (!visited.add(canonical.path) || isRestricted(canonical)) continue
@@ -230,7 +232,8 @@ object BroadStorageScanner {
                     .put("name",file.name).put("relativePath",relative).put("volumeName",volumeName)
                     .put("mimeType",mimeFor(file.extension))
                     .put("size",runCatching{file.length()}.getOrDefault(0L))
-                    .put("modifiedAt",runCatching{file.lastModified()}.getOrDefault(0L)))
+                    .put("modifiedAt",runCatching{file.lastModified()}.getOrDefault(0L))
+                    .put("volumeId",volumeName).put("volumeUuid",root?.volumeUuid ?: ""))
                 videos++
                 if (videos % 100 == 0) {
                     Log.i(TAG, "VIDEO_PROGRESS: videos=$videos, files=$files, directories=$directories")
@@ -245,7 +248,8 @@ object BroadStorageScanner {
         return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("documents",docs)
             .put("stats",JSONObject().put("directories",directories).put("files",files).put("videos",videos)
                 .put("excludedNoMedia",excludedNoMedia).put("nomediaDirectories",excludedNoMedia).put("errors",errors).put("access", snapshot))
-            .put("partial",errors.length()>0)
+            .put("partial",errors.length()>0 || cancelled)
+            .put("cancelled", cancelled)
     }
 
     private fun mimeFor(ext:String):String = when(ext.lowercase()) {

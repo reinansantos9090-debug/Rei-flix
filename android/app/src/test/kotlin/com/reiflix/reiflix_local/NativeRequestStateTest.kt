@@ -15,6 +15,7 @@ class NativeRequestStateTest {
         assertFalse(state.acceptRequest("abc"))
         assertTrue(state.acceptRequest("def"))
         assertEquals("def", state.lastHandledRequestId)
+        assertFalse(state.acceptRequest("abc"))
     }
 
     @Test

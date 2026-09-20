@@ -92,13 +92,17 @@ object SafScanner {
         }.getOrDefault(false)
     }
 
-    fun scan(context: Context, treeUri: Uri, onProgress: ((JSONObject) -> Unit)? = null): JSONObject {
+    fun scan(context: Context, treeUri: Uri, onProgress: ((JSONObject) -> Unit)? = null, shouldCancel: () -> Boolean = { false }): JSONObject {
         check(hasPersistedReadPermission(context, treeUri)) { "A permissão desta pasta foi removida." }
         val resolver = context.contentResolver
         val root = DocumentFile.fromTreeUri(context, treeUri)
             ?: throw IllegalArgumentException("Árvore SAF inválida")
         val rootDocumentId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }
             .getOrElse { throw IllegalArgumentException("ID da árvore SAF inválido", it) }
+        val providerVolumeId = if (treeUri.authority == "com.android.externalstorage.documents" && rootDocumentId.contains(":")) {
+            val rawVolume = rootDocumentId.substringBefore(":")
+            if (rawVolume == "primary") "external_primary" else rawVolume
+        } else ""
 
         val files = JSONArray()
         val errors = JSONArray()
@@ -113,7 +117,9 @@ object SafScanner {
         var lastProgressFiles = 0
         var lastProgressDirectories = 0
 
+        var cancelled = false
         while (pending.isNotEmpty()) {
+            if (shouldCancel()) { cancelled = true; break }
             val (parentDocumentId, currentPath) = pending.removeLast()
             if (!visited.add(parentDocumentId)) {
                 continue
@@ -223,8 +229,11 @@ object SafScanner {
 
                         files.put(JSONObject()
                             .put("uri", childUri.toString())
+                            .put("treeUri", treeUri.toString())
+                            .put("documentId", child.documentId)
                             .put("name", child.name)
                             .put("relativePath", relativePath)
+                            .put("volumeId", providerVolumeId)
                             .put("mimeType", child.mimeType)
                             .put("size", child.size)
                             .put("modifiedAt", child.modifiedAt))
@@ -242,8 +251,8 @@ object SafScanner {
             .put("files", stats.getInt("files"))
             .put("videos", stats.getInt("videos"))
             .put("pending", 0)
-            .put("currentPath", ""))
-        val partial = errors.length() > 0
+            .put("currentPath", "").put("cancelled", cancelled))
+        val partial = errors.length() > 0 || cancelled
         Log.i(
             TAG,
             "SAF scan finished: directories=${stats.getInt("directories")}, files=${stats.getInt("files")}, videos=${stats.getInt("videos")}, partial=$partial"

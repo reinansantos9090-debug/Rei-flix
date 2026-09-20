@@ -247,6 +247,8 @@ def main() -> int:
         source / "src/main/kotlin/com/reiflix/reiflix_local/GoogleIdentity.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/NativeRequestState.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/StorageAuthorization.kt",
+        source / "src/main/kotlin/com/reiflix/reiflix_local/NativeIndex.kt",
+        source / "src/main/kotlin/com/reiflix/reiflix_local/NativeScanController.kt",
         source / "src/main/res/values/styles.xml",
     ]
     missing = [str(path) for path in required if not path.is_file()]

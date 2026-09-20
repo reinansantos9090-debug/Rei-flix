@@ -24,12 +24,14 @@ class MainActivity : FlutterFragmentActivity() {
     private val tag = "[REIFLIX][ANDROID]"
     private lateinit var systemUiController: SystemUiController
     private var broadStoragePermissionPending = false
+    private var mediaPermissionRequestPending = false
     private val backCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
             NativeMailbox.write(this@MainActivity, JSONObject().put("type", "android_back"))
         }
     }
     private val mediaPermissionRequester = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        mediaPermissionRequestPending = false
         val granted = grants.any { it.value } && MediaStoreScanner.hasReadPermission(this)
         NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission").put("payload", JSONObject()
             .put("granted", granted)
@@ -155,6 +157,10 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
     private fun requestMediaAccess() {
+        if (mediaPermissionRequestPending) {
+            Log.i(tag, "Media permission request already pending")
+            return
+        }
         if (MediaStoreScanner.hasReadPermission(this)) {
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission").put("payload", JSONObject()
                 .put("granted", true)
@@ -169,6 +175,7 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
             return
         }
+        mediaPermissionRequestPending = true
         mediaPermissionRequester.launch(permissions)
     }
 
@@ -186,8 +193,6 @@ class MainActivity : FlutterFragmentActivity() {
             publishStorageStatus()
             return
         }
-        NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
-            .put("payload", JSONObject().put("granted", false).put("source", BroadStorageScanner.SOURCE)))
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             broadStoragePermissionPending = true
             var launched = false
@@ -263,14 +268,12 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private fun scanMediaStore() {
         if (!MediaStoreScanner.hasReadPermission(this)) {
-            val permissions = MediaStoreScanner.requiredPermissions()
-            if (permissions.isEmpty()) {
-                NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
-                    .put("message", "Este Android não disponibiliza acesso ao MediaStore.")
-                    .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
-            } else {
-                mediaPermissionRequester.launch(permissions)
-            }
+            // Scanning never turns into an implicit permission request. The
+            // explicit request/onboarding path owns that Android interaction.
+            publishStorageStatus()
+            NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
+                .put("message", "A permissão para ler vídeos ainda não foi concedida.")
+                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
             return
         }
         CoroutineScope(Dispatchers.IO).launch {

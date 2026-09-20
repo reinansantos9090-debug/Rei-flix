@@ -123,6 +123,15 @@ A tela de Configurações do Rei-flix explica e solicita esses acessos em contex
 O app não solicita permissões de notificações, contatos, SMS, telefone,
 localização, câmera, microfone, Gmail ou Drive.
 
+Na primeira abertura Android, o app consulta o estado real das permissões antes
+de oferecer o onboarding. O MediaStore é uma camada complementar de descoberta
+e pode informar acesso parcial no Android 14+. O acesso amplo só é considerado
+concedido quando `Environment.isExternalStorageManager()` confirma o retorno
+das Configurações; ele alcança o armazenamento compartilhado que o Android
+permite ao aplicativo, não áreas protegidas do sistema. SAF continua sendo a
+opção para uma árvore escolhida explicitamente pelo usuário. Cancelar qualquer
+etapa mantém o app aberto e permite tentar de novo em Configurações.
+
 ## Build
 
 ```bash

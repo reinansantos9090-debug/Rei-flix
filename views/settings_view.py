@@ -5,10 +5,12 @@ out of Flet controls.  It intentionally reads only compact store projections.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 
 import flet as ft
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title
+from core.dialogs import dismiss_dialog
 
 
 class SettingsView:
@@ -33,10 +35,15 @@ class SettingsView:
             )
 
         def confirm(title, body, action_label, action):
+            def run_action(_event):
+                dismiss_dialog(page, dialog)
+                result = action()
+                if hasattr(result, "__await__"):
+                    page.run_task(lambda: result)
             dialog = ft.AlertDialog(
                 modal=True, title=ft.Text(title), content=ft.Text(body),
-                actions=[ft.TextButton("Cancelar", on_click=lambda _: dialog.close()),
-                         ft.FilledButton(action_label, on_click=lambda _: (dialog.close(), action()))],
+                actions=[ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)),
+                         ft.FilledButton(action_label, on_click=run_action)],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
             page.overlay.append(dialog)
@@ -60,8 +67,9 @@ class SettingsView:
             async def allow(_event):
                 busy["permission"] = True
                 try:
-                    dialog.close()
-                    page.update()
+                    dismiss_dialog(page, dialog)
+                    # Yield after the Flet patch is queued before opening Android UI.
+                    await asyncio.sleep(0)
                     await on_request_video_access()
                     notice("Solicitação de permissão para ler vídeos enviada ao Android…")
                 except Exception:
@@ -75,7 +83,7 @@ class SettingsView:
                 title=ft.Text("Permissão necessária"),
                 content=ft.Text("Permissão para ler vídeos"),
                 actions=[
-                    ft.TextButton("CANCELAR", on_click=lambda _: dialog.close()),
+                    ft.TextButton("CANCELAR", on_click=lambda _: dismiss_dialog(page, dialog)),
                     ft.FilledButton("PERMITIR", on_click=allow),
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
@@ -91,8 +99,8 @@ class SettingsView:
             async def allow(_event):
                 busy["permission"] = True
                 try:
-                    dialog.close()
-                    page.update()
+                    dismiss_dialog(page, dialog)
+                    await asyncio.sleep(0)
                     await on_open_broad_storage()
                     notice("Abrindo as configurações do Android para permitir o acesso ao armazenamento…")
                 except Exception:
@@ -106,7 +114,7 @@ class SettingsView:
                 title=ft.Text("Permissão necessária"),
                 content=ft.Text("Acesso ao armazenamento para procurar vídeos nas pastas locais."),
                 actions=[
-                    ft.TextButton("CANCELAR", on_click=lambda _: dialog.close()),
+                    ft.TextButton("CANCELAR", on_click=lambda _: dismiss_dialog(page, dialog)),
                     ft.FilledButton("PERMITIR", on_click=allow),
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,

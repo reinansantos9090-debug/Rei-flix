@@ -9,6 +9,7 @@ import html
 import re
 
 import flet as ft
+from core.dialogs import dismiss_dialog
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, media_artwork, section_title
 
 
@@ -140,10 +141,10 @@ class DetailView:
                 try:
                     value = on_set_personal_note(anime_group["id"], field.value) if on_set_personal_note else field.value
                     note_text[0] = value or ""; anime_group["personal_note"] = note_text[0]
-                    render_note(); dialog.open = False; page.update()
+                    render_note(); dismiss_dialog(page, dialog)
                 except ValueError as exc:
                     field.error_text = str(exc); page.update()
-            dialog.actions = [ft.TextButton("Cancelar", on_click=lambda _: (setattr(dialog, "open", False), page.update())),
+            dialog.actions = [ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)),
                               ft.TextButton("Apagar", visible=bool(note_text[0]), on_click=lambda _: (setattr(field, "value", ""), save(None))),
                               ft.FilledButton("Salvar", on_click=save)]
             page.overlay.append(dialog); dialog.open = True; page.update()
@@ -178,9 +179,9 @@ class DetailView:
             field = ft.TextField(label="Etiqueta", hint_text="Ex.: Prioridade", autofocus=True, max_length=40)
             dialog = ft.AlertDialog(
                 modal=True, title=ft.Text("Adicionar etiqueta pessoal"), content=field,
-                actions=[ft.TextButton("Cancelar", on_click=lambda _: (setattr(dialog, "open", False), page.update())),
+                actions=[ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)),
                          ft.FilledButton("Adicionar", on_click=lambda _: (
-                             setattr(dialog, "open", False), save_tags([*personal_tags, field.value or ""])))],
+                             dismiss_dialog(page, dialog), save_tags([*personal_tags, field.value or ""])))],
             )
             page.overlay.append(dialog)
             dialog.open = True

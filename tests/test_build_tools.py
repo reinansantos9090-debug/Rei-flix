@@ -175,6 +175,14 @@ E: manifest
         self.assertIn("has_attribute(main_block, \"launchMode\"", verifier)
         self.assertIn("has_attribute(main_block, \"documentLaunchMode\"", verifier)
 
+
+    def test_manifest_verifier_exposes_semantic_activity_contract(self):
+        verifier = (ROOT / "scripts" / "verify_apk_manifest.py").read_text(encoding="utf-8")
+        self.assertIn("MAIN_LAUNCH_MODE_ATTRIBUTE = \"android:launchMode\"", verifier)
+        self.assertIn("MAIN_DOCUMENT_LAUNCH_MODE_ATTRIBUTE = \"android:documentLaunchMode\"", verifier)
+        self.assertIn("has_launchable_activity", verifier)
+        self.assertIn("maxSdkVersion=32", verifier)
+
     def test_source_manifest_and_template_contract_cannot_revert_to_single_top(self):
         manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
         template = PREPARE_TEMPLATE.read_text(encoding="utf-8")

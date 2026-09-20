@@ -1,0 +1,21 @@
+[project]
+name = "reiflix-local"
+version = "0.2.0"
+requires-python = ">=3.10"
+dependencies = ["flet==0.86.5"]
+
+[tool.flet]
+org = "com.reiflix"
+product = "ReiFlix Local"
+company = "ReiFlix"
+
+# INTERNET is a normal permission, used only for AniList metadata, cached cover
+# downloads, and the configured OAuth/OIDC flow. Android storage access is
+# implemented by the native overlay: SAF, MediaStore video permission, and the
+# optional broad-storage special access used by the local-library scanner.
+[tool.flet.android.permission]
+"android.permission.INTERNET" = true
+"android.permission.MANAGE_EXTERNAL_STORAGE" = true
+
+[tool.flet.android]
+target_sdk_version = 36

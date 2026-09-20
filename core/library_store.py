@@ -659,6 +659,27 @@ class LibraryStore:
             row = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
             return dict(row) if row else None
 
+    def missing_candidate(self, anime_id, source_folder, file_size, modified_at, volume_id=None):
+        """Find one unambiguous missing row that can survive a move/rename.
+        
+        Size + mtime are only a reconciliation hint; uniqueness is required and
+        the candidate must belong to the same logical title/source/volume.
+        """
+        if file_size is None or modified_at is None:
+            return None
+        with self._conn() as c:
+            rows = c.execute(
+                """SELECT * FROM episodes
+                   WHERE anime_id=? AND source_folder=? AND missing=1
+                     AND file_size=? AND modified_at=?
+                     AND (? IS NULL OR volume_id=?)
+                   ORDER BY id""",
+                (anime_id, source_folder, file_size, modified_at, volume_id, volume_id),
+            ).fetchall()
+            if len(rows) != 1:
+                return None
+            return dict(rows[0])
+
     def reconcile_missing(self, source_folder, seen, *, scope_kind="source", scope_ref=None):
         """Mark absence only inside a scope that the caller proved complete."""
         with self._conn() as c:

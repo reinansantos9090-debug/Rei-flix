@@ -14,7 +14,7 @@ from core.consumption import consumption_state, is_completed, is_in_progress, is
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 21
+    SCHEMA_VERSION = 22
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -73,7 +73,7 @@ class LibraryStore:
             CREATE TABLE IF NOT EXISTS scan_runs (
               id INTEGER PRIMARY KEY, started_at REAL NOT NULL, finished_at REAL, status TEXT NOT NULL DEFAULT 'running', folders INTEGER DEFAULT 0,
               files INTEGER DEFAULT 0, videos INTEGER DEFAULT 0, animes INTEGER DEFAULT 0,
-              episodes INTEGER DEFAULT 0, new_files INTEGER DEFAULT 0, updated_files INTEGER DEFAULT 0, unchanged_files INTEGER DEFAULT 0, ignored_files INTEGER DEFAULT 0, duplicate_files INTEGER DEFAULT 0, unknown_files INTEGER DEFAULT 0, reconciled_files INTEGER DEFAULT 0, scan_id TEXT, source_kind TEXT, scope_kind TEXT, scope_ref TEXT, errors TEXT NOT NULL DEFAULT '[]');
+              episodes INTEGER DEFAULT 0, new_files INTEGER DEFAULT 0, updated_files INTEGER DEFAULT 0, unchanged_files INTEGER DEFAULT 0, ignored_files INTEGER DEFAULT 0, duplicate_files INTEGER DEFAULT 0, unknown_files INTEGER DEFAULT 0, reconciled_files INTEGER DEFAULT 0, scan_id TEXT, source_kind TEXT, scope_kind TEXT, scope_ref TEXT, native_generation INTEGER, errors TEXT NOT NULL DEFAULT '[]');
             ''')
             # Migration for databases made by earlier versions.
             existing = {r[1] for r in c.execute("PRAGMA table_info(folders)")}
@@ -102,7 +102,7 @@ class LibraryStore:
                 "status": "TEXT NOT NULL DEFAULT 'running'", "new_files": "INTEGER DEFAULT 0", "updated_files": "INTEGER DEFAULT 0",
                 "unchanged_files": "INTEGER DEFAULT 0", "ignored_files": "INTEGER DEFAULT 0", "duplicate_files": "INTEGER DEFAULT 0",
                 "unknown_files": "INTEGER DEFAULT 0", "reconciled_files": "INTEGER DEFAULT 0", "scan_id": "TEXT",
-                "source_kind": "TEXT", "scope_kind": "TEXT", "scope_ref": "TEXT",
+                "source_kind": "TEXT", "scope_kind": "TEXT", "scope_ref": "TEXT", "native_generation": "INTEGER",
             }.items():
                 if column not in scan_columns:
                     c.execute(f"ALTER TABLE scan_runs ADD COLUMN {column} {definition}")
@@ -366,14 +366,14 @@ class LibraryStore:
             c.execute("UPDATE episodes SET missing=1 WHERE source_folder=?", (reference,))
             c.execute("DELETE FROM folders WHERE path=?", (reference,))
 
-    def begin_scan(self, scan_id=None, *, source_kind=None, scope_kind="global", scope_ref=None):
+    def begin_scan(self, scan_id=None, *, source_kind=None, scope_kind="global", scope_ref=None, native_generation=None):
         import uuid
         scan_id = scan_id or str(uuid.uuid4())
         with self._conn() as c:
             cur = c.execute(
-                """INSERT INTO scan_runs(started_at,status,scan_id,source_kind,scope_kind,scope_ref)
-                   VALUES (?, 'running', ?, ?, ?, ?)""",
-                (time.time(), scan_id, source_kind, scope_kind, scope_ref),
+                """INSERT INTO scan_runs(started_at,status,scan_id,source_kind,scope_kind,scope_ref,native_generation)
+                   VALUES (?, 'running', ?, ?, ?, ?, ?)""",
+                (time.time(), scan_id, source_kind, scope_kind, scope_ref, native_generation),
             )
             return cur.lastrowid
 
@@ -398,6 +398,29 @@ class LibraryStore:
         with self._conn() as c:
             row = c.execute("SELECT * FROM scan_runs WHERE scan_id=? LIMIT 1", (str(scan_id),)).fetchone()
             return dict(row) if row else None
+
+    def latest_completed_native_generation(self, source_kind, scope_kind, scope_ref):
+        with self._conn() as c:
+            row = c.execute(
+                """SELECT native_generation FROM scan_runs
+                   WHERE source_kind=? AND scope_kind=? AND scope_ref=?
+                     AND status='completed' AND native_generation IS NOT NULL
+                   ORDER BY native_generation DESC LIMIT 1""",
+                (source_kind, scope_kind, scope_ref),
+            ).fetchone()
+            return int(row["native_generation"]) if row and row["native_generation"] is not None else None
+
+    def has_native_event(self, event_id):
+        event_id = str(event_id or "").strip()
+        if not event_id:
+            return False
+        with self._conn() as c:
+            row = c.execute("SELECT value FROM preferences WHERE key='native_event_ids'").fetchone()
+            try:
+                ids = json.loads(row["value"]) if row else []
+            except (TypeError, json.JSONDecodeError):
+                ids = []
+            return event_id in ids if isinstance(ids, list) else False
 
     def claim_native_event(self, event_id, *, limit=1000):
         """Atomically remember a mailbox event id using the existing preferences store.

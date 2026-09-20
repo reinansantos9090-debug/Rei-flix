@@ -480,12 +480,16 @@ class LibraryStore:
                 manual = bool(existing and existing["manual_override"])
                 if manual and identification_source is None and identification_confidence is None:
                     return (
+                        existing["season"],
+                        existing["number"],
                         existing["episode_type"],
                         existing["episode_title"],
                         existing["identification_source"],
                         existing["identification_confidence"],
                     )
                 return (
+                    season,
+                    number,
                     episode_type,
                     episode_title,
                     identification_source or (existing["identification_source"] if existing else "legacy"),
@@ -494,13 +498,13 @@ class LibraryStore:
 
             def update_existing(row_id, new_path=None):
                 existing = c.execute("SELECT * FROM episodes WHERE id=?", (row_id,)).fetchone()
-                effective_type, effective_title, effective_source, effective_confidence = effective_identification(existing)
+                effective_season, effective_number, effective_type, effective_title, effective_source, effective_confidence = effective_identification(existing)
                 if new_path is None:
                     c.execute(
                         """UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                            episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE id=?""",
-                        (anime_id,file_name,season,number,mime_type,file_size,modified_at,source_folder,
+                        (anime_id,file_name,effective_season,effective_number,mime_type,file_size,modified_at,source_folder,
                          media_identity,absolute_number,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )
                 else:
@@ -508,7 +512,7 @@ class LibraryStore:
                         """UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                            episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE id=?""",
-                        (anime_id,new_path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
+                        (anime_id,new_path,file_name,effective_season,effective_number,mime_type,file_size,modified_at,source_folder,
                          media_identity,absolute_number,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )
                 return row_id
@@ -527,6 +531,16 @@ class LibraryStore:
                     else by_path["identification_confidence"] if by_path["manual_override"]
                     else identification_confidence or "medium"
                 )
+                duplicate_season = (
+                    by_identity["season"] if by_identity["manual_override"]
+                    else by_path["season"] if by_path["manual_override"]
+                    else season
+                )
+                duplicate_number = (
+                    by_identity["number"] if by_identity["manual_override"]
+                    else by_path["number"] if by_path["manual_override"]
+                    else number
+                )
                 duplicate_type = (
                     by_identity["episode_type"] if by_identity["manual_override"]
                     else by_path["episode_type"] if by_path["manual_override"]
@@ -542,7 +556,7 @@ class LibraryStore:
                        file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                        episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,
                        missing=0,progress=?,watched=?,last_played_at=? WHERE id=?""",
-                    (anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
+                    (anime_id,path,file_name,duplicate_season,duplicate_number,mime_type,file_size,modified_at,source_folder,
                      media_identity,absolute_number,duplicate_type,duplicate_title,duplicate_source,
                      duplicate_confidence,progress,watched,last_played,by_identity["id"]),
                 )

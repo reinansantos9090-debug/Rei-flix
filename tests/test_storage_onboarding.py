@@ -114,8 +114,9 @@ class StorageOnboardingTests(unittest.TestCase):
 
     def test_startup_does_not_self_launch_main_activity_for_storage_snapshot(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        startup = source[source.index("async def main(page: ft.Page):"):source.index("    def navigate_back():")]
+        startup = source[source.index("    page.on_login=login_done"):source.rindex("    render_current()")]
         self.assertNotIn("bridge.check_storage_access", startup)
+        self.assertNotIn("await bridge.verify_tree", source)
         self.assertIn("MainActivity publishes the authoritative storage snapshot", source)
 
     def test_native_intents_have_unique_request_identity_and_are_deduplicated(self):

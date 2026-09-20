@@ -14,6 +14,7 @@ from core.artwork import ArtworkEngine
 from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
 from core.media_identity import identity_from_document
 from core.organizer_ai import AnimeOrganizer
+from core.search_engine import LibrarySearchEngine
 
 logger = logging.getLogger(__name__)
 
@@ -571,64 +572,31 @@ class LibraryService:
         return {"genres": sorted(genres.values(), key=lambda item: item["name"].casefold()), "states": states}
 
     @staticmethod
-    def browse_catalog(catalog, query="", state="Todos", genre="Todos", sort="Mais recentes", tag="Todos"):
-        """Filter an already loaded local catalog; never queries AniList or SQLite."""
-        query = query.casefold().strip()
+    def browse_catalog(catalog, query="", state="Todos", genre="Todos", sort="Mais recentes", tag="Todos",
+                       *, media_type="Todos", season=None, episode_type="Todos", source_kind="Todos",
+                       availability="Todos", metadata="Todos", artwork="Todos"):
+        """Search/filter/sort the already projected local catalog.
 
-        def episodes(anime):
-            return [episode for season in anime.get("seasons", []) for episode in season.get("episodes", [])]
+        This compatibility facade keeps Home/Organize callers stable while the
+        matching policy lives in the reusable local SearchFilterSort engine.
+        """
+        return LibrarySearchEngine.search(
+            catalog,
+            query=query,
+            state=state,
+            genre=genre,
+            sort=sort,
+            tag=tag,
+            media_type=media_type,
+            season=season,
+            episode_type=episode_type,
+            source_kind=source_kind,
+            availability=availability,
+            metadata=metadata,
+            artwork=artwork,
+        )
 
-        def matches(anime):
-            items = episodes(anime)
-            available = [item for item in items if not item.get("missing")]
-            in_progress = any(item.get("progress", 0) > 0 and not item.get("watched") for item in available)
-            completed = bool(available) and all(item.get("watched") for item in available)
-            not_started = bool(available) and not any(item.get("progress", 0) > 0 or item.get("watched") for item in available)
-            metadata = anime.get("meta", {})
-            aliases = metadata.get("aliases") or "[]"
-            try:
-                aliases = json.loads(aliases) if isinstance(aliases, str) else aliases
-            except json.JSONDecodeError:
-                aliases = []
-            searchable = [anime.get("main_title", ""), metadata.get("romaji", ""), metadata.get("english", ""), metadata.get("native", ""), *aliases, *(anime.get("user_tags") or [])]
-            if query and not any(query in str(value).casefold() for value in searchable if value):
-                return False
-            if genre != "Todos" and genre not in anime.get("genres", []):
-                return False
-            tags = anime.get("user_tags") or []
-            if tag == "Sem etiqueta" and tags:
-                return False
-            if tag not in ("Todos", "Sem etiqueta") and tag not in tags:
-                return False
-            return {"Todos": True, "Favoritos": bool(anime.get("favorite")), "Fixados": bool(anime.get("is_pinned")),
-                    "Em andamento": in_progress, "Concluídos": completed, "Não iniciados": not_started,
-                    "Com nota": bool((anime.get("personal_note") or "").strip()), "Sem nota": not bool((anime.get("personal_note") or "").strip()),
-                    "Sem metadata": not bool(metadata.get("anilist_id")),
-                    "Sem capa": not bool(metadata.get("cover_cache") or metadata.get("cover_url"))}.get(state, True)
+    @staticmethod
+    def search_options(catalog):
+        return LibrarySearchEngine.options(catalog)
 
-        result = [anime for anime in catalog if matches(anime)]
-        if sort == "Nome A-Z":
-            return sorted(result, key=lambda anime: anime.get("main_title", "").casefold())
-        if sort == "Nome Z-A":
-            return sorted(result, key=lambda anime: anime.get("main_title", "").casefold(), reverse=True)
-        if sort == "Assistidos recentemente":
-            return sorted(
-                result,
-                key=lambda anime: max(
-                    (episode.get("last_played_at") or 0
-                     for episode in episodes(anime)
-                     if not episode.get("missing")),
-                    default=0,
-                ),
-                reverse=True,
-            )
-        if sort == "Fixados primeiro":
-            return sorted(result, key=lambda anime: (not anime.get("is_pinned", False), anime.get("main_title", "").casefold()))
-        if sort == "Favoritos primeiro":
-            return sorted(result, key=lambda anime: (not anime.get("favorite", False), anime.get("main_title", "").casefold()))
-        if sort == "Progresso":
-            def progress_value(anime):
-                values = [min(float(item.get("progress") or 0) / float(item.get("duration") or 1), 1) for item in episodes(anime) if not item.get("missing") and item.get("duration")]
-                return sum(values) / len(values) if values else -1
-            return sorted(result, key=lambda anime: (-progress_value(anime), anime.get("main_title", "").casefold()))
-        return sorted(result, key=lambda anime: anime.get("meta", {}).get("added_at") or 0, reverse=True)

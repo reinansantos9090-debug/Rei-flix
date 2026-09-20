@@ -200,10 +200,12 @@ class ArtworkEngine:
 
     def discover_anime(self, anime_id):
         with self.store._conn() as con:
+            anime = con.execute("SELECT media_kind FROM anime WHERE id=?", (int(anime_id),)).fetchone()
             rows = con.execute(
                 "SELECT path,season,episode_type FROM episodes WHERE anime_id=? AND missing=0",
                 (int(anime_id),),
             ).fetchall()
+        entity_type = "movie" if anime and str(anime["media_kind"] or "series").casefold() == "movie" else "anime"
         directories = []
         for row in rows:
             path = row["path"]
@@ -215,7 +217,7 @@ class ArtworkEngine:
         for directory in directories:
             for kind in ("poster", "backdrop"):
                 for candidate in self._candidates(kind, directory):
-                    if self.add_local("anime", anime_id, kind, candidate):
+                    if self.add_local(entity_type, anime_id, kind, candidate):
                         found.append(candidate)
         return found
 
@@ -244,8 +246,11 @@ class ArtworkEngine:
         cover_cache = (metadata.get("cover_cache") or "").strip()
         cover_url = (metadata.get("cover_url") or "").strip()
         banner_url = (metadata.get("banner_url") or "").strip()
+        with self.store._conn() as con:
+            row = con.execute("SELECT media_kind FROM anime WHERE id=?", (int(anime_id),)).fetchone()
+        entity_type = "movie" if row and str(row["media_kind"] or "series").casefold() == "movie" else "anime"
         if cover_cache and os.path.isfile(cover_cache):
-            self._upsert(entity_type="anime", entity_id=anime_id, artwork_type="poster",
+            self._upsert(entity_type=entity_type, entity_id=anime_id, artwork_type="poster",
                          source="cache", source_ref=cover_url or cover_cache,
                          local_path=cover_cache, external_url=cover_url)
         elif cover_url:
@@ -253,7 +258,7 @@ class ArtworkEngine:
                          source="anilist", source_ref=cover_url, external_url=cover_url,
                          status="available")
         if banner_url:
-            self._upsert(entity_type="anime", entity_id=anime_id, artwork_type="backdrop",
+            self._upsert(entity_type=entity_type, entity_id=anime_id, artwork_type="backdrop",
                          source="anilist", source_ref=banner_url, external_url=banner_url,
                          status="available")
         self.discover_anime(anime_id)

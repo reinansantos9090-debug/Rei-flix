@@ -166,9 +166,14 @@ class HomeView:
             for item in continuing[:8]:
                 progress = ratio(item)
                 episode_label = "FILME" if item.get("episode_type") == "movie" else f"T{item.get('season', 1)} • E{item.get('number') if item.get('number') is not None else '—'}"
+                owner = next((anime for anime in catalog if anime.get("id") == item.get("anime_id")), None)
+                continue_button = ft.OutlinedButton(
+                    "Continuar", icon=ft.Icons.PLAY_ARROW,
+                    on_click=lambda _, entry=item: play_continuation(entry),
+                )
                 card = ft.Container(
                     width=270, bgcolor=SURFACE, border_radius=RADIUS, padding=10, ink=True,
-                    on_click=lambda _, entry=item: play_continuation(entry),
+                    on_click=lambda _, entry=owner: on_select_anime(entry) if entry else None,
                     content=ft.Row([
                         ft.Container(content=artwork(item.get("cover"), 96, 26), width=68, clip_behavior=ft.ClipBehavior.HARD_EDGE),
                         ft.Column([
@@ -176,6 +181,7 @@ class HomeView:
                             ft.Text(episode_label, color=TEXT_MUTED, size=11),
                             ft.ProgressBar(value=progress, color=ACCENT, bgcolor="#454252", height=4, visible=bool(item.get("duration"))),
                             ft.Text(f"{int(progress * 100)}% assistido" if item.get("duration") else "Progresso indisponível", color=TEXT_MUTED, size=10),
+                            continue_button,
                         ], spacing=5, expand=True),
                     ], spacing=9),
                 )

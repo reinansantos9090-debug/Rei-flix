@@ -10,7 +10,7 @@ import math
 import re
 
 import flet as ft
-from core.consumption import consumption_state, is_completed, progress_ratio
+from core.consumption import consumption_state, is_completed, playback_action, progress_ratio
 from core.dialogs import dismiss_dialog
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, media_artwork, section_title
 
@@ -77,14 +77,15 @@ class DetailView:
 
         cover = metadata.get("cover_cache") or metadata.get("cover_url")
         if resolve_artwork:
-            resolved_poster = resolve_artwork("anime", anime_group["id"], "poster", allow_network=False)
+            artwork_entity = "movie" if is_movie else "anime"
+            resolved_poster = resolve_artwork(artwork_entity, anime_group["id"], "poster", allow_network=False)
             if resolved_poster:
                 cover = resolved_poster.get("local_path") or cover
         poster = media_artwork(cover, 198, width=132, icon_size=38)
 
         backdrop = None
         if resolve_artwork:
-            resolved_backdrop = resolve_artwork("anime", anime_group["id"], "backdrop", allow_network=False)
+            resolved_backdrop = resolve_artwork(artwork_entity, anime_group["id"], "backdrop", allow_network=False)
             if resolved_backdrop:
                 backdrop_path = resolved_backdrop.get("local_path") or resolved_backdrop.get("external_url")
                 if backdrop_path:
@@ -241,7 +242,8 @@ class DetailView:
 
         primary_ratio = ratio(primary_target) if primary_target else None
         primary_type = str(primary_target.get("episode_type") or "regular").casefold() if primary_target else ""
-        if primary_target and primary_ratio and primary_ratio > 0 and not primary_target.get("missing"):
+        primary_action = playback_action(primary_target) if primary_target else "unavailable"
+        if primary_action == "continue":
             primary_label = (
                 "Continuar filme" if is_movie
                 else "Continuar especial" if primary_type in {"special", "ova", "oad", "ona", "extra"}
@@ -249,13 +251,13 @@ class DetailView:
             )
         elif is_next_after_completion:
             primary_label = "Próximo episódio"
-        elif primary_target and is_completed(primary_target):
+        elif primary_action == "replay":
             primary_label = (
                 "Reassistir filme" if is_movie
                 else "Reassistir especial" if primary_type in {"special", "ova", "oad", "ona", "extra"}
                 else "Reassistir episódio"
             )
-        elif primary_target:
+        elif primary_action == "watch":
             primary_label = (
                 "Assistir filme" if is_movie
                 else "Assistir especial" if primary_type in {"special", "ova", "oad", "ona", "extra"}
@@ -385,6 +387,25 @@ class DetailView:
             else:
                 if seasons:
                     selected = seasons[min(selected_season[0], len(seasons) - 1)]
+                    season_available = int(selected.get("available_count") or 0)
+                    season_watched = int(selected.get("watched_count") or 0)
+                    season_remaining = int(selected.get("remaining_count") or 0)
+                    season_active = int(selected.get("active_count") or 0)
+                    season_progress = float(selected.get("progress_ratio") or 0.0)
+                    episode_column.controls.append(
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Text(
+                                    f"{season_watched}/{season_available} concluídos • {season_remaining} restantes"
+                                    + (f" • {season_active} em andamento" if season_active else ""),
+                                    color="#C7C5D0", size=11,
+                                ),
+                                ft.ProgressBar(value=max(0.0, min(season_progress, 1.0)), color="#E50914", bgcolor="#454252", bar_height=4, visible=season_available > 0),
+                            ], spacing=5),
+                            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                            bgcolor=SURFACE, border_radius=RADIUS,
+                        )
+                    )
                     if resolve_artwork:
                         season_number = selected.get("season")
                         if season_number is not None:

@@ -703,9 +703,17 @@ class LibraryStore:
                 ordered_seasons = []
                 for season, values in sorted(seasons.items(), key=lambda item: item[0] if item[0] is not None else -1):
                     values = sorted(values, key=lambda e: (e["number"] if e["number"] is not None else -1, e["file_name"].casefold(), e["path"].casefold()))
+                    season_available = [e for e in values if not e["missing"]]
+                    season_completed = [e for e in season_available if is_completed(e)]
+                    season_active = [e for e in season_available if is_in_progress(e)]
                     ordered_seasons.append({
                         "season_name": f"Temporada {season}" if season is not None else "Temporada especial",
                         "season": season, "folder_path": "", "episodes": values,
+                        "available_count": len(season_available),
+                        "watched_count": len(season_completed),
+                        "active_count": len(season_active),
+                        "remaining_count": max(0, len(season_available) - len(season_completed)),
+                        "progress_ratio": (len(season_completed) / len(season_available)) if season_available else 0.0,
                     })
                 available = [e for e in projected if not e["missing"]]
                 watched = [e for e in available if is_completed(e)]

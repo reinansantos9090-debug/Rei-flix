@@ -51,6 +51,17 @@ def consumption_state(episode: dict) -> ConsumptionState:
         return ConsumptionState.IN_PROGRESS
     return ConsumptionState.UNWATCHED
 
+def playback_action(episode: dict) -> str:
+    """Return the single user-facing playback action for one local item."""
+    if not episode or bool(episode.get("missing")):
+        return "unavailable"
+    if is_completed(episode):
+        return "replay"
+    if is_in_progress(episode):
+        return "continue"
+    return "watch"
+
+
 def is_regular_episode(episode: dict) -> bool:
     return str(episode.get("episode_type") or "regular").casefold() not in {
         "movie", "special", "ova", "oad", "ona", "extra"

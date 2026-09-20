@@ -15,6 +15,7 @@ object NativeMailbox {
 
     @Synchronized
     fun write(context: Context, event: JSONObject) {
+        var temporary: File? = null
         try {
             val dataDirectory = File(context.filesDir, "data")
             check(dataDirectory.isDirectory || dataDirectory.mkdirs()) {
@@ -26,7 +27,7 @@ object NativeMailbox {
             }
             val id = UUID.randomUUID().toString()
             val target = File(queue, "$PREFIX$id.json")
-            val temporary = File(queue, "$PREFIX$id.json.tmp")
+            temporary = File(queue, "$PREFIX$id.json.tmp")
             val payload = JSONObject(event.toString())
                 .put("eventId", id)
                 .put("createdAt", System.currentTimeMillis())
@@ -37,7 +38,7 @@ object NativeMailbox {
             check(temporary.renameTo(target)) { "Could not publish native event" }
             Log.i(TAG, "Native event queued: ${event.optString("type")}")
         } catch (exception: Exception) {
-            temporary.delete()
+            temporary?.delete()
             Log.e(TAG, "Unable to queue native event", exception)
         }
     }

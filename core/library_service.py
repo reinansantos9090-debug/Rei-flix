@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlparse
 from pathlib import Path
 from dataclasses import dataclass, field
 from core.anilist import AniListClient
+from core.consumption import consumption_state
 from core.artwork import ArtworkEngine
 from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
 from core.media_identity import identity_from_document
@@ -588,14 +589,12 @@ class LibraryService:
             if anime.get("favorite"):
                 state_counts["Favoritos"] += 1
 
-            episodes = [episode for season in anime.get("seasons") or [] for episode in season.get("episodes") or []]
-            episodes.extend(episode for group in anime.get("specials") or [] for episode in group.get("episodes") or [])
-            episodes.extend(anime.get("media_files") or [])
-            available = [episode for episode in episodes if not episode.get("missing")]
-            states = [consumption_state(episode) for episode in available]
-            if any(state.value == "in_progress" for state in states):
+            available_count = int(anime.get("available_count") or 0)
+            active_count = int(anime.get("active_count") or 0)
+            watched_count = int(anime.get("watched_count") or 0)
+            if active_count > 0:
                 state_counts["Em andamento"] += 1
-            if available and all(state.value in {"completed", "watched"} for state in states):
+            if available_count > 0 and watched_count == available_count:
                 state_counts["Concluídos"] += 1
 
         states = [{"name": name, "count": state_counts[name]} for name in ("Todos", "Favoritos", "Em andamento", "Concluídos")]

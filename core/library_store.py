@@ -752,7 +752,10 @@ class LibraryStore:
                     "current_episode": current,
                     "next_episode": next_ep,
                     "available_count": len(available), "watched_count": len(watched),
-                    "active_count": len(active), "last_played_at": history.get(a["id"]),
+                    "active_count": len(active), "missing_count": len(projected) - len(available),
+                    "content_count": len(projected), "regular_count": len(regulars),
+                    "special_count": len(special_eps), "movie_file_count": len(movie_eps),
+                    "last_played_at": history.get(a["id"]),
                     "media_kind": a["media_kind"] or "series",
                 })
             return result

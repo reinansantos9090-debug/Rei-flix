@@ -70,12 +70,11 @@ class OrganizeView:
             return progress_ratio(current)
 
         def anime_card(anime):
-            all_episodes = episodes(anime)
-            available = [episode for episode in all_episodes if not episode.get("missing")]
-            watched = sum(consumption_state(episode).value in {"completed", "watched"} for episode in available)
+            available_count = int(anime.get("available_count") or 0)
+            watched = int(anime.get("watched_count") or 0)
             ratio = progress(anime)
             cover = (anime.get("meta") or {}).get("cover_cache") or (anime.get("meta") or {}).get("cover_url")
-            subtitle = f"{watched}/{len(available)} assistidos" if available else "Sem arquivos disponíveis"
+            subtitle = f"{watched}/{available_count} assistidos" if available_count else "Sem arquivos disponíveis"
             overlays = []
             if anime.get("favorite"):
                 overlays.append(ft.Container(ft.Icon(ft.Icons.STAR, color="#FFD54F", size=16), top=7, right=7,

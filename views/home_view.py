@@ -194,6 +194,8 @@ class HomeView:
                 )
                 continue_row.controls.append(card)
 
+        catalog_by_id = {}
+
         def render_genres():
             genres_row.controls.clear()
             genres = {str(genre) for anime in catalog for genre in anime.get("genres", []) if genre}
@@ -201,17 +203,18 @@ class HomeView:
                 genres_row.controls.append(chip(genre, genre == selected_genre[0], lambda _, value=genre: select_genre(value)))
 
         def card(anime):
-            episodes = [episode for season in anime.get("seasons", []) for episode in season.get("episodes", [])]
-            episodes.extend(episode for group in anime.get("specials", []) for episode in group.get("episodes", []))
-            episodes.extend(anime.get("media_files", []))
-            available = [episode for episode in episodes if not episode.get("missing")]
-            completed = sum(consumption_state(episode).value in {"completed", "watched"} for episode in available)
+            available_count = int(anime.get("available_count") or 0)
+            completed = int(anime.get("watched_count") or 0)
             current = anime.get("current_episode") or {}
             current_state = consumption_state(current) if current else None
             progress = ratio(current)
             cover = anime.get("meta", {}).get("cover_cache") or anime.get("meta", {}).get("cover_url")
-            subtitle = f"{len(available)} episódios" if len(available) == len(episodes) else f"{len(available)}/{len(episodes)} disponíveis"
-            status = "Concluído" if available and len(available) == len(episodes) and completed == len(available) else (f"{completed} concluídos" if completed else subtitle)
+            content_count = int(anime.get("content_count") or 0)
+            missing_count = int(anime.get("missing_count") or 0)
+            subtitle = "Filme" if anime.get("media_kind") == "movie" else (
+                f"{available_count} episódios" if missing_count == 0 else f"{available_count}/{content_count} disponíveis"
+            )
+            status = "Concluído" if available_count > 0 and missing_count == 0 and completed == available_count else (f"{completed} concluídos" if completed else subtitle)
             indicators = []
             if anime.get("favorite"):
                 indicators.append(ft.Container(content=ft.Icon(ft.Icons.STAR, color="#FFD54F", size=16), top=7, right=7, bgcolor="#181720CC", border_radius=12, padding=4))

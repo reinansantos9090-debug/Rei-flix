@@ -455,8 +455,12 @@ class LibraryStore:
             c.execute("UPDATE anime SET metadata_manual_fields=?,metadata_status=?,metadata_source=? WHERE id=?", (json.dumps(sorted(manual_fields), ensure_ascii=False), "available" if row["anilist_id"] else "unresolved", "anilist" if row["anilist_id"] else "local", row["id"]))
             return True
 
-    def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None, modified_at=None, source_folder=None, media_identity=None, absolute_number=None, episode_type="regular", episode_title=None):
+    def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None, modified_at=None, source_folder=None, media_identity=None, absolute_number=None, episode_type="regular", episode_title=None, *, identification_source=None, identification_confidence=None, identity_key=None):
         """Upsert by URI, then by proven cross-source identity."""
+        season = 0 if season is None else season
+        media_identity = media_identity or identity_key
+        identification_source = identification_source or "legacy"
+        identification_confidence = identification_confidence or "medium"
         with self._conn() as c:
             by_path = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
             by_identity = None
@@ -471,9 +475,9 @@ class LibraryStore:
                     c.execute(
                         """UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
-                           episode_type=?,episode_title=?,missing=0 WHERE id=?""",
+                           episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE id=?""",
                         (anime_id,file_name,season,number,mime_type,file_size,modified_at,source_folder,
-                         media_identity,absolute_number,episode_type,episode_title,row_id),
+                         media_identity,absolute_number,episode_type,episode_title,identification_source,identification_confidence,row_id),
                     )
                 else:
                     c.execute(
@@ -494,7 +498,7 @@ class LibraryStore:
                        file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                        episode_type=?,episode_title=?,missing=0,progress=?,watched=?,last_played_at=? WHERE id=?""",
                     (anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
-                     media_identity,absolute_number,episode_type,episode_title,progress,watched,last_played,by_identity["id"]),
+                     media_identity,absolute_number,episode_type,episode_title,identification_source,identification_confidence,progress,watched,last_played,by_identity["id"]),
                 )
                 c.execute("DELETE FROM episodes WHERE id=?", (by_path["id"],))
                 return by_identity["id"]
@@ -506,10 +510,10 @@ class LibraryStore:
 
             cur = c.execute(
                 """INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,
-                                         source_folder,missing,media_identity,absolute_number,episode_type,episode_title)
-                   VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?)""",
+                                         source_folder,missing,media_identity,absolute_number,episode_type,episode_title,identification_source,identification_confidence)
+                   VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)""",
                 (anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
-                 media_identity,absolute_number,episode_type,episode_title),
+                 media_identity,absolute_number,episode_type,episode_title,identification_source,identification_confidence),
             )
             return cur.lastrowid
 

@@ -72,6 +72,18 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(confident)
 
 class StoreTests(unittest.TestCase):
+    def test_personal_tags_persist_normalize_and_are_searchable_offline(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime("frieren", {"title": "Frieren", "genres": "[]"})
+            tags = store.set_user_tags(anime, ["  Prioridade  ", "prioridade", "Assistir com amigos", ""])
+            self.assertEqual(tags, ["Prioridade", "Assistir com amigos"])
+            store.upsert_episode(anime, "/library/frieren-01.mkv", "Frieren - 01.mkv", 1, 1)
+            catalog = LibraryService(store).catalog()
+            self.assertEqual(catalog[0]["user_tags"], tags)
+            self.assertEqual(LibraryService.browse_catalog(catalog, query="amigos"), catalog)
+            self.assertEqual(LibraryStore(d).catalog()[0]["user_tags"], tags)
+
     def test_library_persists_episode_and_missing_flag(self):
         with tempfile.TemporaryDirectory() as d:
             store=LibraryStore(d); anime=store.upsert_anime('naruto',{'title':'Naruto','genres':'[]'})
@@ -111,12 +123,17 @@ class StoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)
             anime = store.upsert_anime('naruto', {'title': 'Naruto', 'genres': '[]'})
-            store.upsert_episode(anime, 'content://media/external/video/media/10', 'Naruto - 001.mkv', 1, 1,
-                                 'video/x-matroska', 150000000, 1000, 'mediastore:external:video')
-            store.save_progress('content://media/external/video/media/10', 45, 100)
+            from core.media_identity import local_media_identity
+            media_uri = 'content://media/external/video/media/10'
+            broad_uri = 'file:///storage/emulated/0/Anime/Naruto - 001.mkv'
+            media_identity = local_media_identity(uri=media_uri, source_kind='mediastore', relative_path='Anime/Naruto - 001.mkv', size=150000000, modified_at=1000)
+            broad_identity = local_media_identity(uri=broad_uri, source_kind='broad_storage', relative_path='/storage/emulated/0/Anime/Naruto - 001.mkv', size=150000000, modified_at=1000)
+            store.upsert_episode(anime, media_uri, 'Naruto - 001.mkv', 1, 1,
+                                 'video/x-matroska', 150000000, 1000, 'mediastore:external:video', media_identity)
+            store.save_progress(media_uri, 45, 100)
 
-            store.upsert_episode(anime, 'file:///storage/emulated/0/Anime/Naruto - 001.mkv', 'Naruto - 001.mkv', 1, 1,
-                                 'video/x-matroska', 150000000, 1000, 'broad-storage')
+            store.upsert_episode(anime, broad_uri, 'Naruto - 001.mkv', 1, 1,
+                                 'video/x-matroska', 150000000, 1000, 'broad-storage', broad_identity)
 
             catalog = store.catalog()
             self.assertEqual(len(catalog[0]['seasons'][0]['episodes']), 1)
@@ -124,6 +141,16 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(episode['path'], 'file:///storage/emulated/0/Anime/Naruto - 001.mkv')
             self.assertEqual(episode['progress'], 45)
             self.assertEqual(episode['duration'], 100)
+
+    def test_same_name_and_size_without_local_identity_are_not_merged(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('naruto', {'title': 'Naruto', 'genres': '[]'})
+            store.upsert_episode(anime, 'content://cloud.example/a', 'Naruto - 001.mkv', 1, 1,
+                                 file_size=100, modified_at=10, source_folder='content://cloud.example/tree/a')
+            store.upsert_episode(anime, 'content://cloud.example/b', 'Naruto - 001.mkv', 1, 1,
+                                 file_size=100, modified_at=10, source_folder='content://cloud.example/tree/b')
+            self.assertEqual(len(store.catalog()[0]['seasons'][0]['episodes']), 2)
 
     def test_missing_file_keeps_progress_and_is_recovered(self):
         with tempfile.TemporaryDirectory() as d:
@@ -270,7 +297,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(store.catalog()[0]['main_title'], 'Naruto')
             self.assertEqual(store.get_preference('missing', 'default'), 'default')
             with store._conn() as con:
-                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], 12)
+                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], 14)
 
     def test_clear_anilist_cache_preserves_library_favorite_progress_history_and_association(self):
         with tempfile.TemporaryDirectory() as d:
@@ -381,12 +408,12 @@ class SettingsPersistenceTests(unittest.TestCase):
                     service.clear_anilist_cache()
             self.assertEqual(store.library_summary()['episodes'], 1)
 
-    def test_reopening_database_does_not_repeat_phase_10_migration(self):
+    def test_reopening_database_does_not_repeat_personal_tags_migration(self):
         with tempfile.TemporaryDirectory() as d:
             LibraryStore(d)
             LibraryStore(d)
             with LibraryStore(d)._conn() as con:
-                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=12').fetchone()[0], 1)
+                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=14').fetchone()[0], 1)
 
     def test_invalid_progress_is_rejected_and_overflow_is_normalized(self):
         with tempfile.TemporaryDirectory() as d:

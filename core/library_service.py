@@ -9,6 +9,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from core.anilist import AniListClient
 from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
+from core.media_identity import local_media_identity
 from core.organizer_ai import AnimeOrganizer
 
 logger = logging.getLogger(__name__)
@@ -188,7 +189,12 @@ class LibraryService:
                     metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
                     logger.warning("Metadata lookup failed for SAF title %s: %s", item.anime_title, exc)
             anime_id = self.store.upsert_anime(key, metadata[key])
-            self.store.upsert_episode(anime_id, uri, name, item.season, item.episode, document.get("mimeType"), document.get("size"), document.get("modifiedAt"), tree_uri)
+            self.store.upsert_episode(
+                anime_id, uri, name, item.season, item.episode,
+                document.get("mimeType"), document.get("size"), document.get("modifiedAt"), tree_uri,
+                local_media_identity(uri=uri, source_kind=source_kind, relative_path=relative_path,
+                                     size=document.get("size"), modified_at=document.get("modifiedAt")),
+            )
         # Do not infer removals from a partial SAF scan: a SecurityException in
         # one subdirectory means its previous documents may simply be unreadable.
         # On a complete scan, absent documents become missing while keeping their
@@ -238,6 +244,7 @@ class LibraryService:
     def playback_target(self, anime_id): return self.store.playback_target(anime_id)
     def next_episode(self, path): return self.store.next_episode(path)
     def previous_episode(self, path): return self.store.previous_episode(path)
+    def set_user_tags(self, anime_id, tags): return self.store.set_user_tags(anime_id, tags)
 
     def clear_anilist_cache(self):
         """Clear only refreshable AniList artifacts, never local library state.
@@ -300,7 +307,7 @@ class LibraryService:
                 aliases = json.loads(aliases) if isinstance(aliases, str) else aliases
             except json.JSONDecodeError:
                 aliases = []
-            searchable = [anime.get("main_title", ""), metadata.get("romaji", ""), metadata.get("english", ""), metadata.get("native", ""), *aliases]
+            searchable = [anime.get("main_title", ""), metadata.get("romaji", ""), metadata.get("english", ""), metadata.get("native", ""), *aliases, *(anime.get("user_tags") or [])]
             if query and not any(query in str(value).casefold() for value in searchable if value):
                 return False
             if genre != "Todos" and genre not in anime.get("genres", []):

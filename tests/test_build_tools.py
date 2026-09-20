@@ -15,6 +15,8 @@ DESCRIPTORS = (
     b"Lcom/reiflix/reiflix_local/MainActivity;",
     b"Lcom/reiflix/reiflix_local/NativeMailbox;",
     b"Lcom/reiflix/reiflix_local/SafScanner;",
+    b"Lcom/reiflix/reiflix_local/MediaStoreScanner;",
+    b"Lcom/reiflix/reiflix_local/BroadStorageScanner;",
     b"Lcom/reiflix/reiflix_local/NativePlayerActivity;",
     b"Lcom/reiflix/reiflix_local/GoogleIdentity;",
 )
@@ -54,6 +56,10 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("flet build apk --template build/flet-build-template --yes -v", workflow)
         self.assertNotIn("flet build apk --template .", workflow)
         self.assertIn('python scripts/verify_android_host.py "$apk"', workflow)
+        self.assertIn('"platforms;android-36"', workflow)
+        self.assertIn('"build-tools;36.0.0"', workflow)
+        self.assertNotIn('sdkmanager --licenses || true', workflow)
+        self.assertNotIn('apksigner" verify --verbose --print-certs "$apk" || true', workflow)
 
     def test_template_preparation_copies_overlay_and_installs_post_generation_hook(self):
         with tempfile.TemporaryDirectory() as d:
@@ -91,6 +97,10 @@ class AndroidHostVerificationTests(unittest.TestCase):
             self.assertIn("NativePlayerActivity", (rendered / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8"))
             self.assertIn("@style/ReiFlixTheme", (rendered / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8"))
             self.assertIn("media3-exoplayer:1.5.1", (rendered / "build.gradle").read_text(encoding="utf-8"))
+            rendered_gradle = (rendered / "build.gradle").read_text(encoding="utf-8")
+            self.assertIn("ReiFlix Android 16 SDK contract", rendered_gradle)
+            self.assertIn("compileSdk 36", rendered_gradle)
+            self.assertIn("targetSdk 36", rendered_gradle)
 
     def test_main_activity_uses_lifecycle_aware_back_and_activity_result_callbacks(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

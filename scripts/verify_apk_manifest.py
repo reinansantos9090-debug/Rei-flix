@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Validate the effective AndroidManifest.xml packaged in a Rei-Flix APK."""
+"""Validate the effective AndroidManifest.xml packaged in a Rei-Flix APK.
+
+AAPT2's xmltree output is diagnostic text whose indentation can vary between
+build-tools releases. Keep parsing semantic instead of depending on one exact
+indentation level.
+"""
 from __future__ import annotations
 
 import argparse
@@ -9,7 +14,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 MAIN_ACTIVITY = "com.reiflix.reiflix_local.MainActivity"
 REQUIRED_PERMISSIONS = (
     "android.permission.READ_EXTERNAL_STORAGE",
@@ -18,68 +22,119 @@ REQUIRED_PERMISSIONS = (
     "android.permission.MANAGE_EXTERNAL_STORAGE",
 )
 
+def _dump(aapt2: Path, apk: Path, command: str) -> str:
+    args = [str(aapt2), "dump", command, str(apk)]
+    if command == "xmltree":
+        args.extend(["--file", "AndroidManifest.xml"])
+    result = subprocess.run(args, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr or result.stdout or f"aapt2 dump {command} failed")
+    return result.stdout
+
+def extract_activity_block(manifest: str, activity_name: str) -> str | None:
+    blocks = re.split(r"(?m)^\s*E:\s*activity\b[^\n]*\n?", manifest)
+    for tail in blocks[1:]:
+        block = "E: activity\n" + tail
+        if activity_name in block:
+            return block
+    return None
+
+def has_attribute(block: str | None, attribute: str, *accepted_values: str) -> bool:
+    if not block:
+        return False
+    match = re.search(
+        rf"android:{re.escape(attribute)}\b.*?(?=\n(?:\s*E:|\s*A:)|\Z)",
+        block,
+        re.S,
+    )
+    if not match:
+        return False
+    line = match.group(0)
+    return any(value in line for value in accepted_values)
+
+def has_deep_link(activity_block: str | None) -> bool:
+    if not activity_block:
+        return False
+    return bool(
+        re.search(r'android:scheme\b.*?(?:["\']reiflix["\']|reiflix)', activity_block, re.S)
+        and re.search(r'android:host\b.*?(?:["\']native["\']|native)', activity_block, re.S)
+    )
+
+def has_permission(manifest: str, permission: str) -> bool:
+    return permission in manifest
+
+def has_max_sdk_32_for_legacy_permission(manifest: str) -> bool:
+    blocks = re.split(r"(?m)^\s*E:\s*uses-permission\b[^\n]*\n?", manifest)
+    for tail in blocks[1:]:
+        block = "E: uses-permission\n" + tail
+        if "android.permission.READ_EXTERNAL_STORAGE" not in block:
+            continue
+        return bool(re.search(r"android:maxSdkVersion\b.*?(?:32|0x00000020)", block, re.S))
+    return False
+
+def has_launchable_activity(badging: str, activity_name: str) -> bool:
+    return bool(re.search(
+        rf"launchable-activity:\s*name=["']{re.escape(activity_name)}["']",
+        badging,
+    ))
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("apk", type=Path)
-    parser.add_argument(
-        "--aapt2",
-        type=Path,
-        default=Path(shutil.which("aapt2") or ""),
-    )
+    parser.add_argument("--aapt2", type=Path, default=Path(shutil.which("aapt2") or ""))
     args = parser.parse_args()
-
     if not args.apk.is_file():
         parser.error(f"APK not found: {args.apk}")
     if not args.aapt2.is_file():
         parser.error(f"aapt2 not found: {args.aapt2}")
 
-    command = [str(args.aapt2), "dump", "xmltree", str(args.apk), "--file", "AndroidManifest.xml"]
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(result.stderr or result.stdout, file=sys.stderr)
-        return result.returncode or 1
-
-    manifest = result.stdout
-    activities = re.findall(r"(?ms)^    E: activity\b.*?(?=^    E: activity\b|\Z)", manifest)
-    main_block = next(
-        (block for block in activities if MAIN_ACTIVITY in block),
-        None,
-    )
-    if main_block is None:
-        print(f"MainActivity not found in packaged manifest: {MAIN_ACTIVITY}", file=sys.stderr)
+    try:
+        manifest = _dump(args.aapt2, args.apk, "xmltree")
+        badging = _dump(args.aapt2, args.apk, "badging")
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
         return 1
 
-    checks = (
-        ("launchMode=singleTask", re.search(r"android:launchMode\b.*?0x00000002\b", main_block)),
-        ("documentLaunchMode=never", re.search(r"android:documentLaunchMode\b.*?0x00000003\b", main_block)),
-        ("exported=true", re.search(r"android:exported\b.*?0xffffffff\b|android:exported\b.*?true", main_block)),
-        ("reiflix://native", "reiflix" in main_block and "native" in main_block),
-    )
-    failed = [name for name, ok in checks if not ok]
-    failed.extend(
-        permission
-        for permission in REQUIRED_PERMISSIONS
-        if permission not in manifest
-    )
+    main_block = extract_activity_block(manifest, MAIN_ACTIVITY)
+    failed: list[str] = []
+    if main_block is None:
+        failed.append(f"MainActivity not found in packaged manifest: {MAIN_ACTIVITY}")
+    else:
+        checks = (
+            ("launchMode=singleTask", has_attribute(main_block, "launchMode", "0x00000002", "0x2", "singleTask")),
+            ("documentLaunchMode=never", has_attribute(main_block, "documentLaunchMode", "0x00000003", "0x3", "never")),
+            ("exported=true", has_attribute(main_block, "exported", "0xffffffff", "true")),
+            ("reiflix://native", has_deep_link(main_block)),
+        )
+        failed.extend(name for name, ok in checks if not ok)
+
+    if not has_launchable_activity(badging, MAIN_ACTIVITY):
+        failed.append("launchable MainActivity is missing from AAPT2 badging output")
+    failed.extend(permission for permission in REQUIRED_PERMISSIONS if not has_permission(manifest, permission))
+    if not has_max_sdk_32_for_legacy_permission(manifest):
+        failed.append("READ_EXTERNAL_STORAGE is not visibly constrained to maxSdkVersion=32 in packaged manifest")
+
     if failed:
         print("Packaged manifest validation failed:", file=sys.stderr)
         for item in failed:
             print(f"  - {item}", file=sys.stderr)
-        print(main_block, file=sys.stderr)
+        if main_block:
+            print(main_block, file=sys.stderr)
+        print("--- AAPT2 badging ---", file=sys.stderr)
+        print(badging, file=sys.stderr)
         return 1
 
     print("Verified packaged AndroidManifest.xml:")
     print(f"  MainActivity: {MAIN_ACTIVITY}")
-    print("  launchMode: singleTask (0x00000002)")
-    print("  documentLaunchMode: never (0x00000003)")
+    print("  launchMode: singleTask (AAPT2 ActivityInfo constant 2)")
+    print("  documentLaunchMode: never (AAPT2 ActivityInfo constant 3)")
     print("  exported: true")
+    print("  launchable activity: yes")
     print("  deep-link: reiflix://native")
     for permission in REQUIRED_PERMISSIONS:
         print(f"  permission: {permission}")
-    print("  legacy media permission: READ_EXTERNAL_STORAGE (maxSdkVersion<=32 checked by source/template)")
+    print("  legacy media permission: READ_EXTERNAL_STORAGE (maxSdkVersion=32)")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

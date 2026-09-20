@@ -117,6 +117,49 @@ class AndroidHostVerificationTests(unittest.TestCase):
             self.assertIn("media3-exoplayer:1.5.1", (rendered / "build.gradle").read_text(encoding="utf-8"))
             self.assertIn("compileSdk 36", (rendered / "build.gradle").read_text(encoding="utf-8"))
 
+    def test_manifest_verifier_parses_aapt2_without_fixed_indentation(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("verify_apk_manifest", ROOT / "scripts" / "verify_apk_manifest.py")
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+
+        sample = """
+E: manifest
+  E: uses-permission
+    A: android:name(0x01010003)="android.permission.READ_EXTERNAL_STORAGE"
+    A: android:maxSdkVersion(0x01010271)=(type 0x10)0x20
+  E: activity
+   A: android:name(0x01010003)="com.reiflix.reiflix_local.MainActivity"
+   A: android:launchMode(0x0101003f)=(type 0x10)0x2
+   A: android:documentLaunchMode(0x01010314)=(type 0x10)0x3
+   A: android:exported(0x01010010)=(type 0x12)0xffffffff
+   E: intent-filter
+      E: data
+       A: android:scheme(0x01010027)="reiflix"
+       A: android:host(0x01010028)="native"
+"""
+        block = module.extract_activity_block(sample, "com.reiflix.reiflix_local.MainActivity")
+        self.assertIsNotNone(block)
+        self.assertTrue(module.has_attribute(block, "launchMode", "0x00000002", "0x2", "singleTask"))
+        self.assertTrue(module.has_attribute(block, "documentLaunchMode", "0x00000003", "0x3", "never"))
+        self.assertTrue(module.has_attribute(block, "exported", "0xffffffff", "true"))
+        self.assertTrue(module.has_deep_link(block))
+        self.assertTrue(module.has_max_sdk_32_for_legacy_permission(sample))
+
+    def test_main_handles_non_destructive_volume_change_events(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        service = (ROOT / "core" / "library_service.py").read_text(encoding="utf-8")
+        store = (ROOT / "core" / "library_store.py").read_text(encoding="utf-8")
+        self.assertIn("event_type == 'volume_changed'", source)
+        self.assertIn("library.ingest_native_volume_change", source)
+        self.assertIn("set_native_volume_states", service + store)
+        start = source.index("event_type == 'volume_changed':")
+        end = source.index("event_type == 'saf_inventory':", start)
+        self.assertNotIn("reconcile_missing", source[start:end])
+
+
     def test_workflow_validates_effective_manifest_and_hash(self):
         workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
         verifier = (ROOT / "scripts/verify_apk_manifest.py").read_text(encoding="utf-8")

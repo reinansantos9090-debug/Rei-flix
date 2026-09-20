@@ -57,6 +57,25 @@ class Prompt16RescanTests(unittest.TestCase):
         self.assertFalse(self.store.physical_row(second["uri"])["missing"])
         self.assertEqual("partial", self.store.last_scan()["status"])
 
+    def test_explicit_partial_scan_flag_blocks_reconciliation(self):
+        source = "content://tree/partial-flag"
+        first = self.doc("content://media/pf1", "Show/Show S01E01.mkv")
+        second = self.doc("content://media/pf2", "Show/Show S01E02.mkv")
+        self.ingest(source, [first, second], scan_id="pf-a")
+        self.service.ingest_documents(
+            source,
+            [first],
+            folder_name="Test",
+            source_kind="saf",
+            scan_id="pf-b",
+            scan_errors=[],
+            scan_stats={"partial": True, "errors": []},
+            scope_kind="root",
+            scope_ref="",
+        )
+        self.assertFalse(self.store.physical_row(second["uri"])["missing"])
+        self.assertEqual("partial", self.store.last_scan()["status"])
+
     def test_move_and_rename_preserve_media_identity_and_progress(self):
         source = "content://tree/move"
         old = self.doc("content://media/old", "Show/Show S01E01.mkv", size=777, mtime=1234)
@@ -202,3 +221,50 @@ class Prompt16RescanTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNativeVolumeStateIntegration(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = LibraryStore(self.tmp.name)
+        self.service = LibraryService(self.store)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_volume_change_persists_without_touching_catalog(self):
+        document = {
+            "uri": "content://media/volume-safe",
+            "name": "Show S01E01.mkv",
+            "relativePath": "Show/Show S01E01.mkv",
+            "mimeType": "video/x-matroska",
+            "size": 100,
+            "modifiedAt": 1000,
+            "volumeId": "external_primary",
+            "volumeUuid": "primary",
+        }
+        self.service.ingest_documents(
+            "mediastore:external:video",
+            [document],
+            source_kind="mediastore",
+            scan_id="volume-catalog",
+            scope_kind="volume",
+            scope_ref="external_primary",
+            scan_generation=1,
+        )
+        before = self.store.catalog()
+        state = self.service.ingest_native_volume_change({
+            "current": [{
+                "volumeId": "external_primary",
+                "uuid": "primary",
+                "state": "unmounted",
+                "removable": False,
+                "emulated": True,
+                "primary": True,
+            }],
+            "removed": [],
+            "added": [],
+            "changedVolumes": [],
+        })
+        self.assertEqual("unmounted", state["external_primary"]["state"])
+        self.assertEqual(before, self.store.catalog())

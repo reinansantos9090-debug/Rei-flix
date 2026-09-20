@@ -122,6 +122,36 @@ class LibraryStore:
             row = c.execute("SELECT value FROM preferences WHERE key=?", (key,)).fetchone()
             return row["value"] if row else default
 
+    def set_native_volume_states(self, volumes):
+        """Persist the latest native volume snapshot in the existing SQLite preferences store."""
+        normalized = {}
+        for item in volumes or []:
+            if not isinstance(item, dict):
+                continue
+            volume_id = str(item.get("volumeId") or "").strip()
+            if not volume_id:
+                continue
+            normalized[volume_id] = {
+                "volumeId": volume_id,
+                "uuid": str(item.get("uuid") or ""),
+                "state": str(item.get("state") or "unknown"),
+                "removable": bool(item.get("removable")),
+                "emulated": bool(item.get("emulated")),
+                "primary": bool(item.get("primary")),
+                "directory": str(item.get("directory") or ""),
+                "description": str(item.get("description") or ""),
+            }
+        self.set_preference("native_volume_states", json.dumps(normalized, ensure_ascii=False, sort_keys=True))
+        return normalized
+
+    def native_volume_states(self):
+        raw = self.get_preference("native_volume_states", "{}")
+        try:
+            value = json.loads(raw or "{}")
+        except (TypeError, json.JSONDecodeError):
+            value = {}
+        return value if isinstance(value, dict) else {}
+
     def set_preference(self, key, value):
         value = str(value)
         with self._conn() as c:

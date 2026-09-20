@@ -435,6 +435,12 @@ class LibraryService:
             result = ScanResult(catalog=[], scan_id=scan_id)
             scan_errors = list(scan_errors or [])
             scan_stats = scan_stats or {}
+            native_scan_state = str(scan_stats.get("status") or "").casefold()
+            partial_scan = bool(
+                scan_stats.get("partial")
+                or scan_stats.get("cancelled")
+                or native_scan_state in {"partial", "failed", "cancelled"}
+            )
             try:
                 self.store.add_folder(
                     tree_uri,
@@ -470,9 +476,9 @@ class LibraryService:
                     self.artwork.reindex_entity(anime_id)
 
                 result.errors.extend(str(error) for error in scan_errors)
-                if scan_errors:
-                    result.status = "partial"
-                if not scan_errors:
+                if scan_errors or partial_scan:
+                    result.status = "partial" if native_scan_state != "failed" else "error"
+                if not scan_errors and not partial_scan:
                     if source_kind in {"broad_storage", "mediastore"}:
                         volumes = {}
                         for document in documents or []:
@@ -510,6 +516,33 @@ class LibraryService:
                 result.status = "error"
                 self.store.finish_scan(run_id, result.__dict__)
                 raise
+
+    def ingest_native_volume_change(self, payload):
+        """Persist authoritative native volume availability without touching the catalog."""
+        if not isinstance(payload, dict):
+            raise ValueError("Native volume event must contain an object payload.")
+        current = payload.get("current") or []
+        if not isinstance(current, list):
+            raise ValueError("Native volume snapshot must be a list.")
+        normalized = []
+        for item in current:
+            if not isinstance(item, dict):
+                continue
+            volume_id = str(item.get("volumeId") or "").strip()
+            if not volume_id:
+                continue
+            normalized.append({
+                "volumeId": volume_id,
+                "uuid": str(item.get("uuid") or ""),
+                "state": str(item.get("state") or "unknown"),
+                "removable": bool(item.get("removable")),
+                "emulated": bool(item.get("emulated")),
+                "primary": bool(item.get("primary")),
+                "directory": str(item.get("directory") or ""),
+                "description": str(item.get("description") or ""),
+            })
+        self.store.set_native_volume_states(normalized)
+        return self.store.native_volume_states()
 
     def resolve_match(self, lookup_title, anilist_id):
         """Persist an explicit AniList choice and refresh its metadata immediately."""

@@ -646,6 +646,17 @@ async def main(page: ft.Page):
                                 page.snack_bar=ft.SnackBar(ft.Text('A resposta da conta Google é inválida. Tente novamente.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
                             else:
                                 store.save_account(profile); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
+                        elif event_type == 'volume_changed':
+                            await asyncio.to_thread(library.ingest_native_volume_change, payload)
+                            logger.info(
+                                "[STORAGE] action=volume_changed native_result=received "
+                                "current=%s added=%s removed=%s changed=%s",
+                                len(payload.get('current') or []),
+                                len(payload.get('added') or []),
+                                len(payload.get('removed') or []),
+                                len(payload.get('changedVolumes') or []),
+                            )
+                            refresh_settings_if_active()
                         elif event_type == 'saf_inventory':
                             trees = payload.get('trees') or []
                             current_uris = {

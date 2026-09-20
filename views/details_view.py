@@ -240,14 +240,27 @@ class DetailView:
                             progress_seconds=episode.get("progress") or 0)
 
         primary_ratio = ratio(primary_target) if primary_target else None
-        if primary_target and primary_ratio and primary_ratio > 0 and not primary_target.get("watched"):
-            primary_label = "Continuar assistindo"
+        primary_type = str(primary_target.get("episode_type") or "regular").casefold() if primary_target else ""
+        if primary_target and primary_ratio and primary_ratio > 0 and not primary_target.get("missing"):
+            primary_label = (
+                "Continuar filme" if is_movie
+                else "Continuar especial" if primary_type in {"special", "ova", "oad", "ona", "extra"}
+                else "Continuar episódio"
+            )
         elif is_next_after_completion:
             primary_label = "Próximo episódio"
-        elif primary_target and available and all(is_completed(item) for item in available):
-            primary_label = "Reassistir filme" if is_movie else "Reassistir episódio"
+        elif primary_target and is_completed(primary_target):
+            primary_label = (
+                "Reassistir filme" if is_movie
+                else "Reassistir especial" if primary_type in {"special", "ova", "oad", "ona", "extra"}
+                else "Reassistir episódio"
+            )
         elif primary_target:
-            primary_label = "Assistir filme" if is_movie else "Assistir episódio"
+            primary_label = (
+                "Assistir filme" if is_movie
+                else "Assistir especial" if primary_type in {"special", "ova", "oad", "ona", "extra"}
+                else "Assistir episódio"
+            )
         else:
             primary_label = "Sem episódios disponíveis"
         metadata_status = str(metadata.get("metadata_status") or "unresolved").casefold()

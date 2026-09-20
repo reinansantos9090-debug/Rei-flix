@@ -72,11 +72,19 @@ class AndroidBridge:
     async def verify_tree(self, tree_uri: str): await self._launch("verify_tree", tree_uri=tree_uri)
     async def release_tree(self, tree_uri: str): await self._launch("release_tree", tree_uri=tree_uri)
     async def sign_in(self, server_client_id: str): await self._launch("google_sign_in", server_client_id=server_client_id)
-    async def play(self, uri: str, title: str, position_ms: int = 0, *, can_next=False, can_previous=False):
+    async def play(self, uri: str, title: str, position_ms: int = 0, *, can_next=False,
+                   can_previous=False, autoplay=False):
         if not self.is_local_media_reference(uri):
             raise ValueError("A reprodução aceita somente arquivos locais ou URIs content://.")
-        await self._launch("play", uri=uri, title=title, position_ms=max(0, int(position_ms)),
-                           can_next=str(bool(can_next)).lower(), can_previous=str(bool(can_previous)).lower())
+        await self._launch(
+            "play",
+            uri=uri,
+            title=title,
+            position_ms=max(0, int(position_ms)),
+            can_next=str(bool(can_next)).lower(),
+            can_previous=str(bool(can_previous)).lower(),
+            autoplay=str(bool(autoplay)).lower(),
+        )
 
     @staticmethod
     def is_local_media_reference(uri: str) -> bool:

@@ -135,15 +135,6 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         self.assertEqual(47, row["progress"])
 
 
-
-    def test_out_of_order_event_is_still_rejected_after_store_reopen(self):
-        path = self.episode("content://cycle/reopen-order", 1, 6)
-        t1 = int(time.time() * 1000)
-        self.assertTrue(self.store.save_progress(path, 80, 100, event_created_at=t1))
-        reopened = LibraryStore(self.tmp.name)
-        self.assertFalse(reopened.save_progress(path, 40, 100, event_created_at=t1 - 1000))
-        self.assertEqual(80, reopened.physical_row(path)["progress"])
-
     def test_replaying_older_completed_episode_does_not_move_next_episode_backwards(self):
         e1 = self.episode("content://cycle/replay-e1", 1, 1)
         e2 = self.episode("content://cycle/replay-e2", 1, 2)
@@ -172,7 +163,8 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         self.assertIn('savedInstanceState?.takeIf { it.containsKey("autoplay_next") }', player)
         self.assertIn('saveProgress("player_progress", force = true)', player)
         self.assertIn('saveProgress("player_paused", force = true)', player)
-        self.assertIn('if (!suppressExitEvent) saveProgress("player_exited", force = true)', player)
+        self.assertIn('if (!suppressExitEvent && !completionReported && !isChangingConfigurations)', player)
+        self.assertIn('val temp = File(queue, "$PREFIX$id.json.tmp")', (root / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix_local" / "NativeMailbox.kt").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

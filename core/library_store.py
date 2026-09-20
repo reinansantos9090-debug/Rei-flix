@@ -558,7 +558,7 @@ class LibraryStore:
                 """INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,
                                          source_folder,missing,media_identity,absolute_number,episode_type,episode_title,
                                          identification_source,identification_confidence)
-                   VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?)""",
+                   VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?)""",
                 (anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
                  media_identity,absolute_number,episode_type,episode_title,
                  identification_source or "legacy", identification_confidence or "medium"),

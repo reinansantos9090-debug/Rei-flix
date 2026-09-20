@@ -342,6 +342,7 @@ class LibraryService:
                 catalog = self.store.catalog()
                 result.catalog = catalog
                 result.folders = 1
+                result.files = int(scan_stats.get("files") or result.files)
                 result.videos = int(scan_stats.get("videos") or result.videos)
                 result.animes = len(catalog)
                 result.episodes = sum(len(season["episodes"]) for anime in catalog for season in anime["seasons"]) + sum(len(anime.get("media_files", [])) for anime in catalog)

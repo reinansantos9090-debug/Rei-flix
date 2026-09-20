@@ -8,7 +8,7 @@ class HomeView:
     @staticmethod
     def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode, on_open_organize=None,
               view_state=None):
-        catalog, continuing = [], []
+        catalog, continuing, home_data = [], [], {}
         view_state = view_state if view_state is not None else {}
         selected_state = [view_state.get("state", "Todos")]
         selected_genre = [view_state.get("genre", "Todos")]
@@ -40,6 +40,40 @@ class HomeView:
                      ["Mais recentes", "Assistidos recentemente", "Nome A-Z", "Nome Z-A"]],
         )
         continue_row = ft.Row(scroll=ft.ScrollMode.AUTO, spacing=10)
+        section_rows = {}
+
+        def home_card(item, action=None, wide=False, episode=False):
+            meta = item.get("meta") or {}
+            cover = item.get("cover") or meta.get("cover_cache") or meta.get("cover_url")
+            if episode:
+                title = item.get("anime_title") or item.get("title") or "Mídia local"
+                subtitle = item.get("episode_title") or (f"T{item.get('season')} E{item.get('number')}" if item.get("season") is not None else "Episódio")
+            else:
+                title = item.get("main_title") or item.get("anime_title") or meta.get("title") or "Mídia local"
+                subtitle = "Filme" if item.get("media_kind") == "movie" else (f"{item.get('available_count', 0)} episódios" if item.get("available_count") else "")
+            return ft.Container(
+                width=170 if not wide else 220, ink=True, border_radius=RADIUS,
+                on_click=(lambda _, value=item: action(value)) if action else None,
+                content=ft.Column([
+                    ft.Container(content=media_artwork(cover, 220 if not wide else 170, width=170 if not wide else 220, icon_size=34),
+                                 height=220 if not wide else 170, clip_behavior=ft.ClipBehavior.HARD_EDGE),
+                    ft.Text(title, size=13, weight=ft.FontWeight.BOLD, color=TEXT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Text(subtitle, size=11, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.ProgressBar(value=ratio(item), color=ACCENT, bgcolor="#3C3948", height=3,
+                                   visible=bool(item.get("duration") and item.get("progress") and not item.get("watched"))),
+                ], spacing=5)
+            )
+
+        def section(title, key, items, action=None, episode=False):
+            row = ft.Row(scroll=ft.ScrollMode.AUTO, spacing=12)
+            row.controls.extend(home_card(item, action=action, episode=episode) for item in items)
+            section_rows[key] = row
+            return ft.Container(content=ft.Column([
+                ft.Text(title, size=15, weight=ft.FontWeight.BOLD, color=TEXT),
+                row,
+            ], spacing=9), visible=bool(items))
+
+
         continuation_section = ft.Container(
             content=ft.Column([
                 ft.Text("CONTINUAR ASSISTINDO", size=13, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
@@ -203,8 +237,9 @@ class HomeView:
                     # Home is strictly a local presentation. Scanning belongs to
                     # the explicit library/SAF flow and must not trigger AniList
                     # work every time the user returns to this screen.
+                    home_data = library.media_center_home(limit=12)
                     catalog = library.catalog()
-                    continuing = library.continue_watching(limit=8)
+                    continuing = home_data.get("continue_watching", [])
                     status.visible = False
                 except Exception:
                     catalog, continuing = [], []
@@ -229,6 +264,14 @@ class HomeView:
             ft.Text("Sua biblioteca local, do seu jeito", size=13, color=TEXT_MUTED),
             status,
             continuation_section,
+            section("PRÓXIMO EPISÓDIO", "next_episode", home_data.get("next_episode", []), action=on_select_anime),
+            section("RECENTEMENTE ADICIONADOS", "recently_added", home_data.get("recently_added", []), action=on_select_anime),
+            section("RECENTEMENTE ASSISTIDOS", "recently_watched", home_data.get("recently_watched", []), episode=True),
+            section("FAVORITOS", "favorites", home_data.get("favorites", []), action=on_select_anime),
+            section("PINADOS", "pinned", home_data.get("pinned", []), action=on_select_anime),
+            section("SÉRIES / ANIMES", "series", home_data.get("series", []), action=on_select_anime),
+            section("FILMES", "movies", home_data.get("movies", []), action=on_select_anime),
+            section("ESPECIAIS", "specials", home_data.get("specials", []), action=on_select_anime),
             section_title("Filtros", ft.Icons.TUNE), state_row, genres_row,
             ft.Row([library_label, sort], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), feedback, grid,
         ], expand=True, spacing=14)

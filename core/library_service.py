@@ -479,6 +479,44 @@ class LibraryService:
         self.store.resolve_match(lookup_title, anilist_id)
         return metadata
     def catalog(self, favorites_only=False): return self.store.catalog(favorites_only)
+
+    def media_center_home(self, limit=12):
+        """Build all Home sections from one already-aggregated local catalog."""
+        catalog = self.store.catalog()
+        episodes = [e for anime in catalog for season in anime.get("seasons", [])
+                    for e in season.get("episodes", [])]
+        specials = [e for anime in catalog for group in anime.get("specials", [])
+                    for e in group.get("episodes", [])]
+        all_media = episodes + specials + [e for anime in catalog for e in anime.get("media_files", [])]
+        by_path = {e.get("path"): e for e in all_media if e.get("path")}
+        continue_items = self.store.continue_watching(limit=limit)
+        for item in continue_items:
+            if item.get("path") in by_path:
+                item["next_episode"] = by_path[item["path"]]
+        history = self.store.playback_history(limit=limit)
+        recently_added = sorted(
+            catalog,
+            key=lambda a: (a.get("meta", {}).get("added_at") or 0, a.get("last_played_at") or 0),
+            reverse=True,
+        )[:limit]
+        series = [a for a in catalog if a.get("media_kind") != "movie"]
+        movies = [a for a in catalog if a.get("media_kind") == "movie"]
+        favorites = [a for a in catalog if a.get("favorite")]
+        pinned = [a for a in catalog if a.get("is_pinned")]
+        next_items = [a for a in series if a.get("next_episode") and not a["next_episode"].get("watched")]
+        next_items.sort(key=lambda a: a.get("last_played_at") or 0, reverse=True)
+        return {
+            "continue_watching": continue_items,
+            "next_episode": next_items[:limit],
+            "recently_added": recently_added,
+            "recently_watched": history,
+            "favorites": favorites[:limit],
+            "pinned": pinned[:limit],
+            "series": series[:limit],
+            "movies": movies[:limit],
+            "specials": [a for a in catalog if any(a.get("specials"))][:limit],
+        }
+
     def continue_watching(self, limit=12): return self.store.continue_watching(limit)
     def playback_history(self, limit=50): return self.store.playback_history(limit)
     def playback_target(self, anime_id): return self.store.playback_target(anime_id)

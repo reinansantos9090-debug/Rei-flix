@@ -570,38 +570,44 @@ class LibraryStore:
         self.reconcile_missing(source_folder, seen, scope_kind="source")
 
     def catalog(self, favorites_only=False):
-        """Project physical media into the logical local library hierarchy."""
+        """Project the local library once into the visual hierarchy used by Home/Details."""
         with self._conn() as c:
-            animes = []
             query = "SELECT * FROM anime" + (" WHERE favorite=1" if favorites_only else "") + " ORDER BY added_at DESC, title COLLATE NOCASE"
             anime_rows = c.execute(query).fetchall()
             episode_rows = c.execute("SELECT * FROM episodes ORDER BY anime_id, season, number, absolute_number, file_name").fetchall()
-            episodes_by_anime = {}
-            for episode in episode_rows:
-                episodes_by_anime.setdefault(episode["anime_id"], []).append(dict(episode))
+            history_rows = c.execute(
+                "SELECT anime_id, MAX(last_played_at) AS last_played_at FROM episodes "
+                "WHERE last_played_at IS NOT NULL GROUP BY anime_id"
+            ).fetchall()
+            history = {int(row["anime_id"]): row["last_played_at"] for row in history_rows}
 
             def project(e):
                 return {
-                    "id": e["id"], "title": e["file_name"], "file_name": e["file_name"], "episode_title": e["episode_title"], "path": e["path"],
-                    "season": e["season"], "number": e["number"], "absolute_number": e["absolute_number"],
+                    "id": e["id"], "title": e["file_name"], "file_name": e["file_name"],
+                    "episode_title": e["episode_title"], "path": e["path"], "season": e["season"],
+                    "number": e["number"], "absolute_number": e["absolute_number"],
                     "episode_type": e["episode_type"], "identification_source": e["identification_source"],
                     "identification_confidence": e["identification_confidence"], "manual_override": bool(e["manual_override"]),
                     "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]),
                     "missing": bool(e["missing"]), "last_played_at": e["last_played_at"],
                     "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"],
-                    "source_folder": e["source_folder"], "relative_path": e["relative_path"], "volume_id": e["volume_id"], "volume_uuid": e["volume_uuid"],
+                    "source_folder": e["source_folder"], "relative_path": e["relative_path"],
+                    "volume_id": e["volume_id"], "volume_uuid": e["volume_uuid"],
                 }
 
+            by_anime = {}
+            for row in episode_rows:
+                by_anime.setdefault(row["anime_id"], []).append(project(row))
             special_types = {"special", "ova", "oad", "ona", "extra"}
+            result = []
             for a in anime_rows:
-                eps = episodes_by_anime.get(a["id"], [])
+                eps = by_anime.get(a["id"], [])
                 if not eps:
                     continue
-                projected = [project(e) for e in eps]
-                media_kind = a["media_kind"] or "series"
-                movies = [item for item in projected if item["episode_type"] == "movie"]
-                specials = [item for item in projected if item["episode_type"] in special_types]
-                regulars = [item for item in projected if item["episode_type"] not in special_types and item["episode_type"] != "movie"]
+                projected = eps
+                special_eps = [e for e in projected if e["episode_type"] in special_types]
+                movie_eps = [e for e in projected if e["episode_type"] == "movie"]
+                regulars = [e for e in projected if e["episode_type"] not in special_types and e["episode_type"] != "movie"]
                 seasons = {}
                 for ep in regulars:
                     seasons.setdefault(ep["season"], []).append(ep)
@@ -609,13 +615,40 @@ class LibraryStore:
                     genres = json.loads(a["genres"] or "[]")
                 except (TypeError, json.JSONDecodeError):
                     genres = []
-                ordered_seasons = sorted(seasons.items(), key=lambda item: item[0] if item[0] is not None else -1)
-                animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"id": e["id"], "title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"], "source_folder": e["source_folder"], "media_identity": e["media_identity"]} for e in sorted(values, key=lambda episode: (episode["number"] if episode["number"] is not None else -1, episode["file_name"].casefold(), episode["path"].casefold()))]} for s, values in ordered_seasons]})
-            for anime in animes:
-                rows = episodes_by_anime[anime["id"]]
-                eligible = [row for row in rows if row["episode_type"] not in {"movie", *special_types}]
-                anime["current_episode"] = self._current_from_rows(eligible or [row for row in rows if row["episode_type"] != "movie"])
-            return animes
+                ordered_seasons = []
+                for season, values in sorted(seasons.items(), key=lambda item: item[0] if item[0] is not None else -1):
+                    values = sorted(values, key=lambda e: (e["number"] if e["number"] is not None else -1, e["file_name"].casefold(), e["path"].casefold()))
+                    ordered_seasons.append({
+                        "season_name": f"Temporada {season}" if season is not None else "Temporada especial",
+                        "season": season, "folder_path": "", "episodes": values,
+                    })
+                available = [e for e in projected if not e["missing"]]
+                watched = [e for e in available if e["watched"]]
+                active = [e for e in available if e["progress"] > 0 and not e["watched"]]
+                eligible = [e for e in regulars if not e["missing"]]
+                current = self._current_from_rows(eligible or [e for e in projected if e["episode_type"] != "movie"])
+                next_ep = None
+                if current and not current.get("watched"):
+                    next_ep = current
+                elif watched:
+                    latest = max(watched, key=lambda e: e.get("last_played_at") or 0)
+                    next_ep = self._adjacent_from_rows(latest, eligible, 1)
+                result.append({
+                    "id": a["id"], "main_title": a["title"], "meta": dict(a),
+                    "favorite": bool(a["favorite"]), "is_pinned": bool(a["is_pinned"]),
+                    "user_tags": self._decode_tags(a["user_tags"]),
+                    "personal_note": a["personal_note"], "genres": genres,
+                    "seasons": ordered_seasons,
+                    "specials": [{"season_name": "Especiais", "season": None, "folder_path": "",
+                                  "episodes": sorted(special_eps, key=lambda e: (e["number"] if e["number"] is not None else -1, e["file_name"].casefold()))}],
+                    "media_files": movie_eps,
+                    "current_episode": current,
+                    "next_episode": next_ep,
+                    "available_count": len(available), "watched_count": len(watched),
+                    "active_count": len(active), "last_played_at": history.get(a["id"]),
+                    "media_kind": a["media_kind"] or "series",
+                })
+            return result
 
     def apply_episode_identification(self, path, *, absolute_number=None, relative_path=None, volume_id=None, volume_uuid=None, episode_type="regular", episode_title=None, identification_source="legacy", identification_confidence="medium"):
         with self._conn() as c:

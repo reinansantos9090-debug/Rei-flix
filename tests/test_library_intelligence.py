@@ -30,6 +30,30 @@ class LibraryIntelligenceTests(unittest.TestCase):
         self.assertEqual(1, len(self.service.browse_catalog(catalog, state="Com nota")))
         self.assertEqual(0, len(self.service.browse_catalog(catalog, tag="Sem etiqueta")))
 
+
+    def test_media_center_home_sections_group_entities_and_preserve_state(self):
+        self.store.save_progress("content://demo/1", 40, 100)
+        self.store.toggle_favorite(self.anime)
+        self.store.toggle_pinned(self.anime)
+        home = self.service.media_center_home()
+        self.assertEqual(1, len(home["continue_watching"]))
+        self.assertEqual(1, len(home["favorites"]))
+        self.assertEqual(1, len(home["pinned"]))
+        self.assertEqual(1, len(home["series"]))
+        self.assertEqual(0, len(home["movies"]))
+        self.assertEqual(1, len(home["next_episode"]))
+        self.assertEqual("Demo", home["series"][0]["main_title"])
+        self.assertEqual(1, home["series"][0]["active_count"])
+
+    def test_media_center_home_empty_is_safe(self):
+        empty_tmp = tempfile.TemporaryDirectory()
+        try:
+            empty_service = LibraryService(LibraryStore(empty_tmp.name))
+            home = empty_service.media_center_home()
+            self.assertTrue(all(not value for value in home.values()))
+        finally:
+            empty_tmp.cleanup()
+
     def test_statistics_and_last_scan_use_only_local_rows(self):
         self.store.save_progress("content://demo/1", 100, 100)
         self.store.toggle_pinned(self.anime); self.store.set_personal_note(self.anime, "n")

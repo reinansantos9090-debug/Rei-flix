@@ -262,7 +262,11 @@ class LibraryService:
         row_id = self.store.upsert_episode(
             anime_id, uri, name, item.season, item.episode,
             document.get("mimeType"), file_size, modified_at, source_folder,
-            identity, item.absolute_number, relative_path, volume_id, volume_uuid,
+            media_identity=identity,
+        )
+        self.store.apply_episode_identification(
+            uri, absolute_number=item.absolute_number, relative_path=relative_path,
+            volume_id=volume_id, volume_uuid=volume_uuid,
             episode_type=item.episode_type, episode_title=item.display_title,
             identification_source=item.identification_source,
             identification_confidence=item.confidence,

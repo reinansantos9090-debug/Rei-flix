@@ -503,7 +503,7 @@ class LibraryStore:
             cur = c.execute(
                 """INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,
                                          source_folder,missing,media_identity,absolute_number,episode_type,episode_title)
-                   VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)""",
+                   VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?)""",
                 (anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
                  media_identity,absolute_number,episode_type,episode_title),
             )

@@ -140,7 +140,12 @@ class LibraryService:
             return None
 
         relative_path = self._document_relative_path(document, name, uri)
-        if not (uri.startswith("content://") or uri.startswith("file://")):
+        is_local_reference = (
+            uri.startswith("content://")
+            or uri.startswith("file://")
+            or (source_kind == "filesystem" and os.path.isabs(uri))
+        )
+        if not is_local_reference:
             result.ignored += 1
             result.errors.append(f"Referência local inválida para {name}.")
             return None
@@ -342,6 +347,9 @@ class LibraryService:
                 catalog = self.store.catalog()
                 result.catalog = catalog
                 result.folders = 1
+                if result.errors:
+                    result.status = "partial"
+                    self.store.update_folder_status(tree_uri, "granted", "; ".join(result.errors[-10:]))
                 result.files = int(scan_stats.get("files") or result.files)
                 result.videos = int(scan_stats.get("videos") or result.videos)
                 result.animes = len(catalog)

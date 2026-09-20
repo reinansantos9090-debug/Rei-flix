@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 
 from core.anilist import AniListClient
 
@@ -43,6 +43,28 @@ class AniListClientTests(unittest.TestCase):
         client = AniListClient("/tmp/cache")
         with patch("core.anilist.urllib.request.urlopen", side_effect=URLError("offline")):
             self.assertIsNone(client._request("query", {}))
+
+    def test_request_retries_once_after_rate_limit(self):
+        client = AniListClient("/tmp/cache")
+        response = {"data": {"Media": {"id": 123}}}
+        fake = type("Response", (), {
+            "__enter__": lambda self: self,
+            "__exit__": lambda self, *args: None,
+            "read": lambda self: json.dumps(response).encode(),
+        })()
+        rate_limited = HTTPError(client.endpoint, 429, "rate", {"Retry-After": "1"}, None)
+        with patch("core.anilist.urllib.request.urlopen", side_effect=[rate_limited, fake]) as request, \
+             patch("core.anilist.time.sleep") as sleep:
+            self.assertEqual(client._request("query", {}), response["data"])
+        sleep.assert_called_once_with(1.0)
+        self.assertEqual(request.call_count, 2)
+
+    def test_request_rate_limit_without_retry_after_fails_safely(self):
+        client = AniListClient("/tmp/cache")
+        rate_limited = HTTPError(client.endpoint, 429, "rate", {}, None)
+        with patch("core.anilist.urllib.request.urlopen", side_effect=rate_limited) as request:
+            self.assertIsNone(client._request("query", {}))
+        request.assert_called_once()
 
     def test_request_fails_safe_for_graphql_error_and_malformed_json(self):
         client = AniListClient("/tmp/cache")

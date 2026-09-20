@@ -22,10 +22,11 @@ class ProfessionalMetadataTests(unittest.TestCase):
     def test_schema_and_metadata_model_are_persistent(self):
         self._anime()
         row = self.store.anime_metadata("attack on titan")
-        self.assertEqual(self.store.SCHEMA_VERSION, 19)
+        self.assertEqual(self.store.SCHEMA_VERSION, 20)
         self.assertEqual(row["metadata_source"], "local")
         self.assertEqual(row["metadata_status"], "unresolved")
         self.assertEqual(row["metadata_confidence"], "low")
+        self.assertIsNone(row["format"])
         reopened = LibraryStore(self.tmp.name).anime_metadata("attack on titan")
         self.assertEqual(reopened["metadata_status"], "unresolved")
 
@@ -96,6 +97,21 @@ class ProfessionalMetadataTests(unittest.TestCase):
             cached = self.service.refresh_metadata("attack on titan", "Attack on Titan", force=True)
         self.assertEqual(cached["anilist_id"], 16498)
         self.assertEqual(cached["metadata_status"], "stale")
+
+    def test_partial_anilist_refresh_preserves_existing_editorial_fields(self):
+        self._anime()
+        with self.store._conn() as con:
+            con.execute(
+                "UPDATE anime SET anilist_id=?,description=?,year=?,format=?,genres=? WHERE lookup_title=?",
+                (16498, "Cached description", 2013, "TV", "[\"Action\", \"Drama\"]", "attack on titan"),
+            )
+        media = {"id": 16498, "title": {"english": "Attack on Titan"}, "genres": ["Action"]}
+        with patch.object(self.service.anilist, "by_id", return_value=media):
+            refreshed = self.service.refresh_metadata("attack on titan", "Attack on Titan", force=True)
+        self.assertEqual(refreshed["description"], "Cached description")
+        self.assertEqual(refreshed["year"], 2013)
+        self.assertEqual(refreshed["format"], "TV")
+        self.assertEqual(refreshed["genres"], "[\"Action\"]")
 
     def test_manual_metadata_wins_over_anilist_refresh(self):
         self._anime()

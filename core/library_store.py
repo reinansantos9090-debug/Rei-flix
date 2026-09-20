@@ -8,7 +8,7 @@ import time
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 19
+    SCHEMA_VERSION = 20
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -34,7 +34,7 @@ class LibraryStore:
               id INTEGER PRIMARY KEY, lookup_title TEXT UNIQUE NOT NULL, anilist_id INTEGER,
               title TEXT NOT NULL, romaji TEXT, english TEXT, native TEXT, aliases TEXT DEFAULT '[]', description TEXT,
               cover_url TEXT, cover_cache TEXT, banner_url TEXT, genres TEXT, year INTEGER,
-              season TEXT, status TEXT, episodes_count INTEGER, duration INTEGER, score INTEGER, studio TEXT,
+              season TEXT, status TEXT, episodes_count INTEGER, duration INTEGER, score INTEGER, format TEXT, studio TEXT,
               metadata_updated_at REAL, metadata_fetched_at REAL, metadata_source TEXT NOT NULL DEFAULT 'unknown', metadata_confidence TEXT NOT NULL DEFAULT 'low', metadata_status TEXT NOT NULL DEFAULT 'unresolved', metadata_manual_fields TEXT NOT NULL DEFAULT '[]', favorite INTEGER NOT NULL DEFAULT 0, user_tags TEXT NOT NULL DEFAULT '[]',
               media_kind TEXT NOT NULL DEFAULT 'series', is_pinned INTEGER NOT NULL DEFAULT 0, personal_note TEXT, added_at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS episodes (
@@ -62,7 +62,7 @@ class LibraryStore:
                 if column not in existing:
                     c.execute(f"ALTER TABLE folders ADD COLUMN {column} {definition}")
             anime_columns = {r[1] for r in c.execute("PRAGMA table_info(anime)")}
-            for column, definition in {"aliases": "TEXT DEFAULT '[]'", "score": "INTEGER", "metadata_updated_at": "REAL", "metadata_fetched_at": "REAL", "metadata_source": "TEXT NOT NULL DEFAULT 'unknown'", "metadata_confidence": "TEXT NOT NULL DEFAULT 'low'", "metadata_status": "TEXT NOT NULL DEFAULT 'unresolved'", "metadata_manual_fields": "TEXT NOT NULL DEFAULT '[]'", "media_kind": "TEXT NOT NULL DEFAULT 'series'", "favorite": "INTEGER NOT NULL DEFAULT 0", "user_tags": "TEXT NOT NULL DEFAULT '[]'", "is_pinned": "INTEGER NOT NULL DEFAULT 0", "personal_note": "TEXT"}.items():
+            for column, definition in {"aliases": "TEXT DEFAULT '[]'", "score": "INTEGER", "format": "TEXT", "metadata_updated_at": "REAL", "metadata_fetched_at": "REAL", "metadata_source": "TEXT NOT NULL DEFAULT 'unknown'", "metadata_confidence": "TEXT NOT NULL DEFAULT 'low'", "metadata_status": "TEXT NOT NULL DEFAULT 'unresolved'", "metadata_manual_fields": "TEXT NOT NULL DEFAULT '[]'", "media_kind": "TEXT NOT NULL DEFAULT 'series'", "favorite": "INTEGER NOT NULL DEFAULT 0", "user_tags": "TEXT NOT NULL DEFAULT '[]'", "is_pinned": "INTEGER NOT NULL DEFAULT 0", "personal_note": "TEXT"}.items():
                 if column not in anime_columns:
                     c.execute(f"ALTER TABLE anime ADD COLUMN {column} {definition}")
             episode_columns = {r[1] for r in c.execute("PRAGMA table_info(episodes)")}
@@ -326,7 +326,7 @@ class LibraryStore:
         fetched_at = fetched_at if fetched_at is not None else metadata.get("metadata_fetched_at")
         now = time.time()
         metadata_updated_at = metadata.get("metadata_updated_at", now)
-        editorial = ("title", "romaji", "english", "native", "aliases", "description", "cover_url", "cover_cache", "banner_url", "genres", "year", "season", "status", "episodes_count", "duration", "score", "studio")
+        editorial = ("title", "romaji", "english", "native", "aliases", "description", "cover_url", "cover_cache", "banner_url", "genres", "year", "season", "status", "episodes_count", "duration", "score", "format", "studio")
         values = {
             "anilist_id": metadata.get("anilist_id"),
             "title": title,
@@ -345,6 +345,7 @@ class LibraryStore:
             "episodes_count": metadata.get("episodes_count"),
             "duration": metadata.get("duration"),
             "score": metadata.get("score"),
+            "format": metadata.get("format"),
             "studio": metadata.get("studio"),
         }
         with self._conn() as c:
@@ -357,6 +358,11 @@ class LibraryStore:
                 if source == "manual":
                     manual_fields.update(k for k in editorial if k in metadata)
                 if source == "anilist":
+                    # Preserve previously known values when an API response is partial.
+                    for key in editorial:
+                        incoming = values.get(key)
+                        if key not in manual_fields and (key not in metadata or incoming is None or incoming == "" or incoming == "[]"):
+                            values[key] = row[key]
                     # Keep a previously cached cover if the network returned none.
                     values["cover_cache"] = values.get("cover_cache") or row["cover_cache"] or ""
                     values["cover_url"] = values.get("cover_url") or row["cover_url"] or ""
@@ -383,11 +389,11 @@ class LibraryStore:
                 metadata_fetched = fetched_at if source == "anilist" else row["metadata_fetched_at"]
                 metadata_conf = confidence if source in {"anilist", "manual"} else row["metadata_confidence"]
                 metadata_updated = now if source in {"anilist", "manual"} else row["metadata_updated_at"]
-                c.execute("""UPDATE anime SET anilist_id=?,title=?,romaji=?,english=?,native=?,aliases=?,description=?,cover_url=?,cover_cache=?,banner_url=?,genres=?,year=?,season=?,status=?,episodes_count=?,duration=?,score=?,studio=?,metadata_updated_at=?,metadata_fetched_at=?,metadata_source=?,metadata_confidence=?,metadata_status=?,metadata_manual_fields=?,media_kind=? WHERE id=?""",
-                          (values["anilist_id"], values["title"] or lookup, values["romaji"], values["english"], values["native"], values["aliases"], values["description"], values["cover_url"], values["cover_cache"], values["banner_url"], values["genres"], values["year"], values["season"], values["status"], values["episodes_count"], values["duration"], values["score"], values["studio"], metadata_updated, metadata_fetched, metadata_source, metadata_conf, metadata_status, json.dumps(sorted(manual_fields), ensure_ascii=False), media_kind, row["id"]))
+                c.execute("""UPDATE anime SET anilist_id=?,title=?,romaji=?,english=?,native=?,aliases=?,description=?,cover_url=?,cover_cache=?,banner_url=?,genres=?,year=?,season=?,status=?,episodes_count=?,duration=?,score=?,format=?,studio=?,metadata_updated_at=?,metadata_fetched_at=?,metadata_source=?,metadata_confidence=?,metadata_status=?,metadata_manual_fields=?,media_kind=? WHERE id=?""",
+                          (values["anilist_id"], values["title"] or lookup, values["romaji"], values["english"], values["native"], values["aliases"], values["description"], values["cover_url"], values["cover_cache"], values["banner_url"], values["genres"], values["year"], values["season"], values["status"], values["episodes_count"], values["duration"], values["score"], values["format"], values["studio"], metadata_updated, metadata_fetched, metadata_source, metadata_conf, metadata_status, json.dumps(sorted(manual_fields), ensure_ascii=False), media_kind, row["id"]))
                 return row["id"]
-            c.execute("""INSERT INTO anime(lookup_title,anilist_id,title,romaji,english,native,aliases,description,cover_url,cover_cache,banner_url,genres,year,season,status,episodes_count,duration,score,studio,metadata_updated_at,metadata_fetched_at,metadata_source,metadata_confidence,metadata_status,metadata_manual_fields,media_kind,added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                      (lookup, values["anilist_id"], values["title"], values["romaji"], values["english"], values["native"], values["aliases"], values["description"], values["cover_url"], values["cover_cache"], values["banner_url"], values["genres"], values["year"], values["season"], values["status"], values["episodes_count"], values["duration"], values["score"], values["studio"], metadata_updated_at, fetched_at, source, confidence, status, json.dumps(sorted(k for k in editorial if source == "manual" and k in metadata), ensure_ascii=False), incoming_kind, now))
+            c.execute("""INSERT INTO anime(lookup_title,anilist_id,title,romaji,english,native,aliases,description,cover_url,cover_cache,banner_url,genres,year,season,status,episodes_count,duration,score,format,studio,metadata_updated_at,metadata_fetched_at,metadata_source,metadata_confidence,metadata_status,metadata_manual_fields,media_kind,added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                      (lookup, values["anilist_id"], values["title"], values["romaji"], values["english"], values["native"], values["aliases"], values["description"], values["cover_url"], values["cover_cache"], values["banner_url"], values["genres"], values["year"], values["season"], values["status"], values["episodes_count"], values["duration"], values["score"], values["format"], values["studio"], metadata_updated_at, fetched_at, source, confidence, status, json.dumps(sorted(k for k in editorial if source == "manual" and k in metadata), ensure_ascii=False), incoming_kind, now))
             return c.execute("SELECT id FROM anime WHERE lookup_title=?", (lookup,)).fetchone()[0]
 
     def set_metadata_status(self, lookup, status, *, confidence=None):
@@ -400,7 +406,7 @@ class LibraryStore:
 
     def set_manual_metadata(self, lookup, values):
         """Persist explicit editorial corrections without touching user state."""
-        allowed = {"title", "romaji", "english", "native", "aliases", "description", "genres", "year", "season", "status", "episodes_count", "duration", "score", "studio"}
+        allowed = {"title", "romaji", "english", "native", "aliases", "description", "genres", "year", "season", "status", "episodes_count", "duration", "score", "format", "studio"}
         values = {key: value for key, value in (values or {}).items() if key in allowed}
         if not values:
             raise ValueError("Nenhum campo de metadata manual válido foi informado.")

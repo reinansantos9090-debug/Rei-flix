@@ -1,12 +1,12 @@
 """Cliente AniList somente para metadados, com falha segura e cache de capas."""
 from __future__ import annotations
-import hashlib, json, logging, os, tempfile, urllib.error, urllib.request
+import hashlib, json, logging, os, tempfile, time, urllib.error, urllib.request
 
 logger = logging.getLogger(__name__)
 
 class AniListClient:
     endpoint='https://graphql.anilist.co'
-    media_fields='''id title{romaji english native} synonyms description(asHtml:false) coverImage{extraLarge large} bannerImage genres seasonYear season status episodes duration averageScore studios(isMain:true){nodes{name}}'''
+    media_fields='''id title{romaji english native} synonyms description(asHtml:false) coverImage{extraLarge large} bannerImage genres seasonYear season status episodes duration averageScore format studios(isMain:true){nodes{name}}'''
     query=f'''query($search:String){{Page(perPage:5){{media(search:$search,type:ANIME){{{media_fields}}}}}}}'''
     by_id_query=f'''query($id:Int){{Media(id:$id,type:ANIME){{{media_fields}}}}}'''
     def __init__(self, cache_dir): self.cache_dir=cache_dir
@@ -27,7 +27,6 @@ class AniListClient:
                 if delay:
                     logger.warning("AniList atingiu rate limit; aguardando %.1fs antes de uma nova tentativa.", delay)
                     try:
-                        import time
                         time.sleep(delay)
                     except Exception:
                         return None
@@ -73,7 +72,7 @@ class AniListClient:
             results=self.search(title)
             if chosen_id is not None:
                 media = next((m for m in results if m.get('id') == chosen_id), None)
-            if media is None:
+            if media is None and chosen_id is None:
                 media = results[0] if results else None
         return self.metadata_from_media(title, media)
     def metadata_from_media(self, title, media):
@@ -82,7 +81,7 @@ class AniListClient:
         cache=self.cache_cover(cover) if cover else ''
         t=media.get('title') or {}; studios=((media.get('studios') or {}).get('nodes') or [])
         studios = [studio for studio in studios if isinstance(studio, dict)]
-        metadata = {'title':t.get('english') or t.get('romaji') or title,'romaji':t.get('romaji'),'english':t.get('english'),'native':t.get('native'),'aliases':json.dumps(media.get('synonyms') or [],ensure_ascii=False),'description':(media.get('description') or '').strip(),'cover_url':cover,'cover_cache':cache,'banner_url':media.get('bannerImage') or '','genres':json.dumps(media.get('genres') or [],ensure_ascii=False),'year':media.get('seasonYear'),'season':media.get('season'),'status':media.get('status'),'episodes_count':media.get('episodes'),'duration':media.get('duration'),'score':media.get('averageScore'),'studio':', '.join(x.get('name','') for x in studios)}
+        metadata = {'title':t.get('english') or t.get('romaji') or title,'romaji':t.get('romaji'),'english':t.get('english'),'native':t.get('native'),'aliases':json.dumps(media.get('synonyms') or [],ensure_ascii=False),'description':(media.get('description') or '').strip(),'cover_url':cover,'cover_cache':cache,'banner_url':media.get('bannerImage') or '','genres':json.dumps(media.get('genres') or [],ensure_ascii=False),'year':media.get('seasonYear'),'season':media.get('season'),'status':media.get('status'),'episodes_count':media.get('episodes'),'duration':media.get('duration'),'score':media.get('averageScore'),'format':media.get('format'),'studio':', '.join(x.get('name','') for x in studios)}
         if media.get('id') is not None:
             metadata['anilist_id'] = media['id']
         return metadata

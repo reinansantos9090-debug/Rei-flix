@@ -583,10 +583,10 @@ class LibraryStore:
             artwork_rows = c.execute(
                 "SELECT entity_type, entity_id, local_path FROM artwork WHERE status != 'failed'"
             ).fetchall()
-            local_artwork = {
-                (str(row["entity_type"]), str(row["entity_id"]))
+            local_artwork_anime = {
+                str(row["entity_id"])
                 for row in artwork_rows
-                if row["local_path"]
+                if row["local_path"] and str(row["entity_type"]) in {"anime", "movie"}
             }
             history_rows = c.execute(
                 "SELECT anime_id, MAX(last_played_at) AS last_played_at FROM episodes "
@@ -657,7 +657,7 @@ class LibraryStore:
                                   "episodes": sorted(special_eps, key=lambda e: (e["number"] if e["number"] is not None else -1, e["file_name"].casefold()))}],
                     "media_files": movie_eps,
                     "artwork_available": (
-                        any(entity_type == "anime" and entity_id == str(a["id"]) for entity_type, entity_id in local_artwork)
+                        str(a["id"]) in local_artwork_anime
                         or bool(a["cover_cache"])
                     ),
                     "current_episode": current,

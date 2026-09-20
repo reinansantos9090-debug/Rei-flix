@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 
 from core.dialogs import dismiss_dialog
-from core.storage_access import StorageAccessState, storage_access_state
+from core.storage_access import StorageAccessState, storage_access_state, storage_source_states
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,6 +48,48 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn('pendingLifecycleAction = "request_media_access"', request_block)
         self.assertIn("mediaPermissionRequester.launch(permissions)", request_block)
 
+    def test_storage_state_machine_keeps_sources_independent(self):
+        self.assertEqual(storage_source_states("denied", False)["media"], "media_denied")
+        self.assertEqual(storage_source_states("partial", False)["media"], "media_partial")
+        self.assertEqual(storage_source_states("full", False)["media"], "media_full")
+        self.assertEqual(storage_source_states("full", True)["broad"], "broad_storage_available")
+        self.assertEqual(storage_source_states("full", False)["broad"], "broad_storage_unavailable")
+        self.assertEqual(storage_source_states("full", False, ["content://tree/one"])["saf"], "saf_available")
+        self.assertEqual(storage_source_states("full", False, [], saf_revoked=True)["saf"], "saf_revoked")
+        self.assertEqual(storage_access_state("full", False, require_broad=True), StorageAccessState.NEEDS_BROAD_STORAGE)
+        self.assertEqual(storage_access_state("full", False), StorageAccessState.READY)
+
+    def test_storage_onboarding_cancel_uses_managed_flet_dialog_stack(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        onboarding = source[source.index("def maybe_show_storage_onboarding"):source.index("async def refresh_library")]
+        self.assertIn("page.show_dialog(dialog)", onboarding)
+        self.assertIn("page.pop_dialog()", onboarding)
+        self.assertIn('storage_onboarding["dismissed"] = True', onboarding)
+        self.assertNotIn("page.overlay.append(dialog)", onboarding)
+        self.assertNotIn("dismiss_dialog(page, dialog)", onboarding)
+
+    def test_storage_permission_dialogs_in_settings_use_managed_flet_stack(self):
+        source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
+        media = source[source.index("def show_video_permission_dialog"):source.index("def show_broad_storage_dialog")]
+        broad = source[source.index("def show_broad_storage_dialog"):source.index("pending_matches = store.pending_matches()")]
+        for block in (media, broad):
+            self.assertIn("page.show_dialog(dialog)", block)
+            self.assertIn("page.pop_dialog()", block)
+            self.assertNotIn("page.overlay.append(dialog)", block)
+
+    def test_startup_never_self_launches_persisted_saf_verification(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertNotIn("await bridge.verify_tree", source)
+        self.assertIn("authoritative SAF grant inventory", source)
+
+    def test_main_handles_authoritative_saf_inventory_and_marks_revoked_sources(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        block = source[source.index("event_type == 'saf_inventory':"):source.index("event_type == 'saf_cancelled':")]
+        self.assertIn("current_uris", block)
+        self.assertIn("folder.get('kind') != 'saf'", block)
+        self.assertIn("A autorização SAF desta pasta não está mais presente no Android.", block)
+        self.assertIn("store.update_folder_status", block)
+
     def test_broad_permission_event_does_not_reopen_onboarding_after_settings_launch(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         block = source.split("event_type == 'broad_storage_permission':", 1)[1].split("event_type == 'broad_storage_error':", 1)[0]
@@ -63,7 +105,7 @@ class StorageOnboardingTests(unittest.TestCase):
         cancel_end = source.index("        dialog.actions =", source.index("        def cancel(_event):"))
         cancel = source[source.index("        def cancel(_event):"):cancel_end]
         self.assertIn('storage_onboarding["waiting_for_result"] = True', block)
-        self.assertIn("dismiss_dialog(page, dialog)", block)
+        self.assertIn("page.pop_dialog()", block)
         self.assertNotIn("asyncio.sleep(0)", block)
         self.assertIn("async def cancel(_event):", block)
         self.assertIn('storage_onboarding["dismissed"] = True', cancel)

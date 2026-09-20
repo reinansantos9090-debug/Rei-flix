@@ -396,26 +396,7 @@ class DetailView:
                                 if season_path:
                                     episode_column.controls.append(media_artwork(season_path, 150, width=100, icon_size=24))
                     season_items = selected.get("episodes", [])
-                    season_available = [item for item in season_items if not item.get("missing")]
-                    season_watched = [item for item in season_available if is_completed(item)]
-                    season_active = [item for item in season_available if is_in_progress(item)]
-                    season_remaining = max(0, len(season_available) - len(season_watched))
-                    season_progress = (len(season_watched) / len(season_available)) if season_available else 0.0
                     episode_column.controls.extend(episode_item(item) for item in season_items)
-                    episode_column.controls.append(
-                        ft.Text(
-                            f"{len(season_watched)}/{len(season_available)} concluídos • {season_remaining} restantes"
-                            + (f" • {len(season_active)} em andamento" if season_active else ""),
-                            color="#AAA7B6", size=10,
-                        )
-                    )
-                    episode_column.controls.append(
-                        ft.ProgressBar(
-                            value=max(0.0, min(season_progress, 1.0)),
-                            color="#E50914", bgcolor="#454252", bar_height=4,
-                            visible=bool(season_available),
-                        )
-                    )
                 if special_episodes:
                     episode_column.controls.append(section_title("Especiais", ft.Icons.STAR_OUTLINE))
                     episode_column.controls.extend(episode_item(item) for item in special_episodes)
@@ -423,6 +404,8 @@ class DetailView:
 
         def change_season(event):
             selected_season[0] = int(event.control.value)
+            if seasons:
+                season_picker.helper_text = season_progress_text(seasons[selected_season[0]])
             render_episodes()
 
         season_picker = ft.Dropdown(
@@ -436,6 +419,18 @@ class DetailView:
             color="#F7F5FA", text_size=13, bgcolor="#252331",
             border_color="#39364B", border_radius=12, visible=bool(seasons) and len(seasons) > 1 and not is_movie,
         )
+        def season_progress_text(season):
+            items = season.get("episodes", [])
+            available_items = [item for item in items if not item.get("missing")]
+            watched_items = [item for item in available_items if is_completed(item)]
+            active_items = [item for item in available_items if is_in_progress(item)]
+            remaining = max(0, len(available_items) - len(watched_items))
+            return (
+                f"{len(watched_items)}/{len(available_items)} concluídos • {remaining} restantes"
+                + (f" • {len(active_items)} em andamento" if active_items else "")
+            )
+
+        season_picker.helper_text = season_progress_text(seasons[0]) if seasons else None
         season_picker.on_select = change_season
 
         progress_section = []

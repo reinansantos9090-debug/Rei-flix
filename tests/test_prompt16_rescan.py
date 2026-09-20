@@ -168,7 +168,7 @@ class Prompt16RescanTests(unittest.TestCase):
         source_a = "content://tree/a"
         source_b = "content://tree/b"
         a = self.doc("content://media/a", "Show/Show S01E01.mkv")
-        b = self.doc("content://media/b", "Show/Show S01E01.mkv")
+        b = self.doc("content://media/b", "Show/Show S01E01.mkv", volume="sdcard")
         self.ingest(source_a, [a], scan_id="scope-a")
         self.ingest(source_b, [b], scan_id="scope-b")
         self.ingest(source_a, [], scan_id="scope-c")

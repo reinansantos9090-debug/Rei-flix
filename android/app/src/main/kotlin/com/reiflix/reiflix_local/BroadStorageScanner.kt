@@ -236,15 +236,15 @@ object BroadStorageScanner {
                     Log.i(TAG, "VIDEO_PROGRESS: videos=$videos, files=$files, directories=$directories")
                 }
                 if (videos % 100 == 0) onProgress?.invoke(JSONObject().put("phase","scanning")
-                    .put("source",SOURCE).put("directories",directories).put("files",files).put("videos",videos).put("excludedNoMedia",excludedNoMedia))
+                    .put("source",SOURCE).put("directories",directories).put("files",files).put("videos",videos).put("excludedNoMedia",excludedNoMedia).put("nomediaDirectories",excludedNoMedia))
             }
         }
         Log.i(TAG, "SCAN_COMPLETED: directories=$directories, files=$files, videos=$videos, nomedia=$excludedNoMedia, errors=${errors.length()}")
         onProgress?.invoke(JSONObject().put("phase","finished").put("source",SOURCE)
-            .put("directories",directories).put("files",files).put("videos",videos).put("excludedNoMedia",excludedNoMedia))
+            .put("directories",directories).put("files",files).put("videos",videos).put("excludedNoMedia",excludedNoMedia).put("nomediaDirectories",excludedNoMedia))
         return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("documents",docs)
             .put("stats",JSONObject().put("directories",directories).put("files",files).put("videos",videos)
-                .put("excludedNoMedia",excludedNoMedia).put("errors",errors).put("access", snapshot))
+                .put("excludedNoMedia",excludedNoMedia).put("nomediaDirectories",excludedNoMedia).put("errors",errors).put("access", snapshot))
             .put("partial",errors.length()>0)
     }
 

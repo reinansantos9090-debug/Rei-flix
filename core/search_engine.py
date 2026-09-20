@@ -200,8 +200,10 @@ def _query_matches(anime: dict, query: str) -> bool:
     if not query_tokens:
         return True
     episodes = _episodes(anime)
-    if len(query_tokens) == 1 and _identifier_match(query, episodes):
-        return True
+    compact = normalize_text(query).replace(" ", "")
+    looks_like_identifier = bool(re.fullmatch(r"(?:s\\d{1,3}(?:e\\d{1,5})?|(?:e|ep|episodio|episode)\\d{1,5}|(?:absolute|abs)\\d+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)", compact))
+    if len(query_tokens) == 1 and looks_like_identifier:
+        return _identifier_match(query, episodes)
     haystack = " ".join(_search_values(anime))
     return all(token in haystack for token in query_tokens)
 
@@ -219,7 +221,7 @@ class SearchFilterSort:
     availability: str = "Todos"
     metadata: str = "Todos"
     artwork: str = "Todos"
-    sort: str = "Mais recentes"
+    sort: str = ""
     descending: bool = True
     _extra: dict = field(default_factory=dict, repr=False, compare=False)
 
@@ -351,7 +353,9 @@ class SearchFilterSort:
 
     def apply(self, catalog: Iterable[dict]) -> list[dict]:
         result = [anime for anime in catalog if self._matches(anime)]
-        sort = self.sort or "Mais recentes"
+        sort = self.sort or ""
+        if not sort:
+            return result
         reverse = self.descending
         if sort in ("Nome A-Z", "Título A-Z", "Titulo A-Z"):
             reverse = False

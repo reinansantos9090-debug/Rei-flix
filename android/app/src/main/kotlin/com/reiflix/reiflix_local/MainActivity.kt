@@ -375,11 +375,12 @@ class MainActivity : FlutterFragmentActivity() {
                 if (uri.scheme != "content" || !DocumentsContract.isTreeUri(uri)) return@forEach
                 val treeId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
                     ?: return@forEach
+                // Authorization inventory only needs the persistent URI grant.
+                // Avoid provider metadata I/O on the Activity lifecycle thread.
                 trees.put(
                     JSONObject()
                         .put("treeUri", uri.toString())
                         .put("documentId", treeId)
-                        .put("name", SafScanner.displayName(this, uri))
                 )
             }
         NativeMailbox.write(

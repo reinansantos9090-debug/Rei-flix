@@ -69,6 +69,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
         self.assertIn("python - <<'PY'", workflow)
         self.assertIn("Invalid generated JSON {path}: {exc}", workflow)
+        self.assertIn('re.sub(r",(\\s*[\\}\\]])", r"\\1", raw)', workflow)
         self.assertNotIn("python -c \\\"", workflow)
         self.assertNotIn("|| true", workflow)
 

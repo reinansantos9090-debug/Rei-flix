@@ -32,6 +32,12 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
         self.assertIn('"full"', scanner)
         self.assertIn("READ_MEDIA_VIDEO", scanner)
 
+    def test_media_store_access_level_is_scoped_for_scan_result(self):
+        scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MediaStoreScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("val access=accessLevel(context)", scanner)
+        self.assertNotIn('val access=accessLevel(context);val scopeKey', scanner)
+        self.assertIn('.put("access",access)', scanner)
+
     def test_partial_media_store_access_never_marks_volume_complete(self):
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MediaStoreScanner.kt").read_text(encoding="utf-8")
         self.assertIn('val complete=access=="full"&&localErrors.length()==0&&!shouldCancel()', scanner)

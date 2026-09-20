@@ -589,6 +589,17 @@ class LibraryStore:
                 anime["current_episode"] = self._current_from_rows(eligible or [row for row in rows if row["episode_type"] != "movie"])
             return animes
 
+    def apply_episode_identification(self, path, *, absolute_number=None, relative_path=None, volume_id=None, volume_uuid=None, episode_type="regular", episode_title=None, identification_source="legacy", identification_confidence="medium"):
+        with self._conn() as c:
+            row=c.execute("SELECT manual_override FROM episodes WHERE path=?",(path,)).fetchone()
+            if not row:
+                raise ValueError("Arquivo local não encontrado.")
+            if row["manual_override"]:
+                c.execute("UPDATE episodes SET absolute_number=COALESCE(?,absolute_number),relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),missing=0 WHERE path=?",(absolute_number,relative_path,volume_id,volume_uuid,path))
+            else:
+                c.execute("UPDATE episodes SET absolute_number=?,relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE path=?",(absolute_number,relative_path,volume_id,volume_uuid,episode_type,episode_title,identification_source,identification_confidence,path))
+            return True
+
     def save_progress(self, path, position, duration):
         try:
             position, duration = float(position), float(duration)

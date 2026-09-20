@@ -46,6 +46,7 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
         self.assertIn("READ_MEDIA_VIDEO", template)
         self.assertIn("READ_MEDIA_VISUAL_USER_SELECTED", template)
         self.assertIn("READ_EXTERNAL_STORAGE", template)
+        self.assertIn("MANAGE_EXTERNAL_STORAGE", template)
 
 
 class TestMediaStorePersistence(unittest.TestCase):

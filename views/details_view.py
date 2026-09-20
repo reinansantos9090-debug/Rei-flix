@@ -15,7 +15,7 @@ from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, 
 class DetailView:
     @staticmethod
     def build(page: ft.Page, anime_group: dict, on_play_episode, on_back,
-              on_toggle_favorite, get_playback_target=None):
+              on_toggle_favorite, get_playback_target=None, on_set_user_tags=None):
         metadata = anime_group.get("meta") or {}
         title = metadata.get("title_official") or anime_group.get("main_title") or "Anime local"
         alternate_titles = [metadata.get(key) for key in ("english", "romaji", "native")]
@@ -107,6 +107,44 @@ class DetailView:
             page.update()
 
         favorite_button.on_click = toggle_favorite
+
+        personal_tags = list(anime_group.get("user_tags") or [])
+        tags_row = ft.Row(wrap=True, spacing=6, run_spacing=6)
+
+        def save_tags(tags):
+            nonlocal personal_tags
+            try:
+                personal_tags = on_set_user_tags(anime_group["id"], tags) if on_set_user_tags else tags
+                anime_group["user_tags"] = personal_tags
+                render_tags()
+                page.update()
+            except Exception:
+                page.snack_bar = ft.SnackBar(ft.Text("Não foi possível salvar suas etiquetas."))
+                page.snack_bar.open = True
+                page.update()
+
+        def render_tags():
+            tags_row.controls.clear()
+            for tag in personal_tags:
+                tags_row.controls.append(ft.OutlinedButton(
+                    tag, icon=ft.Icons.CLOSE, tooltip=f"Remover etiqueta {tag}",
+                    on_click=lambda _, value=tag: save_tags([item for item in personal_tags if item != value]),
+                    style=ft.ButtonStyle(color="#D8D4E3", side=ft.BorderSide(1, "#4A4659")),
+                ))
+
+        def add_tag(_):
+            field = ft.TextField(label="Etiqueta", hint_text="Ex.: Prioridade", autofocus=True, max_length=40)
+            dialog = ft.AlertDialog(
+                modal=True, title=ft.Text("Adicionar etiqueta pessoal"), content=field,
+                actions=[ft.TextButton("Cancelar", on_click=lambda _: (setattr(dialog, "open", False), page.update())),
+                         ft.FilledButton("Adicionar", on_click=lambda _: (
+                             setattr(dialog, "open", False), save_tags([*personal_tags, field.value or ""])))],
+            )
+            page.overlay.append(dialog)
+            dialog.open = True
+            page.update()
+
+        render_tags()
 
         def play(episode):
             if not episode or episode.get("missing") or not episode.get("path"):
@@ -242,6 +280,11 @@ class DetailView:
         ]
         if description:
             layout_controls.extend([section_title("Sinopse", ft.Icons.SUBJECT_OUTLINED), description_text, expand_button])
+        if on_set_user_tags:
+            layout_controls.extend([
+                section_title("Etiquetas pessoais", ft.Icons.LOCAL_OFFER_OUTLINED),
+                ft.Row([tags_row, ft.OutlinedButton("Adicionar", icon=ft.Icons.ADD, on_click=add_tag)], wrap=True, spacing=8),
+            ])
         layout_controls.extend(progress_section)
         layout_controls.extend([
             section_title("Episódios", ft.Icons.FORMAT_LIST_NUMBERED),

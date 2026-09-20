@@ -1,6 +1,7 @@
 package com.reiflix.reiflix_local
 
 import android.content.Intent
+import android.content.ActivityNotFoundException
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -104,6 +105,9 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onResume() {
         super.onResume()
         applyImmersiveSystemUi()
+        // Settings may revoke access while this activity is paused. Always
+        // republish the actual Android state; a button click is never proof.
+        publishStorageStatus()
         if (broadStoragePermissionPending) {
             broadStoragePermissionPending = false
             if (BroadStorageScanner.hasAccess(this)) {
@@ -188,6 +192,10 @@ class MainActivity : FlutterFragmentActivity() {
     private fun publishStorageStatus() {
         NativeMailbox.write(this, JSONObject().put("type", "broad_storage_status")
             .put("payload", BroadStorageScanner.accessSnapshot(this)))
+        NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission").put("payload", JSONObject()
+            .put("granted", MediaStoreScanner.hasReadPermission(this))
+            .put("access", MediaStoreScanner.accessLevel(this))
+            .put("source", MediaStoreScanner.SOURCE)))
     }
 
     private fun openBroadStorageSettings() {
@@ -234,6 +242,22 @@ class MainActivity : FlutterFragmentActivity() {
         } else {
             broadStoragePermissionPending = false
             legacyBroadPermissionRequester.launch(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE))
+        }
+    }
+
+    private fun openSettingsIntent(label: String, intent: Intent): Boolean {
+        return try {
+            startActivity(intent)
+            true
+        } catch (exception: ActivityNotFoundException) {
+            Log.w(tag, "$label is unavailable; trying the next fallback", exception)
+            false
+        } catch (exception: SecurityException) {
+            Log.w(tag, "$label was blocked; trying the next fallback", exception)
+            false
+        } catch (exception: Exception) {
+            Log.w(tag, "$label failed unexpectedly; trying the next fallback", exception)
+            false
         }
     }
 

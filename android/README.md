@@ -30,8 +30,9 @@ that cannot be implemented by Python:
 
 The repository does **not** commit an APK. The workflow builds one and refuses
 to publish it unless DEX contains `MainActivity`, `NativeMailbox`,
-`SafScanner`, and `NativePlayerActivity`. This prevents accidentally releasing
-the stock Flet client, which would not understand `reiflix://native`.
+`SafScanner`, `MediaStoreScanner`, `BroadStorageScanner`,
+`NativePlayerActivity`, and `GoogleIdentity`. This prevents accidentally
+releasing the stock Flet client, which would not understand `reiflix://native`.
 
 ## Required Flet host integration
 

@@ -15,6 +15,8 @@ DESCRIPTORS = (
     b"Lcom/reiflix/reiflix_local/MainActivity;",
     b"Lcom/reiflix/reiflix_local/NativeMailbox;",
     b"Lcom/reiflix/reiflix_local/SafScanner;",
+    b"Lcom/reiflix/reiflix_local/MediaStoreScanner;",
+    b"Lcom/reiflix/reiflix_local/BroadStorageScanner;",
     b"Lcom/reiflix/reiflix_local/NativePlayerActivity;",
     b"Lcom/reiflix/reiflix_local/GoogleIdentity;",
 )

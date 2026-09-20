@@ -58,6 +58,7 @@ object MediaStoreScanner {
         if(Build.VERSION.SDK_INT>=29){projection+=MediaStore.Video.Media.RELATIVE_PATH;projection+=MediaStore.MediaColumns.VOLUME_NAME}
         if(Build.VERSION.SDK_INT>=30){projection+=MediaStore.MediaColumns.GENERATION_ADDED;projection+=MediaStore.MediaColumns.GENERATION_MODIFIED}
         val documents=JSONArray();val volumeScopes=JSONArray();val errors=JSONArray()
+        val access=accessLevel(context)
         var files=0;var videos=0;var cancelled=false
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE).put("files",0).put("videos",0))
         try{
@@ -65,7 +66,7 @@ object MediaStoreScanner {
                 if(shouldCancel()){cancelled=true;break}
                 val version=if(Build.VERSION.SDK_INT>=29)runCatching{MediaStore.getVersion(context,volumeName)}.getOrDefault("") else ""
                 val generation=if(Build.VERSION.SDK_INT>=30)runCatching{MediaStore.getGeneration(context,volumeName)}.getOrDefault(0L) else 0L
-                val access=accessLevel(context);val scopeKey="mediastore:"+volumeName
+                val scopeKey="mediastore:"+volumeName
                 if(NativeIndex.canReuseMediaStoreVolume(context,volumeName,access,version,generation)){
                     val cached=NativeIndex.cachedDocuments(context,scopeKey)
                     for(i in 0 until cached.length())documents.put(cached.getJSONObject(i))

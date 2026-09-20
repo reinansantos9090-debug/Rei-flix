@@ -1,7 +1,10 @@
 import copy
+import os
+import tempfile
 import unittest
 
 from core.library_service import LibraryService
+from core.library_store import LibraryStore
 from core.search_engine import LibrarySearchEngine, normalize_text
 
 
@@ -166,6 +169,31 @@ class SearchEngineTests(unittest.TestCase):
     def test_empty_library_is_safe(self):
         self.assertEqual(LibrarySearchEngine.search([]), [])
         self.assertIn("Série/Anime", LibrarySearchEngine.options([])["media_types"])
+
+    def test_store_catalog_exposes_source_and_local_artwork_for_filters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            source = os.path.join(directory, "videos")
+            os.makedirs(source)
+            store.add_folder(source, name="Local", kind="filesystem")
+            anime_id = store.upsert_anime("local-show", {"title": "Local Show", "genres": "[]"})
+            path = os.path.join(source, "Local Show S01E01.mkv")
+            store.upsert_episode(anime_id, path, os.path.basename(path), 1, 1, source_folder=source)
+            cover = os.path.join(source, "poster.jpg")
+            with open(cover, "wb") as handle:
+                handle.write(b"not-a-real-image")
+            store.artwork = None
+            with store._conn() as con:
+                con.execute(
+                    """INSERT INTO artwork(entity_type,entity_id,artwork_type,source,source_ref,local_path,
+                       external_url,manual,priority,status,discovered_at,updated_at,failure_count)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    ("anime", str(anime_id), "poster", "local", cover, cover, None, 0, 1, "ready", 1, 1, 0),
+                )
+            row = store.catalog()[0]
+            episode_row = row["seasons"][0]["episodes"][0]
+            self.assertEqual(episode_row["source_kind"], "filesystem")
+            self.assertTrue(row["artwork_available"])
 
     def test_service_facade_remains_compatible(self):
         result = LibraryService.browse_catalog(self.library, "one-piece", "Favoritos", "Aventura", "Nome A-Z", "Favorito",

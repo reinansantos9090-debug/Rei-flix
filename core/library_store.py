@@ -743,12 +743,16 @@ class LibraryStore:
 
     def set_episode_identification(self, path, *, season=None, number=None, episode_type="regular", title=None):
         """Persist an explicit user identification without changing consumption data."""
-        try:
-            normalized_season = 0 if season is None else int(season)
-        except (TypeError, ValueError):
-            raise ValueError("Temporada inválida.")
-        if normalized_season < 0:
-            raise ValueError("Temporada inválida.")
+        if season is None:
+            normalized_season = 0
+        else:
+            try:
+                raw_season = float(season)
+            except (TypeError, ValueError):
+                raise ValueError("Temporada inválida.")
+            if not math.isfinite(raw_season) or raw_season < 0 or not raw_season.is_integer():
+                raise ValueError("Temporada inválida.")
+            normalized_season = int(raw_season)
         if number is None:
             normalized_number = None
         else:

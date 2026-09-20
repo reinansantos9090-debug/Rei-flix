@@ -163,6 +163,39 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         self.store.save_progress(e1, 100, 100)
         self.assertEqual(e3, self.store.playback_target(self.anime)["path"])
 
+    def test_absolute_number_orders_unparsed_regular_media_deterministically(self):
+        low = self.episode("content://cycle/absolute-100", 1, None)
+        self.store.upsert_episode(
+            self.anime, "content://cycle/absolute-101", "episode-101.mkv", 1, None,
+            absolute_number=101,
+        )
+        self.store.upsert_episode(
+            self.anime, low, "episode-100.mkv", 1, None,
+            absolute_number=100,
+        )
+        self.assertEqual(
+            self.store.next_episode(low)["path"],
+            "content://cycle/absolute-101",
+        )
+        self.assertEqual(
+            self.store.previous_episode("content://cycle/absolute-101")["path"],
+            low,
+        )
+
+    def test_special_only_library_has_playback_target_without_joining_regular_sequence(self):
+        special = self.episode("content://cycle/special-only", 1, 1, episode_type="ova")
+        self.assertEqual(
+            self.store.playback_target(self.anime)["path"],
+            "content://cycle/special-only",
+        )
+        self.assertIsNone(self.store.next_episode(special))
+
+    def test_central_consumption_policy_treats_nonfinite_catalog_values_as_invalid(self):
+        from core.consumption import consumption_state, progress_ratio
+        invalid = {"progress": float("inf"), "duration": 100}
+        self.assertEqual("unwatched", consumption_state(invalid).value)
+        self.assertEqual(0.0, progress_ratio(invalid))
+
     def test_native_player_contract_uses_single_autoplay_preference(self):
         from pathlib import Path
         root = Path(__file__).resolve().parents[1]

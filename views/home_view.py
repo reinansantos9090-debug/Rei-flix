@@ -171,9 +171,14 @@ class HomeView:
                     "Continuar", icon=ft.Icons.PLAY_ARROW,
                     on_click=lambda _, entry=item: play_continuation(entry),
                 )
+                details_button = ft.TextButton(
+                    "Detalhes",
+                    icon=ft.Icons.INFO_OUTLINE,
+                    on_click=lambda _, entry=owner: on_select_anime(entry) if entry else None,
+                )
                 card = ft.Container(
                     width=270, bgcolor=SURFACE, border_radius=RADIUS, padding=10, ink=True,
-                    on_click=lambda _, entry=owner: on_select_anime(entry) if entry else None,
+                    on_click=lambda _, entry=item: play_continuation(entry),
                     content=ft.Row([
                         ft.Container(content=artwork(item.get("cover"), 96, 26), width=68, clip_behavior=ft.ClipBehavior.HARD_EDGE),
                         ft.Column([
@@ -181,7 +186,7 @@ class HomeView:
                             ft.Text(episode_label, color=TEXT_MUTED, size=11),
                             ft.ProgressBar(value=progress, color=ACCENT, bgcolor="#454252", height=4, visible=bool(item.get("duration"))),
                             ft.Text(f"{int(progress * 100)}% assistido" if item.get("duration") else "Progresso indisponível", color=TEXT_MUTED, size=10),
-                            continue_button,
+                            ft.Row([continue_button, details_button], spacing=4),
                         ], spacing=5, expand=True),
                     ], spacing=9),
                 )

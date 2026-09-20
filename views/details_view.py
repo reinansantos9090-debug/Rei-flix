@@ -387,25 +387,6 @@ class DetailView:
             else:
                 if seasons:
                     selected = seasons[min(selected_season[0], len(seasons) - 1)]
-                    season_available = int(selected.get("available_count") or 0)
-                    season_watched = int(selected.get("watched_count") or 0)
-                    season_remaining = int(selected.get("remaining_count") or 0)
-                    season_active = int(selected.get("active_count") or 0)
-                    season_progress = float(selected.get("progress_ratio") or 0.0)
-                    episode_column.controls.append(
-                        ft.Container(
-                            content=ft.Column([
-                                ft.Text(
-                                    f"{season_watched}/{season_available} concluídos • {season_remaining} restantes"
-                                    + (f" • {season_active} em andamento" if season_active else ""),
-                                    color="#C7C5D0", size=11,
-                                ),
-                                ft.ProgressBar(value=max(0.0, min(season_progress, 1.0)), color="#E50914", bgcolor="#454252", bar_height=4, visible=season_available > 0),
-                            ], spacing=5),
-                            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-                            bgcolor=SURFACE, border_radius=RADIUS,
-                        )
-                    )
                     if resolve_artwork:
                         season_number = selected.get("season")
                         if season_number is not None:
@@ -428,7 +409,12 @@ class DetailView:
             value="0", options=[
                 ft.dropdown.Option(
                     key=str(index),
-                    text=f"{season.get('season_name') or f'Temporada {index + 1}'} • {sum(1 for item in season.get('episodes', []) if not item.get('missing'))}/{len(season.get('episodes', []))} locais",
+                    text=(
+                        f"{season.get('season_name') or f'Temporada {index + 1}'} • "
+                        f"{season.get('watched_count', 0)}/{season.get('available_count', 0)} concluídos • "
+                        f"{season.get('remaining_count', 0)} restantes"
+                        + (f" • {season.get('active_count', 0)} em andamento" if season.get('active_count') else "")
+                    ),
                 )
                 for index, season in enumerate(seasons)
             ],

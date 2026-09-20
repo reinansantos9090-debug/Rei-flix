@@ -143,7 +143,7 @@ class StorageOnboardingTests(unittest.TestCase):
         startup = source[source.index("    page.on_login=login_done"):source.rindex("    render_current()")]
         self.assertNotIn("bridge.check_storage_access", startup)
         self.assertNotIn("await bridge.verify_tree", source)
-        self.assertIn("MainActivity publishes the authoritative storage snapshot", source)
+        self.assertIn("authoritative SAF grant inventory", source)
 
     def test_native_intents_have_unique_request_identity_and_are_deduplicated(self):
         bridge = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
@@ -152,7 +152,7 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn('"request_id": request_id', bridge)
         self.assertIn('getQueryParameter("request_id")', main)
         self.assertIn("nativeRequestState", main)
-        self.assertIn("NativeRequestState.kt", main)
+        self.assertIn("NativeRequestState.isSupportedAction", main)
         self.assertIn("Ignoring duplicate native request", main)
 
     def test_activity_preserves_request_state_across_recreation(self):

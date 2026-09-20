@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.util.UUID
 
 /**
  * Flet's generated Android template must use this activity instead of its default
@@ -128,6 +129,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
     private fun scanTree(reference: String?) {
+        val scanId = UUID.randomUUID().toString()
         if (reference.isNullOrBlank()) {
             NativeMailbox.write(this, JSONObject().put("type", "saf_error")
                 .put("message", "A pasta SAF não foi informada corretamente.")
@@ -143,12 +145,12 @@ class MainActivity : FlutterFragmentActivity() {
         }
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan_progress").put("payload", JSONObject().put("treeUri", reference).put("phase", "started")))
+                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan_progress").put("payload", JSONObject().put("treeUri", reference).put("scanId", scanId).put("phase", "started")))
                 val result = SafScanner.scan(this@MainActivity, treeUri) { progress ->
                     NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan_progress")
-                        .put("payload", progress.put("treeUri", reference).put("phase", "scanning")))
+                        .put("payload", progress.put("treeUri", reference).put("scanId", scanId).put("phase", "scanning")))
                 }
-                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan").put("payload", result))
+                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan").put("payload", result.put("scanId", scanId).put("scopeKind", "root").put("scopeRef", "")))
             } catch (exception: Exception) {
                 Log.e(tag, "SAF scan failed", exception)
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_error").put("message", "Não foi possível atualizar esta pasta autorizada.")
@@ -242,6 +244,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun scanAllStorage() {
+        val scanId = UUID.randomUUID().toString()
         if (!BroadStorageScanner.hasAccess(this)) {
             publishStorageStatus()
             NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
@@ -254,10 +257,10 @@ class MainActivity : FlutterFragmentActivity() {
             try {
                 val result = BroadStorageScanner.scan(this@MainActivity) { progress ->
                     NativeMailbox.write(this@MainActivity, JSONObject().put("type", "broad_storage_scan_progress")
-                        .put("payload", progress))
+                        .put("payload", progress.put("scanId", scanId).put("scopeKind", "global")))
                 }
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "broad_storage_scan")
-                    .put("payload", result))
+                    .put("payload", result.put("scanId", scanId).put("scopeKind", "global").put("scopeRef", "broad-storage")))
             } catch (exception: Exception) {
                 Log.e(tag, "Broad storage scan failed", exception)
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "broad_storage_error")
@@ -267,6 +270,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
     private fun scanMediaStore() {
+        val scanId = UUID.randomUUID().toString()
         if (!MediaStoreScanner.hasReadPermission(this)) {
             // Scanning never turns into an implicit permission request. The
             // explicit request/onboarding path owns that Android interaction.
@@ -279,13 +283,13 @@ class MainActivity : FlutterFragmentActivity() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_scan_progress")
-                    .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE).put("phase", "started")))
+                    .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE).put("scanId", scanId).put("phase", "started")))
                 val result = MediaStoreScanner.scan(this@MainActivity) { progress ->
                     NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_scan_progress")
-                        .put("payload", progress))
+                        .put("payload", progress.put("scanId", scanId).put("scopeKind", "global")))
                 }
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_scan")
-                    .put("payload", result))
+                    .put("payload", result.put("scanId", scanId).put("scopeKind", "global").put("scopeRef", MediaStoreScanner.SOURCE)))
             } catch (exception: Exception) {
                 Log.e(tag, "MediaStore scan failed", exception)
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_error")

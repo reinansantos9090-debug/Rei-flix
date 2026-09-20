@@ -203,11 +203,13 @@ async def main(page: ft.Page):
     async def request_video_access(_=None):
         if not bridge.available:
             return
+        logger.info("[STORAGE] action=media_permission python_callback=dispatch")
         await bridge.request_media_access()
 
     async def open_broad_storage_access(_=None):
         if not bridge.available:
             return
+        logger.info("[STORAGE] action=broad_storage python_callback=dispatch")
         await bridge.open_broad_storage_settings()
 
     def storage_state():
@@ -236,7 +238,7 @@ async def main(page: ft.Page):
         async def allow(_event):
             storage_onboarding["dialog_open"] = False
             storage_onboarding["waiting_for_result"] = True
-            dismiss_dialog(page, dialog)
+            page.pop_dialog()
             try:
                 if is_media:
                     await request_video_access()
@@ -246,13 +248,17 @@ async def main(page: ft.Page):
                 storage_onboarding["waiting_for_result"] = False
                 page.snack_bar = ft.SnackBar(ft.Text("Não foi possível abrir a solicitação de acesso.")); page.snack_bar.open = True; page.update()
         def cancel(_event):
+            logger.info("[STORAGE] request_id=- action=cancel python_callback=received dialog_open=false")
             storage_onboarding["dialog_open"] = False
             storage_onboarding["dismissed"] = True
-            dismiss_dialog(page, dialog)
+            page.pop_dialog()
+            page.update()
         dialog.actions = [ft.TextButton("CANCELAR", on_click=cancel),
                           ft.FilledButton("PERMITIR" if is_media else "CONTINUAR", on_click=allow)]
         storage_onboarding["dialog_open"] = True
-        page.overlay.append(dialog); dialog.open = True; page.update()
+        logger.info("[STORAGE] request_id=- action=onboarding_show dialog_open=true")
+        page.show_dialog(dialog)
+        page.update()
 
     async def refresh_library(_=None):
         if saf_selection.pending:
@@ -595,6 +601,35 @@ async def main(page: ft.Page):
                                 page.snack_bar=ft.SnackBar(ft.Text('A resposta da conta Google é inválida. Tente novamente.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
                             else:
                                 store.save_account(profile); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
+                        elif event_type == 'saf_inventory':
+                            trees = payload.get('trees') or []
+                            current_uris = {
+                                str(item.get('treeUri'))
+                                for item in trees
+                                if isinstance(item, dict) and item.get('treeUri')
+                            }
+                            logger.info(
+                                "[STORAGE] action=saf_inventory native_result=received "
+                                "count=%s lifecycle=%s",
+                                len(current_uris),
+                                payload.get('lifecycle', '-'),
+                            )
+                            for folder in store.folders():
+                                if folder.get('kind') != 'saf':
+                                    continue
+                                reference = str(folder.get('path') or '')
+                                if not reference:
+                                    continue
+                                if reference in current_uris:
+                                    if folder.get('authorization') != 'granted':
+                                        store.update_folder_status(reference, 'granted')
+                                else:
+                                    store.update_folder_status(
+                                        reference,
+                                        'revoked',
+                                        'A autorização SAF desta pasta não está mais presente no Android.',
+                                    )
+                            refresh_settings_if_active()
                         elif event_type == 'saf_cancelled':
                             saf_selection.finish()
                             page.snack_bar=ft.SnackBar(ft.Text('Seleção de pasta cancelada.')); page.snack_bar.open=True; page.update()
@@ -683,12 +718,11 @@ async def main(page: ft.Page):
         page.snack_bar.open = True
         page.update()
     if bridge.available:
-        # MainActivity publishes the authoritative storage snapshot from its
-        # lifecycle. Avoid a Python -> reiflix://native self-launch during
-        # startup, which can re-enter the same Activity while Flet is mounting.
-        for folder in store.folders():
-            if folder.get('kind') == 'saf':
-                await bridge.verify_tree(folder['path'])
+        # MainActivity publishes the authoritative SAF grant inventory from
+        # onResume. Never self-launch reiflix://native during app startup just
+        # to verify persisted trees; this can re-enter the singleTask Activity
+        # while Flet is still mounting.
+        pass
     render_current()
 
 if __name__ == "__main__":

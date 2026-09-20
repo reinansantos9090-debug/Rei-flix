@@ -24,6 +24,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import org.json.JSONObject
+import kotlin.math.abs
 
 /** Full-screen Media3 player for one persisted local, SAF, or MediaStore URI. */
 class NativePlayerActivity : ComponentActivity() {
@@ -232,7 +233,7 @@ class NativePlayerActivity : ComponentActivity() {
             rawDuration.takeIf { it > 0L } ?: Long.MAX_VALUE
         ) ?: 0L
         val duration = rawDuration.takeIf { it > 0L } ?: 0L
-        if (!force && (position - lastSavedPosition) < PROGRESS_INTERVAL_MS) return
+        if (!force && abs(position - lastSavedPosition) < PROGRESS_INTERVAL_MS) return
         // Lifecycle callbacks can fire back-to-back (pause -> stop -> destroy).
         // Avoid emitting identical snapshots while still flushing meaningful events.
         if (force && position == lastSavedPosition && eventType != "player_completed") return

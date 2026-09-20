@@ -17,7 +17,8 @@ class DetailView:
     @staticmethod
     def build(page: ft.Page, anime_group: dict, on_play_episode, on_back,
               on_toggle_favorite, get_playback_target=None, on_set_user_tags=None,
-              on_toggle_pinned=None, on_set_personal_note=None):
+              on_toggle_pinned=None, on_set_personal_note=None, on_set_episode_identification=None,
+              on_identification_saved=None):
         metadata = anime_group.get("meta") or {}
         title = metadata.get("title_official") or anime_group.get("main_title") or "Anime local"
         alternate_titles = [metadata.get(key) for key in ("english", "romaji", "native")]
@@ -220,6 +221,38 @@ class DetailView:
 
         episode_column = ft.Column(spacing=8)
 
+        def edit_identification(episode):
+            if not on_set_episode_identification:
+                return
+            season = ft.TextField(label="Temporada", value="" if not episode.get("season") else str(episode["season"]), width=120)
+            number = ft.TextField(label="Episódio", value="" if episode.get("number") is None else str(episode["number"]), width=120)
+            kind = ft.Dropdown(label="Tipo", value=episode.get("episode_type") or "regular", width=160,
+                               options=[ft.dropdown.Option(key=value, text=value) for value in ("regular", "special", "ova", "oad", "ona", "extra", "movie", "unknown")])
+            title_field = ft.TextField(label="Título do episódio (opcional)", value=episode.get("episode_title") or "", width=330)
+            dialog = ft.AlertDialog(modal=True, title=ft.Text("Corrigir identificação"), content=ft.Column([season, number, kind, title_field], tight=True))
+            def save(_):
+                try:
+                    parsed_season = int(season.value) if (season.value or "").strip() else None
+                    parsed_number = float(number.value) if (number.value or "").strip() else None
+                    on_set_episode_identification(episode["path"], season=parsed_season, number=parsed_number, episode_type=kind.value, title=title_field.value)
+                    # Keep the current Details projection coherent without a
+                    # physical rescan: SQLite owns the value, and this view
+                    # updates its already-rendered episode list to match it.
+                    dismiss_dialog(page, dialog)
+                    if on_identification_saved:
+                        on_identification_saved()
+                    else:
+                        episode.update(season=parsed_season or 0, number=parsed_number,
+                                       episode_type=kind.value, episode_title=(title_field.value or "").strip() or None,
+                                       identification_source="manual", identification_confidence="high",
+                                       manual_override=True)
+                        render_episodes()
+                    page.snack_bar = ft.SnackBar(ft.Text("Identificação manual salva.")); page.snack_bar.open = True; page.update()
+                except (TypeError, ValueError) as exc:
+                    number.error_text = str(exc) or "Valores inválidos."; page.update()
+            dialog.actions = [ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)), ft.FilledButton("Salvar", on_click=save)]
+            page.overlay.append(dialog); dialog.open = True; page.update()
+
         def episode_item(episode):
             episode_ratio = ratio(episode)
             number = episode.get("number")
@@ -232,14 +265,21 @@ class DetailView:
                 icon, status, color = ft.Icons.PLAY_CIRCLE_FILL, f"Em andamento • {int(episode_ratio * 100)}%", ACCENT
             else:
                 icon, status, color = ft.Icons.PLAY_CIRCLE_OUTLINE, "Disponível localmente", "#AAA7B6"
+            if episode.get("manual_override"):
+                identification = "✎ Correção manual"
+            elif episode.get("identification_confidence") == "low" or episode.get("episode_type") == "unknown":
+                identification = "⚠ Precisa revisar"
+            else:
+                identification = "✓ Identificado"
             details = ft.Column([
                 ft.Row([
                     ft.Text(number_label, size=10, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
-                    ft.Icon(icon, size=17, color=color),
+                    ft.Row([ft.Icon(icon, size=17, color=color), ft.IconButton(icon=ft.Icons.EDIT_OUTLINED, icon_size=16, tooltip="Corrigir identificação", visible=on_set_episode_identification is not None, on_click=lambda _, item=episode: edit_identification(item))], tight=True),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Text(episode.get("title") or "Episódio", size=13, color="#F7F5FA", weight=ft.FontWeight.BOLD,
+                ft.Text(episode.get("episode_title") or episode.get("title") or "Episódio", size=13, color="#F7F5FA", weight=ft.FontWeight.BOLD,
                         max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                 ft.Text(status, size=11, color=color),
+                ft.Text(identification, size=10, color="#AAA7B6"),
             ], spacing=4, expand=True)
             if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing"):
                 details.controls.append(ft.ProgressBar(value=episode_ratio, color="#E50914", bgcolor="#454252", bar_height=4))

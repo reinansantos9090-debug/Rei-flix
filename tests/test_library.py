@@ -58,6 +58,18 @@ class ParserTests(unittest.TestCase):
     def test_invalid_file_is_safe(self):
         p=parse_video_path('sem-padrao.mkv')
         self.assertEqual(p.episode, None)
+
+    def test_explicit_patterns_specials_movies_and_years_are_conservative(self):
+        self.assertEqual((parse_video_path('Anime 1x01.mkv').season, parse_video_path('Anime 1x01.mkv').episode), (1, 1))
+        self.assertEqual((parse_video_path('[Group] Anime - S02E03 [1080p][x265].mkv').anime_title, parse_video_path('[Group] Anime - S02E03 [1080p][x265].mkv').episode), ('Anime', 3))
+        ova = parse_video_path('Anime - OVA 01.mkv')
+        self.assertEqual((ova.episode_type, ova.episode), ('ova', 1))
+        self.assertEqual(parse_video_path('Anime SP01.mkv').episode_type, 'special')
+        movie = parse_video_path('One Piece Film Red 2022.mp4')
+        self.assertEqual((movie.episode_type, movie.episode), ('movie', None))
+        year = parse_video_path('Anime 2024 1080p.mp4')
+        self.assertIsNone(year.episode)
+        self.assertIsNone(year.season)
     def test_organizer_requires_review_for_uncertain_match(self):
         candidates=[{'id':1,'title':{'romaji':'Naruto'}},{'id':2,'title':{'romaji':'Boruto'}}]
         selected, confident, ranked=AnimeOrganizer.choose('Naruto Shipuden',candidates)
@@ -311,7 +323,22 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(store.catalog()[0]['main_title'], 'Naruto')
             self.assertEqual(store.get_preference('missing', 'default'), 'default')
             with store._conn() as con:
-                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], 15)
+                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], 16)
+
+    def test_manual_episode_identification_survives_rescan_and_migration_fields(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('demo', {'title': 'Demo', 'genres': '[]'})
+            store.upsert_episode(anime, '/library/demo.mkv', 'Demo S01E01.mkv', 1, 1,
+                                 episode_type='regular', identification_source='sxxexx', identification_confidence='high')
+            store.save_progress('/library/demo.mkv', 30, 100)
+            store.set_episode_identification('/library/demo.mkv', season=3, number=12, episode_type='special', title='Final alternativo')
+            store.upsert_episode(anime, '/library/demo.mkv', 'Demo S01E01.mkv', 1, 1,
+                                 episode_type='regular', identification_source='sxxexx', identification_confidence='high')
+            episode = store.catalog()[0]['seasons'][0]['episodes'][0]
+            self.assertEqual((episode['season'], episode['number'], episode['episode_type']), (3, 12, 'special'))
+            self.assertTrue(episode['manual_override'])
+            self.assertEqual((episode['progress'], episode['duration']), (30, 100))
 
     def test_clear_anilist_cache_preserves_library_favorite_progress_history_and_association(self):
         with tempfile.TemporaryDirectory() as d:
@@ -427,7 +454,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             LibraryStore(d)
             LibraryStore(d)
             with LibraryStore(d)._conn() as con:
-                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=15').fetchone()[0], 1)
+                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=16').fetchone()[0], 1)
 
     def test_invalid_progress_is_rejected_and_overflow_is_normalized(self):
         with tempfile.TemporaryDirectory() as d:

@@ -7,6 +7,22 @@ from core.library_store import LibraryStore
 
 
 class LibraryIntegrationTests(unittest.TestCase):
+    def test_incomplete_native_document_is_partial_not_a_scan_crash_or_destructive_reconcile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            service = LibraryService(store)
+            service._identify = lambda lookup, display, on_status: {"title": display}
+            source = "content://tree/incomplete"
+            valid = {"uri": "content://media/complete-1", "name": "Anime S01E01.mkv", "relativePath": "Anime/Anime S01E01.mkv"}
+            service.ingest_documents(source, [valid])
+            # A malformed mailbox event used to call ``None.startswith`` and
+            # abort ingestion. It must now keep the known item available.
+            service.ingest_documents(source, [valid, {"uri": None, "name": "broken.mkv"}])
+            episodes = store.catalog()[0]["seasons"][0]["episodes"]
+            self.assertEqual(1, len(episodes))
+            self.assertFalse(episodes[0]["missing"])
+            self.assertIn("incompleto", store.folders()[0]["last_error"])
+
     def test_saf_ingest_to_progress_navigation_and_reopen(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

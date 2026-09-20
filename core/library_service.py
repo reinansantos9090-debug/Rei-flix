@@ -145,7 +145,8 @@ class LibraryService:
                     metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
                     result.errors.append(f"{item.anime_title}: AniList indisponível ({exc})")
                     logger.warning("Metadata lookup failed for local title %s: %s", item.anime_title, exc)
-            anime_id=self.store.upsert_anime(key,metadata[key]); self.store.upsert_episode(anime_id,path,os.path.basename(path),item.season,item.episode,source_folder=source_folder)
+            anime_id=self.store.upsert_anime(key,metadata[key]); self.store.upsert_episode(anime_id,path,os.path.basename(path),item.season,item.episode,source_folder=source_folder,
+                episode_type=item.episode_type, episode_title=item.display_title, identification_source=item.identification_source, identification_confidence=item.confidence)
         result.catalog=self.store.catalog(); result.animes=len(result.catalog); result.episodes=sum(len(s['episodes']) for a in result.catalog for s in a['seasons'])
         self.store.finish_scan(run_id, result.__dict__); on_status(result.message()); return result
     def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *, folder_name=None, scan_errors=None, scan_stats=None, source_kind="saf"):
@@ -164,15 +165,19 @@ class LibraryService:
         seen = []
         for document in documents:
             uri, name = document.get("uri"), document.get("name")
+            # Mailbox payloads are external input. Validate before calling a
+            # string method so one incomplete native event cannot abort the
+            # whole source scan or make a complete reconciliation look empty.
+            if not isinstance(uri, str) or not uri or not name:
+                scan_errors.append("Documento local incompleto recebido da ponte Android.")
+                continue
             relative_path = document.get("relativePath") or document.get("path") or name
             if uri.startswith("file://") and not document.get("relativePath") and not document.get("path"):
                 relative_path = unquote(urlparse(uri).path)
-            if not uri or not name:
-                continue
             # Native media documents are the local-media contract. Rejecting
             # anything else here prevents a malformed bridge payload from
             # silently creating a playable row that Android cannot authorize.
-            if not isinstance(uri, str) or not (uri.startswith("content://") or uri.startswith("file://")):
+            if not (uri.startswith("content://") or uri.startswith("file://")):
                 scan_errors.append(f"Referência local inválida para {name}.")
                 continue
             seen.append(uri)
@@ -195,6 +200,8 @@ class LibraryService:
                 local_media_identity(uri=uri, source_kind=source_kind, relative_path=relative_path,
                                      size=document.get("size"), modified_at=document.get("modifiedAt"),
                                      volume_id=document.get("volumeId")),
+                episode_type=item.episode_type, episode_title=item.display_title,
+                identification_source=item.identification_source, identification_confidence=item.confidence,
             )
         # Do not infer removals from a partial SAF scan: a SecurityException in
         # one subdirectory means its previous documents may simply be unreadable.

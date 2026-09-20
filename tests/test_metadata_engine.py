@@ -194,7 +194,7 @@ class ProfessionalMetadataTests(unittest.TestCase):
         self.store.set_manual_metadata("attack on titan", {"title": "Título local"})
         catalog = self.service.ingest_documents(
             "content://partial",
-            [{"uri": "content://partial/1", "name": "Attack S01E01.mkv", "size": 10, "modifiedAt": 1}],
+            [{"uri": "content://partial/1", "name": "Attack on Titan S01E01.mkv", "size": 10, "modifiedAt": 1}],
             source_kind="saf",
             scan_errors=["provider timeout"],
         )

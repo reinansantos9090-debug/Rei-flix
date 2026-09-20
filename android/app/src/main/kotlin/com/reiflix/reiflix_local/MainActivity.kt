@@ -287,7 +287,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private fun requestMediaAccess() {
         if (!activityResumed) {
-            pendingLifecycleAction = "request_media_access"
+            nativeRequestState.queueLifecycleAction("request_media_access")
             Log.i(tag, "Deferring media permission request until Activity is resumed")
             return
         }
@@ -394,7 +394,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun openBroadStorageSettings() {
         if (!activityResumed) {
-            pendingLifecycleAction = "open_broad_storage_settings"
+            nativeRequestState.queueLifecycleAction("open_broad_storage_settings")
             Log.i(tag, "Deferring broad-storage Settings launch until Activity is resumed")
             return
         }

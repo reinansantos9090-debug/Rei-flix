@@ -34,7 +34,7 @@ class ArtworkEngineTests(unittest.TestCase):
             return cur.lastrowid
 
     def test_schema_and_persistence(self):
-        self.assertEqual(self.store.SCHEMA_VERSION, 21)
+        self.assertEqual(self.store.SCHEMA_VERSION, 22)
         anime = self._media()
         path = Path(self.tmp.name) / "poster.jpg"
         path.write_bytes(b"poster")

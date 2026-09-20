@@ -32,6 +32,18 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
         self.assertIn('"full"', scanner)
         self.assertIn("READ_MEDIA_VIDEO", scanner)
 
+    def test_partial_media_store_access_never_marks_volume_complete(self):
+        scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MediaStoreScanner.kt").read_text(encoding="utf-8")
+        self.assertIn('val complete=access=="full"&&localErrors.length()==0&&!shouldCancel()', scanner)
+        self.assertIn('access!="full"', scanner)
+
+    def test_partial_media_store_results_are_ingested_without_reconciliation(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("scope_stats = dict(stats)", main)
+        self.assertIn("if not scope.get('complete'):", main)
+        self.assertIn("scope_stats['partial'] = True", main)
+        self.assertIn("scan_errors=[], scan_stats=scope_stats", main)
+
     def test_player_accepts_saf_or_media_store_without_path_conversion(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")

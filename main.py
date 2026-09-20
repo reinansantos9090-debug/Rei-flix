@@ -1,5 +1,6 @@
 import os
 import asyncio
+import logging
 import flet as ft
 from flet.auth import OAuthProvider
 from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URL as CONFIG_GOOGLE_REDIRECT_URL, GOOGLE_WEB_CLIENT_ID as CONFIG_GOOGLE_WEB_CLIENT_ID
@@ -15,6 +16,8 @@ from views.details_view import DetailView
 from views.organize_view import OrganizeView
 from views.player_view import PlayerView
 from views.settings_view import SettingsView
+
+logger = logging.getLogger("reiflix")
 
 GOOGLE_CLIENT_ID = os.getenv('REIFLIX_GOOGLE_CLIENT_ID', CONFIG_GOOGLE_CLIENT_ID)
 GOOGLE_REDIRECT_URL = os.getenv('REIFLIX_GOOGLE_REDIRECT_URL', CONFIG_GOOGLE_REDIRECT_URL)
@@ -717,12 +720,9 @@ async def main(page: ft.Page):
         ))
         page.snack_bar.open = True
         page.update()
-    if bridge.available:
-        # MainActivity publishes the authoritative SAF grant inventory from
-        # onResume. Never self-launch reiflix://native during app startup just
-        # to verify persisted trees; this can re-enter the singleTask Activity
-        # while Flet is still mounting.
-        pass
+    # MainActivity publishes the authoritative SAF grant inventory from
+    # onResume. There is intentionally no Python -> reiflix://native startup
+    # verification call.
     render_current()
 
 if __name__ == "__main__":

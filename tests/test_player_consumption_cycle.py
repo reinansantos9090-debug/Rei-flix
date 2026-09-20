@@ -23,7 +23,8 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
             season, number, episode_type=episode_type,
         )
         if missing:
-            self.store.mark_missing(path, True)
+            with self.store._conn() as connection:
+                connection.execute("UPDATE episodes SET missing=1 WHERE path=?", (path,))
         return path
 
     def test_resume_completion_history_and_continue_are_one_durable_state(self):

@@ -149,18 +149,12 @@ class MainActivity : FlutterFragmentActivity() {
         activityResumed = true
         logLifecycle("onResume")
         applyImmersiveSystemUi()
-        // Settings may revoke access while this activity is paused. Always
-        // republish the actual Android state; a button click is never proof.
-        publishStorageStatus()
-        if (broadStoragePermissionPending) {
-            broadStoragePermissionPending = false
-            if (BroadStorageScanner.hasAccess(this)) {
-                scanAllStorage()
-            } else {
-                NativeMailbox.write(this, JSONObject().put("type", "broad_storage_status")
-                    .put("payload", BroadStorageScanner.accessSnapshot(this)))
-            }
-        }
+
+        // A lifecycle-sensitive command may have been queued because the
+        // Activity was not resumed when Python delivered the request. Do not
+        // publish an intermediate "denied" snapshot first: Python could treat
+        // that snapshot as the final result and close the onboarding while the
+        // real Android permission/settings UI is only about to open.
         val pending = pendingLifecycleAction
         if (pending != null) {
             pendingLifecycleAction = null
@@ -169,7 +163,22 @@ class MainActivity : FlutterFragmentActivity() {
                 "request_media_access" -> requestMediaAccess()
                 "open_broad_storage_settings" -> openBroadStorageSettings()
             }
+            return
         }
+
+        // Settings may revoke access while this activity is paused. Always
+        // republish the actual Android state after a real Settings return.
+        if (broadStoragePermissionPending) {
+            broadStoragePermissionPending = false
+            if (BroadStorageScanner.hasAccess(this)) {
+                scanAllStorage()
+            } else {
+                publishStorageStatus()
+            }
+            return
+        }
+
+        publishStorageStatus()
     }
 
     override fun onPause() {

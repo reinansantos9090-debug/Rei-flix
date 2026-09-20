@@ -84,6 +84,21 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("lastHandledNativeRequestId", main)
         self.assertIn("Ignoring duplicate native request", main)
 
+    def test_activity_preserves_request_state_across_recreation(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("STATE_LAST_NATIVE_REQUEST_ID", source)
+        self.assertIn("STATE_PENDING_LIFECYCLE_ACTION", source)
+        self.assertIn("STATE_BROAD_SETTINGS_PENDING", source)
+        self.assertIn("savedInstanceState?.getString(STATE_LAST_NATIVE_REQUEST_ID)", source)
+        self.assertIn("override fun onSaveInstanceState(outState: Bundle)", source)
+
+    def test_open_settings_does_not_publish_a_false_permission_before_navigation(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        block = source.split("private fun openBroadStorageSettings()", 1)[1].split("private fun openTreePicker()", 1)[0]
+        self.assertNotIn('put("granted", false)', block)
+        self.assertIn("broadStoragePermissionPending = true", block)
+        self.assertIn("publishStorageStatus()", source)
+
     def test_native_host_rechecks_and_never_scans_before_authorization(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("override fun onResume()", source)

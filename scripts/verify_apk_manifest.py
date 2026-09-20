@@ -71,7 +71,7 @@ def has_max_sdk_32_for_legacy_permission(manifest: str) -> bool:
         block = "E: uses-permission\n" + tail
         if "android.permission.READ_EXTERNAL_STORAGE" not in block:
             continue
-        return bool(re.search(r"android:maxSdkVersion\b.*?(?:32|0x00000020)", block, re.S))
+        return bool(re.search(r"android:maxSdkVersion\b.*?(?:32|0x20|0x00000020)", block, re.S))
     return False
 
 def has_launchable_activity(badging: str, activity_name: str) -> bool:
@@ -103,8 +103,8 @@ def main() -> int:
         failed.append(f"MainActivity not found in packaged manifest: {MAIN_ACTIVITY}")
     else:
         checks = (
-            ("launchMode=singleTask", has_attribute(main_block, MAIN_LAUNCH_MODE_ATTRIBUTE.removeprefix("android:"), "0x00000002", "0x2", "singleTask")),
-            ("documentLaunchMode=never", has_attribute(main_block, MAIN_DOCUMENT_LAUNCH_MODE_ATTRIBUTE.removeprefix("android:"), "0x00000003", "0x3", "never")),
+            ("launchMode=singleTask", has_attribute(main_block, "launchMode", "0x00000002", "0x2", "singleTask")),
+            ("documentLaunchMode=never", has_attribute(main_block, "documentLaunchMode", "0x00000003", "0x3", "never")),
             ("exported=true", has_attribute(main_block, "exported", "0xffffffff", "true")),
             ("reiflix://native", has_deep_link(main_block)),
         )

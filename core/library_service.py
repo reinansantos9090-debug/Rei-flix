@@ -45,9 +45,10 @@ class ScanResult:
 class LibraryService:
     METADATA_CACHE_SECONDS = 30 * 24 * 60 * 60
     COVER_RETRY_SECONDS = 6 * 60 * 60
+    REQUEST_DEDUPE_SECONDS = 5
 
     def __init__(self, store):
-        self.store=store; self.anilist=AniListClient(store.cache_dir); self._scan_lock=threading.Lock()
+        self.store=store; self.anilist=AniListClient(store.cache_dir); self._scan_lock=threading.Lock(); self._metadata_lock=threading.RLock()
 
     def _cached_metadata_is_current(self, cached, associated_id):
         if not cached:
@@ -74,28 +75,53 @@ class LibraryService:
         # only the normal metadata TTL controls freshness.
         return age < self.METADATA_CACHE_SECONDS
 
-    def _identify(self, lookup_title, display_title, on_status):
-        """Resolve local title to cached/remote AniList metadata without guessing.
-
-        Existing associations always win.  A stale cache is usable offline, but
-        a successful later scan refreshes it by AniList ID rather than relying
-        on title order again.
-        """
+    def _identify(self, lookup_title, display_title, on_status=lambda _ : None, *, allow_network=True):
+        """Return local/cached metadata without making the library depend on network."""
         cached = self.store.anime_metadata(lookup_title)
         associated_id = self.store.association(lookup_title)
-        cached_id = cached.get("anilist_id") if cached else None
-        refresh_id = associated_id or cached_id
-        if self._cached_metadata_is_current(cached, refresh_id):
-            return cached
+        if cached:
+            if associated_id and cached.get("anilist_id") != associated_id:
+                # Keep the durable association authoritative, but do not fetch during scan.
+                if allow_network:
+                    return self.refresh_metadata(lookup_title, display_title, force=True)
+            if self._cached_metadata_is_current(cached, associated_id or cached.get("anilist_id")):
+                return cached
+            if not allow_network:
+                return cached
+        if not allow_network:
+            return cached or {
+                "title": display_title,
+                "genres": "[]",
+                "metadata_source": "local",
+                "metadata_status": "unresolved",
+                "metadata_confidence": "low",
+            }
+        return self.refresh_metadata(lookup_title, display_title, force=False)
 
-        on_status(f"Identificando {display_title}…")
-        if refresh_id:
-            media = self.anilist.by_id(refresh_id)
-            if media:
-                refreshed = self.anilist.metadata_from_media(display_title, media)
-                refreshed["anilist_id"] = refresh_id
-                if cached:
-                    refreshed["cover_cache"] = cached.get("cover_cache") or refreshed.get("cover_cache") or ""
+    def metadata_state(self, metadata):
+        """Expose a stable UI state without changing persisted library data."""
+        if not metadata:
+            return "unresolved"
+        status = str(metadata.get("metadata_status") or "unresolved").casefold()
+        if status == "manual":
+            return "manual"
+        if status in {"ambiguous", "unresolved", "error"}:
+            return status
+        updated = metadata.get("metadata_updated_at")
+        try:
+            stale = not updated or (time.time() - float(updated)) >= self.METADATA_CACHE_SECONDS
+        except (TypeError, ValueError):
+            stale = True
+        return "stale" if stale else "available"
+
+    def refresh_metadata(self, lookup_title, display_title, *, force=False):
+        """Resolve AniList metadata explicitly, conservatively and offline-safe."""
+        with self._metadata_lock:
+            cached = self.store.anime_metadata(lookup_title)
+            associated_id = self.store.association(lookup_title)
+            cached_id = cached.get("anilist_id") if cached else None
+            refresh_id = associated_id or cached_id
+            if cached and cached.get("metadata_fetched_at"):
                 try:
                     self.store.upsert_anime(lookup_title, refreshed)
                 except Exception:
@@ -232,7 +258,7 @@ class LibraryService:
             episodes=sum(len(season["episodes"]) for anime in catalog for season in anime["seasons"]),
             errors=scan_errors,
         )
-        anime_id = self.store.upsert_anime(key, metadata[key])
+        anime_id = self.store.upsert_anime(key, metadata[key], source=metadata[key].get("metadata_source") or "local", confidence=metadata[key].get("metadata_confidence"), status=metadata[key].get("metadata_status"))
         row_id = self.store.upsert_episode(
             anime_id, uri, name, item.season, item.episode,
             document.get("mimeType"), file_size, modified_at, source_folder,
@@ -418,7 +444,7 @@ class LibraryService:
         metadata = self.anilist.metadata_from_media(pending["display_title"], media)
         metadata["anilist_id"] = anilist_id
         self.store.set_association(lookup_title, anilist_id)
-        self.store.upsert_anime(lookup_title, metadata)
+        self.store.upsert_anime(lookup_title, metadata, source="anilist", confidence="high", status="available", fetched_at=time.time())
         self.store.resolve_match(lookup_title, anilist_id)
         return metadata
     def catalog(self, favorites_only=False): return self.store.catalog(favorites_only)

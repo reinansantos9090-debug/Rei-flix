@@ -57,7 +57,7 @@ async def main(page: ft.Page):
             show(DetailView.build(page, current[0], play_episode, navigate_back,
                                   store.toggle_favorite, library.playback_target, library.set_user_tags,
                                   library.toggle_pinned, library.set_personal_note, store.set_episode_identification,
-                                  refresh_current_details))
+                                  refresh_current_details, refresh_current_metadata))
         elif navigation.current == "settings":
             show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
                                     folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match))
@@ -102,6 +102,23 @@ async def main(page: ft.Page):
         anime_id = current[0].get("id") if current[0] else None
         current[0] = next((item for item in library.catalog() if item["id"] == anime_id), current[0])
         render_current()
+    async def refresh_current_metadata(e=None):
+        """Refresh only editorial metadata; never rescans or mutates playback state."""
+        anime = current[0] or {}
+        lookup = (anime.get("meta") or {}).get("lookup_title")
+        title = anime.get("main_title") or (anime.get("meta") or {}).get("title") or "Anime local"
+        if not lookup:
+            return
+        try:
+            await asyncio.to_thread(library.refresh_metadata, lookup, title, force=True)
+            refresh_current_details()
+            page.snack_bar = ft.SnackBar(ft.Text("Metadata atualizada."))
+            page.snack_bar.open = True
+            page.update()
+        except Exception:
+            page.snack_bar = ft.SnackBar(ft.Text("Não foi possível atualizar a metadata agora."))
+            page.snack_bar.open = True
+            page.update()
     def on_catalog_changed():
         # Native scan completion must immediately re-read SQLite on the active
         # screen; the previous implementation intentionally did nothing here,

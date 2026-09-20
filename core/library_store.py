@@ -214,9 +214,9 @@ class LibraryStore:
 
     def finish_scan(self, run_id, summary):
         with self._conn() as c:
-            c.execute("""UPDATE scan_runs SET finished_at=?,status='completed',folders=?,files=?,videos=?,animes=?,episodes=?,
+            c.execute("""UPDATE scan_runs SET finished_at=?,status=?,folders=?,files=?,videos=?,animes=?,episodes=?,
                          new_files=?,updated_files=?,unchanged_files=?,ignored_files=?,duplicate_files=?,unknown_files=?,reconciled_files=?,errors=? WHERE id=?""",
-                      (time.time(), summary.get("folders", 0), summary.get("files", 0), summary.get("videos", 0),
+                      (time.time(), summary.get("status", "completed"), summary.get("folders", 0), summary.get("files", 0), summary.get("videos", 0),
                        summary.get("animes", 0), summary.get("episodes", 0), summary.get("new", 0), summary.get("updated", 0),
                        summary.get("unchanged", 0), summary.get("ignored", 0), summary.get("duplicates", 0),
                        summary.get("unknown", 0), summary.get("reconciled", 0), json.dumps(summary.get("errors", []), ensure_ascii=False), run_id))

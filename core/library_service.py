@@ -267,6 +267,8 @@ class LibraryService:
                 result.catalog = self.store.catalog()
                 result.animes = len(result.catalog)
                 result.episodes = sum(len(s["episodes"]) for a in result.catalog for s in a["seasons"]) + sum(len(a.get("media_files", [])) for a in result.catalog)
+                if result.errors:
+                    result.status = "partial"
                 self.store.finish_scan(run_id, result.__dict__)
                 return result
             except Exception as exc:

@@ -141,6 +141,8 @@ jobs:
               return "".join(out)
 
           for path in glob.glob("build/flet-build-template/**/*.json", recursive=True):
+              if "{{cookiecutter." in path:
+                  continue
               with open(path, "r", encoding="utf-8") as handle:
                   raw = handle.read()
               cleaned = strip_trailing_commas(raw)

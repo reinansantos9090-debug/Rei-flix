@@ -54,6 +54,11 @@ class FletTemplateManifestTests(unittest.TestCase):
             finally:
                 os.chdir(previous)
 
+            self.assertIn("NativeRequestState.kt", hook)
+            self.assertIn("StorageAuthorization.kt", hook)
+            self.assertIn('for test_root in ("src/test", "src/androidTest")', hook)
+            self.assertIn(":app:testDebugUnitTest", hook)
+
             manifest = ET.parse(project / "android/app/src/main/AndroidManifest.xml").getroot()
             ns = {"android": "http://schemas.android.com/apk/res/android"}
             main = next(

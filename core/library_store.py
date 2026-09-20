@@ -342,7 +342,7 @@ class LibraryStore:
                     c.execute("UPDATE episodes SET file_name=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,identity_key=COALESCE(?,identity_key),absolute_number=COALESCE(?,absolute_number),relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),missing=0 WHERE path=?",
                               (file_name, mime_type, file_size, modified_at, source_folder, identity_key, absolute_number, relative_path, volume_id, volume_uuid, path))
                     return existing["id"]
-                c.execute("""UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,identity_key=COALESCE(?,identity_key),absolute_number=COALESCE(?,absolute_number),missing=0 WHERE path=?""",
+                c.execute("""UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,file_size=?,modified_at=?,source_folder=?,identity_key=COALESCE(?,identity_key),absolute_number=COALESCE(?,absolute_number),relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),missing=0 WHERE path=?""",
                           (anime_id, file_name, season, number, mime_type, file_size, modified_at, source_folder, identity_key, absolute_number, relative_path, volume_id, volume_uuid, path))
                 c.execute("UPDATE episodes SET episode_type=?,episode_title=?,identification_source=?,identification_confidence=? WHERE path=?", (episode_type, episode_title, identification_source, identification_confidence, path))
                 return existing["id"]
@@ -365,7 +365,7 @@ class LibraryStore:
                 c.execute("UPDATE episodes SET episode_type=?,episode_title=?,identification_source=?,identification_confidence=? WHERE id=?", (episode_type, episode_title, identification_source, identification_confidence, matching_row["id"]))
                 return matching_row["id"]
 
-            cur = c.execute("""INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,identity_key,absolute_number,relative_path,volume_id,volume_uuid,episode_type,episode_title,identification_source,identification_confidence,missing) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
+            cur = c.execute("""INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,identity_key,absolute_number,relative_path,volume_id,volume_uuid,episode_type,episode_title,identification_source,identification_confidence,missing) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,0)""",
                             (anime_id, path, file_name, season, number, mime_type, file_size, modified_at, source_folder, identity_key, absolute_number, relative_path, volume_id, volume_uuid, episode_type, episode_title, identification_source, identification_confidence))
             return cur.lastrowid
 

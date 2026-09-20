@@ -182,7 +182,6 @@ class SearchEngineTests(unittest.TestCase):
             cover = os.path.join(source, "poster.jpg")
             with open(cover, "wb") as handle:
                 handle.write(b"not-a-real-image")
-            store.artwork = None
             with store._conn() as con:
                 con.execute(
                     """INSERT INTO artwork(entity_type,entity_id,artwork_type,source,source_ref,local_path,

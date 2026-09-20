@@ -104,6 +104,8 @@ def _artwork_available(anime: dict) -> bool:
 def _source_kinds(anime: dict) -> set[str]:
     values = set()
     for episode in _episodes(anime):
+        if episode.get("missing"):
+            continue
         kind = episode.get("source_kind")
         if kind:
             values.add(str(kind).casefold())
@@ -118,10 +120,11 @@ def _media_types(anime: dict) -> set[str]:
         types.add("movie")
     if any(str(e.get("episode_type") or "").casefold() in _SPECIAL_TYPES for e in episodes):
         types.add("special")
-    if any(str(e.get("episode_type") or "").casefold() not in _SPECIAL_TYPES | {"movie"} for e in episodes):
+    regular = [e for e in episodes if str(e.get("episode_type") or "regular").casefold() not in _SPECIAL_TYPES | {"movie"}]
+    if regular:
         types.add("episode")
-    if media_kind not in {"movie", "unknown"}:
-        types.add("series")
+        if media_kind not in {"movie", "unknown"}:
+            types.add("series")
     return types
 
 
@@ -167,7 +170,9 @@ def _identifier_match(query: str, episodes: Iterable[dict]) -> bool:
     absolute_match = re.fullmatch(r"(?:absolute|abs)(\d+(?:\.\d+)?)", compact)
     bare_number = re.fullmatch(r"\d+(?:\.\d+)?", compact)
 
-    for episode in episodes:
+    # Identifier syntax targets regular episodes; specials/movies are separate media.
+    identifier_episodes = [e for e in episodes if str(e.get("episode_type") or "regular").casefold() not in _SPECIAL_TYPES | {"movie"}]
+    for episode in identifier_episodes:
         if season_episode_match and (
             _numeric(episode.get("season")) == float(season_episode_match.group(1))
             and _numeric(episode.get("number")) == float(season_episode_match.group(2))
@@ -222,7 +227,7 @@ class SearchFilterSort:
         episodes = _episodes(anime)
         available = [e for e in episodes if not e.get("missing")]
         state = self.state
-        active = any(_numeric(e.get("progress"), 0) > 0 and not e.get("watched") for e in available)
+        active = any(_numeric(e.get("progress"), 0) > 0 for e in available)
         watched = bool(available) and all(bool(e.get("watched")) for e in available)
         any_watched = any(bool(e.get("watched")) for e in available)
         unwatched = any(not e.get("watched") for e in available)
@@ -327,7 +332,7 @@ class SearchFilterSort:
         if sort in ("Nome Z-A", "Título Z-A", "Titulo Z-A"):
             return (title,)
         if sort in ("Assistidos recentemente", "Recentemente assistidos"):
-            return (watched_at, title)
+            return (watched_at,)
         if sort in ("Progresso", "Mais progresso"):
             return (progress, title)
         if sort in ("Episódio", "Número do episódio", "Temporada + episódio"):

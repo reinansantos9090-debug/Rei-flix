@@ -17,7 +17,34 @@ class AniListClient:
             with urllib.request.urlopen(req,timeout=10) as r:
                 raw = r.read()
             payload = json.loads(raw)
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                retry_after = exc.headers.get("Retry-After")
+                try:
+                    delay = max(0.0, min(float(retry_after), 60.0))
+                except (TypeError, ValueError):
+                    delay = 0.0
+                if delay:
+                    logger.warning("AniList atingiu rate limit; aguardando %.1fs antes de uma nova tentativa.", delay)
+                    try:
+                        import time
+                        time.sleep(delay)
+                    except Exception:
+                        return None
+                    try:
+                        with urllib.request.urlopen(req, timeout=10) as retry_response:
+                            raw = retry_response.read()
+                        payload = json.loads(raw)
+                    except Exception as retry_exc:
+                        logger.warning("AniList indisponível após rate limit: %s", retry_exc)
+                        return None
+                else:
+                    logger.warning("AniList retornou HTTP 429 sem Retry-After.")
+                    return None
+            else:
+                logger.warning("AniList indisponível: HTTP %s", exc.code)
+                return None
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
             logger.warning("AniList indisponível: %s", exc)
             return None
         except Exception as exc:

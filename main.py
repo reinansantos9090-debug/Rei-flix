@@ -317,7 +317,14 @@ async def main(page: ft.Page):
                 events = bridge.drain()
                 for event in events:
                     try:
-                        event_type=event.get('type'); payload=event.get('payload') or {}
+                        if not isinstance(event, dict):
+                            continue
+                        event_type = event.get('type')
+                        payload = event.get('payload')
+                        if payload is None:
+                            payload = {}
+                        if not isinstance(payload, dict):
+                            continue
                         if event_type == 'saf_scan_progress':
                             # Native scanner reports coarse progress so large SAF trees do not
                             # look frozen while the Android ContentResolver is traversing them.
@@ -339,7 +346,7 @@ async def main(page: ft.Page):
                                 tree_uri = payload.get('treeUri', '')
                                 if not tree_uri:
                                     raise ValueError('Resultado SAF sem pasta de origem.')
-                                catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats)
+                                catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats, scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'root', scope_ref=payload.get('scopeRef') or None)
                                 videos = int(stats.get('videos') or 0)
                                 partial = bool(payload.get('partial') or stats.get('errors'))
                                 message = ("Scan concluído parcialmente. Alguns diretórios não puderam ser acessados. " if partial else "")
@@ -361,7 +368,7 @@ async def main(page: ft.Page):
                             try:
                                 stats = payload.get('stats') or {}
                                 source = payload.get('source') or 'broad-storage'
-                                catalog = await asyncio.to_thread(library.ingest_documents, source, payload.get('documents') or [], folder_name=payload.get('name') or 'Armazenamento local', scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='broad_storage')
+                                catalog = await asyncio.to_thread(library.ingest_documents, source, payload.get('documents') or [], folder_name=payload.get('name') or 'Armazenamento local', scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='broad_storage', scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'global', scope_ref=payload.get('scopeRef') or source)
                                 store.add_folder(source, name=payload.get('name') or 'Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
                                 videos = int(stats.get('videos') or 0)
                                 partial = bool(payload.get('partial') or stats.get('errors'))

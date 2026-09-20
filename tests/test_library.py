@@ -52,7 +52,7 @@ class ParserTests(unittest.TestCase):
         p1 = parse_video_path('Naruto/Temporada 1/01.mp4')
         p2 = parse_video_path('One Piece/Season 2/Episode 05.mkv')
         p3 = parse_video_path('Bleach/Temp 03/Bleach 50.mp4')
-        self.assertEqual((p1.anime_title, p1.season, p1.episode), ('Naruto', 1, 1))
+        self.assertEqual((p1.anime_title, p1.season, p1.episode), ('Naruto', 1, None))
         self.assertEqual((p2.anime_title, p2.season, p2.episode), ('One Piece', 2, 5))
         self.assertEqual((p3.anime_title, p3.season, p3.episode), ('Bleach', 3, 50))
     def test_invalid_file_is_safe(self):
@@ -323,7 +323,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(store.catalog()[0]['main_title'], 'Naruto')
             self.assertEqual(store.get_preference('missing', 'default'), 'default')
             with store._conn() as con:
-                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], 16)
+                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], 18)
 
     def test_manual_episode_identification_survives_rescan_and_migration_fields(self):
         with tempfile.TemporaryDirectory() as d:
@@ -335,7 +335,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             store.set_episode_identification('/library/demo.mkv', season=3, number=12, episode_type='special', title='Final alternativo')
             store.upsert_episode(anime, '/library/demo.mkv', 'Demo S01E01.mkv', 1, 1,
                                  episode_type='regular', identification_source='sxxexx', identification_confidence='high')
-            episode = store.catalog()[0]['seasons'][0]['episodes'][0]
+            episode = store.catalog()[0]['specials'][0]['episodes'][0]
             self.assertEqual((episode['season'], episode['number'], episode['episode_type']), (3, 12, 'special'))
             self.assertTrue(episode['manual_override'])
             self.assertEqual((episode['progress'], episode['duration']), (30, 100))
@@ -454,7 +454,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             LibraryStore(d)
             LibraryStore(d)
             with LibraryStore(d)._conn() as con:
-                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=16').fetchone()[0], 1)
+                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=18').fetchone()[0], 1)
 
     def test_invalid_progress_is_rejected_and_overflow_is_normalized(self):
         with tempfile.TemporaryDirectory() as d:

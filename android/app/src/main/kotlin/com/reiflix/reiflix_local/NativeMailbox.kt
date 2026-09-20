@@ -15,19 +15,21 @@ object NativeMailbox {
 
     @Synchronized
     fun write(context: Context, event: JSONObject) {
-        val dataDirectory = File(context.filesDir, "data")
-        check(dataDirectory.isDirectory || dataDirectory.mkdirs()) {
-            "Could not create Flet application data directory"
-        }
-        val queue = File(dataDirectory, QUEUE)
-        check(queue.isDirectory || queue.mkdirs()) {
-            "Could not create native event queue directory"
-        }
-        val id = UUID.randomUUID().toString()
-        val target = File(queue, "$PREFIX$id.json")
-        val temporary = File(queue, "$PREFIX$id.json.tmp")
         try {
-            val payload = JSONObject(event.toString()).put("createdAt", System.currentTimeMillis())
+            val dataDirectory = File(context.filesDir, "data")
+            check(dataDirectory.isDirectory || dataDirectory.mkdirs()) {
+                "Could not create Flet application data directory"
+            }
+            val queue = File(dataDirectory, QUEUE)
+            check(queue.isDirectory || queue.mkdirs()) {
+                "Could not create native event queue directory"
+            }
+            val id = UUID.randomUUID().toString()
+            val target = File(queue, "$PREFIX$id.json")
+            val temporary = File(queue, "$PREFIX$id.json.tmp")
+            val payload = JSONObject(event.toString())
+                .put("eventId", id)
+                .put("createdAt", System.currentTimeMillis())
             FileOutputStream(temporary).use { stream ->
                 stream.write(payload.toString().toByteArray(Charsets.UTF_8))
                 stream.fd.sync()

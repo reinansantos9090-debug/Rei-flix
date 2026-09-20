@@ -13,11 +13,24 @@ class HomeView:
         selected_state = [view_state.get("state", "Todos")]
         selected_genre = [view_state.get("genre", "Todos")]
         selected_sort = [view_state.get("sort", "Mais recentes")]
+        selected_media_type = [view_state.get("media_type", "Todos")]
+        selected_tag = [view_state.get("tag", "Todos")]
+        selected_season = [view_state.get("season", "Todos")]
+        selected_episode_type = [view_state.get("episode_type", "Todos")]
+        selected_availability = [view_state.get("availability", "Todos")]
+        selected_metadata = [view_state.get("metadata", "Todos")]
+        selected_artwork = [view_state.get("artwork", "Todos")]
         search_visible = [bool(view_state.get("search_visible", False))]
 
         def save_view_state():
-            view_state.update(state=selected_state[0], genre=selected_genre[0], sort=selected_sort[0],
-                              search_visible=search_visible[0], query=search.value or "")
+            view_state.update(
+                state=selected_state[0], genre=selected_genre[0], sort=selected_sort[0],
+                media_type=selected_media_type[0], tag=selected_tag[0],
+                season=selected_season[0], episode_type=selected_episode_type[0],
+                availability=selected_availability[0], metadata=selected_metadata[0],
+                artwork=selected_artwork[0], search_visible=search_visible[0],
+                query=search.value or "",
+            )
 
         grid = ft.GridView(
             expand=True, max_extent=168, child_aspect_ratio=.57, spacing=14,
@@ -37,8 +50,32 @@ class HomeView:
             value=selected_sort[0], width=185, dense=True, text_size=12, color="#F5F5F7",
             bgcolor=SURFACE, border_color="#39364B", border_radius=RADIUS,
             options=[ft.dropdown.Option(key=value, text=value) for value in
-                     ["Mais recentes", "Assistidos recentemente", "Nome A-Z", "Nome Z-A"]],
+                     ["Mais recentes", "Assistidos recentemente", "Progresso", "Episódio",
+                      "Temporada + episódio", "Modificação", "Duração", "Tamanho",
+                      "Favoritos primeiro", "Fixados primeiro", "Nome A-Z", "Nome Z-A"]],
         )
+        media_type = ft.Dropdown(value=selected_media_type[0], width=155, dense=True, text_size=12, color="#F5F5F7",
+                                 bgcolor=SURFACE, border_color="#39364B", border_radius=RADIUS,
+                                 options=[ft.dropdown.Option("Todos", "Tipo")] + [ft.dropdown.Option(v, v) for v in
+                                         ["Série/Anime", "Filme", "Especial", "Episódio"]])
+        tag = ft.Dropdown(value=selected_tag[0], width=155, dense=True, text_size=12, color="#F5F5F7",
+                          bgcolor=SURFACE, border_color="#39364B", border_radius=RADIUS,
+                          options=[ft.dropdown.Option("Todos", "Etiqueta")])
+        season = ft.Dropdown(value=selected_season[0], width=145, dense=True, text_size=12, color="#F5F5F7",
+                             bgcolor=SURFACE, border_color="#39364B", border_radius=RADIUS,
+                             options=[ft.dropdown.Option("Todos", "Temporada")])
+        episode_type = ft.Dropdown(value=selected_episode_type[0], width=150, dense=True, text_size=12, color="#F5F5F7",
+                                   bgcolor=SURFACE, border_color="#39364B", border_radius=RADIUS,
+                                   options=[ft.dropdown.Option("Todos", "Tipo de episódio")])
+        availability = ft.Dropdown(value=selected_availability[0], width=145, dense=True, text_size=12, color="#F5F5F7",
+                                   bgcolor=SURFACE, border_color="#39364B", border_radius=RADIUS,
+                                   options=[ft.dropdown.Option(v, v) for v in ["Todos", "Disponível", "Com missing", "Sem missing"]])
+        metadata_filter = ft.Dropdown(value=selected_metadata[0], width=140, dense=True, text_size=12, color="#F5F5F7",
+                                      bgcolor=SURFACE, border_color="#39364B", border_radius=RADIUS,
+                                      options=[ft.dropdown.Option(v, v) for v in ["Todos", "Disponível", "Ausente"]])
+        artwork_filter = ft.Dropdown(value=selected_artwork[0], width=140, dense=True, text_size=12, color="#F5F5F7",
+                                     bgcolor=SURFACE, border_color="#39364B", border_radius=RADIUS,
+                                     options=[ft.dropdown.Option(v, v) for v in ["Todos", "Disponível", "Ausente"]])
         continue_row = ft.Row(scroll=ft.ScrollMode.AUTO, spacing=10)
         section_rows = {}
 
@@ -178,7 +215,12 @@ class HomeView:
 
         def render_library():
             grid.controls.clear()
-            filtered = library.browse_catalog(catalog, search.value or "", selected_state[0], selected_genre[0], selected_sort[0])
+            filtered = library.browse_catalog(
+                catalog, search.value or "", selected_state[0], selected_genre[0], selected_sort[0],
+                selected_tag[0], media_type=selected_media_type[0], season=selected_season[0],
+                episode_type=selected_episode_type[0], availability=selected_availability[0],
+                metadata=selected_metadata[0], artwork=selected_artwork[0],
+            )
             if not catalog:
                 library_label.value = "SUA BIBLIOTECA"
                 feedback.content = empty_state(ft.Icons.VIDEO_LIBRARY_OUTLINED, "Sua biblioteca local está vazia", "Adicione uma pasta com animes nas configurações para começar.", ft.FilledButton("Abrir configurações", icon=ft.Icons.SETTINGS, on_click=lambda _: on_open_settings()))
@@ -227,6 +269,29 @@ class HomeView:
             save_view_state()
             render_library()
 
+        def select_filter(target, value):
+            target[0] = value
+            save_view_state()
+            render_library()
+
+        media_type.on_select = lambda e: select_filter(selected_media_type, e.control.value or "Todos")
+        tag.on_select = lambda e: select_filter(selected_tag, e.control.value or "Todos")
+        season.on_select = lambda e: select_filter(selected_season, e.control.value or "Todos")
+        episode_type.on_select = lambda e: select_filter(selected_episode_type, e.control.value or "Todos")
+        availability.on_select = lambda e: select_filter(selected_availability, e.control.value or "Todos")
+        metadata_filter.on_select = lambda e: select_filter(selected_metadata, e.control.value or "Todos")
+        artwork_filter.on_select = lambda e: select_filter(selected_artwork, e.control.value or "Todos")
+
+        def refresh_filter_options():
+            options = library.search_options(catalog)
+            tag.options = [ft.dropdown.Option("Todos", "Etiqueta"), ft.dropdown.Option("Sem etiqueta", "Sem etiqueta")] + [ft.dropdown.Option(v, v) for v in options["tags"]]
+            season.options = [ft.dropdown.Option("Todos", "Temporada")] + [ft.dropdown.Option(str(v), f"Temporada {v}") for v in options["seasons"]]
+            episode_type.options = [ft.dropdown.Option("Todos", "Tipo de episódio")] + [ft.dropdown.Option(v, v) for v in options["episode_types"]]
+            if selected_tag[0] not in {"Todos", "Sem etiqueta", *options["tags"]}: selected_tag[0] = "Todos"
+            if selected_season[0] not in {"Todos", *[str(v) for v in options["seasons"]]}: selected_season[0] = "Todos"
+            if selected_episode_type[0] not in {"Todos", *options["episode_types"]}: selected_episode_type[0] = "Todos"
+            tag.value = selected_tag[0]; season.value = selected_season[0]; episode_type.value = selected_episode_type[0]
+
         def load_catalog():
             status.controls = [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT), ft.Text("Carregando biblioteca local…", color=TEXT_MUTED, size=12)]
             status.visible = True
@@ -239,6 +304,7 @@ class HomeView:
                     # work every time the user returns to this screen.
                     home_data = library.media_center_home(limit=12)
                     catalog = library.catalog()
+                    refresh_filter_options()
                     continuing = home_data.get("continue_watching", [])
                     status.visible = False
                 except Exception:
@@ -273,7 +339,10 @@ class HomeView:
             section("FILMES", "movies", home_data.get("movies", []), action=on_select_anime),
             section("ESPECIAIS", "specials", home_data.get("specials", []), action=on_select_anime),
             section_title("Filtros", ft.Icons.TUNE), state_row, genres_row,
-            ft.Row([library_label, sort], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), feedback, grid,
+            ft.Row([library_label, sort], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Row([media_type, tag, season, episode_type], scroll=ft.ScrollMode.AUTO, spacing=8),
+            ft.Row([availability, metadata_filter, artwork_filter], scroll=ft.ScrollMode.AUTO, spacing=8),
+            feedback, grid,
         ], expand=True, spacing=14)
 
         status.visible = True

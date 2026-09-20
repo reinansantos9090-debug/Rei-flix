@@ -211,9 +211,9 @@ existing = gradle.read_text(encoding="utf-8")
 sdk_marker = "ReiFlix Android 16 SDK contract"
 if sdk_marker not in existing:
     if gradle.suffix == ".kts":
-        sdk_block = "\n// ReiFlix Android 16 SDK contract\nandroid {\n    compileSdk = 36\n    defaultConfig { targetSdk = 36 }\n}\n"
+        sdk_block = "\n// ReiFlix Android 16 SDK contract\nandroid {\n    compileSdk = 36\n    defaultConfig {\n        targetSdk = 36\n        testInstrumentationRunner = \"androidx.test.runner.AndroidJUnitRunner\"\n    }\n}\n"
     else:
-        sdk_block = "\n// ReiFlix Android 16 SDK contract\nandroid {\n    compileSdk 36\n    defaultConfig { targetSdk 36 }\n}\n"
+        sdk_block = "\n// ReiFlix Android 16 SDK contract\nandroid {\n    compileSdk 36\n    defaultConfig {\n        targetSdk 36\n        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'\n    }\n}\n"
     gradle.write_text(existing + sdk_block, encoding="utf-8")
 
 # Validate the generated native host with its real Gradle project before Flet

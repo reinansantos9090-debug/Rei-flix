@@ -4,6 +4,8 @@ import os
 import time
 import json
 import logging
+import threading
+import uuid
 from urllib.parse import unquote, urlparse
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -24,17 +26,28 @@ class ScanResult:
     animes: int = 0
     episodes: int = 0
     errors: list[str] = field(default_factory=list)
+    new: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    ignored: int = 0
+    duplicates: int = 0
+    unknown: int = 0
+    reconciled: int = 0
+    scan_id: str | None = None
+    status: str = "completed"
 
     def message(self):
         if self.videos == 0:
-            return "Nenhum vídeo encontrado nas pastas autorizadas."
-        return f"Biblioteca atualizada: {self.animes} animes, {self.episodes} episódios."
+            return "Nenhum vídeo encontrado nas fontes autorizadas."
+        return (f"Biblioteca atualizada: {self.episodes} mídias — "
+                f"{self.new} novas, {self.updated} atualizadas, {self.unchanged} inalteradas.")
 
 class LibraryService:
     METADATA_CACHE_SECONDS = 30 * 24 * 60 * 60
     COVER_RETRY_SECONDS = 6 * 60 * 60
 
-    def __init__(self, store): self.store=store; self.anilist=AniListClient(store.cache_dir)
+    def __init__(self, store):
+        self.store=store; self.anilist=AniListClient(store.cache_dir); self._scan_lock=threading.Lock()
 
     def _cached_metadata_is_current(self, cached, associated_id):
         if not cached:
@@ -219,8 +232,173 @@ class LibraryService:
             episodes=sum(len(season["episodes"]) for anime in catalog for season in anime["seasons"]),
             errors=scan_errors,
         )
-        self.store.finish_scan(run_id, result.__dict__)
-        return catalog
+        anime_id = self.store.upsert_anime(key, metadata[key])
+        row_id = self.store.upsert_episode(
+            anime_id, uri, name, item.season, item.episode,
+            document.get("mimeType"), file_size, modified_at, source_folder,
+            identity, item.absolute_number, relative_path, volume_id, volume_uuid,
+            episode_type=item.episode_type, episode_title=item.display_title,
+            identification_source=item.identification_source,
+            identification_confidence=item.confidence,
+        )
+        if existing:
+            result.updated += 1
+        elif row_id is not None:
+            result.new += 1
+        return uri
+
+    def scan(self, on_status=lambda _ : None):
+        with self._scan_lock:
+            scan_id = str(uuid.uuid4())
+            run_id = self.store.begin_scan(scan_id=scan_id, source_kind="filesystem", scope_kind="global", scope_ref=None)
+            result = ScanResult(catalog=[], scan_id=scan_id)
+            try:
+                parsed = []
+                folders = self.store.folders()
+                result.folders = len(folders)
+                on_status("Verificando pastas autorizadas…")
+                for folder in folders:
+                    reference = folder["path"]
+                    if folder["kind"] == "saf" or reference.startswith("content://"):
+                        result.errors.append(f"{folder['name']}: aguardando scanner Android")
+                        continue
+                    if not os.path.isdir(reference):
+                        error = "Pasta indisponível, removida ou sem autorização para este processo."
+                        self.store.update_folder_status(reference, "revoked", error)
+                        result.errors.append(f"{folder['name']}: {error}")
+                        continue
+                    self.store.update_folder_status(reference, "granted")
+                    on_status(f"Encontrando vídeos em {folder['name']}…")
+                    try:
+                        seen = []
+                        walk_errors = []
+                        def _on_walk_error(error):
+                            walk_errors.append(error)
+                            result.errors.append(f"{folder['name']}: diretório não pôde ser lido: {getattr(error, 'filename', error)}")
+                        for root, _, files in os.walk(reference, onerror=_on_walk_error):
+                            for name in files:
+                                result.files += 1
+                                if os.path.splitext(name)[1].lower() not in VIDEO_EXTENSIONS:
+                                    result.ignored += 1
+                                    continue
+                                path = os.path.join(root, name)
+                                try:
+                                    stat = os.stat(path)
+                                except OSError as exc:
+                                    result.errors.append(f"{folder['name']}: não foi possível acessar {name}: {exc}")
+                                    result.ignored += 1
+                                    continue
+                                seen.append(path)
+                                parsed.append(({
+                                    "uri": path,
+                                    "name": name,
+                                    "relativePath": os.path.relpath(path, reference).replace(os.sep, "/"),
+                                    "mimeType": None,
+                                    "size": stat.st_size,
+                                    "modifiedAt": stat.st_mtime_ns // 1_000_000,
+                                }, reference, "filesystem"))
+                                result.videos += 1
+                        if not walk_errors:
+                            self.store.reconcile_missing(reference, seen, scope_kind="source")
+                        else:
+                            self.store.update_folder_status(reference, "granted", "Scan parcial; reconciliação de ausência não aplicada.")
+                    except OSError as exc:
+                        result.errors.append(f"{folder['name']}: erro ao ler pasta: {exc}")
+                metadata = {}
+                for document, source_folder, source_kind in parsed:
+                    self._record_document(document=document, source_folder=source_folder, source_kind=source_kind, metadata=metadata, result=result)
+                result.catalog = self.store.catalog()
+                result.animes = len(result.catalog)
+                result.episodes = sum(len(s["episodes"]) for a in result.catalog for s in a["seasons"]) + sum(len(a.get("media_files", [])) for a in result.catalog)
+                if result.errors:
+                    result.status = "partial"
+                self.store.finish_scan(run_id, result.__dict__)
+                return result
+            except Exception as exc:
+                result.errors.append(f"Falha geral no scan: {exc}")
+                result.status = "error"
+                self.store.finish_scan(run_id, result.__dict__)
+                raise
+
+    def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *,
+                         folder_name=None, scan_errors=None, scan_stats=None, source_kind="saf",
+                         scan_id=None, scope_kind="global", scope_ref=None):
+        """Index one native source without destructive reconciliation on partial scans."""
+        with self._scan_lock:
+            scan_id = scan_id or str(uuid.uuid4())
+            run_id = self.store.begin_scan(scan_id=scan_id, source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref or tree_uri)
+            result = ScanResult(catalog=[], scan_id=scan_id)
+            scan_errors = list(scan_errors or [])
+            scan_stats = scan_stats or {}
+            try:
+                self.store.add_folder(
+                    tree_uri,
+                    name=folder_name or tree_uri.rsplit("/", 1)[-1],
+                    kind=source_kind,
+                    authorization="granted",
+                    account_id=self.store.account().get("id"),
+                )
+                metadata = {}
+                seen = set()
+                for document in documents or []:
+                    uri = document.get("uri") if isinstance(document, dict) else None
+                    if uri in seen:
+                        result.duplicates += 1
+                        continue
+                    if isinstance(uri, str) and uri:
+                        seen.add(uri)
+                    result.files += 1
+                    accepted = self._record_document(
+                        document=document if isinstance(document, dict) else {},
+                        source_folder=tree_uri,
+                        source_kind=source_kind,
+                        metadata=metadata,
+                        result=result,
+                    )
+                    if accepted:
+                        result.videos += 1
+
+                result.errors.extend(str(error) for error in scan_errors)
+                if scan_errors:
+                    result.status = "partial"
+                if not scan_errors:
+                    if source_kind in {"broad_storage", "mediastore"}:
+                        volumes = {}
+                        for document in documents or []:
+                            if isinstance(document, dict) and document.get("uri") in seen:
+                                volume = document.get("volumeId")
+                                if volume:
+                                    volumes.setdefault(str(volume), set()).add(document.get("uri"))
+                        if volumes:
+                            for volume, volume_seen in volumes.items():
+                                self.store.reconcile_missing(tree_uri, list(volume_seen), scope_kind="volume", scope_ref=volume)
+                            result.reconciled = len(volumes)
+                        else:
+                            self.store.reconcile_missing(tree_uri, list(seen), scope_kind=scope_kind, scope_ref=scope_ref)
+                            result.reconciled = 1
+                    else:
+                        self.store.reconcile_missing(tree_uri, list(seen), scope_kind=scope_kind, scope_ref=scope_ref)
+                        result.reconciled = 1
+                    self.store.update_folder_status(tree_uri, "granted")
+                else:
+                    self.store.update_folder_status(tree_uri, "granted", "; ".join(map(str, scan_errors)))
+                catalog = self.store.catalog()
+                result.catalog = catalog
+                result.folders = 1
+                if result.errors:
+                    result.status = "partial"
+                    self.store.update_folder_status(tree_uri, "granted", "; ".join(result.errors[-10:]))
+                result.files = int(scan_stats.get("files") or result.files)
+                result.videos = int(scan_stats.get("videos") or result.videos)
+                result.animes = len(catalog)
+                result.episodes = sum(len(season["episodes"]) for anime in catalog for season in anime["seasons"]) + sum(len(anime.get("media_files", [])) for anime in catalog)
+                self.store.finish_scan(run_id, result.__dict__)
+                return catalog
+            except Exception as exc:
+                result.errors.append(f"Falha ao indexar a fonte: {exc}")
+                result.status = "error"
+                self.store.finish_scan(run_id, result.__dict__)
+                raise
 
     def resolve_match(self, lookup_title, anilist_id):
         """Persist an explicit AniList choice and refresh its metadata immediately."""
@@ -250,6 +428,10 @@ class LibraryService:
     def next_episode(self, path): return self.store.next_episode(path)
     def previous_episode(self, path): return self.store.previous_episode(path)
     def set_user_tags(self, anime_id, tags): return self.store.set_user_tags(anime_id, tags)
+    def toggle_pinned(self, anime_id): return self.store.toggle_pinned(anime_id)
+    def set_personal_note(self, anime_id, note): return self.store.set_personal_note(anime_id, note)
+    def library_statistics(self): return self.store.library_statistics()
+    def last_scan(self): return self.store.last_scan()
 
     def clear_anilist_cache(self):
         """Clear only refreshable AniList artifacts, never local library state.
@@ -294,7 +476,7 @@ class LibraryService:
         return {"genres": sorted(genres.values(), key=lambda item: item["name"].casefold()), "states": states}
 
     @staticmethod
-    def browse_catalog(catalog, query="", state="Todos", genre="Todos", sort="Mais recentes"):
+    def browse_catalog(catalog, query="", state="Todos", genre="Todos", sort="Mais recentes", tag="Todos"):
         """Filter an already loaded local catalog; never queries AniList or SQLite."""
         query = query.casefold().strip()
 
@@ -306,6 +488,7 @@ class LibraryService:
             available = [item for item in items if not item.get("missing")]
             in_progress = any(item.get("progress", 0) > 0 and not item.get("watched") for item in available)
             completed = bool(available) and all(item.get("watched") for item in available)
+            not_started = bool(available) and not any(item.get("progress", 0) > 0 or item.get("watched") for item in available)
             metadata = anime.get("meta", {})
             aliases = metadata.get("aliases") or "[]"
             try:
@@ -317,7 +500,16 @@ class LibraryService:
                 return False
             if genre != "Todos" and genre not in anime.get("genres", []):
                 return False
-            return {"Todos": True, "Favoritos": bool(anime.get("favorite")), "Em andamento": in_progress, "Concluídos": completed}.get(state, True)
+            tags = anime.get("user_tags") or []
+            if tag == "Sem etiqueta" and tags:
+                return False
+            if tag not in ("Todos", "Sem etiqueta") and tag not in tags:
+                return False
+            return {"Todos": True, "Favoritos": bool(anime.get("favorite")), "Fixados": bool(anime.get("is_pinned")),
+                    "Em andamento": in_progress, "Concluídos": completed, "Não iniciados": not_started,
+                    "Com nota": bool((anime.get("personal_note") or "").strip()), "Sem nota": not bool((anime.get("personal_note") or "").strip()),
+                    "Sem metadata": not bool(metadata.get("anilist_id")),
+                    "Sem capa": not bool(metadata.get("cover_cache") or metadata.get("cover_url"))}.get(state, True)
 
         result = [anime for anime in catalog if matches(anime)]
         if sort == "Nome A-Z":
@@ -335,4 +527,13 @@ class LibraryService:
                 ),
                 reverse=True,
             )
+        if sort == "Fixados primeiro":
+            return sorted(result, key=lambda anime: (not anime.get("is_pinned", False), anime.get("main_title", "").casefold()))
+        if sort == "Favoritos primeiro":
+            return sorted(result, key=lambda anime: (not anime.get("favorite", False), anime.get("main_title", "").casefold()))
+        if sort == "Progresso":
+            def progress_value(anime):
+                values = [min(float(item.get("progress") or 0) / float(item.get("duration") or 1), 1) for item in episodes(anime) if not item.get("missing") and item.get("duration")]
+                return sum(values) / len(values) if values else -1
+            return sorted(result, key=lambda anime: (-progress_value(anime), anime.get("main_title", "").casefold()))
         return sorted(result, key=lambda anime: anime.get("meta", {}).get("added_at") or 0, reverse=True)

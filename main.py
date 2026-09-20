@@ -5,6 +5,8 @@ from flet.auth import OAuthProvider
 from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URL as CONFIG_GOOGLE_REDIRECT_URL, GOOGLE_WEB_CLIENT_ID as CONFIG_GOOGLE_WEB_CLIENT_ID
 from core.android_bridge import AndroidBridge
 from core.navigation import NavigationController, SafSelectionState
+from core.storage_access import StorageAccessState, storage_access_state
+from core.dialogs import dismiss_dialog
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
 from core.google_account import normalize_google_profile
@@ -35,6 +37,10 @@ async def main(page: ft.Page):
     organize_state = {}
     navigation = NavigationController()
     saf_selection = SafSelectionState()
+    # Runtime snapshots are deliberately not stored in SQLite: only Android is
+    # proof of a current grant.  ``dismissed`` prevents an automatic prompt loop.
+    storage_onboarding = {"media": None, "broad": None, "dismissed": False,
+                          "dialog_open": False, "waiting_for_result": False}
     def show(control): page.clean(); page.add(control); page.update()
     def render_current():
         if navigation.current == "home":
@@ -49,7 +55,9 @@ async def main(page: ft.Page):
                                     view_state=organize_state))
         elif navigation.current == "details":
             show(DetailView.build(page, current[0], play_episode, navigate_back,
-                                  store.toggle_favorite, library.playback_target, library.set_user_tags))
+                                  store.toggle_favorite, library.playback_target, library.set_user_tags,
+                                  library.toggle_pinned, library.set_personal_note, store.set_episode_identification,
+                                  refresh_current_details))
         elif navigation.current == "settings":
             show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
                                     folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match))
@@ -83,6 +91,16 @@ async def main(page: ft.Page):
         anime_id = anime.get('id') if anime else None
         current[0] = next((item for item in library.catalog() if item['id'] == anime_id), anime)
         navigation.push("details")
+        render_current()
+    def refresh_current_details():
+        """Reload the durable record after an in-place Details edit.
+
+        A manual season correction can move an episode between groups, so a
+        local widget patch is insufficient; rebuild from SQLite without
+        pushing another navigation entry.
+        """
+        anime_id = current[0].get("id") if current[0] else None
+        current[0] = next((item for item in library.catalog() if item["id"] == anime_id), current[0])
         render_current()
     def on_catalog_changed():
         # Native scan completion must immediately re-read SQLite on the active
@@ -159,6 +177,51 @@ async def main(page: ft.Page):
         if not bridge.available:
             return
         await bridge.open_broad_storage_settings()
+
+    def storage_state():
+        return storage_access_state(storage_onboarding["media"], bool(storage_onboarding["broad"]),
+                                    dismissed=storage_onboarding["dismissed"])
+
+    def maybe_show_storage_onboarding():
+        """Show at most one post-render explanation based on Android's snapshot."""
+        if not bridge.available or storage_onboarding["dialog_open"] or storage_onboarding["waiting_for_result"]:
+            return
+        if storage_onboarding["media"] is None or storage_onboarding["broad"] is None:
+            return
+        state = storage_state()
+        if state not in {StorageAccessState.NEEDS_MEDIA_PERMISSION, StorageAccessState.NEEDS_BROAD_STORAGE}:
+            return
+        is_media = state == StorageAccessState.NEEDS_MEDIA_PERMISSION
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Permissão necessária" if is_media else "Acesso ao armazenamento"),
+            content=ft.Text(
+                "O Rei-flix precisa acessar seus vídeos locais para encontrar os episódios salvos no aparelho."
+                if is_media else
+                "Para encontrar vídeos em diferentes pastas do armazenamento compartilhado, o Rei-flix precisa de acesso amplo ao armazenamento."
+            ),
+        )
+        async def allow(_event):
+            storage_onboarding["dialog_open"] = False
+            storage_onboarding["waiting_for_result"] = True
+            dismiss_dialog(page, dialog)
+            await asyncio.sleep(0)
+            try:
+                if is_media:
+                    await request_video_access()
+                else:
+                    await open_broad_storage_access()
+            except Exception:
+                storage_onboarding["waiting_for_result"] = False
+                page.snack_bar = ft.SnackBar(ft.Text("Não foi possível abrir a solicitação de acesso.")); page.snack_bar.open = True; page.update()
+        def cancel(_event):
+            storage_onboarding["dialog_open"] = False
+            storage_onboarding["dismissed"] = True
+            dismiss_dialog(page, dialog)
+        dialog.actions = [ft.TextButton("CANCELAR", on_click=cancel),
+                          ft.FilledButton("PERMITIR" if is_media else "CONTINUAR", on_click=allow)]
+        storage_onboarding["dialog_open"] = True
+        page.overlay.append(dialog); dialog.open = True; page.update()
 
     async def refresh_library(_=None):
         if saf_selection.pending:
@@ -263,7 +326,14 @@ async def main(page: ft.Page):
                 events = bridge.drain()
                 for event in events:
                     try:
-                        event_type=event.get('type'); payload=event.get('payload') or {}
+                        if not isinstance(event, dict):
+                            continue
+                        event_type = event.get('type')
+                        payload = event.get('payload')
+                        if payload is None:
+                            payload = {}
+                        if not isinstance(payload, dict):
+                            continue
                         if event_type == 'saf_scan_progress':
                             # Native scanner reports coarse progress so large SAF trees do not
                             # look frozen while the Android ContentResolver is traversing them.
@@ -288,7 +358,7 @@ async def main(page: ft.Page):
                                 tree_uri = payload.get('treeUri', '')
                                 if not tree_uri:
                                     raise ValueError('Resultado SAF sem pasta de origem.')
-                                catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats)
+                                catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats, scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'root', scope_ref=payload.get('scopeRef') or None)
                                 videos = int(stats.get('videos') or 0)
                                 partial = bool(payload.get('partial') or stats.get('errors'))
                                 message = ("Scan concluído parcialmente. Alguns diretórios não puderam ser acessados. " if partial else "")
@@ -315,7 +385,7 @@ async def main(page: ft.Page):
                             try:
                                 stats = payload.get('stats') or {}
                                 source = payload.get('source') or 'broad-storage'
-                                catalog = await asyncio.to_thread(library.ingest_documents, source, payload.get('documents') or [], folder_name=payload.get('name') or 'Armazenamento local', scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='broad_storage')
+                                catalog = await asyncio.to_thread(library.ingest_documents, source, payload.get('documents') or [], folder_name=payload.get('name') or 'Armazenamento local', scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='broad_storage', scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'global', scope_ref=payload.get('scopeRef') or source)
                                 store.add_folder(source, name=payload.get('name') or 'Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
                                 videos = int(stats.get('videos') or 0)
                                 partial = bool(payload.get('partial') or stats.get('errors'))
@@ -330,6 +400,10 @@ async def main(page: ft.Page):
                                 refresh_settings_if_active()
                         elif event_type == 'broad_storage_status':
                             granted = bool(payload.get('hasAccess'))
+                            storage_onboarding["broad"] = granted
+                            if storage_onboarding["waiting_for_result"] and not granted:
+                                storage_onboarding["dismissed"] = True
+                            storage_onboarding["waiting_for_result"] = False
                             roots = payload.get('roots') or []
                             volumes = payload.get('volumes') or []
                             if granted:
@@ -339,14 +413,19 @@ async def main(page: ft.Page):
                             else:
                                 store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento não concedido.')
                             refresh_settings_if_active()
+                            maybe_show_storage_onboarding()
                         elif event_type == 'broad_storage_permission':
+                            storage_onboarding["broad"] = bool(payload.get('granted'))
+                            storage_onboarding["waiting_for_result"] = False
                             if payload.get('granted'):
                                 store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
                             else:
                                 store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento ainda não foi concedido.')
                                 finish_native_scan()
                             refresh_settings_if_active()
+                            maybe_show_storage_onboarding()
                         elif event_type == 'broad_storage_error':
+                            storage_onboarding["waiting_for_result"] = False
                             store.update_folder_status('broad-storage', 'revoked', event.get('message', 'Não foi possível acessar o armazenamento local.'))
                             finish_native_scan(); page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; page.update()
                             refresh_settings_if_active()
@@ -393,8 +472,13 @@ async def main(page: ft.Page):
                                 refresh_settings_if_active()
                         elif event_type == 'mediastore_permission':
                             source = payload.get('source') or 'mediastore:external:video'
+                            access = str(payload.get('access') or 'denied')
+                            storage_onboarding["media"] = access
+                            if storage_onboarding["waiting_for_result"]:
+                                storage_onboarding["waiting_for_result"] = False
+                                if access == 'denied':
+                                    storage_onboarding["dismissed"] = True
                             if payload.get('granted'):
-                                access = payload.get('access') or 'full'
                                 label = 'acesso total' if access == 'full' else 'acesso parcial'
                                 store.add_folder(
                                     source,
@@ -407,6 +491,7 @@ async def main(page: ft.Page):
                             else:
                                 store.update_folder_status(source, 'revoked', 'A permissão para vídeos do dispositivo foi removida.')
                             refresh_settings_if_active()
+                            maybe_show_storage_onboarding()
                         elif event_type == 'mediastore_error':
                             source = payload.get('source') or 'mediastore:external:video'
                             store.update_folder_status(source, 'revoked', event.get('message', 'Não foi possível acessar os vídeos do dispositivo.'))
@@ -429,6 +514,10 @@ async def main(page: ft.Page):
                                 episode_label = f"T{target.get('season', '—')} E{target.get('number') if target.get('number') is not None else '—'}"
                                 player_title = f"{target.get('anime_title') or target.get('file_name')} • {episode_label}"
                                 await start_native_player(target['path'], player_title, 0)
+                        elif event_type in {'player_mark_watched', 'player_mark_unwatched'}:
+                            uri = payload.get('uri', '')
+                            if uri:
+                                store.set_watched(uri, event_type == 'player_mark_watched')
                         elif event_type == 'player_error':
                             page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível reproduzir este arquivo.'))); page.snack_bar.open=True; page.update()
                             # Invalid/unreadable URIs can fail before Media3 creates a
@@ -533,6 +622,9 @@ async def main(page: ft.Page):
         page.snack_bar.open = True
         page.update()
     if bridge.available:
+        # onResume in the native host publishes the same snapshot, but this
+        # explicit request starts onboarding only after Python has mounted UI.
+        page.run_task(bridge.check_storage_access)
         for folder in store.folders():
             if folder.get('kind') == 'saf':
                 await bridge.verify_tree(folder['path'])

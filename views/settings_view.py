@@ -5,10 +5,12 @@ out of Flet controls.  It intentionally reads only compact store projections.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 
 import flet as ft
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title
+from core.dialogs import dismiss_dialog
 
 
 class SettingsView:
@@ -33,10 +35,15 @@ class SettingsView:
             )
 
         def confirm(title, body, action_label, action):
+            def run_action(_event):
+                dismiss_dialog(page, dialog)
+                result = action()
+                if hasattr(result, "__await__"):
+                    page.run_task(lambda: result)
             dialog = ft.AlertDialog(
                 modal=True, title=ft.Text(title), content=ft.Text(body),
-                actions=[ft.TextButton("Cancelar", on_click=lambda _: dialog.close()),
-                         ft.FilledButton(action_label, on_click=lambda _: (dialog.close(), action()))],
+                actions=[ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)),
+                         ft.FilledButton(action_label, on_click=run_action)],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
             page.overlay.append(dialog)
@@ -45,6 +52,7 @@ class SettingsView:
 
         folders = store.folders()
         summary = store.library_summary()
+        statistics = library.library_statistics()
         broad_folder = next((f for f in folders if f.get("kind") == "broad_storage"), None)
         media_folder = next((f for f in folders if f.get("kind") == "mediastore"), None)
         broad_granted = bool(broad_folder and broad_folder.get("authorization") == "granted")
@@ -58,8 +66,9 @@ class SettingsView:
             async def allow(_event):
                 busy["permission"] = True
                 try:
-                    dialog.close()
-                    page.update()
+                    dismiss_dialog(page, dialog)
+                    # Yield after the Flet patch is queued before opening Android UI.
+                    await asyncio.sleep(0)
                     await on_request_video_access()
                     notice("Solicitação de permissão para ler vídeos enviada ao Android…")
                 except Exception:
@@ -73,7 +82,7 @@ class SettingsView:
                 title=ft.Text("Permissão necessária"),
                 content=ft.Text("Permissão para ler vídeos"),
                 actions=[
-                    ft.TextButton("CANCELAR", on_click=lambda _: dialog.close()),
+                    ft.TextButton("CANCELAR", on_click=lambda _: dismiss_dialog(page, dialog)),
                     ft.FilledButton("PERMITIR", on_click=allow),
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
@@ -89,8 +98,8 @@ class SettingsView:
             async def allow(_event):
                 busy["permission"] = True
                 try:
-                    dialog.close()
-                    page.update()
+                    dismiss_dialog(page, dialog)
+                    await asyncio.sleep(0)
                     await on_open_broad_storage()
                     notice("Abrindo as configurações do Android para permitir o acesso ao armazenamento…")
                 except Exception:
@@ -107,7 +116,7 @@ class SettingsView:
                     ft.Text("Este acesso é opcional: o Rei-Flix também pode usar os vídeos do dispositivo e pastas específicas escolhidas por você.", color=TEXT_MUTED, size=11),
                 ], spacing=6),
                 actions=[
-                    ft.TextButton("CANCELAR", on_click=lambda _: dialog.close()),
+                    ft.TextButton("CANCELAR", on_click=lambda _: dismiss_dialog(page, dialog)),
                     ft.FilledButton("PERMITIR", on_click=allow),
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
@@ -328,6 +337,16 @@ class SettingsView:
             diagnostic = f"Última varredura: {last['videos']} vídeos, {last['animes']} animes, {last['episodes']} episódios."
             if errors:
                 diagnostic += " Há itens que precisam de atenção."
+            if last.get("status"):
+                diagnostic += f" Status: {last['status']}."
+
+        stats_text = (
+            f"{statistics['animes']} animes • {statistics['episodes_available']}/{statistics['episodes']} episódios disponíveis\n"
+            f"{statistics['animes_completed']} concluídos • {statistics['animes_in_progress']} em andamento • {statistics['animes_not_started']} não iniciados\n"
+            f"{statistics['episodes_watched']} episódios concluídos • {statistics['favorites']} favoritos • {statistics['pinned']} fixados\n"
+            f"{statistics['tags']} etiquetas distintas • {statistics['notes']} notas pessoais\n"
+            f"{statistics['without_metadata']} sem metadata • {statistics['without_cover']} sem capa"
+        )
 
         account_content = ft.Row([
             ft.Image(src=account.get("picture"), width=42, height=42, border_radius=21) if account.get("picture") else ft.Icon(ft.Icons.ACCOUNT_CIRCLE_OUTLINED, size=42, color="#C7C5D0"),
@@ -343,6 +362,11 @@ class SettingsView:
                 ft.Row([add_folder_button, scan_button], wrap=True),
                 ft.Text(diagnostic, color="#AAA7B6", size=11),
             ], spacing=8)),
+            section("ESTATÍSTICAS OFFLINE", ft.Icons.INSIGHTS_OUTLINED, ft.Column([
+                ft.Text(stats_text, color="#C7C5D0", size=12),
+                ft.Text("“Registrado” representa a posição atual salva nos episódios disponíveis; não é tempo histórico assistido.", color=TEXT_MUTED, size=10),
+                ft.Text(diagnostic, color="#AAA7B6", size=11),
+            ], spacing=7)),
             section("REPRODUÇÃO", ft.Icons.PLAY_CIRCLE_OUTLINE, ft.Column([
                 resume_switch,
                 ft.Text("O próximo episódio continua sendo uma ação explícita no player local.", color="#AAA7B6", size=11),

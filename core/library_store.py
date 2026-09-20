@@ -8,7 +8,7 @@ import time
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 14
+    SCHEMA_VERSION = 18
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -35,7 +35,8 @@ class LibraryStore:
               title TEXT NOT NULL, romaji TEXT, english TEXT, native TEXT, aliases TEXT DEFAULT '[]', description TEXT,
               cover_url TEXT, cover_cache TEXT, banner_url TEXT, genres TEXT, year INTEGER,
               season TEXT, status TEXT, episodes_count INTEGER, duration INTEGER, score INTEGER, studio TEXT,
-              metadata_updated_at REAL, favorite INTEGER NOT NULL DEFAULT 0, user_tags TEXT NOT NULL DEFAULT '[]', added_at REAL NOT NULL);
+              metadata_updated_at REAL, favorite INTEGER NOT NULL DEFAULT 0, user_tags TEXT NOT NULL DEFAULT '[]',
+              media_kind TEXT NOT NULL DEFAULT 'series', is_pinned INTEGER NOT NULL DEFAULT 0, personal_note TEXT, added_at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS episodes (
               id INTEGER PRIMARY KEY, anime_id INTEGER NOT NULL REFERENCES anime(id) ON DELETE CASCADE,
               path TEXT UNIQUE NOT NULL, file_name TEXT NOT NULL, season INTEGER NOT NULL,
@@ -50,7 +51,7 @@ class LibraryStore:
             CREATE TABLE IF NOT EXISTS scan_runs (
               id INTEGER PRIMARY KEY, started_at REAL NOT NULL, finished_at REAL, status TEXT NOT NULL DEFAULT 'running', folders INTEGER DEFAULT 0,
               files INTEGER DEFAULT 0, videos INTEGER DEFAULT 0, animes INTEGER DEFAULT 0,
-              episodes INTEGER DEFAULT 0, errors TEXT NOT NULL DEFAULT '[]');
+              episodes INTEGER DEFAULT 0, new_files INTEGER DEFAULT 0, updated_files INTEGER DEFAULT 0, unchanged_files INTEGER DEFAULT 0, ignored_files INTEGER DEFAULT 0, duplicate_files INTEGER DEFAULT 0, unknown_files INTEGER DEFAULT 0, reconciled_files INTEGER DEFAULT 0, scan_id TEXT, source_kind TEXT, scope_kind TEXT, scope_ref TEXT, errors TEXT NOT NULL DEFAULT '[]');
             ''')
             # Migration for databases made by earlier versions.
             existing = {r[1] for r in c.execute("PRAGMA table_info(folders)")}
@@ -61,7 +62,7 @@ class LibraryStore:
                 if column not in existing:
                     c.execute(f"ALTER TABLE folders ADD COLUMN {column} {definition}")
             anime_columns = {r[1] for r in c.execute("PRAGMA table_info(anime)")}
-            for column, definition in {"aliases": "TEXT DEFAULT '[]'", "score": "INTEGER", "metadata_updated_at": "REAL", "favorite": "INTEGER NOT NULL DEFAULT 0", "user_tags": "TEXT NOT NULL DEFAULT '[]'"}.items():
+            for column, definition in {"aliases": "TEXT DEFAULT '[]'", "score": "INTEGER", "metadata_updated_at": "REAL", "media_kind": "TEXT NOT NULL DEFAULT 'series'", "favorite": "INTEGER NOT NULL DEFAULT 0", "user_tags": "TEXT NOT NULL DEFAULT '[]'", "is_pinned": "INTEGER NOT NULL DEFAULT 0", "personal_note": "TEXT"}.items():
                 if column not in anime_columns:
                     c.execute(f"ALTER TABLE anime ADD COLUMN {column} {definition}")
             episode_columns = {r[1] for r in c.execute("PRAGMA table_info(episodes)")}
@@ -75,9 +76,19 @@ class LibraryStore:
             # while CREATE IF NOT EXISTS keeps all earlier databases intact.
             c.execute("CREATE INDEX IF NOT EXISTS idx_folders_account ON folders(account_id)")
             scan_columns = {r[1] for r in c.execute("PRAGMA table_info(scan_runs)")}
-            if "status" not in scan_columns:
-                c.execute("ALTER TABLE scan_runs ADD COLUMN status TEXT NOT NULL DEFAULT 'running'")
+            for column, definition in {
+                "status": "TEXT NOT NULL DEFAULT 'running'", "new_files": "INTEGER DEFAULT 0", "updated_files": "INTEGER DEFAULT 0",
+                "unchanged_files": "INTEGER DEFAULT 0", "ignored_files": "INTEGER DEFAULT 0", "duplicate_files": "INTEGER DEFAULT 0",
+                "unknown_files": "INTEGER DEFAULT 0", "reconciled_files": "INTEGER DEFAULT 0", "scan_id": "TEXT",
+                "source_kind": "TEXT", "scope_kind": "TEXT", "scope_ref": "TEXT",
+            }.items():
+                if column not in scan_columns:
+                    c.execute(f"ALTER TABLE scan_runs ADD COLUMN {column} {definition}")
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_scan_runs_scan_id ON scan_runs(scan_id) WHERE scan_id IS NOT NULL")
             c.execute("CREATE INDEX IF NOT EXISTS idx_scan_runs_status ON scan_runs(status, started_at)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_anime_pinned ON anime(is_pinned, added_at)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_anime_media_kind ON anime(media_kind, added_at)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_hierarchy ON episodes(anime_id, episode_type, season, number, absolute_number)")
             c.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?,?)", (self.SCHEMA_VERSION, time.time()))
         # A process can disappear between begin_scan() and finish_scan().
         # Recovering here keeps startup deterministic while leaving the
@@ -109,6 +120,50 @@ class LibraryStore:
                 "episodes": c.execute("SELECT COUNT(*) FROM episodes").fetchone()[0],
                 "history": c.execute("SELECT COUNT(*) FROM episodes WHERE last_played_at IS NOT NULL").fetchone()[0],
             }
+
+    def library_statistics(self):
+        """Offline aggregate projection for Settings; never opens media or uses network."""
+        with self._conn() as c:
+            row = c.execute("""SELECT
+                COUNT(*) AS animes, SUM(CASE WHEN favorite=1 THEN 1 ELSE 0 END) AS favorites,
+                SUM(CASE WHEN is_pinned=1 THEN 1 ELSE 0 END) AS pinned,
+                SUM(CASE WHEN NULLIF(TRIM(personal_note), '') IS NOT NULL THEN 1 ELSE 0 END) AS notes,
+                SUM(CASE WHEN anilist_id IS NULL THEN 1 ELSE 0 END) AS without_metadata,
+                SUM(CASE WHEN NULLIF(TRIM(cover_cache), '') IS NULL AND NULLIF(TRIM(cover_url), '') IS NULL THEN 1 ELSE 0 END) AS without_cover
+                FROM anime""").fetchone()
+            episodes = c.execute("""SELECT COUNT(*) AS total, SUM(CASE WHEN missing=0 THEN 1 ELSE 0 END) AS available,
+                SUM(CASE WHEN missing=0 AND watched=1 THEN 1 ELSE 0 END) AS watched,
+                SUM(CASE WHEN missing=0 AND progress>0 AND watched=0 THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN missing=0 THEN progress ELSE 0 END) AS recorded_seconds,
+                SUM(CASE WHEN missing=0 THEN duration ELSE 0 END) AS duration_seconds FROM episodes""").fetchone()
+            tags = c.execute("SELECT user_tags FROM anime").fetchall()
+        tag_count = len({str(tag).casefold() for entry in tags for tag in self._decode_tags(entry["user_tags"])})
+        available = int(episodes["available"] or 0)
+        watched = int(episodes["watched"] or 0)
+        return {"animes": int(row["animes"] or 0), "episodes": int(episodes["total"] or 0), "episodes_available": available,
+                "episodes_watched": watched, "animes_in_progress": self._anime_state_count("in_progress"),
+                "animes_completed": self._anime_state_count("completed"), "animes_not_started": self._anime_state_count("not_started"),
+                "favorites": int(row["favorites"] or 0), "pinned": int(row["pinned"] or 0), "notes": int(row["notes"] or 0),
+                "tags": tag_count, "without_metadata": int(row["without_metadata"] or 0), "without_cover": int(row["without_cover"] or 0),
+                "recorded_seconds": float(episodes["recorded_seconds"] or 0), "available_duration_seconds": float(episodes["duration_seconds"] or 0)}
+
+    @staticmethod
+    def _decode_tags(value):
+        try:
+            decoded = json.loads(value or "[]")
+            return decoded if isinstance(decoded, list) else []
+        except (TypeError, json.JSONDecodeError):
+            return []
+
+    def _anime_state_count(self, state):
+        # A single grouped query keeps aggregate state semantics aligned with the catalog.
+        with self._conn() as c:
+            rows = c.execute("""SELECT anime_id, SUM(CASE WHEN missing=0 THEN 1 ELSE 0 END) available,
+                SUM(CASE WHEN missing=0 AND watched=1 THEN 1 ELSE 0 END) watched,
+                SUM(CASE WHEN missing=0 AND progress>0 AND watched=0 THEN 1 ELSE 0 END) active FROM episodes GROUP BY anime_id""").fetchall()
+        if state == "completed": return sum(bool(r["available"]) and r["watched"] == r["available"] for r in rows)
+        if state == "in_progress": return sum(bool(r["active"]) for r in rows)
+        return sum(bool(r["available"]) and not r["watched"] and not r["active"] for r in rows)
 
     def clear_anilist_metadata_cache(self):
         """Expire metadata and cover paths, preserving library rows and associations."""
@@ -143,16 +198,25 @@ class LibraryStore:
             c.execute("UPDATE episodes SET missing=1 WHERE source_folder=?", (reference,))
             c.execute("DELETE FROM folders WHERE path=?", (reference,))
 
-    def begin_scan(self):
+    def begin_scan(self, scan_id=None, *, source_kind=None, scope_kind="global", scope_ref=None):
+        import uuid
+        scan_id = scan_id or str(uuid.uuid4())
         with self._conn() as c:
-            cur = c.execute("INSERT INTO scan_runs(started_at,status) VALUES (?, 'running')", (time.time(),))
+            cur = c.execute(
+                """INSERT INTO scan_runs(started_at,status,scan_id,source_kind,scope_kind,scope_ref)
+                   VALUES (?, 'running', ?, ?, ?, ?)""",
+                (time.time(), scan_id, source_kind, scope_kind, scope_ref),
+            )
             return cur.lastrowid
 
     def finish_scan(self, run_id, summary):
         with self._conn() as c:
-            c.execute("""UPDATE scan_runs SET finished_at=?,status='completed',folders=?,files=?,videos=?,animes=?,episodes=?,errors=? WHERE id=?""",
-                      (time.time(), summary["folders"], summary["files"], summary["videos"], summary["animes"],
-                       summary["episodes"], json.dumps(summary["errors"], ensure_ascii=False), run_id))
+            c.execute("""UPDATE scan_runs SET finished_at=?,status=?,folders=?,files=?,videos=?,animes=?,episodes=?,
+                         new_files=?,updated_files=?,unchanged_files=?,ignored_files=?,duplicate_files=?,unknown_files=?,reconciled_files=?,errors=? WHERE id=?""",
+                      (time.time(), summary.get("status", "completed"), summary.get("folders", 0), summary.get("files", 0), summary.get("videos", 0),
+                       summary.get("animes", 0), summary.get("episodes", 0), summary.get("new", 0), summary.get("updated", 0),
+                       summary.get("unchanged", 0), summary.get("ignored", 0), summary.get("duplicates", 0),
+                       summary.get("unknown", 0), summary.get("reconciled", 0), json.dumps(summary.get("errors", []), ensure_ascii=False), run_id))
 
     def last_scan(self):
         with self._conn() as c:
@@ -212,6 +276,21 @@ class LibraryStore:
             row = c.execute("SELECT favorite FROM anime WHERE id=?", (anime_id,)).fetchone()
             return bool(row and row[0])
 
+    def toggle_pinned(self, anime_id):
+        with self._conn() as c:
+            if not c.execute("UPDATE anime SET is_pinned=1-is_pinned WHERE id=?", (anime_id,)).rowcount:
+                raise ValueError("Anime local não encontrado.")
+            return bool(c.execute("SELECT is_pinned FROM anime WHERE id=?", (anime_id,)).fetchone()[0])
+
+    def set_personal_note(self, anime_id, note):
+        note = "" if note is None else str(note).strip()
+        if len(note) > 2000:
+            raise ValueError("A nota pessoal pode ter no máximo 2000 caracteres.")
+        with self._conn() as c:
+            if not c.execute("UPDATE anime SET personal_note=? WHERE id=?", (note or None, anime_id)).rowcount:
+                raise ValueError("Anime local não encontrado.")
+        return note or None
+
     def is_favorite(self, anime_id):
         with self._conn() as c:
             row = c.execute("SELECT favorite FROM anime WHERE id=?", (anime_id,)).fetchone()
@@ -231,7 +310,10 @@ class LibraryStore:
 
     def upsert_anime(self, lookup, metadata):
         title = metadata.get("title") or lookup
-        fields = (metadata.get("anilist_id"), title, metadata.get("romaji"), metadata.get("english"), metadata.get("native"), metadata.get("aliases", "[]"), metadata.get("description", "Anime armazenado localmente."), metadata.get("cover_url", ""), metadata.get("cover_cache", ""), metadata.get("banner_url", ""), metadata.get("genres", "[]"), metadata.get("year"), metadata.get("season"), metadata.get("status"), metadata.get("episodes_count"), metadata.get("duration"), metadata.get("score"), metadata.get("studio"), metadata.get("metadata_updated_at", time.time()))
+        incoming_kind = str(metadata.get("media_kind") or "series").casefold()
+        if incoming_kind not in {"series", "movie", "unknown"}:
+            incoming_kind = "series"
+        fields = (metadata.get("anilist_id"), title, metadata.get("romaji"), metadata.get("english"), metadata.get("native"), metadata.get("aliases", "[]"), metadata.get("description", "Anime armazenado localmente."), metadata.get("cover_url", ""), metadata.get("cover_cache", ""), metadata.get("banner_url", ""), metadata.get("genres", "[]"), metadata.get("year"), metadata.get("season"), metadata.get("status"), metadata.get("episodes_count"), metadata.get("duration"), metadata.get("score"), metadata.get("studio"), metadata.get("metadata_updated_at", time.time()), incoming_kind)
         with self._conn() as c:
             row = c.execute("SELECT * FROM anime WHERE lookup_title=?", (lookup,)).fetchone()
             if row:
@@ -239,10 +321,11 @@ class LibraryStore:
                 # cached image.  The same rule applies to a missing remote URL.
                 cover_cache = metadata.get("cover_cache") or row["cover_cache"] or ""
                 cover_url = metadata.get("cover_url") or row["cover_url"] or ""
+                media_kind = incoming_kind if incoming_kind == "movie" or not row["media_kind"] or row["media_kind"] == "unknown" else row["media_kind"]
                 fields = fields[:7] + (cover_url, cover_cache) + fields[9:]
-                c.execute("""UPDATE anime SET anilist_id=?,title=?,romaji=?,english=?,native=?,aliases=?,description=?,cover_url=?,cover_cache=?,banner_url=?,genres=?,year=?,season=?,status=?,episodes_count=?,duration=?,score=?,studio=?,metadata_updated_at=? WHERE id=?""", fields + (row["id"],))
+                c.execute("""UPDATE anime SET anilist_id=?,title=?,romaji=?,english=?,native=?,aliases=?,description=?,cover_url=?,cover_cache=?,banner_url=?,genres=?,year=?,season=?,status=?,episodes_count=?,duration=?,score=?,studio=?,metadata_updated_at=?,media_kind=? WHERE id=?""", fields + (row["id"],))
                 return row["id"]
-            cur = c.execute("""INSERT INTO anime(lookup_title,anilist_id,title,romaji,english,native,aliases,description,cover_url,cover_cache,banner_url,genres,year,season,status,episodes_count,duration,score,studio,metadata_updated_at,added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (lookup,) + fields + (time.time(),))
+            cur = c.execute("""INSERT INTO anime(lookup_title,anilist_id,title,romaji,english,native,aliases,description,cover_url,cover_cache,banner_url,genres,year,season,status,episodes_count,duration,score,studio,metadata_updated_at,media_kind,added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (lookup,) + fields + (time.time(),))
             return cur.lastrowid
 
     def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None, modified_at=None, source_folder=None, media_identity=None):
@@ -327,25 +410,69 @@ class LibraryStore:
     def mark_missing(self, source_folder, seen):
         """Mark only one successfully scanned source, preserving other folders."""
         with self._conn() as c:
-            c.execute("UPDATE episodes SET missing=1 WHERE source_folder=?", (source_folder,))
-            if seen: c.executemany("UPDATE episodes SET missing=0 WHERE path=?", ((p,) for p in seen))
+            if not c.execute("UPDATE episodes SET season=?,number=?,episode_type=?,episode_title=?,identification_source='manual',identification_confidence='high',manual_override=1 WHERE path=?", (season, number, episode_type, (title or "").strip() or None, path)).rowcount:
+                raise ValueError("Arquivo local não encontrado.")
+            c.execute("UPDATE anime SET media_kind=? WHERE id=(SELECT anime_id FROM episodes WHERE path=?) AND ? IN ('series','movie')", ("movie" if episode_type == "movie" else "series", path, "movie" if episode_type == "movie" else "series"))
+
+    def physical_row(self, path):
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
+            return dict(row) if row else None
+
+    def reconcile_missing(self, source_folder, seen, *, scope_kind="source", scope_ref=None):
+        """Mark absence only inside a scope that the caller proved complete."""
+        with self._conn() as c:
+            params = [source_folder]
+            where = "source_folder=?"
+            if scope_kind in {"directory", "root"} and scope_ref:
+                prefix = str(scope_ref).strip("/").replace("\\", "/")
+                where += " AND (relative_path=? OR relative_path LIKE ?)"
+                params.extend([prefix, prefix + "/%"])
+            elif scope_kind == "volume" and scope_ref:
+                where += " AND volume_id=?"
+                params.append(scope_ref)
+            c.execute(f"UPDATE episodes SET missing=1 WHERE {where}", tuple(params))
+            if seen:
+                c.executemany("UPDATE episodes SET missing=0 WHERE path=?", ((p,) for p in seen))
+
+    def mark_missing(self, source_folder, seen):
+        self.reconcile_missing(source_folder, seen, scope_kind="source")
 
     def catalog(self, favorites_only=False):
+        """Project physical media into the logical local library hierarchy."""
         with self._conn() as c:
             animes = []
             query = "SELECT * FROM anime" + (" WHERE favorite=1" if favorites_only else "") + " ORDER BY added_at DESC, title COLLATE NOCASE"
             anime_rows = c.execute(query).fetchall()
-            # One episode query avoids a growing N+1 cost on Home/Organizar.
-            episode_rows = c.execute("SELECT * FROM episodes ORDER BY anime_id, season, number, file_name").fetchall()
+            episode_rows = c.execute("SELECT * FROM episodes ORDER BY anime_id, season, number, absolute_number, file_name").fetchall()
             episodes_by_anime = {}
             for episode in episode_rows:
                 episodes_by_anime.setdefault(episode["anime_id"], []).append(dict(episode))
+
+            def project(e):
+                return {
+                    "title": e["file_name"], "episode_title": e["episode_title"], "path": e["path"],
+                    "season": e["season"], "number": e["number"], "absolute_number": e["absolute_number"],
+                    "episode_type": e["episode_type"], "identification_source": e["identification_source"],
+                    "identification_confidence": e["identification_confidence"], "manual_override": bool(e["manual_override"]),
+                    "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]),
+                    "missing": bool(e["missing"]), "last_played_at": e["last_played_at"],
+                    "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"],
+                    "source_folder": e["source_folder"], "relative_path": e["relative_path"], "volume_id": e["volume_id"], "volume_uuid": e["volume_uuid"],
+                }
+
+            special_types = {"special", "ova", "oad", "ona", "extra"}
             for a in anime_rows:
                 eps = episodes_by_anime.get(a["id"], [])
                 if not eps:
                     continue
+                projected = [project(e) for e in eps]
+                media_kind = a["media_kind"] or "series"
+                movies = [item for item in projected if item["episode_type"] == "movie"]
+                specials = [item for item in projected if item["episode_type"] in special_types]
+                regulars = [item for item in projected if item["episode_type"] not in special_types and item["episode_type"] != "movie"]
                 seasons = {}
-                for ep in eps:
+                for ep in regulars:
                     seasons.setdefault(ep["season"], []).append(ep)
                 try:
                     genres = json.loads(a["genres"] or "[]")
@@ -355,7 +482,8 @@ class LibraryStore:
                 animes.append({"id": a["id"], "main_title": a["title"], "meta": dict(a), "favorite": bool(a["favorite"]), "genres": genres, "seasons": [{"season_name": f"Temporada {s}", "season": s, "folder_path": "", "episodes": [{"title": e["file_name"], "path": e["path"], "season": e["season"], "number": e["number"], "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]), "missing": bool(e["missing"]), "last_played_at": e["last_played_at"], "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"], "source_folder": e["source_folder"], "media_identity": e["media_identity"]} for e in sorted(values, key=lambda episode: (episode["number"] if episode["number"] is not None else -1, episode["file_name"].casefold(), episode["path"].casefold()))]} for s, values in ordered_seasons]})
             for anime in animes:
                 rows = episodes_by_anime[anime["id"]]
-                anime["current_episode"] = self._current_from_rows(rows)
+                eligible = [row for row in rows if row["episode_type"] not in {"movie", *special_types}]
+                anime["current_episode"] = self._current_from_rows(eligible or [row for row in rows if row["episode_type"] != "movie"])
             return animes
 
     def save_progress(self, path, position, duration):
@@ -374,18 +502,29 @@ class LibraryStore:
             updated = c.execute("UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?", (position, duration, watched, time.time(), path)).rowcount
         return bool(updated)
 
+    def set_watched(self, path, watched):
+        """Set the existing episode completion state without a second player state."""
+        with self._conn() as c:
+            row = c.execute("SELECT duration FROM episodes WHERE path=?", (path,)).fetchone()
+            if not row:
+                return False
+            duration = float(row["duration"] or 0)
+            progress = duration if watched and duration > 0 else (0 if not watched else 0)
+            c.execute("UPDATE episodes SET watched=?,progress=?,last_played_at=? WHERE path=?", (int(bool(watched)), progress, time.time(), path))
+        return True
+
     @staticmethod
     def _episode_order_key(episode):
         number = episode.get("number")
         if number is None:
             return (
-                episode.get("season") or 1,
+                episode.get("season") if episode.get("season") is not None else 1,
                 0,
                 (episode.get("file_name") or "").casefold(),
                 (episode.get("path") or "").casefold(),
             )
         return (
-            episode.get("season") or 1,
+            episode.get("season") if episode.get("season") is not None else 1,
             1,
             number,
             (episode.get("file_name") or "").casefold(),
@@ -420,7 +559,7 @@ class LibraryStore:
             if not current:
                 return None
             rows = c.execute(
-                "SELECT e.*, a.title AS anime_title FROM episodes e JOIN anime a ON a.id=e.anime_id WHERE e.anime_id=? AND e.missing=0",
+                "SELECT e.*, a.title AS anime_title FROM episodes e JOIN anime a ON a.id=e.anime_id WHERE e.anime_id=? AND e.missing=0 AND e.episode_type NOT IN ('movie','special','ova','oad','ona','extra')",
                 (current["anime_id"],),
             ).fetchall()
         # SQLite's NULL ordering differs from the catalog policy. Reusing the

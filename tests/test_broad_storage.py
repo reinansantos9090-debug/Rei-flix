@@ -72,5 +72,11 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         self.assertIn("ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION", source)
         self.assertIn("ACTION_APPLICATION_DETAILS_SETTINGS", source)
 
+    def test_player_pip_has_manifest_and_device_feature_fallback(self):
+        manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        player = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
+        self.assertIn('android:supportsPictureInPicture="true"', manifest)
+        self.assertIn("PackageManager.FEATURE_PICTURE_IN_PICTURE", player)
+
 if __name__ == "__main__":
     unittest.main()

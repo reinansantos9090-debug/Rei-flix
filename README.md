@@ -98,6 +98,20 @@ Detalhes (por exemplo, `Prioridade` ou `Assistir com amigos`). Essas etiquetas
 são privadas, ficam no SQLite local, aparecem em buscas locais e não são
 enviadas ao AniList ou ao Google.
 
+## Biblioteca pessoal e player local
+
+A biblioteca também mantém, exclusivamente no SQLite local, **pins** e notas
+pessoais (até 2000 caracteres). A tela de detalhes permite editar ambos; as
+projeções locais podem filtrar por favorito, pin, progresso, nota, metadata,
+capa e etiqueta. Configurações mostra estatísticas agregadas e o relatório
+real do último scan, sem abrir arquivos nem chamar serviços de metadata.
+
+O player Android usa Media3 1.5.1 para conteúdo autorizado localmente. Ele
+preserva retomada/progresso via `NativeMailbox` e inclui velocidade entre
+0,5x–2x, fit/fill/zoom, reinício, marcar visto/não visto, autoplay do próximo
+episódio e timer de sono de sessão. PiP, codecs e reprodução devem ser
+validados em APK/dispositivo; não há streaming, download ou legenda online.
+
 ## Permissões
 
 O Android usa três mecanismos complementares para a biblioteca local:
@@ -112,6 +126,15 @@ O Android usa três mecanismos complementares para a biblioteca local:
 A tela de Configurações do Rei-flix explica e solicita esses acessos em contexto.
 O app não solicita permissões de notificações, contatos, SMS, telefone,
 localização, câmera, microfone, Gmail ou Drive.
+
+Na primeira abertura Android, o app consulta o estado real das permissões antes
+de oferecer o onboarding. O MediaStore é uma camada complementar de descoberta
+e pode informar acesso parcial no Android 14+. O acesso amplo só é considerado
+concedido quando `Environment.isExternalStorageManager()` confirma o retorno
+das Configurações; ele alcança o armazenamento compartilhado que o Android
+permite ao aplicativo, não áreas protegidas do sistema. SAF continua sendo a
+opção para uma árvore escolhida explicitamente pelo usuário. Cancelar qualquer
+etapa mantém o app aberto e permite tentar de novo em Configurações.
 
 ## Build
 

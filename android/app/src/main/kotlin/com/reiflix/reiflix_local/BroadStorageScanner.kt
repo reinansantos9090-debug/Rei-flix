@@ -19,6 +19,17 @@ object BroadStorageScanner {
     const val SOURCE = "broad-storage"
     const val DISPLAY_NAME = "Armazenamento local"
     private val videoExtensions = setOf("mp4","mkv","webm","avi","mov","m4v","ts","m2ts","flv","wmv")
+
+    /** A physical shared-storage root, not merely a path supplied by one scanner. */
+    data class StorageRoot(
+        val file: File,
+        val volumeId: String,
+        val volumeUuid: String?,
+        val primary: Boolean,
+        val removable: Boolean,
+        val emulated: Boolean,
+        val state: String,
+    )
     fun hasAccess(context: Context): Boolean = when {
         Build.VERSION.SDK_INT >= 30 -> Environment.isExternalStorageManager()
         Build.VERSION.SDK_INT >= 23 -> context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
@@ -32,12 +43,13 @@ object BroadStorageScanner {
             .put("hasAccess", hasAccess(context))
         val rootsJson = JSONArray()
         roots(context).forEach { root ->
-            val check = JSONObject().put("path", root.path)
-                .put("exists", root.exists())
-                .put("directory", root.isDirectory)
-                .put("readable", root.canRead())
-            if (root.exists() && root.isDirectory) {
-                check.put("children", runCatching { root.list()?.size ?: 0 }.getOrDefault(-1))
+            val check = JSONObject().put("path", root.file.path)
+                .put("volumeId", root.volumeId).put("uuid", root.volumeUuid ?: "")
+                .put("primary", root.primary).put("removable", root.removable).put("emulated", root.emulated)
+                .put("state", root.state).put("exists", root.file.exists())
+                .put("directory", root.file.isDirectory).put("readable", root.file.canRead())
+            if (root.file.exists() && root.file.isDirectory) {
+                check.put("children", runCatching { root.file.list()?.size ?: 0 }.getOrDefault(-1))
             }
             rootsJson.put(check)
         }
@@ -66,16 +78,30 @@ object BroadStorageScanner {
         Environment.getExternalStorageDirectory().let { if (it.exists()) paths.add(it.absolutePath) }
         if (Build.VERSION.SDK_INT >= 30) {
             context.getSystemService(StorageManager::class.java)?.storageVolumes?.forEach { volume ->
-                runCatching { volume.directory?.canonicalPath }.getOrNull()?.let(paths::add)
+                // getDirectory is API 30+. Volumes on older Android versions
+                // remain available through the primary compatible root above
+                // and through SAF/MediaStore rather than reflection or a guess.
+                if (Build.VERSION.SDK_INT >= 30) {
+                    val directory = runCatching { volume.directory }.getOrNull()
+                    if (directory != null) add(StorageRoot(
+                        directory,
+                        volume.uuid ?: if (volume.isPrimary) "primary" else "volume-${directory.name}",
+                        volume.uuid,
+                        volume.isPrimary,
+                        volume.isRemovable,
+                        volume.isEmulated,
+                        volume.state ?: "unknown",
+                    ))
+                }
             }
         }
-        return paths.mapNotNull { runCatching { File(it).canonicalFile }.getOrNull() }
+        return found.values.toList()
     }
 
     fun isAuthorizedFile(context: Context, uri: Uri): Boolean {
         if (uri.scheme != "file" || !hasAccess(context)) return false
         val file = runCatching { File(uri.path ?: "").canonicalFile }.getOrNull() ?: return false
-        return roots(context).any { isInside(file, it) } && !isRestricted(file)
+        return roots(context).any { isInside(file, it.file) } && !isRestricted(file)
     }
 
     private fun isInside(file: File, root: File): Boolean =
@@ -129,9 +155,9 @@ object BroadStorageScanner {
         val errors = JSONArray()
         val snapshot = accessSnapshot(context)
         val visited = HashSet<String>()
-        val pending = ArrayDeque<File>()
+        val pending = ArrayDeque<Pair<File, StorageRoot>>()
         val rootFiles = roots(context)
-        rootFiles.forEach { pending.addLast(it) }
+        rootFiles.forEach { pending.addLast(it.file to it) }
         if (rootFiles.isEmpty()) errors.put("Nenhuma raiz de armazenamento compartilhado foi encontrada.")
         var directories = 0
         var files = 0
@@ -140,7 +166,7 @@ object BroadStorageScanner {
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE)
             .put("directories",0).put("files",0).put("videos",0).put("nomediaDirectories",0))
         while (pending.isNotEmpty()) {
-            val dir = pending.removeLast()
+            val (dir, root) = pending.removeLast()
             val canonical = runCatching { dir.canonicalFile }.getOrElse { dir }
             if (!visited.add(canonical.path) || isRestricted(canonical)) continue
             if (isNoMediaDirectory(canonical)) {
@@ -164,7 +190,7 @@ object BroadStorageScanner {
             }
             for (child in children) {
                 if (isRestricted(child)) continue
-                if (child.isDirectory) { pending.addLast(child); continue }
+                if (child.isDirectory) { pending.addLast(child to root); continue }
                 files++
                 if (!child.isFile || child.extension.lowercase() !in videoExtensions) continue
                 val file = runCatching { child.canonicalFile }.getOrNull() ?: continue
@@ -197,4 +223,7 @@ object BroadStorageScanner {
         "mkv" -> "video/x-matroska"; "webm" -> "video/webm"; "avi" -> "video/x-msvideo"; "mov" -> "video/quicktime"
         "m4v" -> "video/x-m4v"; "ts","m2ts" -> "video/mp2t"; "flv" -> "video/x-flv"; "wmv" -> "video/x-ms-wmv"; else -> "video/mp4"
     }
+
+    private fun isReadableState(state: String?): Boolean =
+        state == Environment.MEDIA_MOUNTED || state == Environment.MEDIA_MOUNTED_READ_ONLY
 }

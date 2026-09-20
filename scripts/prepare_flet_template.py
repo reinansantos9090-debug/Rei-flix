@@ -73,6 +73,7 @@ theme_attr = "{" + ANDROID + "}theme"
 launch_attr = "{" + ANDROID + "}launchMode"
 config_attr = "{" + ANDROID + "}configChanges"
 screen_attr = "{" + ANDROID + "}screenOrientation"
+pip_attr = "{" + ANDROID + "}supportsPictureInPicture"
 exported_attr = "{" + ANDROID + "}exported"
 scheme_attr = "{" + ANDROID + "}scheme"
 host_attr = "{" + ANDROID + "}host"
@@ -96,14 +97,24 @@ ET.SubElement(bridge, "category", {name: "android.intent.category.BROWSABLE"})
 ET.SubElement(bridge, "data", {scheme_attr: "reiflix", host_attr: "native"})
 
 player_name = "com.reiflix.reiflix_local.NativePlayerActivity"
-if not any(activity.get(name) == player_name for activity in application.findall("activity")):
-    ET.SubElement(application, "activity", {
+player = next((activity for activity in application.findall("activity") if activity.get(name) == player_name), None)
+if player is None:
+    player = ET.SubElement(application, "activity", {
         name: player_name,
         theme_attr: "@style/ReiFlixPlayerTheme",
         config_attr: "orientation|screenSize|keyboardHidden",
         screen_attr: "sensorLandscape",
+        pip_attr: "true",
         exported_attr: "false",
     })
+else:
+    # A template may already declare the player. Keep it non-exported and
+    # PiP-capable rather than silently retaining stale manifest attributes.
+    player.set(theme_attr, "@style/ReiFlixPlayerTheme")
+    player.set(config_attr, "orientation|screenSize|keyboardHidden")
+    player.set(screen_attr, "sensorLandscape")
+    player.set(pip_attr, "true")
+    player.set(exported_attr, "false")
 tree.write(manifest_path, encoding="utf-8", xml_declaration=True)
 
 dependencies = [

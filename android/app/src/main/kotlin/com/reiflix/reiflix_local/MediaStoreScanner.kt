@@ -72,6 +72,10 @@ object MediaStoreScanner {
         check(hasReadPermission(context)) { "Permissão de vídeos não concedida." }
 
         val resolver = context.contentResolver
+        // The synthetic MediaStore.VOLUME_EXTERNAL view is deliberately not queried here:
+        // per-volume queries keep removable storage provenance explicit for reconciliation.
+        // MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL) remains a valid
+        // aggregate API, but is intentionally avoided for the indexer's physical identity.
         val volumeNames = if (Build.VERSION.SDK_INT >= 29) {
             MediaStore.getExternalVolumeNames(context).ifEmpty { setOf(MediaStore.VOLUME_EXTERNAL_PRIMARY) }
         } else {

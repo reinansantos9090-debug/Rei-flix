@@ -281,7 +281,8 @@ class LibraryService:
                 metadata[key]["media_kind"] = metadata[key].get("media_kind") or "series"
 
         identity_uri = uri if uri.startswith(("file://", "content://")) else Path(uri).as_uri()
-        identity = identity_from_document(identity_uri, relative_path, volume_id, source_folder if source_kind == "saf" else None)
+        native_identity = document.get("stableId")
+        identity = native_identity.strip() if isinstance(native_identity, str) and native_identity.strip() else identity_from_document(identity_uri, relative_path, volume_id, source_folder if source_kind == "saf" else None)
         anime_id = self.store.upsert_anime(key, metadata[key], source=metadata[key].get("metadata_source") or "local", confidence=metadata[key].get("metadata_confidence"), status=metadata[key].get("metadata_status"))
 
         # A move/rename changes the path-derived identity. When Android/storage
@@ -411,14 +412,26 @@ class LibraryService:
 
     def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *,
                          folder_name=None, scan_errors=None, scan_stats=None, source_kind="saf",
-                         scan_id=None, scope_kind="global", scope_ref=None):
+                         scan_id=None, scope_kind="global", scope_ref=None, scan_generation=None):
         """Index one native source without destructive reconciliation on partial scans."""
         with self._scan_lock:
             scan_id = scan_id or str(uuid.uuid4())
             previous = self.store.scan_by_id(scan_id)
             if previous and previous.get("status") in {"completed", "partial"}:
                 return self.store.catalog()
-            run_id = self.store.begin_scan(scan_id=scan_id, source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref or tree_uri)
+            try:
+                native_generation = int(scan_generation) if scan_generation is not None else None
+            except (TypeError, ValueError):
+                native_generation = None
+            if native_generation is not None and native_generation > 0:
+                latest = self.store.latest_completed_native_generation(source_kind, scope_kind, scope_ref or tree_uri)
+                if latest is not None and native_generation < latest:
+                    logger.info("Ignoring stale native scan generation %s < %s", native_generation, latest)
+                    return self.store.catalog()
+            run_id = self.store.begin_scan(
+                scan_id=scan_id, source_kind=source_kind, scope_kind=scope_kind,
+                scope_ref=scope_ref or tree_uri, native_generation=native_generation,
+            )
             result = ScanResult(catalog=[], scan_id=scan_id)
             scan_errors = list(scan_errors or [])
             scan_stats = scan_stats or {}

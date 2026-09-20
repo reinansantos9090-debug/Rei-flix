@@ -21,7 +21,7 @@ object MediaStoreScanner {
     const val DISPLAY_NAME = "Vídeos do dispositivo"
     private const val TAG = "[REIFLIX][MEDIASTORE]"
 
-    private val videoExtensions = setOf("mp4", "mkv", "webm", "avi", "mov", "m4v")
+    private val videoExtensions = setOf("mp4", "mkv", "webm", "avi", "mov", "m4v", "ts", "m2ts", "flv", "wmv")
 
     fun requiredPermissions(): Array<String> {
         return when {

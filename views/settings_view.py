@@ -202,6 +202,17 @@ class SettingsView:
             disabled=broad_granted,
             on_click=show_broad_storage_dialog,
         )
+        if media_granted:
+            if media_is_partial:
+                media_permission_text = "⚠ Permissão de vídeos: Acesso parcial (alguns vídeos selecionados pelo usuário)"
+                media_permission_color = "#FFD54F"
+            else:
+                media_permission_text = "✓ Permissão para ler vídeos concedida"
+                media_permission_color = "#9FE3B1"
+        else:
+            media_permission_text = "⚠ Permissão para ler vídeos ainda não concedida"
+            media_permission_color = "#FFB4AB"
+
         permission_lines = [
             ft.Text(
                 ("✓ Permissão para ler vídeos (acesso parcial)" if media_partial else "✓ Permissão para ler vídeos")

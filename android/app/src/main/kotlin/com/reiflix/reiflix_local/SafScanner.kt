@@ -165,20 +165,45 @@ object SafScanner {
                         return@use
                     }
 
+                    data class ChildDoc(
+                        val documentId: String,
+                        val name: String,
+                        val mimeType: String,
+                        val size: Long,
+                        val modifiedAt: Long,
+                    )
+                    val children = mutableListOf<ChildDoc>()
+                    var hasNoMedia = false
+
                     while (cursor.moveToNext()) {
                         val documentId = cursor.getString(idColumn) ?: continue
                         val name = cursor.getString(nameColumn) ?: documentId
+                        if (name.equals(".nomedia", ignoreCase = true)) {
+                            hasNoMedia = true
+                            break
+                        }
                         val mimeType = cursor.getString(mimeColumn) ?: "application/octet-stream"
-                        val relativePath = if (currentPath.isEmpty()) name else "$currentPath/$name"
+                        val size = if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) cursor.getLong(sizeColumn) else 0L
+                        val modifiedAt = if (modifiedColumn >= 0 && !cursor.isNull(modifiedColumn)) cursor.getLong(modifiedColumn) else 0L
+                        children.add(ChildDoc(documentId, name, mimeType, size, modifiedAt))
+                    }
+
+                    if (hasNoMedia) {
+                        stats.put("nomediaDirectories", stats.optInt("nomediaDirectories", 0) + 1)
+                        return@use
+                    }
+
+                    for (child in children) {
+                        val relativePath = if (currentPath.isEmpty()) child.name else "$currentPath/${child.name}"
                         val childUri = runCatching {
-                            DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+                            DocumentsContract.buildDocumentUriUsingTree(treeUri, child.documentId)
                         }.getOrElse {
                             errors.put("Não foi possível acessar: $relativePath")
                             continue
                         }
 
-                        if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
-                            pending.addLast(documentId to relativePath)
+                        if (child.mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                            pending.addLast(child.documentId to relativePath)
                             continue
                         }
 
@@ -192,19 +217,17 @@ object SafScanner {
                                 .put("pending", pending.size)
                                 .put("currentPath", currentPath))
                         }
-                        val extension = name.substringAfterLast('.', "").lowercase()
-                        val isVideo = extension in videoExtensions || mimeType.startsWith("video/")
+                        val extension = child.name.substringAfterLast('.', "").lowercase()
+                        val isVideo = extension in videoExtensions || child.mimeType.startsWith("video/")
                         if (!isVideo) continue
 
-                        val size = if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) cursor.getLong(sizeColumn) else 0L
-                        val modifiedAt = if (modifiedColumn >= 0 && !cursor.isNull(modifiedColumn)) cursor.getLong(modifiedColumn) else 0L
                         files.put(JSONObject()
                             .put("uri", childUri.toString())
-                            .put("name", name)
+                            .put("name", child.name)
                             .put("relativePath", relativePath)
-                            .put("mimeType", mimeType)
-                            .put("size", size)
-                            .put("modifiedAt", modifiedAt))
+                            .put("mimeType", child.mimeType)
+                            .put("size", child.size)
+                            .put("modifiedAt", child.modifiedAt))
                         stats.put("videos", stats.getInt("videos") + 1)
                     }
                 } ?: errors.put("O provedor SAF não conseguiu listar: $currentPath")

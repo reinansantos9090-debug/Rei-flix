@@ -107,6 +107,24 @@ class StoreTests(unittest.TestCase):
                 row = con.execute('SELECT COUNT(*), progress, duration, file_size, modified_at FROM episodes').fetchone()
             self.assertEqual(tuple(row), (1, 12, 24, 200, 20))
 
+    def test_deduplication_across_sources_preserves_watch_progress(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime('naruto', {'title': 'Naruto', 'genres': '[]'})
+            store.upsert_episode(anime, 'content://media/external/video/media/10', 'Naruto - 001.mkv', 1, 1,
+                                 'video/x-matroska', 150000000, 1000, 'mediastore:external:video')
+            store.save_progress('content://media/external/video/media/10', 45, 100)
+
+            store.upsert_episode(anime, 'file:///storage/emulated/0/Anime/Naruto - 001.mkv', 'Naruto - 001.mkv', 1, 1,
+                                 'video/x-matroska', 150000000, 1000, 'broad-storage')
+
+            catalog = store.catalog()
+            self.assertEqual(len(catalog[0]['seasons'][0]['episodes']), 1)
+            episode = catalog[0]['seasons'][0]['episodes'][0]
+            self.assertEqual(episode['path'], 'file:///storage/emulated/0/Anime/Naruto - 001.mkv')
+            self.assertEqual(episode['progress'], 45)
+            self.assertEqual(episode['duration'], 100)
+
     def test_missing_file_keeps_progress_and_is_recovered(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d) / 'Anime'; root.mkdir()

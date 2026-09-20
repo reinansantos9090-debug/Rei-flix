@@ -7,6 +7,25 @@ package com.reiflix.reiflix_local
  * request de-duplication and pending-action semantics without launching Flet.
  */
 class NativeRequestState {
+    companion object {
+        private val SUPPORTED_ACTIONS = setOf(
+            "select_tree",
+            "scan_tree",
+            "verify_tree",
+            "release_tree",
+            "scan_media_store",
+            "request_media_access",
+            "open_broad_storage_settings",
+            "check_storage_access",
+            "scan_all_storage",
+            "google_sign_in",
+            "play",
+        )
+
+        fun isSupportedAction(action: String?): Boolean =
+            action?.trim()?.takeIf { it.isNotEmpty() } in SUPPORTED_ACTIONS
+    }
+
     var lastHandledRequestId: String? = null
         private set
 

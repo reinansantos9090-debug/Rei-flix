@@ -10,6 +10,8 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from core.consumption import consumption_state
+
 
 _SPECIAL_TYPES = {"special", "ova", "oad", "ona", "extra"}
 _TOKEN_RE = re.compile(r"[\w]+", re.UNICODE)
@@ -229,10 +231,11 @@ class SearchFilterSort:
         episodes = _episodes(anime)
         available = [e for e in episodes if not e.get("missing")]
         state = self.state
-        active = any(_numeric(e.get("progress"), 0) > 0 for e in available)
-        watched = bool(available) and all(bool(e.get("watched")) for e in available)
-        any_watched = any(bool(e.get("watched")) for e in available)
-        unwatched = any(not e.get("watched") for e in available)
+        episode_states = [consumption_state(e) for e in available]
+        active = any(s.value == "in_progress" for s in episode_states)
+        watched = bool(available) and all(s.value in {"completed", "watched"} for s in episode_states)
+        any_watched = any(s.value in {"completed", "watched"} for s in episode_states)
+        unwatched = any(s.value == "unwatched" for s in episode_states)
         if state == "Favoritos" and not anime.get("favorite"):
             return False
         if state == "Fixados" and not anime.get("is_pinned"):

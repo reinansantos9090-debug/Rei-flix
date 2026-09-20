@@ -240,7 +240,9 @@ class NativePlayerActivity : ComponentActivity() {
         handler.removeCallbacks(progressReporter)
         handler.removeCallbacks(sleepReporter)
         if (::player.isInitialized) {
-            if (!suppressExitEvent) saveProgress("player_exited", force = true)
+            if (!suppressExitEvent && !isChangingConfigurations) {
+                saveProgress("player_exited", force = true)
+            }
             player.release()
         }
         super.onDestroy()

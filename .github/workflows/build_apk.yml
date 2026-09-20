@@ -94,8 +94,7 @@ jobs:
           mkdir -p build/temp_tmpl
           unzip -q build/flet-build-template.zip -d build/temp_tmpl
           mkdir -p build/flet-build-template
-          mv build/temp_tmpl/build/* build/flet-build-template/
-          mv build/temp_tmpl/build/.* build/flet-build-template/ 2>/dev/null || true
+          cp -a build/temp_tmpl/build/. build/flet-build-template/
           rm -rf build/temp_tmpl build/flet-build-template.zip
           python scripts/prepare_flet_template.py \
             --template "$GITHUB_WORKSPACE/build/flet-build-template" \

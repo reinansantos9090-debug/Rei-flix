@@ -37,6 +37,14 @@ source = overlay / "src" / "main" / "kotlin"
 destination = app / "src" / "main" / "kotlin"
 shutil.copytree(source, destination, dirs_exist_ok=True)
 
+# Copy native tests with the same overlay so generated Android projects retain
+# the exact test contract used by the repository.
+for test_root in ("src/test", "src/androidTest"):
+    source_test = overlay / test_root
+    if source_test.is_dir():
+        destination_test = app / test_root
+        shutil.copytree(source_test, destination_test, dirs_exist_ok=True)
+
 # Keep the generated Flutter launch resources.  ReiFlix adds only its own
 # player/host theme resource, avoiding replacement of Flutter's LaunchTheme.
 values = app / "src" / "main" / "res" / "values"
@@ -169,6 +177,34 @@ if "androidx.media3:media3-exoplayer:1.5.1" not in existing:
 # The source overlay is not an Android module in the generated Flet project,
 # so its build.gradle.kts is not copied. Set this contract in the generated
 # module explicitly instead of relying on Flutter template defaults.
+existing = gradle.read_text(encoding="utf-8")
+
+# Kotlin/JVM and Android instrumentation tests are part of the host contract.
+test_dependency_marker = "ReiFlix Kotlin test dependencies"
+if test_dependency_marker not in existing:
+    if gradle.suffix == ".kts":
+        test_block = """
+// ReiFlix Kotlin test dependencies
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:core:1.6.1")
+}
+"""
+    else:
+        test_block = """
+// ReiFlix Kotlin test dependencies
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test:core:1.6.1'
+}
+"""
+    existing += test_block
+    gradle.write_text(existing, encoding="utf-8")
+
 existing = gradle.read_text(encoding="utf-8")
 sdk_marker = "ReiFlix Android 16 SDK contract"
 if sdk_marker not in existing:

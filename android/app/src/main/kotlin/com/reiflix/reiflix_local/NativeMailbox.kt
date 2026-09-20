@@ -27,15 +27,16 @@ object NativeMailbox {
             }
             val id = UUID.randomUUID().toString()
             val target = File(queue, "$PREFIX$id.json")
-            temporary = File(queue, "$PREFIX$id.json.tmp")
+            val temp = File(queue, "$PREFIX$id.json.tmp")
+            temporary = temp
             val payload = JSONObject(event.toString())
                 .put("eventId", id)
                 .put("createdAt", System.currentTimeMillis())
-            FileOutputStream(temporary).use { stream ->
+            FileOutputStream(temp).use { stream ->
                 stream.write(payload.toString().toByteArray(Charsets.UTF_8))
                 stream.fd.sync()
             }
-            check(temporary.renameTo(target)) { "Could not publish native event" }
+            check(temp.renameTo(target)) { "Could not publish native event" }
             Log.i(TAG, "Native event queued: ${event.optString("type")}")
         } catch (exception: Exception) {
             temporary?.delete()

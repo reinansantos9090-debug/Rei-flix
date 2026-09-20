@@ -60,11 +60,12 @@ class StorageOnboardingTests(unittest.TestCase):
         start = source.index("        async def allow(_event):")
         end = source.index("        dialog.actions =", start)
         block = source[start:end]
+        cancel_end = source.index("        dialog.actions =", source.index("        def cancel(_event):"))
+        cancel = source[source.index("        def cancel(_event):"):cancel_end]
         self.assertIn('storage_onboarding["waiting_for_result"] = True', block)
         self.assertIn("dismiss_dialog(page, dialog)", block)
         self.assertNotIn("asyncio.sleep(0)", block)
         self.assertIn("async def cancel(_event):", block)
-        cancel = block.split("        def cancel(_event):", 1)[1]
         self.assertIn('storage_onboarding["dismissed"] = True', cancel)
         self.assertNotIn("request_video_access", cancel)
         self.assertNotIn("open_broad_storage_access", cancel)

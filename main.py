@@ -350,6 +350,11 @@ async def main(page: ft.Page):
                     try:
                         if not isinstance(event, dict):
                             continue
+                        event_id = event.get('eventId')
+                        if event_id and not store.claim_native_event(event_id):
+                            # NativeMailbox is at-least-once; duplicate delivery must be
+                            # harmless even when the event file is replayed.
+                            continue
                         event_type = event.get('type')
                         payload = event.get('payload')
                         if payload is None:

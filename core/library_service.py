@@ -256,10 +256,8 @@ class LibraryService:
         identity_volume = volume_id
         if source_kind == "filesystem":
             identity_volume = source_folder
-        identity = local_media_identity(
-            uri=uri, source_kind=("broad_storage" if source_kind == "filesystem" else source_kind), relative_path=relative_path,
-            size=file_size, modified_at=modified_at, volume_id=identity_volume,
-        )
+        identity_uri = uri if uri.startswith(("file://", "content://")) else Path(uri).as_uri()
+        identity = identity_from_document(identity_uri, relative_path, volume_id, source_folder if source_kind == "saf" else None)
         anime_id = self.store.upsert_anime(key, metadata[key], source=metadata[key].get("metadata_source") or "local", confidence=metadata[key].get("metadata_confidence"), status=metadata[key].get("metadata_status"))
         row_id = self.store.upsert_episode(
             anime_id, uri, name, item.season, item.episode,

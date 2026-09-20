@@ -44,6 +44,7 @@ class ScanResult:
 class LibraryService:
     METADATA_CACHE_SECONDS = 30 * 24 * 60 * 60
     COVER_RETRY_SECONDS = 6 * 60 * 60
+    REQUEST_DEDUPE_SECONDS = 5
 
     def __init__(self, store):
         self.store=store; self.anilist=AniListClient(store.cache_dir); self._scan_lock=threading.Lock(); self._metadata_lock=threading.RLock()
@@ -119,6 +120,12 @@ class LibraryService:
             associated_id = self.store.association(lookup_title)
             cached_id = cached.get("anilist_id") if cached else None
             refresh_id = associated_id or cached_id
+            if cached and cached.get("metadata_fetched_at"):
+                try:
+                    if time.time() - float(cached["metadata_fetched_at"]) < self.REQUEST_DEDUPE_SECONDS:
+                        return cached
+                except (TypeError, ValueError):
+                    pass
             if not force and self._cached_metadata_is_current(cached, refresh_id):
                 return cached
             self.store.set_metadata_status(lookup_title, "refreshing") if cached else None

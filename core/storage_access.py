@@ -25,6 +25,7 @@ def storage_access_state(media_access: str | None, broad_granted: bool, *, dismi
         return StorageAccessState.MEDIA_PARTIAL
     if media_access != "full":
         return StorageAccessState.NEEDS_MEDIA_PERMISSION
-    if not broad_granted:
-        return StorageAccessState.NEEDS_BROAD_STORAGE
+    # MediaStore full access is already sufficient for the core video-library
+    # flow. Broad filesystem access is an optional additional source, not a
+    # prerequisite that can block the application or keep onboarding looping.
     return StorageAccessState.READY

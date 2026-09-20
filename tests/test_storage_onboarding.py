@@ -55,6 +55,35 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn('storage_onboarding["dismissed"] = True', block)
         self.assertIn("Do not reopen the onboarding modal", block)
 
+    def test_cancel_and_allow_callbacks_are_lifecycle_safe(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        start = source.index("        async def allow(_event):")
+        end = source.index("        dialog.actions =", start)
+        block = source[start:end]
+        self.assertIn('storage_onboarding["waiting_for_result"] = True', block)
+        self.assertIn("dismiss_dialog(page, dialog)", block)
+        self.assertNotIn("asyncio.sleep(0)", block)
+        self.assertIn("async def cancel(_event):", block)
+        cancel = block.split("        def cancel(_event):", 1)[1]
+        self.assertIn('storage_onboarding["dismissed"] = True', cancel)
+        self.assertNotIn("request_video_access", cancel)
+        self.assertNotIn("open_broad_storage_access", cancel)
+
+    def test_startup_does_not_self_launch_main_activity_for_storage_snapshot(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        startup = source[source.index("    if bridge.available:"):source.index("    render_current()", source.index("    if bridge.available:"))]
+        self.assertNotIn("bridge.check_storage_access", startup)
+        self.assertIn("MainActivity publishes the authoritative storage snapshot", startup)
+
+    def test_native_intents_have_unique_request_identity_and_are_deduplicated(self):
+        bridge = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
+        main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("uuid.uuid4().hex", bridge)
+        self.assertIn('"request_id": request_id', bridge)
+        self.assertIn('getQueryParameter("request_id")', main)
+        self.assertIn("lastHandledNativeRequestId", main)
+        self.assertIn("Ignoring duplicate native request", main)
+
     def test_native_host_rechecks_and_never_scans_before_authorization(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("override fun onResume()", source)

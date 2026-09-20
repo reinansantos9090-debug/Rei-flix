@@ -224,7 +224,7 @@ class LibraryService:
             and (existing.get("volume_id") or "") == (volume_id or "")
         )
 
-    def _record_document(self, *, document, source_folder, source_kind, metadata, result, affected_anime_ids=None):
+    def _record_document(self, *, document, source_folder, source_kind, metadata, result, affected_anime_ids=None, known_paths=None):
         uri = document.get("uri")
         name = document.get("name")
         if not isinstance(uri, str) or not uri or not isinstance(name, str) or not name.strip():
@@ -289,7 +289,8 @@ class LibraryService:
         # volume has the same size+mtime, carry forward its durable identity.
         if existing is None:
             candidate = self.store.missing_candidate(
-                anime_id, source_folder, file_size, modified_at, volume_id
+                anime_id, source_folder, file_size, modified_at, volume_id,
+                excluded_paths=known_paths,
             )
             if candidate and candidate.get("media_identity"):
                 identity = candidate["media_identity"]
@@ -325,6 +326,7 @@ class LibraryService:
             result = ScanResult(catalog=[], scan_id=scan_id)
             try:
                 parsed = []
+                seen_by_source = {}
                 folders = self.store.folders()
                 result.folders = len(folders)
                 on_status("Verificando pastas autorizadas…")
@@ -373,6 +375,7 @@ class LibraryService:
                                     "modifiedAt": stat.st_mtime_ns // 1_000_000,
                                 }, reference, "filesystem"))
                                 result.videos += 1
+                        seen_by_source[reference] = set(seen)
                         if not walk_errors:
                             self.store.reconcile_missing(reference, seen, scope_kind="source")
                         else:
@@ -389,6 +392,7 @@ class LibraryService:
                         metadata=metadata,
                         result=result,
                         affected_anime_ids=affected_anime_ids,
+                        known_paths=seen_by_source.get(source_folder),
                     )
                 for anime_id in sorted(affected_anime_ids):
                     self.artwork.reindex_entity(anime_id)
@@ -444,6 +448,7 @@ class LibraryService:
                         metadata=metadata,
                         result=result,
                         affected_anime_ids=affected_anime_ids,
+                        known_paths=seen,
                     )
                     if accepted:
                         result.videos += 1

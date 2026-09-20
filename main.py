@@ -60,7 +60,8 @@ async def main(page: ft.Page):
                                   refresh_current_details, refresh_current_metadata, library.resolve_artwork))
         elif navigation.current == "settings":
             show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
-                                    folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match))
+                                    folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match,
+                                    on_create_backup=create_backup, on_restore_backup=restore_backup))
         elif navigation.current == "player":
             path, title, progress = player_context[0]
             show(PlayerView.build(page, path, title, navigate_back, None, start_native_player, progress))
@@ -162,6 +163,15 @@ async def main(page: ft.Page):
             page.snack_bar = ft.SnackBar(ft.Text(str(exc)))
             page.snack_bar.open = True
             page.update()
+
+    def create_backup():
+        return library.create_backup()
+
+    def restore_backup():
+        path = library.restore_backup()
+        on_catalog_changed()
+        refresh_settings_if_active()
+        return path
 
     def account(): return store.account()
     def navigate_settings():

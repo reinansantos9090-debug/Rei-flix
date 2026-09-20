@@ -17,9 +17,10 @@ class SettingsView:
     @staticmethod
     def build(page, store, library, on_back, on_catalog_changed, on_add_folder, on_remove_folder,
               on_refresh_library, on_request_video_access, on_open_broad_storage, on_login, on_logout, account, account_state="disconnected",
-              folder_selection_pending=lambda: False, on_resolve_match=lambda _lookup, _id: None):
+              folder_selection_pending=lambda: False, on_resolve_match=lambda _lookup, _id: None,
+              on_create_backup=None, on_restore_backup=None):
         status = ft.Text("", color="#9DA3B4", size=12)
-        busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False, "permission": False}
+        busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False, "permission": False, "backup": False, "restore": False}
 
         def notice(message, error=False):
             status.value = message
@@ -212,7 +213,7 @@ class SettingsView:
             on_click=show_broad_storage_dialog,
         )
         if media_granted:
-            if media_is_partial:
+            if media_partial:
                 media_permission_text = "⚠ Permissão de vídeos: Acesso parcial (alguns vídeos selecionados pelo usuário)"
                 media_permission_color = "#FFD54F"
             else:
@@ -250,6 +251,51 @@ class SettingsView:
         resume_switch.on_change = save_resume
 
         cache_button = ft.OutlinedButton("Limpar cache AniList", icon=ft.Icons.DELETE_SWEEP_OUTLINED)
+
+        backup_button = ft.OutlinedButton("Criar backup local", icon=ft.Icons.BACKUP_OUTLINED)
+        restore_button = ft.OutlinedButton("Restaurar backup", icon=ft.Icons.RESTORE_OUTLINED)
+        def create_backup():
+            if busy["backup"] or not on_create_backup:
+                return
+            busy["backup"] = True
+            backup_button.disabled = True
+            page.update()
+            try:
+                path = on_create_backup()
+                notice(f"Backup criado: {str(path).rsplit('/', 1)[-1]}")
+            except Exception:
+                notice("Não foi possível criar o backup local.", error=True)
+            finally:
+                busy["backup"] = False
+                backup_button.disabled = False
+                page.update()
+        def ask_create_backup(_):
+            confirm("Criar backup local?", "Será salva uma cópia offline da biblioteca SQLite e do cache de artwork gerenciado pelo Rei-Flix.", "Criar", create_backup)
+        backup_button.on_click = ask_create_backup
+
+        def restore_backup():
+            if busy["restore"] or not on_restore_backup:
+                return
+            busy["restore"] = True
+            restore_button.disabled = True
+            page.update()
+            try:
+                path = on_restore_backup()
+                on_catalog_changed()
+                notice(f"Backup restaurado: {str(path).rsplit('/', 1)[-1]}")
+            except Exception:
+                notice("Não foi possível restaurar o backup local.", error=True)
+            finally:
+                busy["restore"] = False
+                restore_button.disabled = False
+                page.update()
+        def ask_restore_backup(_):
+            latest = store.latest_backup()
+            if not latest:
+                notice("Nenhum backup local encontrado.", error=True)
+                return
+            confirm("Restaurar backup local?", "A biblioteca atual será substituída pela cópia salva. O processo só substitui o banco depois da validação do backup.", "Restaurar", restore_backup)
+        restore_button.on_click = ask_restore_backup
         def clear_cache():
             if busy["cache"]:
                 return
@@ -377,7 +423,9 @@ class SettingsView:
             ], spacing=8)),
             section("DADOS", ft.Icons.STORAGE_OUTLINED, ft.Column([
                 ft.Text(f"{summary['folders']} pasta(s) • {summary['history']} item(ns) no histórico", color="#C7C5D0", size=12),
+                ft.Row([backup_button, restore_button], wrap=True, spacing=8),
                 cache_button,
+                ft.Text("Backup local protege SQLite e artwork gerenciado; restaurar não depende de internet e não cria outro banco.", color="#AAA7B6", size=11),
                 ft.Text("Limpar cache não remove associações AniList confirmadas nem arquivos da biblioteca.", color="#AAA7B6", size=11),
             ], spacing=8)),
             section("SOBRE", ft.Icons.INFO_OUTLINE, ft.Column([

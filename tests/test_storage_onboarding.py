@@ -10,7 +10,7 @@ class StorageOnboardingTests(unittest.TestCase):
     def test_real_permission_snapshot_has_deterministic_states(self):
         self.assertEqual(storage_access_state("denied", False), StorageAccessState.NEEDS_MEDIA_PERMISSION)
         self.assertEqual(storage_access_state("partial", False), StorageAccessState.MEDIA_PARTIAL)
-        self.assertEqual(storage_access_state("full", False), StorageAccessState.NEEDS_BROAD_STORAGE)
+        self.assertEqual(storage_access_state("full", False), StorageAccessState.READY)
         self.assertEqual(storage_access_state("full", True), StorageAccessState.READY)
         self.assertEqual(storage_access_state("full", True, dismissed=True), StorageAccessState.DECLINED)
 
@@ -107,5 +107,19 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("if (!MediaStoreScanner.hasReadPermission(this))", source)
         self.assertIn("mediaPermissionRequestPending", source)
         self.assertIn("ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION", source)
+
+    def test_broad_storage_is_optional_for_full_media_access(self):
+        self.assertEqual(storage_access_state("full", False), StorageAccessState.READY)
+        self.assertEqual(storage_access_state("full", True), StorageAccessState.READY)
+
+    def test_storage_dialogs_do_not_use_artificial_async_lifecycle_delays(self):
+        settings = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
+        self.assertNotIn("asyncio.sleep(0)", settings)
+
+    def test_refresh_library_gates_broad_scanner_on_authorization(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        refresh = source[source.index("    async def refresh_library"):source.index("    async def login", source.index("    async def refresh_library"))]
+        self.assertIn("broad_granted = any(", refresh)
+        self.assertIn("if broad_granted:", refresh)
 
 if __name__ == "__main__": unittest.main()

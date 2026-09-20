@@ -4,6 +4,8 @@ import os
 import time
 import json
 import logging
+import threading
+import uuid
 from urllib.parse import unquote, urlparse
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -23,17 +25,27 @@ class ScanResult:
     animes: int = 0
     episodes: int = 0
     errors: list[str] = field(default_factory=list)
+    new: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    ignored: int = 0
+    duplicates: int = 0
+    unknown: int = 0
+    reconciled: int = 0
+    scan_id: str | None = None
 
     def message(self):
         if self.videos == 0:
-            return "Nenhum vídeo encontrado nas pastas autorizadas."
-        return f"Biblioteca atualizada: {self.animes} animes, {self.episodes} episódios."
+            return "Nenhum vídeo encontrado nas fontes autorizadas."
+        return (f"Biblioteca atualizada: {self.episodes} mídias — "
+                f"{self.new} novas, {self.updated} atualizadas, {self.unchanged} inalteradas.")
 
 class LibraryService:
     METADATA_CACHE_SECONDS = 30 * 24 * 60 * 60
     COVER_RETRY_SECONDS = 6 * 60 * 60
 
-    def __init__(self, store): self.store=store; self.anilist=AniListClient(store.cache_dir)
+    def __init__(self, store):
+        self.store=store; self.anilist=AniListClient(store.cache_dir); self._scan_lock=threading.Lock()
 
     def _cached_metadata_is_current(self, cached, associated_id):
         if not cached:
@@ -99,135 +111,211 @@ class LibraryService:
         # Never persist an uncertain result as if it were a confirmed anime.
         # A previously cached record remains useful when the network is down.
         return cached or {"title": display_title, "genres": "[]"}
+    @staticmethod
+    def _document_relative_path(document, name, uri):
+        relative_path = document.get("relativePath") or document.get("path") or name
+        if uri.startswith("file://") and not document.get("relativePath") and not document.get("path"):
+            relative_path = unquote(urlparse(uri).path)
+        return str(relative_path).replace(chr(92), "/").strip("/")
+
+    @staticmethod
+    def _physical_unchanged(existing, *, source_folder, file_size, modified_at, relative_path, volume_id):
+        if not existing or existing.get("missing"):
+            return False
+        return (
+            existing.get("source_folder") == source_folder
+            and existing.get("file_size") == file_size
+            and existing.get("modified_at") == modified_at
+            and (existing.get("relative_path") or "") == (relative_path or "")
+            and (existing.get("volume_id") or "") == (volume_id or "")
+        )
+
+    def _record_document(self, *, document, source_folder, source_kind, metadata, result):
+        uri = document.get("uri")
+        name = document.get("name")
+        if not isinstance(uri, str) or not uri or not isinstance(name, str) or not name.strip():
+            result.ignored += 1
+            result.errors.append("Documento local incompleto recebido da ponte Android.")
+            return None
+
+        relative_path = self._document_relative_path(document, name, uri)
+        if not (uri.startswith("content://") or uri.startswith("file://")):
+            result.ignored += 1
+            result.errors.append(f"Referência local inválida para {name}.")
+            return None
+
+        file_size = document.get("size")
+        modified_at = document.get("modifiedAt")
+        volume_id = document.get("volumeId")
+        volume_uuid = document.get("volumeUuid")
+        existing = self.store.physical_row(uri)
+        if self._physical_unchanged(
+            existing, source_folder=source_folder, file_size=file_size,
+            modified_at=modified_at, relative_path=relative_path, volume_id=volume_id,
+        ):
+            result.unchanged += 1
+            return uri
+
+        try:
+            item = parse_video_path(relative_path, source_folder)
+        except (OSError, ValueError, UnicodeError) as exc:
+            result.ignored += 1
+            result.errors.append(f"Não foi possível identificar {name}: {exc}")
+            return None
+
+        key = item.anime_title.casefold()
+        if item.episode_type == "unknown" or not item.anime_title or item.anime_title == "Arquivo não identificado":
+            result.unknown += 1
+
+        if key not in metadata:
+            try:
+                metadata[key] = self._identify(key, item.anime_title, lambda message: None)
+            except Exception as exc:
+                metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
+                result.errors.append(f"{item.anime_title}: metadata indisponível ({exc})")
+            metadata[key] = dict(metadata[key] or {})
+            metadata[key]["media_kind"] = "movie" if item.episode_type == "movie" else metadata[key].get("media_kind", "series")
+
+        identity = local_media_identity(
+            uri=uri, source_kind=source_kind, relative_path=relative_path,
+            size=file_size, modified_at=modified_at, volume_id=volume_id,
+        )
+        anime_id = self.store.upsert_anime(key, metadata[key])
+        row_id = self.store.upsert_episode(
+            anime_id, uri, name, item.season, item.episode,
+            document.get("mimeType"), file_size, modified_at, source_folder,
+            identity, item.absolute_number, relative_path, volume_id, volume_uuid,
+            episode_type=item.episode_type, episode_title=item.display_title,
+            identification_source=item.identification_source,
+            identification_confidence=item.confidence,
+        )
+        if existing:
+            result.updated += 1
+        elif row_id is not None:
+            result.new += 1
+        return uri
+
     def scan(self, on_status=lambda _ : None):
-        run_id=self.store.begin_scan(); result=ScanResult(catalog=[]); parsed=[]
-        folders=self.store.folders(); result.folders=len(folders); on_status('Verificando pastas autorizadas…')
-        for folder in folders:
-            reference=folder['path']
-            # A content:// URI is deliberately not converted into a fake filesystem path.
-            # A Flet-only APK has no ContentResolver bridge to enumerate it.
-            if folder['kind'] == 'saf' or reference.startswith('content://'):
-                error='A URI SAF exige a ponte Android ContentResolver; não foi tratada como caminho.'
-                # Native scan results are ingested through AndroidBridge; do not revoke its persisted grant here.
-                result.errors.append(f"{folder['name']}: aguardando scanner Android"); continue
-            if not os.path.isdir(reference):
-                error='Pasta indisponível, removida ou sem autorização para este processo.'
-                self.store.update_folder_status(reference, 'revoked', error); result.errors.append(f"{folder['name']}: {error}"); continue
-            self.store.update_folder_status(reference, 'granted')
-            on_status(f"Encontrando vídeos em {folder['name']}…")
+        with self._scan_lock:
+            run_id = self.store.begin_scan(source_kind="filesystem", scope_kind="global", scope_ref=None)
+            result = ScanResult(catalog=[])
             try:
-                seen = []
-                for root, _, files in os.walk(reference):
-                    for name in files:
-                        result.files += 1
-                        if os.path.splitext(name)[1].lower() in VIDEO_EXTENSIONS:
-                            path = os.path.join(root, name)
-                            try:
-                                item = parse_video_path(path, reference)
-                            except (OSError, ValueError, UnicodeError) as exc:
-                                result.errors.append(f"{folder['name']}: não foi possível ler {name}: {exc}")
-                                continue
-                            seen.append(path); parsed.append((path, item, reference)); result.videos += 1
-                # A successful scan may legitimately find no videos.  Limit the
-                # missing update to this folder so another unavailable folder
-                # cannot hide its saved episodes.
-                self.store.mark_missing(reference, seen)
-            except OSError as exc:
-                error=f'Erro ao ler pasta: {exc}'; self.store.update_folder_status(reference, 'revoked', error); result.errors.append(f"{folder['name']}: {error}")
-        metadata={}
-        for path,item,source_folder in parsed:
-            key=item.anime_title.casefold()
-            if key not in metadata:
-                try:
-                    metadata[key] = self._identify(key, item.anime_title, on_status)
-                    metadata[key]["media_kind"] = "movie" if item.episode_type == "movie" else "series"
-                except Exception as exc:
-                    # Metadata must never make a locally readable file vanish.
-                    metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
-                    result.errors.append(f"{item.anime_title}: AniList indisponível ({exc})")
-                    logger.warning("Metadata lookup failed for local title %s: %s", item.anime_title, exc)
-                metadata[key]["media_kind"] = "movie" if item.episode_type == "movie" else "series"
-            anime_id=self.store.upsert_anime(key,metadata[key]); self.store.upsert_episode(anime_id,path,os.path.basename(path),item.season,item.episode,source_folder=source_folder, absolute_number=item.absolute_number,
-                episode_type=item.episode_type, episode_title=item.display_title, identification_source=item.identification_source, identification_confidence=item.confidence)
-        result.catalog=self.store.catalog(); result.animes=len(result.catalog); result.episodes=sum(len(s["episodes"]) for a in result.catalog for s in a["seasons"]) + sum(len(a.get("media_files", [])) for a in result.catalog)
-        self.store.finish_scan(run_id, result.__dict__); on_status(result.message()); return result
-    def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *, folder_name=None, scan_errors=None, scan_stats=None, source_kind="saf"):
-        """Persist video document URIs enumerated by Android's ContentResolver."""
-        run_id = self.store.begin_scan()
-        scan_errors = list(scan_errors or [])
-        scan_stats = scan_stats or {}
-        self.store.add_folder(
-            tree_uri,
-            name=folder_name or tree_uri.rsplit("/", 1)[-1],
-            kind=source_kind,
-            authorization="granted",
-            account_id=self.store.account().get("id"),
-        )
-        metadata = {}
-        seen = []
-        for document in documents:
-            uri, name = document.get("uri"), document.get("name")
-            # Mailbox payloads are external input. Validate before calling a
-            # string method so one incomplete native event cannot abort the
-            # whole source scan or make a complete reconciliation look empty.
-            if not isinstance(uri, str) or not uri or not name:
-                scan_errors.append("Documento local incompleto recebido da ponte Android.")
-                continue
-            relative_path = document.get("relativePath") or document.get("path") or name
-            if uri.startswith("file://") and not document.get("relativePath") and not document.get("path"):
-                relative_path = unquote(urlparse(uri).path)
-            # Native media documents are the local-media contract. Rejecting
-            # anything else here prevents a malformed bridge payload from
-            # silently creating a playable row that Android cannot authorize.
-            if not (uri.startswith("content://") or uri.startswith("file://")):
-                scan_errors.append(f"Referência local inválida para {name}.")
-                continue
-            seen.append(uri)
+                last = self.store.last_scan()
+                result.scan_id = last.get("scan_id") if last else None
+                parsed = []
+                folders = self.store.folders()
+                result.folders = len(folders)
+                on_status("Verificando pastas autorizadas…")
+                for folder in folders:
+                    reference = folder["path"]
+                    if folder["kind"] == "saf" or reference.startswith("content://"):
+                        result.errors.append(f"{folder['name']}: aguardando scanner Android")
+                        continue
+                    if not os.path.isdir(reference):
+                        error = "Pasta indisponível, removida ou sem autorização para este processo."
+                        self.store.update_folder_status(reference, "revoked", error)
+                        result.errors.append(f"{folder['name']}: {error}")
+                        continue
+                    self.store.update_folder_status(reference, "granted")
+                    on_status(f"Encontrando vídeos em {folder['name']}…")
+                    try:
+                        seen = []
+                        for root, _, files in os.walk(reference):
+                            for name in files:
+                                result.files += 1
+                                if os.path.splitext(name)[1].lower() not in VIDEO_EXTENSIONS:
+                                    result.ignored += 1
+                                    continue
+                                path = os.path.join(root, name)
+                                try:
+                                    stat = os.stat(path)
+                                except OSError as exc:
+                                    result.errors.append(f"{folder['name']}: não foi possível acessar {name}: {exc}")
+                                    result.ignored += 1
+                                    continue
+                                seen.append(path)
+                                parsed.append(({
+                                    "uri": path,
+                                    "name": name,
+                                    "relativePath": os.path.relpath(path, reference).replace(os.sep, "/"),
+                                    "mimeType": None,
+                                    "size": stat.st_size,
+                                    "modifiedAt": stat.st_mtime_ns // 1_000_000,
+                                }, reference, "filesystem"))
+                                result.videos += 1
+                        self.store.reconcile_missing(reference, seen, scope_kind="source")
+                    except OSError as exc:
+                        result.errors.append(f"{folder['name']}: erro ao ler pasta: {exc}")
+                metadata = {}
+                for document, source_folder, source_kind in parsed:
+                    self._record_document(document=document, source_folder=source_folder, source_kind=source_kind, metadata=metadata, result=result)
+                result.catalog = self.store.catalog()
+                result.animes = len(result.catalog)
+                result.episodes = sum(len(s["episodes"]) for a in result.catalog for s in a["seasons"]) + sum(len(a.get("media_files", [])) for a in result.catalog)
+                self.store.finish_scan(run_id, result.__dict__)
+                return result
+            except Exception as exc:
+                result.errors.append(f"Falha geral no scan: {exc}")
+                self.store.finish_scan(run_id, result.__dict__)
+                raise
+
+    def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *,
+                         folder_name=None, scan_errors=None, scan_stats=None, source_kind="saf",
+                         scan_id=None, scope_kind="global", scope_ref=None):
+        """Index one native source without destructive reconciliation on partial scans."""
+        with self._scan_lock:
+            scan_id = scan_id or str(uuid.uuid4())
+            run_id = self.store.begin_scan(scan_id=scan_id, source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref or tree_uri)
+            result = ScanResult(catalog=[], scan_id=scan_id)
+            scan_errors = list(scan_errors or [])
+            scan_stats = scan_stats or {}
             try:
-                item = parse_video_path(relative_path, tree_uri)
-            except (OSError, ValueError, UnicodeError) as exc:
-                scan_errors.append(f"Não foi possível ler {name}: {exc}")
-                continue
-            key = item.anime_title.casefold()
-            if key not in metadata:
-                try:
-                    metadata[key] = self._identify(key, item.anime_title, on_status)
-                    metadata[key]["media_kind"] = "movie" if item.episode_type == "movie" else "series"
-                except Exception as exc:
-                    metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
-                    logger.warning("Metadata lookup failed for SAF title %s: %s", item.anime_title, exc)
-                metadata[key]["media_kind"] = "movie" if item.episode_type == "movie" else "series"
-            anime_id = self.store.upsert_anime(key, metadata[key])
-            self.store.upsert_episode(
-                anime_id, uri, name, item.season, item.episode,
-                document.get("mimeType"), document.get("size"), document.get("modifiedAt"), tree_uri,
-                local_media_identity(uri=uri, source_kind=source_kind, relative_path=relative_path,
-                                     size=document.get("size"), modified_at=document.get("modifiedAt"),
-                                     volume_id=document.get("volumeId")), item.absolute_number,
-                episode_type=item.episode_type, episode_title=item.display_title,
-                identification_source=item.identification_source, identification_confidence=item.confidence,
-            )
-        # Do not infer removals from a partial SAF scan: a SecurityException in
-        # one subdirectory means its previous documents may simply be unreadable.
-        # On a complete scan, absent documents become missing while keeping their
-        # SQLite progress so they can be restored later.
-        if scan_errors:
-            self.store.update_folder_status(tree_uri, "granted", "; ".join(map(str, scan_errors)))
-        else:
-            self.store.mark_missing(tree_uri, seen)
-            self.store.update_folder_status(tree_uri, "granted")
-        catalog = self.store.catalog()
-        result = ScanResult(
-            catalog=catalog,
-            folders=1,
-            files=int(scan_stats.get("files") or len(documents)),
-            videos=int(scan_stats.get("videos") or len(documents)),
-            animes=len(catalog),
-            episodes=sum(len(season["episodes"]) for anime in catalog for season in anime["seasons"]) + sum(len(anime.get("media_files", [])) for anime in catalog),
-            errors=scan_errors,
-        )
-        self.store.finish_scan(run_id, result.__dict__)
-        return catalog
+                self.store.add_folder(
+                    tree_uri,
+                    name=folder_name or tree_uri.rsplit("/", 1)[-1],
+                    kind=source_kind,
+                    authorization="granted",
+                    account_id=self.store.account().get("id"),
+                )
+                metadata = {}
+                seen = set()
+                for document in documents or []:
+                    uri = document.get("uri") if isinstance(document, dict) else None
+                    if uri in seen:
+                        result.duplicates += 1
+                        continue
+                    if isinstance(uri, str) and uri:
+                        seen.add(uri)
+                    result.files += 1
+                    accepted = self._record_document(
+                        document=document if isinstance(document, dict) else {},
+                        source_folder=tree_uri,
+                        source_kind=source_kind,
+                        metadata=metadata,
+                        result=result,
+                    )
+                    if accepted:
+                        result.videos += 1
+
+                result.errors.extend(str(error) for error in scan_errors)
+                if not scan_errors:
+                    self.store.reconcile_missing(tree_uri, list(seen), scope_kind=scope_kind, scope_ref=scope_ref)
+                    result.reconciled = 1
+                    self.store.update_folder_status(tree_uri, "granted")
+                else:
+                    self.store.update_folder_status(tree_uri, "granted", "; ".join(map(str, scan_errors)))
+                catalog = self.store.catalog()
+                result.catalog = catalog
+                result.folders = 1
+                result.videos = int(scan_stats.get("videos") or result.videos)
+                result.animes = len(catalog)
+                result.episodes = sum(len(season["episodes"]) for anime in catalog for season in anime["seasons"]) + sum(len(anime.get("media_files", [])) for anime in catalog)
+                self.store.finish_scan(run_id, result.__dict__)
+                return catalog
+            except Exception as exc:
+                result.errors.append(f"Falha ao indexar a fonte: {exc}")
+                self.store.finish_scan(run_id, result.__dict__)
+                raise
 
     def resolve_match(self, lookup_title, anilist_id):
         """Persist an explicit AniList choice and refresh its metadata immediately."""

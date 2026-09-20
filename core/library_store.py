@@ -248,6 +248,44 @@ class LibraryStore:
             row = c.execute("SELECT * FROM scan_runs ORDER BY id DESC LIMIT 1").fetchone()
             return dict(row) if row else None
 
+    def scan_by_id(self, scan_id):
+        """Return a persisted scan record without materializing the catalog."""
+        if not scan_id:
+            return None
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM scan_runs WHERE scan_id=? LIMIT 1", (str(scan_id),)).fetchone()
+            return dict(row) if row else None
+
+    def claim_native_event(self, event_id, *, limit=1000):
+        """Atomically remember a mailbox event id using the existing preferences store.
+        
+        NativeMailbox already gives every event an eventId. Keeping the bounded
+        dedupe ledger in preferences avoids a second persistence subsystem/table.
+        """
+        if not event_id:
+            return True
+        event_id = str(event_id).strip()
+        if not event_id:
+            return True
+        with self._conn() as c:
+            row = c.execute("SELECT value FROM preferences WHERE key='native_event_ids'").fetchone()
+            try:
+                ids = json.loads(row["value"]) if row else []
+            except (TypeError, json.JSONDecodeError):
+                ids = []
+            if not isinstance(ids, list):
+                ids = []
+            if event_id in ids:
+                return False
+            ids.append(event_id)
+            ids = ids[-max(1, int(limit)):]
+            c.execute(
+                """INSERT INTO preferences(key,value,updated_at) VALUES ('native_event_ids',?,?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
+                (json.dumps(ids, ensure_ascii=False), time.time()),
+            )
+            return True
+
     def interrupted_scans(self):
         """Return scans that were interrupted by a prior process shutdown."""
         with self._conn() as c:
@@ -615,13 +653,6 @@ class LibraryStore:
                     c.execute("DELETE FROM episodes WHERE id=?", (row["id"],))
                     merged += 1
             return merged
-
-    def mark_missing(self, source_folder, seen):
-        """Mark only one successfully scanned source, preserving other folders."""
-        with self._conn() as c:
-            if not c.execute("UPDATE episodes SET season=?,number=?,episode_type=?,episode_title=?,identification_source='manual',identification_confidence='high',manual_override=1 WHERE path=?", (season, number, episode_type, (title or "").strip() or None, path)).rowcount:
-                raise ValueError("Arquivo local não encontrado.")
-            c.execute("UPDATE anime SET media_kind=? WHERE id=(SELECT anime_id FROM episodes WHERE path=?) AND ? IN ('series','movie')", ("movie" if episode_type == "movie" else "series", path, "movie" if episode_type == "movie" else "series"))
 
     def physical_row(self, path):
         with self._conn() as c:

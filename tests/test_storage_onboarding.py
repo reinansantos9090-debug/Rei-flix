@@ -95,7 +95,7 @@ class StorageOnboardingTests(unittest.TestCase):
 
     def test_permission_callback_uses_authoritative_access_level(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
-        callback = source.split("private val mediaPermissionRequester", 1)[1].split("private val legacyBroadPermissionRequester", 1)[0]
+        callback = source.split("private val mediaPermissionRequester", 1)[1].split("private val treePicker", 1)[0]
         self.assertIn("MediaStoreScanner.accessLevel(this)", callback)
         self.assertIn('val granted = access != "denied"', callback)
         self.assertNotIn('grants.any { it.value } && MediaStoreScanner.hasReadPermission(this)', callback)

@@ -81,7 +81,7 @@ async def main(page: ft.Page):
     storage_onboarding = {"dismissed": False, "dialog_open": False, "waiting_for_result": False}
     storage_capabilities = [StorageCapabilities.unknown()]
     processed_native_operations = set()
-    def show(control): page.clean(); page.add(control); page.update()
+    def show(control): page.clean(); page.add(control); safe_update()
     def render_current():
         if navigation.current == "home":
             show(HomeView.build(page, library, navigate_details, navigate_settings, play_episode, navigate_organize,
@@ -161,11 +161,11 @@ async def main(page: ft.Page):
             refresh_current_details()
             page.snack_bar = ft.SnackBar(ft.Text("Metadata atualizada."))
             page.snack_bar.open = True
-            page.update()
+            safe_update()
         except Exception:
             page.snack_bar = ft.SnackBar(ft.Text("Não foi possível atualizar a metadata agora."))
             page.snack_bar.open = True
-            page.update()
+            safe_update()
     def on_catalog_changed():
         # Native scan completion must immediately re-read SQLite on the active
         # screen; the previous implementation intentionally did nothing here,
@@ -175,7 +175,7 @@ async def main(page: ft.Page):
         if scan_in_progress[0] or saf_selection.pending:
             page.snack_bar = ft.SnackBar(ft.Text("Aguarde a atualização ou a seleção de pasta terminar antes de remover uma pasta."))
             page.snack_bar.open = True
-            page.update()
+            safe_update()
             return
         folder = next((item for item in store.folders() if item.get("path") == reference), None)
         if folder and folder.get("kind") == "saf" and bridge.available:
@@ -184,12 +184,12 @@ async def main(page: ft.Page):
                 await bridge.release_tree(reference)
                 page.snack_bar = ft.SnackBar(ft.Text("Liberando a permissão da pasta…"))
                 page.snack_bar.open = True
-                page.update()
+                safe_update()
             except Exception as exc:
                 pending_folder_removals.discard(reference)
                 page.snack_bar = ft.SnackBar(ft.Text(f"Não foi possível liberar a pasta: {exc}"))
                 page.snack_bar.open = True
-                page.update()
+                safe_update()
             return
         store.remove_folder(reference)
         on_catalog_changed()
@@ -203,7 +203,7 @@ async def main(page: ft.Page):
         except Exception as exc:
             page.snack_bar = ft.SnackBar(ft.Text(str(exc)))
             page.snack_bar.open = True
-            page.update()
+            safe_update()
 
     def create_backup():
         return library.create_backup()
@@ -225,7 +225,7 @@ async def main(page: ft.Page):
         if action == "previous":
             render_current()
         elif action == "prompt_exit":
-            page.snack_bar=ft.SnackBar(ft.Text("Pressione voltar novamente para sair")); page.snack_bar.open=True; page.update()
+            page.snack_bar=ft.SnackBar(ft.Text("Pressione voltar novamente para sair")); page.snack_bar.open=True; safe_update()
         elif action == "exit":
             # Close only after the Android/Python shared two-back policy.
             page.window.close()
@@ -239,7 +239,7 @@ async def main(page: ft.Page):
             await bridge.select_tree()
         except Exception as exc:
             saf_selection.finish()
-            page.snack_bar=ft.SnackBar(ft.Text(str(exc))); page.snack_bar.open=True; page.update()
+            page.snack_bar=ft.SnackBar(ft.Text(str(exc))); page.snack_bar.open=True; safe_update()
             raise
     async def request_video_access(_=None):
         if not bridge.available:
@@ -317,7 +317,7 @@ async def main(page: ft.Page):
                     ft.Text("Não foi possível abrir a solicitação de acesso.")
                 )
                 page.snack_bar.open = True
-                page.update()
+                safe_update()
 
         async def choose_folder(_event):
             storage_onboarding["dialog_open"] = False
@@ -331,14 +331,14 @@ async def main(page: ft.Page):
                     ft.Text("Não foi possível abrir o seletor de pasta.")
                 )
                 page.snack_bar.open = True
-                page.update()
+                safe_update()
 
         def cancel(_event):
             logger.info("[STORAGE] request_id=- action=cancel python_callback=received dialog_open=false")
             storage_onboarding["dialog_open"] = False
             storage_onboarding["dismissed"] = True
             page.pop_dialog()
-            page.update()
+            safe_update()
 
         dialog.actions = [
             ft.TextButton("CANCELAR", on_click=cancel),
@@ -348,7 +348,7 @@ async def main(page: ft.Page):
         storage_onboarding["dialog_open"] = True
         logger.info("[STORAGE] request_id=- action=onboarding_show dialog_open=true")
         page.show_dialog(dialog)
-        page.update()
+        safe_update()
 
     async def refresh_library(_=None):
         if saf_selection.pending:
@@ -427,14 +427,14 @@ async def main(page: ft.Page):
         if bridge.available:
             if not GOOGLE_WEB_CLIENT_ID:
                 account_state[0] = 'configuration_required'; navigate_settings()
-                page.snack_bar=ft.SnackBar(ft.Text('Login Google não configurado neste APK. Configure um Web Client ID público antes de tentar novamente.')); page.snack_bar.open=True; page.update(); return
+                page.snack_bar=ft.SnackBar(ft.Text('Login Google não configurado neste APK. Configure um Web Client ID público antes de tentar novamente.')); page.snack_bar.open=True; safe_update(); return
             account_state[0] = 'connecting'; navigate_settings()
             await bridge.sign_in(GOOGLE_WEB_CLIENT_ID); return
         account_state[0] = 'connecting'; navigate_settings()
         if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URL:
             account_state[0] = 'error'; navigate_settings()
             page.snack_bar=ft.SnackBar(ft.Text('Configure REIFLIX_GOOGLE_CLIENT_ID e REIFLIX_GOOGLE_REDIRECT_URL para entrar com Google.'))
-            page.snack_bar.open=True; page.update(); return
+            page.snack_bar.open=True; safe_update(); return
         provider=OAuthProvider(client_id=GOOGLE_CLIENT_ID,client_secret='',authorization_endpoint='https://accounts.google.com/o/oauth2/v2/auth',token_endpoint='https://oauth2.googleapis.com/token',redirect_url=GOOGLE_REDIRECT_URL,scopes=['openid','email','profile'],user_endpoint='https://openidconnect.googleapis.com/v1/userinfo',user_id_fn=lambda u:u.get('sub'),authorization_params={'access_type':'offline','prompt':'select_account'})
         await page.login(provider,fetch_user=True)
     def logout(_=None):
@@ -449,7 +449,7 @@ async def main(page: ft.Page):
     async def login_done(e):
         if e.error:
             account_state[0] = 'error'
-            page.snack_bar=ft.SnackBar(ft.Text(f'Não foi possível entrar: {e.error_description or e.error}')); page.snack_bar.open=True; page.update(); return
+            page.snack_bar=ft.SnackBar(ft.Text(f'Não foi possível entrar: {e.error_description or e.error}')); page.snack_bar.open=True; safe_update(); return
         user=page.auth.user
         if user:
             store.save_account({'id':str(user.id),'name':str(user.get('name','')),'email':str(user.get('email','')),'picture':str(user.get('picture',''))})
@@ -534,7 +534,7 @@ async def main(page: ft.Page):
                                 text = f'Verificando pasta… {directories} diretórios, {files} arquivos, {videos} vídeos.'
                             page.snack_bar = ft.SnackBar(ft.Text(text))
                             page.snack_bar.open = True
-                            page.update()
+                            safe_update()
                         elif event_type == 'saf_scan':
                             try:
                                 saf_selection.finish()
@@ -569,9 +569,9 @@ async def main(page: ft.Page):
                                 else:
                                     message = "Scan concluído parcialmente. Alguns diretórios não puderam ser acessados. " if partial else ""
                                     message += f"Encontramos {videos} vídeo(s) em {len(catalog)} anime(s)." if videos else "Não encontramos vídeos compatíveis nesta pasta."
-                                page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; page.update()
+                                page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; safe_update()
                             except Exception:
-                                page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar a atualização da biblioteca.')); page.snack_bar.open=True; page.update()
+                                page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar a atualização da biblioteca.')); page.snack_bar.open=True; safe_update()
                             finally:
                                 finish_native_scan()
                                 on_catalog_changed()
@@ -586,7 +586,7 @@ async def main(page: ft.Page):
                                 text = 'A varredura do armazenamento local já está em andamento.'
                             else:
                                 text = 'Preparando armazenamento local…' if phase == 'started' else f'Verificando armazenamento… {directories} diretórios, {files} arquivos, {videos} vídeos.'
-                            page.snack_bar = ft.SnackBar(ft.Text(text)); page.snack_bar.open = True; page.update()
+                            page.snack_bar = ft.SnackBar(ft.Text(text)); page.snack_bar.open = True; safe_update()
                         elif event_type == 'broad_storage_scan':
                             try:
                                 stats = payload.get('stats') or {}
@@ -643,9 +643,9 @@ async def main(page: ft.Page):
                                 )
                                 message = ('Armazenamento local atualizado parcialmente. ' if partial else 'Armazenamento local atualizado. ')
                                 message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
-                                page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; page.update()
+                                page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; safe_update()
                             except Exception:
-                                page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; page.update()
+                                page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; safe_update()
                             finally:
                                 finish_native_scan()
                                 on_catalog_changed()
@@ -692,7 +692,7 @@ async def main(page: ft.Page):
                             storage_onboarding["waiting_for_result"] = False
                             store.update_folder_status('broad-storage', 'revoked', event.get('message', 'Não foi possível acessar o armazenamento local.'))
                             store.mark_source_unavailable('broad-storage', event.get('message', 'broad_storage_unavailable'))
-                            finish_native_scan(); page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; page.update()
+                            finish_native_scan(); page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; safe_update()
                             refresh_settings_if_active()
                         elif event_type == 'mediastore_scan_progress':
                             files = int(payload.get('files') or 0)
@@ -705,7 +705,7 @@ async def main(page: ft.Page):
                                 text = 'Preparando vídeos do dispositivo…' if phase == 'started' else f'Verificando vídeos do dispositivo… {files} itens, {videos} vídeos.'
                             page.snack_bar = ft.SnackBar(ft.Text(text))
                             page.snack_bar.open = True
-                            page.update()
+                            safe_update()
                         elif event_type == 'mediastore_scan':
                             try:
                                 stats = payload.get('stats') or {}
@@ -756,9 +756,9 @@ async def main(page: ft.Page):
                                 )
                                 message = 'Vídeos do dispositivo atualizados. '
                                 message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
-                                page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; page.update()
+                                page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; safe_update()
                             except Exception:
-                                page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar os vídeos do dispositivo.')); page.snack_bar.open=True; page.update()
+                                page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar os vídeos do dispositivo.')); page.snack_bar.open=True; safe_update()
                             finally:
                                 finish_native_scan()
                                 on_catalog_changed()
@@ -793,7 +793,7 @@ async def main(page: ft.Page):
                             finish_native_scan()
                             page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar os vídeos do dispositivo.')))
                             page.snack_bar.open = True
-                            page.update()
+                            safe_update()
                             refresh_settings_if_active()
                         elif event_type in {'player_progress', 'player_paused', 'player_exited', 'player_completed'}:
                             uri = payload.get('uri', '')
@@ -826,7 +826,7 @@ async def main(page: ft.Page):
                             if uri:
                                 store.set_watched(uri, event_type == 'player_mark_watched')
                         elif event_type == 'player_error':
-                            page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível reproduzir este arquivo.'))); page.snack_bar.open=True; page.update()
+                            page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível reproduzir este arquivo.'))); page.snack_bar.open=True; safe_update()
                             # Invalid/unreadable URIs can fail before Media3 creates a
                             # player, so there may be no player_exited event to dismiss
                             # the Flet transition screen.
@@ -838,9 +838,9 @@ async def main(page: ft.Page):
                             profile = normalize_google_profile(payload)
                             if profile is None:
                                 account_state[0] = 'error'
-                                page.snack_bar=ft.SnackBar(ft.Text('A resposta da conta Google é inválida. Tente novamente.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
+                                page.snack_bar=ft.SnackBar(ft.Text('A resposta da conta Google é inválida. Tente novamente.')); page.snack_bar.open=True; safe_update(); refresh_settings_if_active()
                             else:
-                                store.save_account(profile); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
+                                store.save_account(profile); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; safe_update(); refresh_settings_if_active()
                         elif event_type == 'volume_changed':
                             set_scan_state(
                                 ScanUiState.SCANNING if any(
@@ -953,7 +953,7 @@ async def main(page: ft.Page):
                             saf_selection.finish()
                             storage_onboarding["waiting_for_result"] = False
                             set_scan_state(ScanUiState.CANCELLED, source="saf", error=None, timestamp=event.get('createdAt'))
-                            page.snack_bar=ft.SnackBar(ft.Text('Seleção de pasta cancelada.')); page.snack_bar.open=True; page.update()
+                            page.snack_bar=ft.SnackBar(ft.Text('Seleção de pasta cancelada.')); page.snack_bar.open=True; safe_update()
                             refresh_settings_if_active()
                         elif event_type == 'saf_permission':
                             storage_onboarding["waiting_for_result"] = False
@@ -995,10 +995,10 @@ async def main(page: ft.Page):
                                 store.remove_folder(tree_uri)
                                 on_catalog_changed()
                                 refresh_settings_if_active()
-                                page.snack_bar=ft.SnackBar(ft.Text('Pasta removida da biblioteca.')); page.snack_bar.open=True; page.update()
+                                page.snack_bar=ft.SnackBar(ft.Text('Pasta removida da biblioteca.')); page.snack_bar.open=True; safe_update()
                         elif event_type == 'google_cancelled':
                             account_state[0] = 'disconnected'
-                            page.snack_bar=ft.SnackBar(ft.Text('Entrada com Google cancelada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
+                            page.snack_bar=ft.SnackBar(ft.Text('Entrada com Google cancelada.')); page.snack_bar.open=True; safe_update(); refresh_settings_if_active()
                         elif event_type in {'saf_error','google_error'}:
                             if event_type == 'saf_error':
                                 storage_onboarding["waiting_for_result"] = False
@@ -1019,7 +1019,7 @@ async def main(page: ft.Page):
                                 tree_uri = payload.get('treeUri')
                                 if tree_uri and tree_uri in pending_folder_removals:
                                     pending_folder_removals.discard(tree_uri)
-                                    page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível liberar a pasta.'))); page.snack_bar.open=True; page.update()
+                                    page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível liberar a pasta.'))); page.snack_bar.open=True; safe_update()
                                     refresh_settings_if_active()
                                     continue
                                 if tree_uri:
@@ -1053,7 +1053,7 @@ async def main(page: ft.Page):
                                     message = 'O login Google precisa de um Web Client ID válido neste APK.'
                                 else:
                                     message = event.get('message', 'O login Google não pôde ser concluído.')
-                                page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; page.update()
+                                page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; safe_update()
                             if event_type == 'saf_error': refresh_settings_if_active()
                         elif event_type == 'android_back':
                             navigate_back()
@@ -1082,7 +1082,7 @@ async def main(page: ft.Page):
             f"{len(recovered_scans)} varredura(s) anterior(es) foram interrompidas e poderão ser refeitas."
         ))
         page.snack_bar.open = True
-        page.update()
+        safe_update()
     # MainActivity publishes the authoritative SAF grant inventory from
     # onResume. There is intentionally no Python -> reiflix://native startup
     # verification call.

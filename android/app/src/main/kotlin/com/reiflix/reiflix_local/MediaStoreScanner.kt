@@ -55,14 +55,14 @@ object MediaStoreScanner {
                 (Build.VERSION.SDK_INT<30&&it.isPrimary&&volumeName==MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }?.uuid.orEmpty()
     }
-    fun scan(context: Context,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false},scanId:String?=null):JSONObject {
+    fun scan(context: Context,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false},scanId:String?=null,onBatch:((JSONObject)->Unit)?=null):JSONObject {
         check(hasReadPermission(context)){"Permissão de vídeos não concedida."}
         val resolver=context.contentResolver
         val volumeNames=if(Build.VERSION.SDK_INT>=29)MediaStore.getExternalVolumeNames(context).ifEmpty{setOf(MediaStore.VOLUME_EXTERNAL_PRIMARY)}else setOf(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val projection=mutableListOf(MediaStore.Video.Media._ID,MediaStore.Video.Media.DISPLAY_NAME,MediaStore.Video.Media.MIME_TYPE,MediaStore.Video.Media.SIZE,MediaStore.Video.Media.DATE_MODIFIED)
         if(Build.VERSION.SDK_INT>=29){projection+=MediaStore.Video.Media.RELATIVE_PATH;projection+=MediaStore.MediaColumns.VOLUME_NAME}
         if(Build.VERSION.SDK_INT>=30){projection+=MediaStore.MediaColumns.GENERATION_ADDED;projection+=MediaStore.MediaColumns.GENERATION_MODIFIED}
-        val documents=JSONArray();val volumeScopes=JSONArray();val errors=JSONArray()
+        val volumeScopes=JSONArray();val errors=JSONArray()
         val access=accessLevel(context)
         val accessState = accessLevelValue(context)
         check(StorageAuthorization.canScanMediaStore(accessState)) { "Permissão de vídeos não concedida." }
@@ -77,13 +77,22 @@ object MediaStoreScanner {
                 val generation=if(Build.VERSION.SDK_INT>=30)runCatching{MediaStore.getGeneration(context,volumeName)}.getOrDefault(0L) else 0L
                 val scopeKey=activeScopeKey
                 if(NativeIndex.canReuseMediaStoreVolume(context,volumeName,access,version,generation)){
-                    val cached=NativeIndex.cachedDocuments(context,scopeKey)
-                    for(i in 0 until cached.length())documents.put(cached.getJSONObject(i))
-                    files+=cached.length();videos+=cached.length()
-                    volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",NativeIndex.cachedGeneration(context,scopeKey)).put("documents",cached).put("complete",true).put("reused",true).put("status",if(cached.length()==0) NativeIndex.STATUS_EMPTY_COMPLETE else NativeIndex.STATUS_COMPLETED)
-                        .put("generationId",NativeIndex.generationId(SOURCE,scopeKey,NativeIndex.cachedGeneration(context,scopeKey)))
+                    val cachedGeneration=NativeIndex.cachedGeneration(context,scopeKey)
+                    val cachedCount=NativeIndex.forEachCachedBatch(context,scopeKey,NativeBatch.DEFAULT_SIZE) { batch,batchNumber ->
+                        onBatch?.invoke(JSONObject()
+                            .put("volumeId",volumeName)
+                            .put("batchId","reused:" + NativeIndex.generationId(SOURCE,scopeKey,cachedGeneration) + ":" + batchNumber)
+                            .put("batchNumber",batchNumber)
+                            .put("batchSize",batch.length())
+                            .put("reused",true)
+                            .put("documents",batch))
+                    }
+                    files+=cachedCount;videos+=cachedCount
+                    volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",cachedGeneration).put("complete",true).put("reused",true).put("status",if(cachedCount==0) NativeIndex.STATUS_EMPTY_COMPLETE else NativeIndex.STATUS_COMPLETED)
+                        .put("generationId",NativeIndex.generationId(SOURCE,scopeKey,cachedGeneration))
                         .put("scopeKind","volume").put("scopeRef",volumeName)
-                        .put("new",0).put("changed",0).put("unchanged",cached.length()).put("duplicates",0).put("removed",0))
+                        .put("batchCount",if(cachedCount==0) 0 else (cachedCount + NativeBatch.DEFAULT_SIZE - 1) / NativeBatch.DEFAULT_SIZE)
+                        .put("processed",cachedCount).put("duplicates",0).put("removed",0))
                     onProgress?.invoke(JSONObject().put("phase","reused").put("source",SOURCE).put("volumeId",volumeName).put("files",files).put("videos",videos))
                     continue
                 }
@@ -91,7 +100,16 @@ object MediaStoreScanner {
                     .put("accessLevel",access).put("volumeId",volumeName)
                 val generationId=NativeIndex.startGeneration(context,SOURCE,scopeKey,scopeMetadata)
                 activeGeneration=generationId
-                val raw=JSONArray();val localErrors=JSONArray()
+                val localErrors=JSONArray()
+                val batches=NativeBatch.Accumulator(NativeBatch.DEFAULT_SIZE) { batch,batchId,batchNumber ->
+                    onBatch?.invoke(JSONObject()
+                        .put("volumeId",volumeName)
+                        .put("batchId",batchId)
+                        .put("batchNumber",batchNumber)
+                        .put("batchSize",batch.length())
+                        .put("reused",false)
+                        .put("documents",batch))
+                }
                 var localCancelled=false
                 val collection=if(Build.VERSION.SDK_INT>=29)MediaStore.Video.Media.getContentUri(volumeName)else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                 resolver.query(collection,projection.toTypedArray(),null,null,MediaStore.Video.Media.DISPLAY_NAME+" COLLATE NOCASE ASC")?.use{cursor->
@@ -114,7 +132,7 @@ object MediaStoreScanner {
                             .put("mediaId",id).put("mimeType",mime).put("size",if(sizeCol>=0&&!cursor.isNull(sizeCol))cursor.getLong(sizeCol)else 0L).put("modifiedAt",if(modCol>=0&&!cursor.isNull(modCol))cursor.getLong(modCol)*1000L else 0L)
                         if(gaCol>=0&&!cursor.isNull(gaCol))item.put("generationAdded",cursor.getLong(gaCol))
                         if(gmCol>=0&&!cursor.isNull(gmCol))item.put("generationModified",cursor.getLong(gmCol))
-                        raw.put(item);videos++
+                        batches.add(item);videos++
                         if(videos%100==0)onProgress?.invoke(JSONObject().put("phase","scanning").put("source",SOURCE).put("volumeId",volumeName).put("files",files).put("videos",videos))
                     }
                 }?:localErrors.put("O MediaStore não conseguiu consultar o volume "+volumeName+".")
@@ -125,28 +143,32 @@ object MediaStoreScanner {
                 val status=when {
                     localCancelled||cancelled->NativeIndex.STATUS_CANCELLED
                     !complete->NativeIndex.STATUS_PARTIAL
-                    raw.length()==0->NativeIndex.STATUS_EMPTY_COMPLETE
                     else->NativeIndex.STATUS_COMPLETED
                 }
-                val prepared=NativeIndex.prepare(context,SOURCE,scopeKey,raw,complete,JSONObject(scopeMetadata.toString()).put("errors",localErrors).put("status",status),generationId,status)
-                for(i in 0 until prepared.documents.length())documents.put(prepared.documents.getJSONObject(i))
-                volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",prepared.generation).put("generationId",NativeIndex.generationId(SOURCE, scopeKey, prepared.generation)).put("status",prepared.status).put("documents",prepared.documents)
-                    .put("complete",complete).put("reused",false).put("new",prepared.newItems).put("changed",prepared.changedItems)
-                    .put("unchanged",prepared.unchangedItems).put("duplicates",prepared.duplicates).put("removed",prepared.removedItems)
-                    .put("errors",localErrors))
+                batches.flush()
+                val stagedDocuments=NativeIndex.stagedDocumentCount(context,SOURCE,scopeKey,generationId)
+                val batchCount=NativeIndex.batchCount(context,SOURCE,scopeKey,generationId)
+                val finished=NativeIndex.finishGeneration(
+                    context,SOURCE,scopeKey,generationId,status,
+                    JSONObject(scopeMetadata.toString()).put("errors",localErrors).put("status",status)
+                        .put("batchCount",batchCount).put("processed",stagedDocuments)
+                )
+                volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",generationId).put("generationId",NativeIndex.generationId(SOURCE, scopeKey, generationId)).put("status",status)
+                    .put("complete",complete).put("reused",false).put("batchCount",batchCount).put("processed",stagedDocuments)
+                    .put("duplicates",finished.optInt("duplicates",0)).put("removed",0).put("errors",localErrors))
                 if(cancelled)break
             }catch(security:SecurityException){
                 Log.w(TAG,"MediaStore permission/query denied for volume $volumeName",security)
                 errors.put("O acesso ao volume $volumeName foi negado.")
-                if(activeGeneration>0) NativeIndex.failGeneration(context,SOURCE,activeScopeKey,activeGeneration,security.message ?: "MediaStore permission/query denied")
+                if(activeGeneration>0) NativeIndex.finishGeneration(context,SOURCE,activeScopeKey,activeGeneration,NativeIndex.STATUS_FAILED,JSONObject().put("error",security.message ?: "MediaStore permission/query denied"))
             }catch(exception:Exception){
                 Log.w(TAG,"MediaStore query failed for volume $volumeName",exception)
                 errors.put("Não foi possível consultar o volume $volumeName.")
-                if(activeGeneration>0) NativeIndex.failGeneration(context,SOURCE,activeScopeKey,activeGeneration,exception.message ?: "MediaStore query failed")
+                if(activeGeneration>0) NativeIndex.finishGeneration(context,SOURCE,activeScopeKey,activeGeneration,NativeIndex.STATUS_FAILED,JSONObject().put("error",exception.message ?: "MediaStore query failed"))
             }
         }
         onProgress?.invoke(JSONObject().put("phase","finished").put("source",SOURCE).put("files",files).put("videos",videos))
-        return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("documents",documents).put("volumeScopes",volumeScopes)
+        return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("volumeScopes",volumeScopes)
             .put("stats",JSONObject().put("files",files).put("videos",videos).put("errors",errors).put("access",access)
                 .put("canScan", StorageAuthorization.canScanMediaStore(accessState))
                 .put("canReconcile", StorageAuthorization.canReconcileMediaStore(accessState)))

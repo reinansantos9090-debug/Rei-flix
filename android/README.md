@@ -46,3 +46,33 @@ filesystem path for a SAF URI.
 `flet build apk --yes` is followed by `scripts/verify_android_host.py` in CI.
 If this check reports missing descriptors, the selected Flet template did not
 merge this overlay; the build must be fixed before an APK can be published.
+
+## Prompt 11 — validação física e bibliotecas grandes
+
+O caminho Android de descoberta usa lotes de **250 documentos** por padrão. Esse
+valor limita a memória temporária da ponte e do scanner sem transformar cada
+arquivo em um evento individual. O limite configurável é restringido a 25..1000.
+
+Broad Storage, SAF e MediaStore não retornam mais um `JSONArray` com toda a
+biblioteca. Cada lote é preparado pelo `NativeIndex` em NDJSON temporário,
+identificado por `scanId`, `generationId`, `batchId` e número do lote. O
+snapshot anterior só é substituído quando a geração termina em
+`COMPLETED` ou `EMPTY_COMPLETE`. PARTIAL, CANCELLED, UNAVAILABLE e FAILED
+preservam o snapshot anterior e não executam reconciliação destrutiva.
+
+A instrumentação Android está em
+`app/src/androidTest/kotlin/com/reiflix/reiflix_local/Prompt11DeviceFlowInstrumentedTest.kt`.
+O executor físico está em `scripts/validate_android_device.py` e exige `adb`;
+ele nunca registra um teste físico como concluído quando não existe dispositivo
+autorizado.
+
+No ambiente de desenvolvimento usado para esta alteração não há `adb`
+nem um dispositivo/emulador Android conectado. Portanto, os fluxos que
+dependem do seletor SAF, Settings, volumes removíveis/USB e reprodução física
+dos arquivos `66619.mp4`, `66621.mp4` e `66625.mp4` continuam como
+**AINDA NÃO VALIDADO** até execução no dispositivo.
+
+Os testes de carga Python de Prompt 11 simulam 10.000, 50.000 e 100.000
+documentos alimentando `LibraryService.ingest_documents_batch()` em blocos
+de 250, verificando que nenhum lote ultrapassa esse limite e que cada lote
+atualiza o progresso persistido.

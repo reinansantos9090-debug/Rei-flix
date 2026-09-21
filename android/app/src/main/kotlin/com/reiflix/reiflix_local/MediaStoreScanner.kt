@@ -55,7 +55,7 @@ object MediaStoreScanner {
                 (Build.VERSION.SDK_INT<30&&it.isPrimary&&volumeName==MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }?.uuid.orEmpty()
     }
-    fun scan(context: Context,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false}):JSONObject {
+    fun scan(context: Context,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false},scanId:String?=null):JSONObject {
         check(hasReadPermission(context)){"Permissão de vídeos não concedida."}
         val resolver=context.contentResolver
         val volumeNames=if(Build.VERSION.SDK_INT>=29)MediaStore.getExternalVolumeNames(context).ifEmpty{setOf(MediaStore.VOLUME_EXTERNAL_PRIMARY)}else setOf(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -81,13 +81,13 @@ object MediaStoreScanner {
                     for(i in 0 until cached.length())documents.put(cached.getJSONObject(i))
                     files+=cached.length();videos+=cached.length()
                     volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",NativeIndex.cachedGeneration(context,scopeKey)).put("documents",cached).put("complete",true).put("reused",true).put("status",NativeIndex.STATUS_COMPLETED)
-                        .put("generationId","native:"+NativeIndex.cachedGeneration(context,scopeKey))
+                        .put("generationId",NativeIndex.generationId(SOURCE, scopeKey, NativeIndex.cachedGeneration(context,scopeKey)))
                         .put("scopeKind","volume").put("scopeRef",volumeName)
                         .put("new",0).put("changed",0).put("unchanged",cached.length()).put("duplicates",0).put("removed",0))
                     onProgress?.invoke(JSONObject().put("phase","reused").put("source",SOURCE).put("volumeId",volumeName).put("files",files).put("videos",videos))
                     continue
                 }
-                val scopeMetadata=JSONObject().put("mediaStoreVersion",version).put("mediaStoreGeneration",generation)
+                val scopeMetadata=JSONObject().put("mediaStoreVersion",version).put("mediaStoreGeneration",generation).put("scanId",scanId ?: "")
                     .put("accessLevel",access).put("volumeId",volumeName)
                 val generationId=NativeIndex.startGeneration(context,SOURCE,scopeKey,scopeMetadata)
                 activeGeneration=generationId
@@ -125,7 +125,7 @@ object MediaStoreScanner {
                 val status=when { complete->NativeIndex.STATUS_COMPLETED; localCancelled||cancelled->NativeIndex.STATUS_CANCELLED; else->NativeIndex.STATUS_PARTIAL }
                 val prepared=NativeIndex.prepare(context,SOURCE,scopeKey,raw,complete,JSONObject(scopeMetadata.toString()).put("errors",localErrors).put("status",status),generationId,status)
                 for(i in 0 until prepared.documents.length())documents.put(prepared.documents.getJSONObject(i))
-                volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",prepared.generation).put("generationId","native:"+prepared.generation).put("status",prepared.status).put("documents",prepared.documents)
+                volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",prepared.generation).put("generationId",NativeIndex.generationId(SOURCE, scopeKey, prepared.generation)).put("status",prepared.status).put("documents",prepared.documents)
                     .put("complete",complete).put("reused",false).put("new",prepared.newItems).put("changed",prepared.changedItems)
                     .put("unchanged",prepared.unchangedItems).put("duplicates",prepared.duplicates).put("removed",prepared.removedItems)
                     .put("errors",localErrors))

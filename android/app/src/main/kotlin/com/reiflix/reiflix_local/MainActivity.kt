@@ -236,7 +236,7 @@ class MainActivity : FlutterFragmentActivity() {
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
         onBackPressedDispatcher.addCallback(this, backCallback)
-        applyImmersiveSystemUi()
+        applyNormalSystemUi()
         // Permission-sensitive actions are queued until the Activity is resumed.
         handleNativeIntent(intent)
     }
@@ -259,7 +259,7 @@ class MainActivity : FlutterFragmentActivity() {
         activityResumed = true
         logLifecycle("onResume")
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "ON_RESUME").put("lifecycle", "onResume")))
-        applyImmersiveSystemUi()
+        applyNormalSystemUi()
 
         // A lifecycle-sensitive command may have been queued because the
         // Activity was not resumed when Python delivered the request. Do not
@@ -993,10 +993,10 @@ class MainActivity : FlutterFragmentActivity() {
     }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) applyImmersiveSystemUi()
+        if (hasFocus) applyNormalSystemUi()
     }
-    private fun applyImmersiveSystemUi() {
-        if (::systemUiController.isInitialized) systemUiController.applyImmersive()
+    private fun applyNormalSystemUi() {
+        if (::systemUiController.isInitialized) systemUiController.applyNormal()
     }
     private fun signInWithGoogle(serverClientId: String?) {
         if (serverClientId.isNullOrBlank()) { NativeMailbox.write(this, JSONObject().put("type", "google_error").put("message", "Configure o Web Client ID do Google.")); return }

@@ -67,9 +67,10 @@ jobs:
           if value and not value.endswith(".apps.googleusercontent.com"):
               raise SystemExit("REIFLIX_GOOGLE_WEB_CLIENT_ID must be a Google OAuth Web client ID")
           path = Path("app_config.py")
-          text = path.read_text(encoding="utf-8")
+          original = path.read_text(encoding="utf-8")
           marker = 'GOOGLE_WEB_CLIENT_ID = ""'
-          path.write_text(text.replace(marker, f'GOOGLE_WEB_CLIENT_ID = {value!r}'), encoding="utf-8")
+          path.write_text(original.replace(marker, f'GOOGLE_WEB_CLIENT_ID = {value!r}'), encoding="utf-8")
+          Path("build/app_config.source.py").write_text(original, encoding="utf-8")
           print("Google Web Client ID injected into this APK build:" + (" yes" if value else " no (login will show configuration required)"))
           PY
 
@@ -164,6 +165,13 @@ jobs:
 
       - name: Build APK
         run: flet build apk --template build/flet-build-template --yes -v
+
+      - name: Restore source configuration after build
+        shell: bash
+        run: |
+          test -f build/app_config.source.py
+          cp build/app_config.source.py app_config.py
+          cmp -s build/app_config.source.py app_config.py
 
       - name: Run Android unit tests on rendered project
         shell: bash

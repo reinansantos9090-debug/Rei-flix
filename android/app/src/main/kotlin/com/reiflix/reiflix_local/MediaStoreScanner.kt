@@ -122,7 +122,12 @@ object MediaStoreScanner {
                 if(shouldCancel()){cancelled=true;localCancelled=true}
                 val complete=StorageAuthorization.canReconcileMediaStore(accessState) &&
                     localErrors.length()==0 && !localCancelled && !cancelled
-                val status=when { complete->NativeIndex.STATUS_COMPLETED; localCancelled||cancelled->NativeIndex.STATUS_CANCELLED; else->NativeIndex.STATUS_PARTIAL }
+                val status=when {
+                    localCancelled||cancelled->NativeIndex.STATUS_CANCELLED
+                    !complete->NativeIndex.STATUS_PARTIAL
+                    raw.length()==0->NativeIndex.STATUS_EMPTY_COMPLETE
+                    else->NativeIndex.STATUS_COMPLETED
+                }
                 val prepared=NativeIndex.prepare(context,SOURCE,scopeKey,raw,complete,JSONObject(scopeMetadata.toString()).put("errors",localErrors).put("status",status),generationId,status)
                 for(i in 0 until prepared.documents.length())documents.put(prepared.documents.getJSONObject(i))
                 volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",prepared.generation).put("generationId",NativeIndex.generationId(SOURCE, scopeKey, prepared.generation)).put("status",prepared.status).put("documents",prepared.documents)

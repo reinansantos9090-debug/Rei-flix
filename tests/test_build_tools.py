@@ -100,6 +100,9 @@ class AndroidHostVerificationTests(unittest.TestCase):
             self.assertIn(f'Path({str((template / "reiflix_android_overlay" / "app").resolve())!r})', hook)
 
             rendered = Path(d) / "rendered" / "android" / "app"
+            wrapper = rendered.parent / "gradlew"
+            wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            wrapper.chmod(0o755)
             (rendered / "src" / "main").mkdir(parents=True)
             (rendered / "build.gradle").write_text("plugins {}\ncompileSdk = 35\ndependencies { implementation \'androidx.media3:media3-exoplayer:1.5.1\' }\n", encoding="utf-8")
             (rendered / "src" / "main" / "AndroidManifest.xml").write_text(

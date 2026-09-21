@@ -14,7 +14,7 @@ from core.consumption import consumption_state, is_completed, is_in_progress, is
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 25
+    SCHEMA_VERSION = 26
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -54,6 +54,28 @@ class LibraryStore:
               number REAL, duration REAL DEFAULT 0, progress REAL DEFAULT 0, watched INTEGER DEFAULT 0,
               mime_type TEXT, file_size INTEGER, modified_at REAL, source_folder TEXT, absolute_number REAL, relative_path TEXT, volume_id TEXT, volume_uuid TEXT, episode_type TEXT NOT NULL DEFAULT 'regular', episode_title TEXT, identification_source TEXT NOT NULL DEFAULT 'legacy', identification_confidence TEXT NOT NULL DEFAULT 'medium', manual_override INTEGER NOT NULL DEFAULT 0,
               missing INTEGER DEFAULT 0, last_played_at REAL, media_identity TEXT, availability_state TEXT NOT NULL DEFAULT 'available');
+            CREATE TABLE IF NOT EXISTS episode_observations (
+              id INTEGER PRIMARY KEY,
+              episode_id INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+              source_kind TEXT NOT NULL,
+              scope_kind TEXT NOT NULL,
+              scope_ref TEXT NOT NULL DEFAULT '',
+              uri TEXT NOT NULL,
+              volume_id TEXT,
+              native_generation INTEGER,
+              fingerprint TEXT,
+              first_seen REAL NOT NULL,
+              last_seen REAL,
+              last_checked_at REAL,
+              state TEXT NOT NULL DEFAULT 'available',
+              error TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_episode_observation_unique
+              ON episode_observations(episode_id, source_kind, scope_kind, scope_ref, uri);
+            CREATE INDEX IF NOT EXISTS idx_episode_observation_scope
+              ON episode_observations(source_kind, scope_kind, scope_ref, state);
+            CREATE INDEX IF NOT EXISTS idx_episode_observation_volume
+              ON episode_observations(volume_id, state);
             CREATE TABLE IF NOT EXISTS artwork (
               id INTEGER PRIMARY KEY, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,
               artwork_type TEXT NOT NULL, source TEXT NOT NULL, source_ref TEXT,
@@ -98,6 +120,7 @@ class LibraryStore:
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_source_folder ON episodes(source_folder)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_volume_availability ON episodes(volume_id, availability_state, missing)")
             c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_media_identity ON episodes(media_identity) WHERE media_identity IS NOT NULL")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_episode_observation_scope_runtime ON episode_observations(source_kind, scope_kind, scope_ref, uri)")
             # Version records make additive schema changes auditable
             # while CREATE IF NOT EXISTS keeps all earlier databases intact.
             c.execute("CREATE INDEX IF NOT EXISTS idx_folders_account ON folders(account_id)")

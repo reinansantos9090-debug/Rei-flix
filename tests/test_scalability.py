@@ -1,4 +1,5 @@
 import re
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -15,6 +16,8 @@ class ProbeStore:
         self.progress = []
         self.account_data = {}
         self.scan = None
+        self.reconcile_calls = 0
+        self.snapshot = []
     def scan_by_id(self, scan_id):
         return self.scan
     def begin_scan(self, **kwargs):
@@ -26,6 +29,17 @@ class ProbeStore:
         return False
     def add_folder(self, *args, **kwargs):
         return None
+    def reconcile_scope_generation(self, *args, **kwargs):
+        self.reconcile_calls = getattr(self, "reconcile_calls", 0) + 1
+        return 7
+    def generation_anime_ids(self, *args, **kwargs):
+        return set()
+    def update_folder_status(self, *args, **kwargs):
+        return None
+    def catalog(self):
+        return []
+    def mark_snapshot(self, value):
+        self.snapshot = value
     def account(self):
         return self.account_data
     def update_scan_progress(self, run_id, summary, **kwargs):
@@ -48,6 +62,84 @@ def documents(count, offset=0):
         yield {'uri': f'content://prompt11/{index}', 'name': f'{index}.mp4'}
 
 class TestPrompt11Scalability(unittest.TestCase):
+    def test_duplicate_document_across_batches_is_deduplicated(self):
+        service = Prompt11BatchService()
+        doc = next(documents(1))
+        first = service.ingest_documents_batch(
+            "broad-storage", [doc],
+            source_kind="broad_storage", scan_id="dup-scan",
+            scope_kind="volume", scope_ref="external_primary",
+            scan_generation=2, generation_id="native:test:2",
+            batch_id="batch-1", batch_number=1, batch_size=1,
+        )
+        service.store.has_observation_for_generation = lambda *args, **kwargs: True
+        second = service.ingest_documents_batch(
+            "broad-storage", [doc],
+            source_kind="broad_storage", scan_id="dup-scan",
+            scope_kind="volume", scope_ref="external_primary",
+            scan_generation=2, generation_id="native:test:2",
+            batch_id="batch-2", batch_number=2, batch_size=1,
+        )
+        self.assertEqual(first["new"], 1)
+        self.assertEqual(second["duplicates"], 1)
+
+    def test_failed_finalization_does_not_reconcile(self):
+        service = Prompt11BatchService()
+        service.ingest_documents_batch(
+            "broad-storage", list(documents(10)),
+            source_kind="broad_storage", scan_id="failed-scan",
+            scope_kind="volume", scope_ref="external_primary",
+            scan_generation=3, generation_id="native:test:3",
+            batch_id="batch-1", batch_number=1, batch_size=10,
+        )
+        result = service.finish_ingest_documents(
+            "broad-storage", source_kind="broad_storage",
+            scan_id="failed-scan", scope_kind="volume",
+            scope_ref="external_primary", scan_generation=3,
+            generation_id="native:test:3", status="failed",
+        )
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(service.store.reconcile_calls, 0)
+
+    def test_completed_finalization_reconciles_once(self):
+        service = Prompt11BatchService()
+        service.ingest_documents_batch(
+            "broad-storage", list(documents(10)),
+            source_kind="broad_storage", scan_id="complete-scan",
+            scope_kind="volume", scope_ref="external_primary",
+            scan_generation=4, generation_id="native:test:4",
+            batch_id="batch-1", batch_number=1, batch_size=10,
+        )
+        result = service.finish_ingest_documents(
+            "broad-storage", source_kind="broad_storage",
+            scan_id="complete-scan", scope_kind="volume",
+            scope_ref="external_primary", scan_generation=4,
+            generation_id="native:test:4", status="completed",
+        )
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(service.store.reconcile_calls, 1)
+
+    def test_scan_progress_is_persisted_in_existing_sqlite_store(self):
+        from core.library_store import LibraryStore
+        with tempfile.TemporaryDirectory() as data_dir:
+            store = LibraryStore(data_dir)
+            run_id = store.begin_scan(
+                scan_id="persisted-scan", source_kind="broad_storage",
+                scope_kind="volume", scope_ref="external_primary",
+                native_generation=5, generation_id="native:test:5",
+            )
+            store.update_scan_progress(
+                run_id, {"files": 250, "videos": 250, "new": 200},
+                request_id="req-5", source="broad_storage",
+                volume_id="external_primary", scope="external_primary",
+                batch_id="batch-7", batch_number=7, batch_size=250,
+                discovered=250, processed=250, inserted=200, elapsed_ms=12,
+            )
+            row = store.scan_by_id("persisted-scan")
+            self.assertEqual(row["batch_id"], "batch-7")
+            self.assertEqual(row["batch_size"], 250)
+            self.assertEqual(row["processed"], 250)
+            self.assertEqual(row["inserted_files"], 200)
     def run_load(self, total):
         service = Prompt11BatchService()
         peak_batch = 0

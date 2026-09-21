@@ -223,7 +223,7 @@ object BroadStorageScanner {
         return "path:" + runCatching { root.canonicalPath }.getOrDefault(root.path)
     }
 
-    fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null, shouldCancel: () -> Boolean = { false }): JSONObject {
+    fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null, shouldCancel: () -> Boolean = { false }, scanId: String? = null): JSONObject {
         val access = hasAccess(context)
         Log.i(TAG, "SCAN_STARTED: api=" + Build.VERSION.SDK_INT + ", granted=" + access)
         check(access) { "Acesso amplo ao armazenamento não foi concedido." }
@@ -248,7 +248,7 @@ object BroadStorageScanner {
                 .put("excludedNoMedia", 0)
             generationByVolume[root.volumeId] = NativeIndex.startGeneration(
                 context, SOURCE, "broad-storage:" + root.volumeId,
-                JSONObject().put("volumeId", root.volumeId).put("volumeUuid", root.volumeUuid ?: "")
+                JSONObject().put("volumeId", root.volumeId).put("volumeUuid", root.volumeUuid ?: "").put("scanId", scanId ?: "")
                     .put("state", root.state).put("removable", root.removable).put("primary", root.primary)
             )
             if (!isReadableState(root.state)) {
@@ -439,7 +439,7 @@ object BroadStorageScanner {
                 .put("scopeKind", "volume")
                 .put("scopeRef", volumeId)
                 .put("scanGeneration", prepared.generation)
-                .put("generationId", "native:" + prepared.generation)
+                .put("generationId", NativeIndex.generationId(SOURCE, scopeKey, prepared.generation))
                 .put("status", prepared.status)
                 .put("documents", prepared.documents)
                 .put("complete", complete)

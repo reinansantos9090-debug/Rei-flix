@@ -43,6 +43,14 @@ class ProbeStore:
         return self.account_data
     def update_scan_progress(self, run_id, summary, **kwargs):
         self.progress.append(dict(summary))
+        if self.scan is not None:
+            self.scan.update(summary)
+            self.scan.update({k: v for k, v in kwargs.items() if k in {"batch_id", "batch_number", "batch_size", "discovered", "processed"}})
+        return True
+    def finish_scan(self, run_id, summary):
+        if self.scan is not None:
+            self.scan.update(summary)
+            self.scan["status"] = summary.get("status", "completed")
         return True
 
 class BatchServiceProbe(LibraryService):

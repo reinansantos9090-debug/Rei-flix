@@ -214,7 +214,9 @@ class LibraryStore:
             last_event_at = 0.0
         previous = self.native_volume_states()
         if event_at and last_event_at and event_at < last_event_at:
-            return {"ignored": True, "current": list(previous.values())}
+            stale = dict(previous)
+            stale["ignored"] = True
+            return stale
         current = payload.get("current") or []
         removed = payload.get("removed") or []
         merged = dict(previous)
@@ -263,7 +265,8 @@ class LibraryStore:
         self.set_native_volume_states(list(merged.values()))
         if event_at:
             self.set_preference("native_volume_event_at", max(event_at, last_event_at))
-        return {"ignored": False, "volumes": merged}
+        merged["ignored"] = False
+        return merged
 
     def native_volume_states(self):
         raw = self.get_preference("native_volume_states", "{}")

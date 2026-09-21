@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 
+import inspect
 import flet as ft
 
 logger = logging.getLogger("reiflix.settings")

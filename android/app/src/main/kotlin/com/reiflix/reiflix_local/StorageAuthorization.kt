@@ -50,18 +50,25 @@ object StorageAuthorization {
             if (readMediaVideo) MediaAccessLevel.FULL else MediaAccessLevel.DENIED
     }
 
-    private fun safIdentity(value: String): String? = runCatching {
-        val uri = Uri.parse(value.trim())
-        if (uri.scheme != "content") return@runCatching null
-        val authority = uri.authority?.trim().orEmpty()
-        val segments = uri.pathSegments
-        val treeIndex = segments.indexOfFirst { it == "tree" }
-        val documentId = if (treeIndex >= 0) {
-            runCatching { DocumentsContract.getTreeDocumentId(uri) }
-                .getOrElse { segments.getOrNull(treeIndex + 1).orEmpty() }
-        } else ""
-        if (authority.isBlank() || documentId.isBlank()) null else "$authority:$documentId"
-    }.getOrNull()
+    private fun safIdentity(value: String): String? {
+        // Keep this helper independent from Android framework URI parsing so the
+        // same authorization model behaves identically in JVM unit tests and on
+        // Android. Persisted SAF permissions are tree URIs; compare the
+        // provider authority plus the encoded tree document id.
+        val raw = value.trim()
+        if (!raw.startsWith("content://", ignoreCase = true)) return null
+        val parsed = runCatching { java.net.URI(raw) }.getOrNull() ?: return null
+        val authority = parsed.rawAuthority?.trim().orEmpty()
+        val rawPath = parsed.rawPath?.trimEnd('/').orEmpty()
+        val marker = "/tree/"
+        val markerIndex = rawPath.indexOf(marker)
+        if (authority.isBlank() || markerIndex < 0) return null
+        val encodedTreeId = rawPath.substring(markerIndex + marker.length)
+            .substringBefore("/")
+            .trim()
+        if (encodedTreeId.isBlank()) return null
+        return authority.lowercase() + ":" + encodedTreeId
+    }
 
     fun safAccess(configuredTreeUri: String?, persistedReadUris: Collection<String>): SafAccessLevel {
         val tree = configuredTreeUri?.trim().takeUnless { it.isNullOrEmpty() }

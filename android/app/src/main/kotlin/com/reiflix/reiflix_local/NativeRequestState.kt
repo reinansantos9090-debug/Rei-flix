@@ -64,9 +64,12 @@ class NativeRequestState {
     fun consumedLifecycleRequestId():String?=lastConsumedLifecycleRequest?.requestId
 
     fun restore(lastRequestId:String?,pendingAction:String?,pendingRequestId:String?=null){
-        lastHandledRequestId=lastRequestId
+        seenRequestIds.clear()
+        val restoredId=lastRequestId?.trim().orEmpty()
+        if(restoredId.isNotEmpty()) seenRequestIds.add(restoredId)
+        lastHandledRequestId=if(restoredId.isNotEmpty()) restoredId else null
         pendingLifecycleAction=pendingAction?.takeIf{isSupportedAction(it)}
-        pendingLifecycleRequestId=if(pendingLifecycleAction!=null) pendingRequestId else null
+        pendingLifecycleRequestId=if(pendingLifecycleAction!=null) pendingRequestId?.trim()?.takeIf{it.isNotEmpty()} else null
     }
 
     companion object{

@@ -9,7 +9,6 @@ import json
 
 import flet as ft
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title
-from core.dialogs import dismiss_dialog
 
 
 class SettingsView:
@@ -19,12 +18,24 @@ class SettingsView:
               folder_selection_pending=lambda: False, on_resolve_match=lambda _lookup, _id: None,
               on_create_backup=None, on_restore_backup=None, storage_snapshot=None, scan_snapshot=None):
         status = ft.Text("", color="#9DA3B4", size=12)
+        ui_alive = [True]
+        def safe_update():
+            if not ui_alive[0]:
+                return
+            try:
+                page.update()
+            except Exception:
+                pass
+        try:
+            page.on_disconnect = lambda _e: ui_alive.__setitem__(0, False)
+        except Exception:
+            pass
         busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False, "permission": False, "backup": False, "restore": False}
 
         def notice(message, error=False):
             status.value = message
             status.color = "#FFB4AB" if error else "#9DA3B4"
-            page.update()
+            safe_update()
 
         def section(title, icon, content):
             return ft.Container(
@@ -36,19 +47,18 @@ class SettingsView:
 
         def confirm(title, body, action_label, action):
             def run_action(_event):
-                dismiss_dialog(page, dialog)
+                page.pop_dialog()
                 result = action()
                 if hasattr(result, "__await__"):
                     page.run_task(lambda: result)
             dialog = ft.AlertDialog(
                 modal=True, title=ft.Text(title), content=ft.Text(body),
-                actions=[ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)),
+                actions=[ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
                          ft.FilledButton(action_label, on_click=run_action)],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
-            page.overlay.append(dialog)
-            dialog.open = True
-            page.update()
+            page.show_dialog(dialog)
+            safe_update()
 
         folders = store.folders()
         summary = store.library_summary()
@@ -78,20 +88,20 @@ class SettingsView:
                     notice("Não foi possível solicitar a permissão para ler vídeos.", error=True)
                 finally:
                     busy["permission"] = False
-                    page.update()
+                    safe_update()
             dialog = ft.AlertDialog(
                 modal=True,
                 icon=ft.Icon(ft.Icons.SETTINGS_OUTLINED, size=40),
                 title=ft.Text("Permissão necessária"),
                 content=ft.Text("Permissão para ler vídeos"),
                 actions=[
-                    ft.TextButton("CANCELAR", on_click=lambda _: dismiss_dialog(page, dialog)),
+                    ft.TextButton("CANCELAR", on_click=lambda _: page.pop_dialog()),
                     ft.FilledButton("PERMITIR", on_click=allow),
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
             page.show_dialog(dialog)
-            page.update()
+            safe_update()
 
         def show_broad_storage_dialog(_=None):
             if busy["permission"]:
@@ -107,7 +117,7 @@ class SettingsView:
                     notice("Não foi possível abrir a configuração de armazenamento.", error=True)
                 finally:
                     busy["permission"] = False
-                    page.update()
+                    safe_update()
             dialog = ft.AlertDialog(
                 modal=True,
                 icon=ft.Icon(ft.Icons.FOLDER_OPEN_OUTLINED, size=40),
@@ -117,13 +127,13 @@ class SettingsView:
                     ft.Text("Este acesso é opcional: o Rei-Flix também pode usar os vídeos do dispositivo e pastas específicas escolhidas por você.", color=TEXT_MUTED, size=11),
                 ], spacing=6),
                 actions=[
-                    ft.TextButton("CANCELAR", on_click=lambda _: dismiss_dialog(page, dialog)),
+                    ft.TextButton("CANCELAR", on_click=lambda _: page.pop_dialog()),
                     ft.FilledButton("PERMITIR", on_click=allow),
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
             page.show_dialog(dialog)
-            page.update()
+            safe_update()
 
         pending_matches = store.pending_matches()
         folder_lines = []
@@ -184,7 +194,7 @@ class SettingsView:
             finally:
                 busy["folder"] = False
                 add_folder_button.disabled = bool(folder_selection_pending())
-                page.update()
+                safe_update()
         add_folder_button.on_click = add_folder
 
         scan_button = ft.FilledButton("Atualizar biblioteca", icon=ft.Icons.REFRESH)
@@ -202,7 +212,7 @@ class SettingsView:
             finally:
                 busy["scan"] = waiting_native_result
                 scan_button.disabled = waiting_native_result
-                page.update()
+                safe_update()
         scan_button.on_click = scan
 
         video_permission_button = ft.FilledButton(
@@ -278,7 +288,7 @@ class SettingsView:
                 return
             busy["backup"] = True
             backup_button.disabled = True
-            page.update()
+            safe_update()
             try:
                 path = on_create_backup()
                 notice(f"Backup criado: {str(path).rsplit('/', 1)[-1]}")
@@ -287,7 +297,7 @@ class SettingsView:
             finally:
                 busy["backup"] = False
                 backup_button.disabled = False
-                page.update()
+                safe_update()
         def ask_create_backup(_):
             confirm("Criar backup local?", "Será salva uma cópia offline da biblioteca SQLite e do cache de artwork gerenciado pelo Rei-Flix.", "Criar", create_backup)
         backup_button.on_click = ask_create_backup
@@ -297,7 +307,7 @@ class SettingsView:
                 return
             busy["restore"] = True
             restore_button.disabled = True
-            page.update()
+            safe_update()
             try:
                 path = on_restore_backup()
                 on_catalog_changed()
@@ -307,7 +317,7 @@ class SettingsView:
             finally:
                 busy["restore"] = False
                 restore_button.disabled = False
-                page.update()
+                safe_update()
         def ask_restore_backup(_):
             latest = store.latest_backup()
             if not latest:
@@ -318,14 +328,14 @@ class SettingsView:
         def clear_cache():
             if busy["cache"]:
                 return
-            busy["cache"] = True; cache_button.disabled = True; page.update()
+            busy["cache"] = True; cache_button.disabled = True; safe_update()
             try:
                 removed = library.clear_anilist_cache()
                 notice(f"Cache AniList limpo ({removed} capa(s) removida(s)).")
             except Exception:
                 notice("Não foi possível limpar o cache AniList.", error=True)
             finally:
-                busy["cache"] = False; cache_button.disabled = False; page.update()
+                busy["cache"] = False; cache_button.disabled = False; safe_update()
         def ask_clear_cache(_):
             confirm("Limpar cache AniList?", "Metadados e capas temporárias serão atualizados na próxima varredura. Sua biblioteca, favoritos e progresso serão preservados.", "Limpar", clear_cache)
         cache_button.on_click = ask_clear_cache
@@ -347,14 +357,14 @@ class SettingsView:
             except Exception:
                 notice("Não foi possível iniciar o login Google.", error=True)
             finally:
-                busy["login"] = False; account_button.disabled = False; page.update()
+                busy["login"] = False; account_button.disabled = False; safe_update()
         account_button.on_click = login
         account_button.disabled = account_state in {"connecting", "awaiting_google"}
         logout_button = ft.OutlinedButton("Sair da conta", icon=ft.Icons.LOGOUT)
         def do_logout():
             if busy["logout"]:
                 return
-            busy["logout"] = True; logout_button.disabled = True; page.update()
+            busy["logout"] = True; logout_button.disabled = True; safe_update()
             try:
                 on_logout()
             except Exception:

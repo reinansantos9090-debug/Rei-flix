@@ -103,12 +103,22 @@ object SafScanner {
 
     fun displayName(context:Context,treeUri:Uri):String = runCatching{DocumentFile.fromTreeUri(context,treeUri)?.name}.getOrNull()?.takeIf{it.isNotBlank()} ?: treeUri.toString()
 
-    fun scan(context:Context,treeUri:Uri,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false},scanId:String?=null):JSONObject {
+    fun scan(context:Context,treeUri:Uri,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false},scanId:String?=null,onBatch:((JSONObject)->Unit)?=null):JSONObject {
         val identity=treeIdentity(treeUri)
         check(hasPersistedReadPermission(context,treeUri)){"A permissão desta pasta foi removida."}
         val root=DocumentFile.fromTreeUri(context,treeUri) ?: throw IllegalArgumentException("Árvore SAF indisponível")
         val resolver=context.contentResolver
-        val documents=JSONArray(); val errors=JSONArray()
+        val errors=JSONArray()
+        val batches=NativeBatch.Accumulator(NativeBatch.DEFAULT_SIZE) { batch,batchId,batchNumber ->
+            onBatch?.invoke(
+                JSONObject()
+                    .put("treeUri", treeUri.toString())
+                    .put("batchId", batchId)
+                    .put("batchNumber", batchNumber)
+                    .put("batchSize", batch.length())
+                    .put("documents", batch)
+            )
+        }
         val stats=JSONObject().put("scanId",scanId ?: "").put("files",0).put("videos",0).put("directories",0).put("excludedNoMedia",0)
             .put("nomediaDirectories",0).put("nomediaFiles",0).put("metadataMissingSize",0).put("metadataMissingModified",0)
             .put("mimeFallbacks",0).put("successfulQueries",0).put("failedQueries",0).put("emptyDirectories",0).put("errors",errors)
@@ -156,7 +166,7 @@ object SafScanner {
                         if(!mimeVideo)stats.put("mimeFallbacks",stats.getInt("mimeFallbacks")+1)
                         if(child.size==null)stats.put("metadataMissingSize",stats.getInt("metadataMissingSize")+1)
                         if(child.modified==null)stats.put("metadataMissingModified",stats.getInt("metadataMissingModified")+1)
-                        documents.put(JSONObject().put("uri",childUri.toString()).put("treeUri",treeUri.toString()).put("documentId",child.id)
+                        batches.add(JSONObject().put("uri",childUri.toString()).put("treeUri",treeUri.toString()).put("documentId",child.id)
                             .put("name",child.name).put("relativePath",relative).put("volumeId",identity.volumeId).put("volumeUuid",identity.volumeId)
                             .put("mimeType",child.mime).put("size",child.size?:JSONObject.NULL).put("modifiedAt",child.modified?:JSONObject.NULL)
                             .put("source","saf").put("scope",identity.identity))
@@ -173,12 +183,13 @@ object SafScanner {
             if(stats.getInt("directories")-lastDirs>=25){lastDirs=stats.getInt("directories");onProgress?.invoke(identityPayload(treeUri).put("phase","scanning").put("source","saf").put("directories",lastDirs).put("files",stats.getInt("files")).put("videos",stats.getInt("videos")).put("currentPath",currentPath))}
         }
         if(shouldCancel())cancelled=true
+        batches.flush()
         val failed=stats.getInt("failedQueries"); val successful=stats.getInt("successfulQueries"); val fileCount=stats.getInt("files")
         val status=when{revokedDuringScan->STATUS_REVOKED;cancelled->STATUS_CANCELLED;successful==0&&failed>0->STATUS_UNAVAILABLE;failed>0->STATUS_PARTIAL;fileCount==0->STATUS_EMPTY_COMPLETE;else->STATUS_COMPLETED}
         val partial=status in setOf(STATUS_PARTIAL,STATUS_UNAVAILABLE,STATUS_REVOKED)
         stats.put("status",status).put("emptyComplete",status==STATUS_EMPTY_COMPLETE)
         onProgress?.invoke(identityPayload(treeUri).put("phase","finished").put("source","saf").put("status",status).put("directories",stats.getInt("directories")).put("files",fileCount).put("videos",stats.getInt("videos")).put("cancelled",cancelled))
-        return identityPayload(treeUri).put("name",root.name?:treeUri.toString()).put("scope",identity.identity).put("documents",documents)
+        return identityPayload(treeUri).put("name",root.name?:treeUri.toString()).put("scope",identity.identity)
             .put("stats",stats).put("status",status).put("partial",partial).put("cancelled",cancelled)
     }
 }

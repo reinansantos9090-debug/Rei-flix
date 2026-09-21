@@ -545,9 +545,26 @@ class LibraryService:
                     if accepted:
                         result.videos += 1
                         volume_id = str((document or {}).get("volumeId") or "").strip() if isinstance(document, dict) else ""
-                        for key in trusted_scope_seen:
-                            if key[0] == "volume" and key[1] == volume_id:
-                                trusted_scope_seen[key].add(uri)
+                        physical = self.store.physical_row(uri)
+                        if physical:
+                            for scope in scan_scopes:
+                                skind = str(scope.get("scopeKind") or "").strip().casefold()
+                                sref = str(scope.get("scopeRef") or scope.get("volumeId") or "").strip()
+                                if not skind or not sref:
+                                    continue
+                                if skind == "volume" and sref == volume_id:
+                                    self.store.record_observation(
+                                        physical["id"],
+                                        source_kind=source_kind,
+                                        scope_kind=skind,
+                                        scope_ref=sref,
+                                        uri=uri,
+                                        volume_id=volume_id,
+                                        native_generation=native_generation,
+                                        fingerprint=(document or {}).get("nativeFingerprint") if isinstance(document, dict) else None,
+                                    )
+                                    if scope.get("complete") and str(scope.get("status") or "completed").casefold() in {"completed", "complete", "empty_complete"}:
+                                        trusted_scope_seen.setdefault((skind, sref), set()).add(uri)
 
                 for anime_id in sorted(affected_anime_ids):
                     self.artwork.reindex_entity(anime_id)

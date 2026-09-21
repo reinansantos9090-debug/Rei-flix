@@ -100,9 +100,9 @@ def has_package_contract(
     expected_version_name: str = "0.2.1",
 ) -> bool:
     version_code_pattern = (
-        rf'versionCode=["\\\']{expected_version_code}["\\\']'
+        rf'''versionCode=['"]{expected_version_code}['"]'''
         if expected_version_code is not None
-        else r"versionCode=['"]\d+['"]"
+        else r'''versionCode=['"]\d+['"]'''
     )
     return bool(re.search(
         rf"""package:\s+name=['"]com\.reiflix\.reiflix_local['"]\s+

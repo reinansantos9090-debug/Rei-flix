@@ -22,6 +22,8 @@ class ProbeStore:
         return self.run_id
     def latest_completed_native_generation(self, *args):
         return None
+    def has_observation_for_generation(self, *args, **kwargs):
+        return False
     def add_folder(self, *args, **kwargs):
         return None
     def account(self):

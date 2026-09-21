@@ -497,27 +497,23 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("requestId", requestId ?: "")
                     .put("payload", SafScanner.identityPayload(treeUri).put("scanId", scanId).put("phase", "started")
                         .put("source", "saf").put("generationId", NativeIndex.generationId(NativeIndex.SOURCE_SAF, scanKey, generationId)))
-                val result = SafScanner.scan(
-                    context = appContext,
-                    treeUri = treeUri,
-                    onProgress = { progress ->
-                        NativeMailbox.write(
-                            appContext,
-                            JSONObject()
-                                .put("type", "saf_scan_progress")
-                                .put(
-                                    "payload",
-                                    progress
-                                        .put("treeUri", reference)
-                                        .put("scanId", scanId)
-                                        .put("requestId", requestId ?: "")
-                                        .put("phase", "scanning")
-                                )
-                        )
-                    },
-                    shouldCancel = { NativeScanController.isCancelled(scanId) },
-                    scanId = scanId
-                )
+                val onScanProgress: (JSONObject) -> Unit = { progress ->
+                    NativeMailbox.write(
+                        appContext,
+                        JSONObject()
+                            .put("type", "saf_scan_progress")
+                            .put(
+                                "payload",
+                                progress
+                                    .put("treeUri", reference)
+                                    .put("scanId", scanId)
+                                    .put("requestId", requestId ?: "")
+                                    .put("phase", "scanning")
+                            )
+                    )
+                }
+                val shouldCancelScan: () -> Boolean = { NativeScanController.isCancelled(scanId) }
+                val result = SafScanner.scan(appContext, treeUri, onScanProgress, shouldCancelScan, scanId)
                 val partial = result.optBoolean("partial")
                 val scanStatus = result.optString("status").uppercase()
                 val status = when (scanStatus) {

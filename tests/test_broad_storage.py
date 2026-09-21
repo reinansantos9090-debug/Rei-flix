@@ -94,7 +94,7 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         self.assertIn("builder.setAutoEnterEnabled(true)", player)
         self.assertIn("android.software.picture_in_picture", template)
 
-    def test_prompt_2_volume_identity(self):
+    def test_volume_identity(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
         self.assertIn('"volumeId"', source)
         self.assertIn("volume.mediaStoreVolumeName", source)

@@ -88,15 +88,40 @@ class MainActivity : FlutterFragmentActivity() {
                 applicationContext,
                 NativeIndex.volumeSnapshot(applicationContext),
             )
-            if (!changes.optBoolean("changed")) return
-            val payload = JSONObject(changes.toString())
-                .put("source", "android_storage")
-                .put("reason", action)
-                .put("timestamp", System.currentTimeMillis())
-                .put("volumeEventUri", intent.data?.toString() ?: "")
-            NativeMailbox.write(this@MainActivity, JSONObject()
-                .put("type", "volume_changed")
-                .put("payload", payload))
+            if (changes.optBoolean("changed")) {
+                val payload = JSONObject(changes.toString())
+                    .put("source", "android_storage")
+                    .put("reason", action)
+                    .put("timestamp", System.currentTimeMillis())
+                    .put("volumeEventUri", intent.data?.toString() ?: "")
+                NativeMailbox.write(this@MainActivity, JSONObject()
+                    .put("type", "volume_changed")
+                    .put("payload", payload))
+            }
+
+            // Mirror Nova's media/volume lifecycle integration: a mount or the
+            // completion of Android's MediaScanner is a discovery trigger. Never
+            // launch a permission UI from a broadcast; only start scans when the
+            // current Activity is RESUMED and the corresponding source is actually
+            // authorized.
+            val discoveryEvent = action == Intent.ACTION_MEDIA_MOUNTED ||
+                action == Intent.ACTION_MEDIA_SCANNER_FINISHED
+            if (discoveryEvent && activityResumed) {
+                if (MediaStoreScanner.hasReadPermission(this@MainActivity) &&
+                    !NativeScanController.isRunning(MediaStoreScanner.SOURCE)) {
+                    scheduleMediaStoreIncrementalRescan()
+                }
+                if (BroadStorageScanner.hasAccess(this@MainActivity) &&
+                    !NativeScanController.isRunning(BroadStorageScanner.SOURCE)) {
+                    Log.i(tag, "STORAGE_EVENT_BROAD_RESCAN action=" + action + " data=" + intent.data)
+                    scanAllStorage(null)
+                }
+            } else if (action == Intent.ACTION_MEDIA_UNMOUNTED ||
+                action == Intent.ACTION_MEDIA_EJECT ||
+                action == Intent.ACTION_MEDIA_REMOVED ||
+                action == Intent.ACTION_MEDIA_BAD_REMOVAL) {
+                publishStorageStatus()
+            }
         }
     }
 
@@ -109,6 +134,7 @@ class MainActivity : FlutterFragmentActivity() {
             addAction(Intent.ACTION_MEDIA_EJECT)
             addAction(Intent.ACTION_MEDIA_BAD_REMOVAL)
             addAction(Intent.ACTION_MEDIA_CHECKING)
+            addAction(Intent.ACTION_MEDIA_SCANNER_FINISHED)
             addDataScheme("file")
         }
         try {

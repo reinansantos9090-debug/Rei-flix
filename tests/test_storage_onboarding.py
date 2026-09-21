@@ -465,3 +465,21 @@ class TestAuthorizedStorageDiscovery(unittest.TestCase):
         self.assertIn("if (BroadStorageScanner.hasAccess(this))", block)
         self.assertIn("scanAllStorage(requestId)", block)
         self.assertIn("revalidatedAfterSettings", block)
+
+
+class TestAndroidMediaLifecycle(unittest.TestCase):
+    def test_storage_receiver_reacts_to_mount_and_media_scanner_finish(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        receiver = source[source.index("private val storageReceiver"):source.index("private fun registerStorageReceiver", source.index("private val storageReceiver"))]
+        self.assertIn("Intent.ACTION_MEDIA_MOUNTED", receiver)
+        self.assertIn("Intent.ACTION_MEDIA_SCANNER_FINISHED", receiver)
+        self.assertIn("scheduleMediaStoreIncrementalRescan()", receiver)
+        self.assertIn("scanAllStorage(null)", receiver)
+        self.assertIn("activityResumed", receiver)
+
+    def test_storage_receiver_does_not_launch_permission_ui(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        receiver = source[source.index("private val storageReceiver"):source.index("private fun registerStorageReceiver", source.index("private val storageReceiver"))]
+        self.assertNotIn("requestMediaAccess()", receiver)
+        self.assertNotIn("openBroadStorageSettings()", receiver)
+        self.assertNotIn("openTreePicker()", receiver)

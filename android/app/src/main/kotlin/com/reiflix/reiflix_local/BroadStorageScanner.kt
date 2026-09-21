@@ -285,7 +285,7 @@ object BroadStorageScanner {
             }
             if (children == null) {
                 val label = if (rootFiles.any { it.file.path == canonical.path }) "raiz" else "diretório"
-                val message = "Não foi possível acessar " + label + ": " + canonical.path
+                val message = "Não foi possível acessar \$label: \${canonical.path}"
                 errors.put(message)
                 errorsByVolume[root.volumeId]?.put(message)
                 continue
@@ -313,7 +313,6 @@ object BroadStorageScanner {
                 if (!child.isFile || child.extension.lowercase() !in videoExtensions) continue
 
                 val file = runCatching { child.canonicalFile }.getOrNull() ?: continue
-                val owningRoot = rootForFile(file, rootFiles)
                 val volumeName = root.volumeId
                 val relative = relativePath(file, root.file)
                 val document = JSONObject()
@@ -399,8 +398,7 @@ object BroadStorageScanner {
                 .put("stats", scopeStats))
         }
 
-        val partial = errors.length() > 0 || cancelled || volumeScopes.length() == 0 ||
-            (0 until volumeScopes.length()).any { !volumeScopes.getJSONObject(it).optBoolean("complete", false) }
+        val partial = errors.length()>0 || cancelled
         Log.i(TAG, "SCAN_COMPLETED: directories=" + directories + ", files=" + files + ", videos=" + videos + ", nomedia=" + excludedNoMedia + ", errors=" + errors.length() + ", partial=" + partial)
         onProgress?.invoke(JSONObject().put("phase", "finished").put("source", SOURCE)
             .put("directories", directories).put("files", files).put("videos", videos)
@@ -421,7 +419,7 @@ object BroadStorageScanner {
                 .put("duplicates", totalDuplicates).put("removed", totalRemoved)
                 .put("status", when { cancelled -> "cancelled"; partial -> "partial"; else -> "completed" })
                 .put("generationStatus", when { cancelled -> NativeIndex.STATUS_CANCELLED; partial -> NativeIndex.STATUS_PARTIAL; else -> NativeIndex.STATUS_COMPLETED }))
-            .put("partial", errors.length() > 0 || cancelled)
+            .put("partial",errors.length()>0 || cancelled)
             .put("cancelled", cancelled)
     }
 private fun mimeFor(ext:String):String = when(ext.lowercase()) {

@@ -144,6 +144,8 @@ class LibraryStore:
             "failed": "FAILED",
             "error": "FAILED",
             "interrupted": "FAILED",
+            "revoked": "REVOKED",
+            "unavailable": "UNAVAILABLE",
         }.get(value, "FAILED" if value else "COMPLETED")
 
     def set_native_volume_states(self, volumes):

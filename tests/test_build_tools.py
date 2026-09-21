@@ -184,6 +184,17 @@ E: manifest
         self.assertIn("MAIN_DOCUMENT_LAUNCH_MODE_ATTRIBUTE = \"android:documentLaunchMode\"", verifier)
         self.assertIn("has_attribute(main_block, \"launchMode\"", verifier)
         self.assertIn("has_attribute(main_block, \"documentLaunchMode\"", verifier)
+        self.assertIn("has_package_contract", verifier)
+        self.assertIn("has_target_sdk_36", verifier)
+        self.assertIn("versionCode: 1", verifier)
+        self.assertIn("versionName: 0.2.0", verifier)
+
+    def test_packaged_manifest_validator_checks_identity_and_target_sdk(self):
+        verifier = (ROOT / "scripts" / "verify_apk_manifest.py").read_text(encoding="utf-8")
+        self.assertIn('com\\.reiflix\\.reiflix_local', verifier)
+        self.assertIn('versionCode=', verifier)
+        self.assertIn('versionName=', verifier)
+        self.assertIn("targetSdkVersion", verifier)
 
     def test_source_manifest_and_template_contract_cannot_revert_to_single_top(self):
         manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")

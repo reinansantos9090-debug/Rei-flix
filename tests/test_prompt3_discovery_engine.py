@@ -327,13 +327,11 @@ class Prompt3DiscoveryEngineTests(unittest.TestCase):
         )
         self.store.save_progress(doc["uri"], 33, 100)
         self.store.mark_volume_unavailable("external_primary", "test")
-        self.store.close()
         reopened = LibraryStore(self.tmp.name)
         row = reopened.physical_row(doc["uri"])
         self.assertEqual(33, row["progress"])
         self.assertEqual("volume_unavailable", row["availability_state"])
         self.assertTrue(row["missing"])
-        reopened.close()
 
     def test_native_generation_stays_monotonic_per_scope(self):
         # Native generations are represented on the Python side by native_generation.

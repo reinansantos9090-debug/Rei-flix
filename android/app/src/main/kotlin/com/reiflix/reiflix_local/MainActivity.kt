@@ -500,12 +500,10 @@ class MainActivity : FlutterFragmentActivity() {
                 val partial = result.optBoolean("partial")
                 val scanStatus = result.optString("status").uppercase()
                 val status = when (scanStatus) {
-                    SafScanner.STATUS_REVOKED -> SafScanner.STATUS_REVOKED
-                    SafScanner.STATUS_UNAVAILABLE -> SafScanner.STATUS_UNAVAILABLE
-                    SafScanner.STATUS_CANCELLED -> SafScanner.STATUS_CANCELLED
-                    SafScanner.STATUS_PARTIAL -> SafScanner.STATUS_PARTIAL
+                    SafScanner.STATUS_REVOKED, SafScanner.STATUS_UNAVAILABLE -> NativeIndex.STATUS_UNAVAILABLE
+                    SafScanner.STATUS_CANCELLED -> NativeIndex.STATUS_CANCELLED
+                    SafScanner.STATUS_PARTIAL -> NativeIndex.STATUS_PARTIAL
                     SafScanner.STATUS_EMPTY_COMPLETE -> NativeIndex.STATUS_EMPTY_COMPLETE
-                    SafScanner.STATUS_UNAVAILABLE -> NativeIndex.STATUS_UNAVAILABLE
                     else -> NativeIndex.STATUS_COMPLETED
                 }
                 val prepared = NativeIndex.prepare(

@@ -731,13 +731,29 @@ async def main(page: ft.Page):
                         elif event_type == 'volume_changed':
                             await asyncio.to_thread(library.ingest_native_volume_change, payload)
                             on_catalog_changed()
+                            volume_returned = False
+                            for item in (payload.get('added') or []):
+                                if isinstance(item, dict) and item.get('available', False):
+                                    volume_returned = True
+                            for change in (payload.get('changedVolumes') or []):
+                                if not isinstance(change, dict):
+                                    continue
+                                after = change.get('after') or {}
+                                before = change.get('before') or {}
+                                if isinstance(after, dict) and after.get('available', False) and not before.get('available', False):
+                                    volume_returned = True
+                            if volume_returned:
+                                # Event-driven rediscovery: a newly mounted/reconnected
+                                # volume is scanned once instead of being polled.
+                                asyncio.create_task(bridge.scan_all_storage())
                             logger.info(
                                 "[STORAGE] action=volume_changed native_result=received "
-                                "current=%s added=%s removed=%s changed=%s",
+                                "current=%s added=%s removed=%s changed=%s rediscovery=%s",
                                 len(payload.get('current') or []),
                                 len(payload.get('added') or []),
                                 len(payload.get('removed') or []),
                                 len(payload.get('changedVolumes') or []),
+                                volume_returned,
                             )
                             refresh_settings_if_active()
                         elif event_type == 'saf_inventory':

@@ -187,9 +187,9 @@ def main() -> int:
 
     print("Verified packaged AndroidManifest.xml:")
     print("  package: com.reiflix.reiflix_local")
-    version_match = re.search(r"versionCode=['"](\d+)['"]", badging)
+    version_match = re.search(r'''versionCode=['"](\d+)['"]''', badging)
     actual_version_code = version_match.group(1) if version_match else "unknown"
-    version_name_match = re.search(r"versionName=['"]([^'"]+)['"]", badging)
+    version_name_match = re.search(r'''versionName=['"]([^'"]+)['"]''', badging)
     actual_version_name = version_name_match.group(1) if version_name_match else "unknown"
     print(f"  versionCode: {actual_version_code}")
     print(f"  versionName: {actual_version_name}")

@@ -59,6 +59,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
     private var storageReceiverRegistered = false
+    private var safInventoryRunning = false
     private val storageReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context, intent: Intent) {
             val action = intent.action ?: return
@@ -152,32 +153,70 @@ class MainActivity : FlutterFragmentActivity() {
         val requestId = pendingSafRequestId
         pendingSafRequestId = null
         safPickerPending = false
-        if (uri == null) {
-            Log.i(tag, "SAF selection cancelled")
+        if (result.resultCode != RESULT_OK || uri == null) {
+            Log.i(tag, "SAF selection cancelled resultCode=" + result.resultCode)
             NativeMailbox.write(this, JSONObject().put("type", "saf_cancelled")
                 .put("requestId", requestId ?: "")
-                .put("payload", JSONObject().put("source", "saf")))
+                .put("payload", JSONObject().put("source", "saf").put("reason", "picker_cancelled")))
             return
         }
         try {
             Log.i(tag, "SAF result received")
-            SafScanner.persistPermission(this, uri, resultIntent.flags)
-            // Register the user's grant before scanning. If the provider later
-            // fails or exposes a partial tree, Settings must still remember the
-            // authorized SAF tree and let the user retry without selecting it again.
+            val identity = SafScanner.treeIdentity(uri)
+            val transientInspection = SafScanner.inspectTree(this, uri, requirePersisted = false)
+            val transientStatus = transientInspection.optString("status")
+            if (transientStatus != SafScanner.STATUS_COMPLETED) {
+                val status = if (transientStatus == SafScanner.STATUS_REVOKED) SafScanner.STATUS_REVOKED else SafScanner.STATUS_UNAVAILABLE
+                NativeMailbox.write(this, JSONObject().put("type", "saf_error")
+                    .put("requestId", requestId ?: "")
+                    .put("message", "O provedor não conseguiu abrir a pasta selecionada.")
+                    .put("payload", SafScanner.identityPayload(uri)
+                        .put("scanId", "")
+                        .put("status", status)
+                        .put("stage", "selection_validation")
+                        .put("error", transientInspection.optString("error", "provider_unavailable"))))
+                return
+            }
+            val flags = resultIntent.flags
+            SafScanner.persistPermission(this, uri, flags)
+            val persistedInspection = SafScanner.inspectTree(this, uri, requirePersisted = true)
+            val persistedStatus = persistedInspection.optString("status")
+            if (persistedStatus != SafScanner.STATUS_COMPLETED) {
+                val status = if (!SafScanner.hasPersistedReadPermission(this, uri)) SafScanner.STATUS_REVOKED else SafScanner.STATUS_UNAVAILABLE
+                NativeMailbox.write(this, JSONObject().put("type", "saf_error")
+                    .put("requestId", requestId ?: "")
+                    .put("message", "A autorização da pasta não pôde ser validada.")
+                    .put("payload", SafScanner.identityPayload(uri)
+                        .put("status", status)
+                        .put("stage", "persisted_validation")
+                        .put("error", persistedInspection.optString("error", "provider_unavailable"))))
+                return
+            }
+            val payload = SafScanner.identityPayload(uri)
+                .put("granted", true)
+                .put("selected", true)
+                .put("status", SafScanner.STATUS_COMPLETED)
+                .put("name", SafScanner.displayName(this, uri))
+                .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REVALIDATED))
             NativeMailbox.write(this, JSONObject().put("type", "saf_permission")
                 .put("requestId", requestId ?: "")
-                .put("payload", JSONObject()
-                    .put("treeUri", uri.toString())
-                    .put("granted", true)
-                    .put("selected", true)
-                    .put("name", SafScanner.displayName(this, uri))
-                    .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REVALIDATED))))
+                .put("payload", payload))
             scanTree(uri.toString(), requestId)
+        } catch (exception: IllegalArgumentException) {
+            Log.e(tag, "Invalid SAF selection", exception)
+            NativeMailbox.write(this, JSONObject().put("type", "saf_error")
+                .put("requestId", requestId ?: "")
+                .put("message", "A pasta selecionada não é uma árvore SAF válida.")
+                .put("payload", JSONObject().put("source", "saf").put("status", SafScanner.STATUS_FAILED)
+                    .put("stage", "selection_validation")))
         } catch (exception: Exception) {
             Log.e(tag, "SAF selection failed", exception)
-            NativeMailbox.write(this, JSONObject().put("type", "saf_error").put("message", "Não foi possível autorizar esta pasta. Escolha-a novamente.")
-                .put("payload", JSONObject().put("treeUri", uri.toString())))
+            NativeMailbox.write(this, JSONObject().put("type", "saf_error")
+                .put("requestId", requestId ?: "")
+                .put("message", "Não foi possível autorizar esta pasta. Escolha-a novamente.")
+                .put("payload", SafScanner.identityPayload(uri)
+                    .put("status", if (SafScanner.hasPersistedReadPermission(this, uri)) SafScanner.STATUS_UNAVAILABLE else SafScanner.STATUS_FAILED)
+                    .put("stage", "persist")))
         }
     }
 
@@ -423,12 +462,28 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         val treeUri = Uri.parse(reference)
-        if (!SafScanner.hasPersistedReadPermission(this, treeUri)) {
+        val persistedInspection = SafScanner.inspectTree(this, treeUri, requirePersisted = true)
+        val persistedStatus = persistedInspection.optString("status")
+        if (persistedStatus == SafScanner.STATUS_REVOKED) {
             Log.w(tag, "SAF permission revoked")
+            NativeMailbox.write(this, JSONObject().put("type", "saf_permission")
+                .put("requestId", requestId ?: "")
+                .put("payload", SafScanner.identityPayload(treeUri)
+                    .put("granted", false).put("status", SafScanner.STATUS_REVOKED)
+                    .put("error", persistedInspection.optString("error", "persisted_permission_missing"))))
             NativeMailbox.write(this, JSONObject().put("type", "saf_error")
                 .put("requestId", requestId ?: "")
                 .put("message", "A permissão desta pasta foi removida. Escolha a pasta novamente.")
-                .put("payload", JSONObject().put("treeUri", reference).put("scanId", scanId)))
+                .put("payload", SafScanner.identityPayload(treeUri).put("scanId", scanId).put("status", SafScanner.STATUS_REVOKED)))
+            return
+        }
+        if (persistedStatus == SafScanner.STATUS_UNAVAILABLE) {
+            NativeMailbox.write(this, JSONObject().put("type", "saf_error")
+                .put("requestId", requestId ?: "")
+                .put("message", "O provedor desta pasta está indisponível no momento.")
+                .put("payload", SafScanner.identityPayload(treeUri).put("scanId", scanId)
+                    .put("status", SafScanner.STATUS_UNAVAILABLE)
+                    .put("error", persistedInspection.optString("error", "provider_unavailable"))))
             return
         }
         val scanKey = "saf:$reference"
@@ -439,13 +494,16 @@ class MainActivity : FlutterFragmentActivity() {
         }
         val generationId = NativeIndex.startGeneration(
             this, NativeIndex.SOURCE_SAF, scanKey,
-            JSONObject().put("treeUri", reference).put("scopeKind", "root").put("scopeRef", reference)
+            SafScanner.identityPayload(treeUri).put("scopeKind", "root").put("scopeRef", SafScanner.treeIdentity(treeUri).identity)
         )
         val appContext = applicationContext
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
                 NativeIndex.markGenerationRunning(appContext, NativeIndex.SOURCE_SAF, scanKey, generationId)
-                NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan_progress").put("payload", JSONObject().put("treeUri", reference).put("scanId", scanId).put("requestId", requestId ?: "").put("phase", "started")))
+                NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan_progress")
+                    .put("requestId", requestId ?: "")
+                    .put("payload", SafScanner.identityPayload(treeUri).put("scanId", scanId).put("phase", "started")
+                        .put("source", "saf").put("generationId", "native:" + generationId)))
                 val result = SafScanner.scan(appContext, treeUri, { progress ->
                     NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan_progress")
                         .put("payload", progress .put("treeUri", reference).put("scanId", scanId).put("requestId", requestId ?: "").put("phase", "scanning"))) }, { NativeScanController.isCancelled(scanId) })
@@ -465,7 +523,10 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("generationStatus", prepared.status).put("nativeNew", prepared.newItems).put("nativeChanged", prepared.changedItems)
                     .put("nativeUnchanged", prepared.unchangedItems).put("nativeDuplicates", prepared.duplicates).put("nativeRemoved", prepared.removedItems)
                     .put("requestId", requestId ?: "").put("scanId", scanId).put("scopeKind", "root").put("scopeRef", reference)
-                    .put("volumeId", result.optJSONObject("stats")?.optString("volumeId") ?: "")
+                    .put("source", "saf").put("scope", SafScanner.treeIdentity(treeUri).identity)
+                    .put("volumeId", result.optJSONObject("volumeId")?.optString("volumeId") ?: result.optString("volumeId"))
+                    .put("status", result.optString("status"))
+                    .put("generationId", "native:" + prepared.generation)
                 NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan").put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
                 Log.e(tag, "SAF scan failed", exception)
@@ -475,8 +536,9 @@ class MainActivity : FlutterFragmentActivity() {
                 NativeMailbox.write(appContext, JSONObject().put("type", "saf_error")
                     .put("requestId", requestId ?: "")
                     .put("message", "Não foi possível atualizar esta pasta autorizada.")
-                    .put("payload", JSONObject().put("treeUri", reference).put("scanId", scanId)
-                        .put("generationId", "native:" + generationId).put("status", NativeIndex.STATUS_FAILED)))
+                    .put("payload", SafScanner.identityPayload(treeUri).put("scanId", scanId)
+                        .put("generationId", "native:" + generationId).put("status", NativeIndex.STATUS_FAILED)
+                        .put("source", "saf")))
             } finally {
                 NativeScanController.finish(scanId)
                 synchronized(activeNativeScanJobs) { activeNativeScanJobs.remove(scanId) }
@@ -596,33 +658,41 @@ class MainActivity : FlutterFragmentActivity() {
      * so publish it directly through the existing NativeMailbox instead.
      */
     private fun publishSafInventory() {
-        val trees = JSONArray()
-        contentResolver.persistedUriPermissions
-            .asSequence()
-            .filter { it.isReadPermission }
-            .forEach { permission ->
-                val uri = permission.uri
-                if (uri.scheme != "content" || !DocumentsContract.isTreeUri(uri)) return@forEach
-                val treeId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
-                    ?: return@forEach
-                // Authorization inventory only needs the persistent URI grant.
-                // Avoid provider metadata I/O on the Activity lifecycle thread.
-                trees.put(
-                    JSONObject()
-                        .put("treeUri", uri.toString())
-                        .put("documentId", treeId)
-                )
+        if (safInventoryRunning) return
+        safInventoryRunning = true
+        val appContext = applicationContext
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val trees = JSONArray()
+                val permissions = appContext.contentResolver.persistedUriPermissions
+                    .asSequence()
+                    .filter { it.isReadPermission }
+                    .map { it.uri }
+                    .filter { it.scheme == "content" && DocumentsContract.isTreeUri(it) }
+                    .distinct()
+                    .sortedBy { it.toString() }
+                    .toList()
+                for (uri in permissions) {
+                    val inspection = SafScanner.inspectTree(appContext, uri, requirePersisted = true)
+                    trees.put(inspection.put("persisted", true))
+                }
+                NativeMailbox.write(appContext, JSONObject().put("type", "saf_inventory")
+                    .put("payload", JSONObject()
+                        .put("trees", trees)
+                        .put("count", trees.length())
+                        .put("inventoryComplete", true)
+                        .put("lifecycle", if (activityResumed) "RESUMED" else "PAUSED")))
+            } catch (exception: Exception) {
+                Log.e(tag, "SAF inventory failed", exception)
+                NativeMailbox.write(appContext, JSONObject().put("type", "saf_error")
+                    .put("message", "Não foi possível validar as pastas SAF persistidas.")
+                    .put("payload", JSONObject().put("source", "saf").put("status", SafScanner.STATUS_UNAVAILABLE)
+                        .put("stage", "inventory")))
+            } finally {
+                safInventoryRunning = false
             }
-        NativeMailbox.write(
-            this,
-            JSONObject().put("type", "saf_inventory")
-                .put("payload", JSONObject()
-                    .put("trees", trees)
-                    .put("count", trees.length())
-                    .put("lifecycle", if (activityResumed) "RESUMED" else "PAUSED"))
-        )
+        }
     }
-
     private fun openBroadStorageSettings() {
         if (!activityResumed) {
             nativeRequestState.queueLifecycleAction("open_broad_storage_settings", pendingBroadRequestId)

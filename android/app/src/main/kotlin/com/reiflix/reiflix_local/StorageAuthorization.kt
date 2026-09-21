@@ -59,7 +59,15 @@ object StorageAuthorization {
         if (hasAllFilesAccess) BroadStorageAccessLevel.AVAILABLE else BroadStorageAccessLevel.UNAVAILABLE
 
     fun canScanMediaStore(access: MediaAccessLevel): Boolean =
-        access != MediaAccessLevel.DENIED
+        access == MediaAccessLevel.FULL || access == MediaAccessLevel.PARTIAL
+
+    /**
+     * Complete MediaStore reconciliation is only safe with full visibility.
+     * PARTIAL remains scan-capable for ingestion, but is never a complete
+     * snapshot of the device's media library.
+     */
+    fun canReconcileMediaStore(access: MediaAccessLevel): Boolean =
+        access == MediaAccessLevel.FULL
 
     fun canScanSaf(access: SafAccessLevel): Boolean =
         access == SafAccessLevel.AVAILABLE

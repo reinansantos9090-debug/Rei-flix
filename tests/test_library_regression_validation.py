@@ -146,8 +146,8 @@ class FinalRegressionTests(unittest.TestCase):
         self.assertIn('versionCode = 2', android)
         self.assertIn('versionName = "0.2.1"', android)
         self.assertIn('name=\'com.reiflix.reiflix_local\'', workflow)
-        self.assertIn('versionCode=\'1\'', workflow)
-        self.assertIn('versionName=\'0.2.0\'', workflow)
+        self.assertIn("versionCode='$GITHUB_RUN_NUMBER'", workflow)
+        self.assertIn("versionName='0.2.1'", workflow)
 
     def test_settings_and_android_compile_regressions_are_closed_in_source(self):
         settings = Path("views/settings_view.py").read_text(encoding="utf-8")

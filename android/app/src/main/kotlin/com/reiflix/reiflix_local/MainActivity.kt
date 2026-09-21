@@ -910,10 +910,23 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private fun verifyTree(reference: String?) {
         if (reference.isNullOrBlank()) return
-        val granted = SafScanner.hasPersistedReadPermission(this, Uri.parse(reference))
-        Log.i(tag, "SAF permission verification: granted=$granted")
-        NativeMailbox.write(this, JSONObject().put("type", "saf_permission").put("payload", JSONObject()
-            .put("treeUri", reference).put("granted", granted)))
+        val uri = runCatching { Uri.parse(reference) }.getOrNull()
+        if (uri == null) return
+        val inspection = SafScanner.inspectTree(this, uri, requirePersisted = true)
+        val status = inspection.optString("status")
+        Log.i(tag, "SAF permission verification: status=" + status + " uri=" + reference)
+        if (status == SafScanner.STATUS_COMPLETED) {
+            NativeMailbox.write(this, JSONObject().put("type", "saf_permission")
+                .put("payload", inspection.put("granted", true).put("selected", false).put("status", status)))
+        } else {
+            NativeMailbox.write(this, JSONObject().put("type", "saf_error")
+                .put("message", when (status) {
+                    SafScanner.STATUS_REVOKED -> "A autorização desta pasta foi removida."
+                    SafScanner.STATUS_UNAVAILABLE -> "O provedor desta pasta está indisponível no momento."
+                    else -> "Não foi possível validar esta pasta SAF."
+                })
+                .put("payload", inspection.put("status", status)))
+        }
     }
     private fun openPlayer(data: Uri?) {
         val episodeUri = data?.getQueryParameter("uri") ?: return

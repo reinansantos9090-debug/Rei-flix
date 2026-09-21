@@ -7,7 +7,7 @@ from core.storage_access import StorageAccessState, StorageCapabilities, storage
 ROOT = Path(__file__).resolve().parents[1]
 
 class StorageOnboardingTests(unittest.TestCase):
-    def test_prompt_2_storage_capabilities_normalize_native_snapshot(self):
+    def test_storage_capabilities_normalize_native_snapshot(self):
         capabilities = StorageCapabilities.from_native({
             "mediaReadState": "partial",
             "broadStorageState": "available",
@@ -25,7 +25,7 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertTrue(capabilities.can_scan("broad-storage"))
         self.assertEqual(36, capabilities.api)
 
-    def test_prompt_2_partial_never_implies_broad_access(self):
+    def test_partial_never_implies_broad_access(self):
         capabilities = StorageCapabilities(
             media_read_state="partial",
             broad_storage_state="unavailable",
@@ -349,7 +349,7 @@ class StorageOnboardingTests(unittest.TestCase):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertEqual(source.count("import os"), 1)
 
-    def test_prompt_1_1_closure_contract_remains_storage_only(self):
+    def test_closure_contract_remains_storage_only(self):
         main = (ROOT / "main.py").read_text(encoding="utf-8")
         bridge = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
         activity = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
@@ -361,7 +361,7 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertNotIn("PermissionEngine", activity + main + bridge)
         self.assertNotIn("Capability", activity + main + bridge)
 
-    def test_prompt_2_native_mailbox_contract_is_versioned_and_atomic(self):
+    def test_native_mailbox_contract_is_versioned_and_atomic(self):
         mailbox = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt").read_text(encoding="utf-8")
         self.assertIn("EVENT_VERSION = 2", mailbox)
         self.assertIn('put("eventType", eventType(event))', mailbox)
@@ -369,7 +369,7 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("temp.renameTo(target)", mailbox)
         self.assertIn("requestId", mailbox)
 
-    def test_prompt_2_runtime_capabilities_are_single_python_snapshot(self):
+    def test_runtime_capabilities_are_single_python_snapshot(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("storage_capabilities = [StorageCapabilities.unknown()]", source)
         self.assertIn("StorageCapabilities.from_native(payload)", source)
@@ -379,7 +379,7 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertNotIn('storage_onboarding["broad"]', source)
         self.assertNotIn('storage_onboarding["saf"]', source)
 
-    def test_prompt_2_request_ids_cross_lifecycle(self):
+    def test_request_ids_cross_lifecycle(self):
         activity = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         state = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeRequestState.kt").read_text(encoding="utf-8")
         self.assertIn("pendingMediaRequestId", activity)
@@ -389,19 +389,19 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("consumedLifecycleRequestId()", activity)
         self.assertIn("pendingLifecycleRequestId", state)
 
-    def test_prompt_2_settings_return_revalidates_broad_api(self):
+    def test_settings_return_revalidates_broad_api(self):
         activity = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("BroadStorageScanner.hasAccess(this)", activity)
         self.assertIn("revalidatedAfterSettings", activity)
         block = activity.split("if (broadStoragePermissionPending)", 1)[1].split("publishStorageCapabilities", 1)[0]
         self.assertNotIn('.put("granted", true)', block)
 
-    def test_prompt_2_no_fixed_permission_polling_delay(self):
+    def test_no_fixed_permission_polling_delay(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertNotIn("await asyncio.sleep(0.2)", source)
         self.assertIn("poll_interval", source)
 
-    def test_prompt_2_template_enforces_activity_launch_contract(self):
+    def test_template_enforces_activity_launch_contract(self):
         hook = (ROOT / "scripts/prepare_flet_template.py").read_text(encoding="utf-8")
         self.assertIn('main.set(exported_attr, "true")', hook)
         self.assertIn('main.set(launch_attr, "singleTask")', hook)

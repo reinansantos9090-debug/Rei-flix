@@ -474,7 +474,7 @@ class LibraryService:
             partial_scan = bool(
                 scan_stats.get("partial")
                 or scan_stats.get("cancelled")
-                or native_scan_state in {"partial", "failed", "cancelled", "canceled", "error", "unavailable"}
+                or native_scan_state in {"partial", "failed", "cancelled", "canceled", "error", "unavailable", "revoked"}
             )
             try:
                 self.store.add_folder(
@@ -528,8 +528,10 @@ class LibraryService:
                 result.errors.extend(str(error) for error in scan_errors)
                 if scan_stats.get("cancelled") or native_scan_state in {"cancelled", "canceled"}:
                     result.status = "cancelled"
+                elif native_scan_state == "revoked":
+                    result.status = "revoked"
                 elif scan_errors or partial_scan:
-                    result.status = "partial" if native_scan_state != "failed" else "error"
+                    result.status = "partial" if native_scan_state not in {"failed", "error"} else "error"
                 if not scan_errors and not partial_scan and trusted_scope_defs:
                     for (skind, sref), _scope in trusted_scope_defs.items():
                         self.store.reconcile_missing(

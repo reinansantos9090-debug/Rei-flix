@@ -320,18 +320,12 @@ object NativeIndex {
         if (complete) {
             check(staging.parentFile?.isDirectory == true || staging.parentFile?.mkdirs() == true)
             if (!staging.exists()) staging.writeText("", Charsets.UTF_8)
-            runCatching {
-                java.nio.file.Files.move(
-                    staging.toPath(), committed.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                    java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                )
-            }.getOrElse {
-                java.nio.file.Files.move(
-                    staging.toPath(), committed.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                )
-            }
+            java.nio.file.Files.move(
+                staging.toPath(),
+                committed.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+            )
             published = true
         }
         val counts = scope.optJSONObject("counts") ?: JSONObject()

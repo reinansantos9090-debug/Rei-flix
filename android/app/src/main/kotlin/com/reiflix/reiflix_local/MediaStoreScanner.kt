@@ -90,6 +90,7 @@ object MediaStoreScanner {
                     files+=cachedCount;videos+=cachedCount
                     volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",cachedGeneration).put("complete",true).put("reused",true).put("status",if(cachedCount==0) NativeIndex.STATUS_EMPTY_COMPLETE else NativeIndex.STATUS_COMPLETED)
                         .put("generationId",NativeIndex.generationId(SOURCE,scopeKey,cachedGeneration))
+                        .put("scanId",(scanId ?: "") + ":" + volumeName)
                         .put("scopeKind","volume").put("scopeRef",volumeName)
                         .put("batchCount",if(cachedCount==0) 0 else (cachedCount + NativeBatch.DEFAULT_SIZE - 1) / NativeBatch.DEFAULT_SIZE)
                         .put("processed",cachedCount).put("duplicates",0).put("removed",0))

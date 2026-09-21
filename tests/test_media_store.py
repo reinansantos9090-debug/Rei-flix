@@ -63,7 +63,7 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", main)
+        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("MediaItem.Builder().setUri(uri)", player)
         self.assertIn("contentResolver.openFileDescriptor(localUri, \"r\")", player)

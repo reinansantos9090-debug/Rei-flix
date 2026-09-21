@@ -94,11 +94,20 @@ def has_launchable_activity(badging: str, activity_name: str) -> bool:
         badging,
     ))
 
-def has_package_contract(badging: str) -> bool:
+def has_package_contract(
+    badging: str,
+    expected_version_code: int | None = None,
+    expected_version_name: str = "0.2.1",
+) -> bool:
+    version_code_pattern = (
+        rf"versionCode=['"]{expected_version_code}['"]"
+        if expected_version_code is not None
+        else r"versionCode=['"]\d+['"]"
+    )
     return bool(re.search(
-        r"""package:\s+name=['"]com\.reiflix\.reiflix_local['"]\s+
-            versionCode=['"]1['"]\s+
-            versionName=['"]0\.2\.0['"]""",
+        rf"""package:\s+name=['"]com\.reiflix\.reiflix_local['"]\s+
+            {version_code_pattern}\s+
+            versionName=['"]{re.escape(expected_version_name)}['"]""",
         badging,
         re.X,
     ))
@@ -112,6 +121,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("apk", type=Path)
     parser.add_argument("--aapt2", type=Path, default=Path(shutil.which("aapt2") or ""))
+    parser.add_argument("--expected-version-code", type=int, default=None)
+    parser.add_argument("--expected-version-name", default="0.2.1")
     args = parser.parse_args()
     if not args.apk.is_file():
         parser.error(f"APK not found: {args.apk}")
@@ -128,7 +139,11 @@ def main() -> int:
     main_block = extract_activity_block(manifest, MAIN_ACTIVITY)
     player_block = extract_activity_block(manifest, PLAYER_ACTIVITY)
     failed: list[str] = []
-    if not has_package_contract(badging):
+    if not has_package_contract(
+        badging,
+        expected_version_code=args.expected_version_code,
+        expected_version_name=args.expected_version_name,
+    ):
         failed.append("packaged APK package/versionCode/versionName contract is incorrect")
     if not has_target_sdk_36(badging):
         failed.append("packaged APK targetSdkVersion is not 36")
@@ -172,8 +187,12 @@ def main() -> int:
 
     print("Verified packaged AndroidManifest.xml:")
     print("  package: com.reiflix.reiflix_local")
-    print("  versionCode: 1")
-    print("  versionName: 0.2.0")
+    version_match = re.search(r"versionCode=['"](\d+)['"]", badging)
+    actual_version_code = version_match.group(1) if version_match else "unknown"
+    version_name_match = re.search(r"versionName=['"]([^'"]+)['"]", badging)
+    actual_version_name = version_name_match.group(1) if version_name_match else "unknown"
+    print(f"  versionCode: {actual_version_code}")
+    print(f"  versionName: {actual_version_name}")
     print("  targetSdkVersion: 36")
     print(f"  MainActivity: {MAIN_ACTIVITY}")
     print("  launchMode: singleTask (AAPT2 ActivityInfo constant 2)")

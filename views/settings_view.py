@@ -49,11 +49,11 @@ class SettingsView:
             )
 
         def confirm(title, body, action_label, action):
-            def run_action(_event):
+            async def run_action(_event):
                 page.pop_dialog()
                 result = action()
                 if hasattr(result, "__await__"):
-                    page.run_task(lambda: result)
+                    await result
             dialog = ft.AlertDialog(
                 modal=True, title=ft.Text(title), content=ft.Text(body),
                 actions=[ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),

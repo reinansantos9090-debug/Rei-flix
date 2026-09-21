@@ -56,7 +56,12 @@ object NativeMailbox {
     }
 
     @Synchronized
-    fun write(context: Context, event: JSONObject) {
+    fun writeOrThrow(context: Context, event: JSONObject) {
+        check(write(context, event)) { "Could not publish native event to NativeMailbox" }
+    }
+
+    @Synchronized
+    fun write(context: Context, event: JSONObject): Boolean {
         var temporary: File?=null
         try{
             val dataDirectory = File(context.filesDir, "data")
@@ -116,6 +121,8 @@ object NativeMailbox {
         }catch(exception:Exception){
             temporary?.delete()
             Log.e(TAG,"Unable to queue native event",exception)
+            return false
         }
+        return true
     }
 }

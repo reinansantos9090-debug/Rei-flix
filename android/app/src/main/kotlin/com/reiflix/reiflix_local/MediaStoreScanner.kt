@@ -70,21 +70,27 @@ object MediaStoreScanner {
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE).put("files",0).put("videos",0))
         for(volumeName in volumeNames){
             if(shouldCancel()){cancelled=true;break}
+            var activeGeneration=0L
+            var activeScopeKey="mediastore:"+volumeName
             try{
                 val version=if(Build.VERSION.SDK_INT>=29)runCatching{MediaStore.getVersion(context,volumeName)}.getOrDefault("") else ""
                 val generation=if(Build.VERSION.SDK_INT>=30)runCatching{MediaStore.getGeneration(context,volumeName)}.getOrDefault(0L) else 0L
-                val scopeKey="mediastore:"+volumeName
+                val scopeKey=activeScopeKey
                 if(NativeIndex.canReuseMediaStoreVolume(context,volumeName,access,version,generation)){
                     val cached=NativeIndex.cachedDocuments(context,scopeKey)
                     for(i in 0 until cached.length())documents.put(cached.getJSONObject(i))
                     files+=cached.length();videos+=cached.length()
-                    volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",NativeIndex.cachedGeneration(context,scopeKey)).put("documents",cached).put("complete",true).put("reused",true).put("new",0).put("changed",0).put("unchanged",cached.length()).put("duplicates",0).put("removed",0))
+                    volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",NativeIndex.cachedGeneration(context,scopeKey)).put("documents",cached).put("complete",true).put("reused",true).put("status",NativeIndex.STATUS_COMPLETED)
+                        .put("generationId","native:"+NativeIndex.cachedGeneration(context,scopeKey))
+                        .put("scopeKind","volume").put("scopeRef",volumeName)
+                        .put("new",0).put("changed",0).put("unchanged",cached.length()).put("duplicates",0).put("removed",0))
                     onProgress?.invoke(JSONObject().put("phase","reused").put("source",SOURCE).put("volumeId",volumeName).put("files",files).put("videos",videos))
                     continue
                 }
                 val scopeMetadata=JSONObject().put("mediaStoreVersion",version).put("mediaStoreGeneration",generation)
                     .put("accessLevel",access).put("volumeId",volumeName)
                 val generationId=NativeIndex.startGeneration(context,SOURCE,scopeKey,scopeMetadata)
+                activeGeneration=generationId
                 val raw=JSONArray();val localErrors=JSONArray()
                 var localCancelled=false
                 val collection=if(Build.VERSION.SDK_INT>=29)MediaStore.Video.Media.getContentUri(volumeName)else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
@@ -126,9 +132,11 @@ object MediaStoreScanner {
             }catch(security:SecurityException){
                 Log.w(TAG,"MediaStore permission/query denied for volume $volumeName",security)
                 errors.put("O acesso ao volume $volumeName foi negado.")
+                if(activeGeneration>0) NativeIndex.failGeneration(context,SOURCE,activeScopeKey,activeGeneration,security.message ?: "MediaStore permission/query denied")
             }catch(exception:Exception){
                 Log.w(TAG,"MediaStore query failed for volume $volumeName",exception)
                 errors.put("Não foi possível consultar o volume $volumeName.")
+                if(activeGeneration>0) NativeIndex.failGeneration(context,SOURCE,activeScopeKey,activeGeneration,exception.message ?: "MediaStore query failed")
             }
         }
         onProgress?.invoke(JSONObject().put("phase","finished").put("source",SOURCE).put("files",files).put("videos",videos))

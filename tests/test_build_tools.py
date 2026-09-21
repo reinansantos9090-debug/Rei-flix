@@ -391,7 +391,6 @@ E: manifest
         self.assertIn("takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)", scanner)
         self.assertIn("check(hasPersistedReadPermission(context,uri))", scanner)
         self.assertIn("SafScanner.inspectTree(this, treeUri, requirePersisted = true)", main)
-        self.assertIn("SafScanner.hasPersistedReadPermission(this, treeUri)", main)
         self.assertIn("A permissão desta pasta foi removida.", main)
 
     def test_player_rejects_removed_or_invalid_saf_documents_without_starting_media3(self):

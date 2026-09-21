@@ -535,13 +535,36 @@ class LibraryStore:
                       (authorization, error, time.time(), reference))
 
     def remove_folder(self, reference):
-        """Remove a configured folder while preserving its episodes as missing.
-
-        Playback progress, favorites and anime metadata remain durable; only
-        episodes owned by the removed source stop being playable.
-        """
+        """Remove one configured discovery source without destroying cross-source media."""
+        reference = str(reference or "").strip()
+        if not reference:
+            return
+        source_kind = self._infer_source_kind(reference)
         with self._conn() as c:
-            c.execute("UPDATE episodes SET missing=1,availability_state='scope_removed' WHERE source_folder=?", (reference,))
+            if source_kind == "broad_storage":
+                scope_filter = "source_kind='broad_storage'"
+                params = ()
+            elif source_kind == "saf":
+                scope_filter = "source_kind='saf' AND scope_ref=?"
+                params = (reference,)
+            else:
+                scope_filter = "source_kind=? AND scope_ref=?"
+                params = (source_kind, reference)
+            rows = c.execute(
+                "SELECT DISTINCT episode_id FROM episode_observations WHERE " + scope_filter,
+                params,
+            ).fetchall()
+            for row in rows:
+                c.execute(
+                    "UPDATE episode_observations SET state='scope_removed',error='source_removed',last_checked_at=? WHERE episode_id=? AND " + scope_filter,
+                    (time.time(), row["episode_id"], *params),
+                )
+                self._recompute_episode_availability_locked(c, row["episode_id"])
+            c.execute(
+                """UPDATE episodes SET missing=1,availability_state='scope_removed'
+                   WHERE source_folder=? AND id NOT IN (SELECT episode_id FROM episode_observations)""",
+                (reference,),
+            )
             c.execute("DELETE FROM folders WHERE path=?", (reference,))
 
     def begin_scan(self, scan_id=None, *, source_kind=None, scope_kind="global", scope_ref=None, native_generation=None, generation_id=None):

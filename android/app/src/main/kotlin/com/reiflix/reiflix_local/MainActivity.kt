@@ -143,7 +143,7 @@ class MainActivity : FlutterFragmentActivity() {
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
                 .put("requestId", requestId ?: "")
                 .put("message", "A permissão para acessar os vídeos do dispositivo foi negada.")
-                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
+                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE).put("status", NativeIndex.STATUS_FAILED).put("access", access)))
         }
     }
     private val treePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
@@ -1013,7 +1013,7 @@ class MainActivity : FlutterFragmentActivity() {
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
                 .put("requestId", requestId ?: "")
                 .put("message", "A permissão para ler vídeos ainda não foi concedida.")
-                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
+                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE).put("status", "DENIED").put("access", "denied")))
             return
         }
         if (!NativeScanController.begin(scanId, MediaStoreScanner.SOURCE)) {

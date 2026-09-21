@@ -323,7 +323,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(store.catalog()[0]['main_title'], 'Naruto')
             self.assertEqual(store.get_preference('missing', 'default'), 'default')
             with store._conn() as con:
-                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], self.store.SCHEMA_VERSION)
+                self.assertEqual(con.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0], store.SCHEMA_VERSION)
 
     def test_manual_episode_identification_survives_rescan_and_migration_fields(self):
         with tempfile.TemporaryDirectory() as d:

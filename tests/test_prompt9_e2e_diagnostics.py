@@ -41,9 +41,14 @@ class Prompt9DiagnosticsTests(unittest.TestCase):
         source = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
         self.assertNotIn("|| true", source)
 
-    def test_history_does_not_silently_drop_persistence_errors(self):
-        source = (ROOT / "core/history.py").read_text(encoding="utf-8")
-        self.assertNotRegex(source, r"except\s+Exception\s*:\s*\n\s*pass")
+    def test_active_python_sources_do_not_silently_drop_exception_failures(self):
+        paths = [ROOT / "main.py"]
+        paths.extend(sorted((ROOT / "core").glob("*.py")))
+        paths.extend(sorted((ROOT / "views").glob("*.py")))
+        pattern = re.compile(r"except\s+Exception\s*:\s*\n\s*pass")
+        for path in paths:
+            source = path.read_text(encoding="utf-8")
+            self.assertNotRegex(source, pattern, str(path))
 
     def test_python_sources_parse(self):
         for path in (ROOT / "main.py", ROOT / "core/diagnostics.py", ROOT / "core/history.py", ROOT / "views/settings_view.py"):

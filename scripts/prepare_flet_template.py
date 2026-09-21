@@ -85,7 +85,7 @@ for permission, max_sdk in permission_specs:
         for duplicate in existing_nodes[1:]:
             manifest.remove(duplicate)
         if permission == "android.permission.READ_EXTERNAL_STORAGE" and max_sdk is not None:
-            keep.set("{" + ANDROID + "}maxSdkVersion", max_sdk)
+            node.set("{" + ANDROID + "}maxSdkVersion", max_sdk)
         continue
     attrs = {permission_attr: permission}
     if max_sdk is not None:
@@ -109,12 +109,23 @@ main = next((activity for activity in activities if activity.get(name) in [".Mai
 if main is None:
     raise RuntimeError("Rendered Flet manifest has no MainActivity to replace")
 main.set(name, "com.reiflix.reiflix_local.MainActivity")
+main.set(exported_attr, "true")
 main.set(launch_attr, "singleTask")
 main.set(document_launch_attr, "never")
 main.set(config_attr, "orientation|screenSize|keyboardHidden")
 
 # Reiflix bridge deep-link retained alongside Flet's launcher intent filter.
-bridge = ET.SubElement(main, "intent-filter")
+bridge = None
+for candidate in main.findall("intent-filter"):
+    data_nodes = candidate.findall("data")
+    if any(
+        node.get(scheme_attr) == "reiflix" and node.get(host_attr) == "native"
+        for node in data_nodes
+    ):
+        bridge = candidate
+        break
+if bridge is None:
+    bridge = ET.SubElement(main, "intent-filter")
 ET.SubElement(bridge, "action", {name: "android.intent.action.VIEW"})
 ET.SubElement(bridge, "category", {name: "android.intent.category.DEFAULT"})
 ET.SubElement(bridge, "category", {name: "android.intent.category.BROWSABLE"})

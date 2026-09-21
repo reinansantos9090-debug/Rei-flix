@@ -2,7 +2,6 @@ package com.reiflix.reiflix_local
 
 import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.storage.StorageManager
@@ -23,20 +22,26 @@ object MediaStoreScanner {
         Build.VERSION.SDK_INT >= 23 -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
         else -> emptyArray()
     }
-    fun hasReadPermission(context: Context): Boolean = when {
-        Build.VERSION.SDK_INT >= 34 -> has(context,Manifest.permission.READ_MEDIA_VIDEO) || has(context,Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
-        Build.VERSION.SDK_INT >= 33 -> has(context,Manifest.permission.READ_MEDIA_VIDEO)
-        Build.VERSION.SDK_INT >= 23 -> has(context,Manifest.permission.READ_EXTERNAL_STORAGE)
-        else -> true
-    }
-    private fun has(context: Context,p:String)=context.checkSelfPermission(p)==PackageManager.PERMISSION_GRANTED
-    fun accessLevel(context: Context): String = when {
-        Build.VERSION.SDK_INT>=34&&has(context,Manifest.permission.READ_MEDIA_VIDEO)->"full"
-        Build.VERSION.SDK_INT>=34&&has(context,Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)->"partial"
-        Build.VERSION.SDK_INT>=33&&has(context,Manifest.permission.READ_MEDIA_VIDEO)->"full"
-        Build.VERSION.SDK_INT>=23&&has(context,Manifest.permission.READ_EXTERNAL_STORAGE)->"full"
-        Build.VERSION.SDK_INT<23->"full"
-        else->"denied"
+    private fun has(context: Context,p:String)=context.checkSelfPermission(android.content.pm.PackageManager.PERMISSION_GRANTED)
+
+    fun accessLevelValue(context: Context): MediaAccessLevel =
+        StorageAuthorization.mediaAccess(
+            Build.VERSION.SDK_INT,
+            readExternalStorage = Build.VERSION.SDK_INT in 23..32 &&
+                has(context, Manifest.permission.READ_EXTERNAL_STORAGE),
+            readMediaVideo = Build.VERSION.SDK_INT >= 33 &&
+                has(context, Manifest.permission.READ_MEDIA_VIDEO),
+            readSelectedVisualMedia = Build.VERSION.SDK_INT >= 34 &&
+                has(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED),
+        )
+
+    fun hasReadPermission(context: Context): Boolean =
+        StorageAuthorization.canScanMediaStore(accessLevelValue(context))
+
+    fun accessLevel(context: Context): String = when (accessLevelValue(context)) {
+        MediaAccessLevel.FULL -> "full"
+        MediaAccessLevel.PARTIAL -> "partial"
+        MediaAccessLevel.DENIED -> "denied"
     }
     fun isAuthorizedDocument(context: Context,uri:Uri):Boolean {
         if(uri.scheme!="content"||uri.authority!=MediaStore.AUTHORITY||!hasReadPermission(context))return false
@@ -59,11 +64,7 @@ object MediaStoreScanner {
         if(Build.VERSION.SDK_INT>=30){projection+=MediaStore.MediaColumns.GENERATION_ADDED;projection+=MediaStore.MediaColumns.GENERATION_MODIFIED}
         val documents=JSONArray();val volumeScopes=JSONArray();val errors=JSONArray()
         val access=accessLevel(context)
-        val accessState = when (access) {
-            "full" -> MediaAccessLevel.FULL
-            "partial" -> MediaAccessLevel.PARTIAL
-            else -> MediaAccessLevel.DENIED
-        }
+        val accessState = accessLevelValue(context)
         check(StorageAuthorization.canScanMediaStore(accessState)) { "Permissão de vídeos não concedida." }
         var files=0;var videos=0;var cancelled=false
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE).put("files",0).put("videos",0))

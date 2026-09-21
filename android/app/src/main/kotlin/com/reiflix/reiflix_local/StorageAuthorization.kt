@@ -1,26 +1,29 @@
 package com.reiflix.reiflix_local
 
 /**
- * Pure storage authorization model used by native tests and diagnostic code.
+ * Single native authorization model.
  *
- * The actual Android permission APIs remain the source of truth; this class
- * only maps already-observed facts into explicit states and scanner gates.
+ * Android framework APIs remain authoritative; this model only translates
+ * already-observed facts into explicit source capabilities and lifecycle state.
  */
-enum class MediaAccessLevel {
-    DENIED,
-    PARTIAL,
-    FULL,
+enum class MediaAccessLevel { DENIED, PARTIAL, FULL }
+enum class SafAccessLevel { UNKNOWN, AVAILABLE, REVOKED }
+enum class BroadStorageAccessLevel { AVAILABLE, UNAVAILABLE }
+
+enum class StorageLifecycleState {
+    UNKNOWN, CHECKING, DENIED, PARTIAL, FULL, REQUESTING, RETURNED,
+    REVALIDATED, SCAN_CAPABLE, NOT_SCAN_CAPABLE,
 }
 
-enum class SafAccessLevel {
-    UNKNOWN,
-    AVAILABLE,
-    REVOKED,
-}
-
-enum class BroadStorageAccessLevel {
-    AVAILABLE,
-    UNAVAILABLE,
+data class StorageCapabilities(
+    val mediaReadState: MediaAccessLevel,
+    val broadStorageState: BroadStorageAccessLevel,
+    val safRoots: List<String>,
+    val removableVolumes: List<String>,
+    val scannerCapabilities: Set<String>,
+    val lifecycleState: StorageLifecycleState,
+) {
+    fun canScan(source: String): Boolean = source in scannerCapabilities
 }
 
 object StorageAuthorization {
@@ -42,30 +45,57 @@ object StorageAuthorization {
             if (readMediaVideo) MediaAccessLevel.FULL else MediaAccessLevel.DENIED
     }
 
-    fun safAccess(
-        configuredTreeUri: String?,
-        persistedReadUris: Collection<String>,
-    ): SafAccessLevel {
+    fun safAccess(configuredTreeUri: String?, persistedReadUris: Collection<String>): SafAccessLevel {
         val tree = configuredTreeUri?.trim().takeUnless { it.isNullOrEmpty() }
             ?: return SafAccessLevel.UNKNOWN
-        return if (persistedReadUris.contains(tree)) {
-            SafAccessLevel.AVAILABLE
-        } else {
-            SafAccessLevel.REVOKED
-        }
+        return if (persistedReadUris.contains(tree)) SafAccessLevel.AVAILABLE else SafAccessLevel.REVOKED
     }
 
     fun broadAccess(hasAllFilesAccess: Boolean): BroadStorageAccessLevel =
         if (hasAllFilesAccess) BroadStorageAccessLevel.AVAILABLE else BroadStorageAccessLevel.UNAVAILABLE
 
+    fun lifecycleState(
+        mediaAccess: MediaAccessLevel,
+        broadAccess: BroadStorageAccessLevel,
+        safRoots: Collection<String>,
+    ): StorageLifecycleState {
+        val scanCapable = canScanMediaStore(mediaAccess) ||
+            broadAccess == BroadStorageAccessLevel.AVAILABLE ||
+            safRoots.isNotEmpty()
+        return when {
+            scanCapable -> StorageLifecycleState.SCAN_CAPABLE
+            mediaAccess == MediaAccessLevel.FULL -> StorageLifecycleState.FULL
+            mediaAccess == MediaAccessLevel.PARTIAL -> StorageLifecycleState.PARTIAL
+            else -> StorageLifecycleState.NOT_SCAN_CAPABLE
+        }
+    }
+
+    fun capabilities(
+        mediaAccess: MediaAccessLevel,
+        broadAccess: BroadStorageAccessLevel,
+        safRoots: Collection<String> = emptyList(),
+        removableVolumes: Collection<String> = emptyList(),
+        lifecycleState: StorageLifecycleState? = null,
+    ): StorageCapabilities {
+        val normalizedSaf = safRoots.map(String::trim).filter(String::isNotEmpty).distinct()
+        val normalizedVolumes = removableVolumes.map(String::trim).filter(String::isNotEmpty).distinct()
+        val scanners = linkedSetOf<String>()
+        if (canScanMediaStore(mediaAccess)) scanners += "mediastore"
+        if (broadAccess == BroadStorageAccessLevel.AVAILABLE) scanners += "broad-storage"
+        if (normalizedSaf.isNotEmpty()) scanners += "saf"
+        return StorageCapabilities(
+            mediaReadState = mediaAccess,
+            broadStorageState = broadAccess,
+            safRoots = normalizedSaf,
+            removableVolumes = normalizedVolumes,
+            scannerCapabilities = scanners,
+            lifecycleState = lifecycleState ?: lifecycleState(mediaAccess, broadAccess, normalizedSaf),
+        )
+    }
+
     fun canScanMediaStore(access: MediaAccessLevel): Boolean =
         access == MediaAccessLevel.FULL || access == MediaAccessLevel.PARTIAL
 
-    /**
-     * Complete MediaStore reconciliation is only safe with full visibility.
-     * PARTIAL remains scan-capable for ingestion, but is never a complete
-     * snapshot of the device's media library.
-     */
     fun canReconcileMediaStore(access: MediaAccessLevel): Boolean =
         access == MediaAccessLevel.FULL
 

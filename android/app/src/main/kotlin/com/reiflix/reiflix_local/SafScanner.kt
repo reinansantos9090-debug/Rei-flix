@@ -21,6 +21,9 @@ object SafScanner {
         Log.i(TAG, "SAF permission persisted")
     }
 
+    fun accessLevel(context: Context, treeUri: Uri): SafAccessLevel =
+        if (hasPersistedReadPermission(context, treeUri)) SafAccessLevel.AVAILABLE else SafAccessLevel.REVOKED
+
     fun hasPersistedReadPermission(context: Context, treeUri: Uri): Boolean {
         if (treeUri.scheme != "content" || !DocumentsContract.isTreeUri(treeUri)) return false
         val treeDocumentId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()

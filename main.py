@@ -25,7 +25,7 @@ GOOGLE_WEB_CLIENT_ID = os.getenv('REIFLIX_GOOGLE_WEB_CLIENT_ID', CONFIG_GOOGLE_W
 async def main(page: ft.Page):
     page.title='Rei-Flix Local'; page.theme_mode=ft.ThemeMode.DARK; page.bgcolor='#16151F'; page.padding=0
     page.theme=ft.Theme(color_scheme_seed='#E50914',font_family='Roboto')
-    data_dir=os.getenv('FLET_APP_STORAGE_DATA') or os.path.join(os.path.dirname(__file__),'.reiflix-data')
+    data_dir=os.getenv("FLET_APP_STORAGE_DATA") or os.path.join(os.path.dirname(__file__),'.reiflix-data')
     store=LibraryStore(data_dir)
     recovered_scans=store.interrupted_scans()
     library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]

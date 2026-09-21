@@ -30,11 +30,17 @@ object BroadStorageScanner {
         val emulated: Boolean,
         val state: String,
     )
-    fun hasAccess(context: Context): Boolean = when {
-        Build.VERSION.SDK_INT >= 30 -> Environment.isExternalStorageManager()
-        Build.VERSION.SDK_INT >= 23 -> context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-        else -> true
+    fun accessLevel(context: Context): BroadStorageAccessLevel {
+        val granted = when {
+            Build.VERSION.SDK_INT >= 30 -> Environment.isExternalStorageManager()
+            Build.VERSION.SDK_INT >= 23 -> context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            else -> true
+        }
+        return StorageAuthorization.broadAccess(granted)
     }
+
+    fun hasAccess(context: Context): Boolean =
+        accessLevel(context) == BroadStorageAccessLevel.AVAILABLE
 
     /** Compact runtime diagnostics used to explain why local storage is or is not visible. */
     fun accessSnapshot(context: Context): JSONObject {
@@ -58,9 +64,11 @@ object BroadStorageScanner {
         if (Build.VERSION.SDK_INT >= 24) {
             context.getSystemService(StorageManager::class.java)?.storageVolumes?.forEach { volume ->
                 val item = JSONObject()
+                    .put("volumeId", if (Build.VERSION.SDK_INT >= 30) (volume.mediaStoreVolumeName ?: volume.uuid ?: "") else (volume.uuid ?: ""))
                     .put("uuid", volume.uuid ?: "")
                     .put("primary", volume.isPrimary)
                     .put("removable", volume.isRemovable)
+                    .put("emulated", volume.isEmulated)
                     .put("state", volume.state ?: "unknown")
                 if (Build.VERSION.SDK_INT >= 30) {
                     volume.mediaStoreVolumeName?.let { item.put("mediaStoreVolumeName", it) }

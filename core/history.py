@@ -1,5 +1,8 @@
 import json
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 class HistoryManager:
     # Dados de usuário ficam no armazenamento privado do aplicativo, nunca em
@@ -12,8 +15,8 @@ class HistoryManager:
             try:
                 with open(HistoryManager.DATA_FILE, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to load playback history: %s", exc)
         return {"progress": {}, "durations": {}, "favorites": []}
 
     @staticmethod
@@ -22,8 +25,8 @@ class HistoryManager:
             os.makedirs(os.path.dirname(HistoryManager.DATA_FILE) or ".", exist_ok=True)
             with open(HistoryManager.DATA_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to persist playback history: %s", exc)
 
     @classmethod
     def save_position(cls, video_path: str, position_seconds: float, total_duration_seconds: float = 0):

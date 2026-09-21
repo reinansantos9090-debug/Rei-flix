@@ -632,7 +632,12 @@ class LibraryService:
                 "description": str(item.get("description") or ""),
             })
         removed = payload.get("removed") or []
-        return self.store.record_native_volume_change({"current": normalized, "removed": removed})
+        enriched = {
+            "current": normalized,
+            "removed": removed,
+            "eventTimestamp": payload.get("eventTimestamp") or payload.get("timestamp") or payload.get("observedAt"),
+        }
+        return self.store.record_native_volume_change(enriched)
 
     def resolve_match(self, lookup_title, anilist_id):
         """Persist an explicit AniList choice and refresh its metadata immediately."""

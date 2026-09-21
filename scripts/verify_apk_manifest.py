@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 
 MAIN_ACTIVITY = "com.reiflix.reiflix_local.MainActivity"
+PLAYER_ACTIVITY = "com.reiflix.reiflix_local.NativePlayerActivity"
+PIP_FEATURE = "android.software.picture_in_picture"
 MAIN_LAUNCH_MODE_ATTRIBUTE = "android:launchMode"
 MAIN_DOCUMENT_LAUNCH_MODE_ATTRIBUTE = "android:documentLaunchMode"
 REQUIRED_PERMISSIONS = (
@@ -65,6 +67,18 @@ def has_deep_link(activity_block: str | None) -> bool:
 def has_permission(manifest: str, permission: str) -> bool:
     return permission in manifest
 
+
+def has_optional_feature(manifest: str, feature_name: str) -> bool:
+    blocks = re.split(r"(?m)^\s*E:\s*uses-feature\b[^\n]*\n?", manifest)
+    for tail in blocks[1:]:
+        block = "E: uses-feature\n" + tail
+        if feature_name in block and not re.search(
+            r"android:required\b.*?(?:true|0xffffffff|0x1)(?:\n|$)", block, re.S
+        ):
+            return True
+    return False
+
+
 def has_max_sdk_32_for_legacy_permission(manifest: str) -> bool:
     blocks = re.split(r"(?m)^\s*E:\s*uses-permission\b[^\n]*\n?", manifest)
     for tail in blocks[1:]:
@@ -112,6 +126,7 @@ def main() -> int:
         return 1
 
     main_block = extract_activity_block(manifest, MAIN_ACTIVITY)
+    player_block = extract_activity_block(manifest, PLAYER_ACTIVITY)
     failed: list[str] = []
     if not has_package_contract(badging):
         failed.append("packaged APK package/versionCode/versionName contract is incorrect")
@@ -128,9 +143,20 @@ def main() -> int:
         )
         failed.extend(name for name, ok in checks if not ok)
 
+    if player_block is None:
+        failed.append(f"NativePlayerActivity not found in packaged manifest: {PLAYER_ACTIVITY}")
+    else:
+        player_checks = (
+            ("NativePlayerActivity supportsPictureInPicture=true", has_attribute(player_block, "supportsPictureInPicture", "0xffffffff", "true")),
+            ("NativePlayerActivity exported=false", has_attribute(player_block, "exported", "0x0", "false")),
+        )
+        failed.extend(name for name, ok in player_checks if not ok)
+
     if not has_launchable_activity(badging, MAIN_ACTIVITY):
         failed.append("launchable MainActivity is missing from AAPT2 badging output")
     failed.extend(permission for permission in REQUIRED_PERMISSIONS if not has_permission(manifest, permission))
+    if not has_optional_feature(manifest, PIP_FEATURE):
+        failed.append("optional Picture-in-Picture feature declaration is missing or required=true")
     if not has_max_sdk_32_for_legacy_permission(manifest):
         failed.append("READ_EXTERNAL_STORAGE is not visibly constrained to maxSdkVersion=32 in packaged manifest")
 
@@ -155,6 +181,8 @@ def main() -> int:
     print("  exported: true")
     print("  launchable activity: yes")
     print("  deep-link: reiflix://native")
+    print("  NativePlayerActivity: supportsPictureInPicture=true, exported=false")
+    print("  feature: android.software.picture_in_picture (required=false)")
     for permission in REQUIRED_PERMISSIONS:
         print(f"  permission: {permission}")
     print("  legacy media permission: READ_EXTERNAL_STORAGE (maxSdkVersion=32)")

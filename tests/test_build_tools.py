@@ -356,7 +356,7 @@ E: manifest
         self.assertIn("DocumentsContract.buildDocumentUriUsingTree", scanner)
         self.assertIn("COLUMN_DOCUMENT_ID", scanner)
         self.assertIn("COLUMN_MIME_TYPE", scanner)
-        self.assertIn("Log.i(", scanner)
+        self.assertIn("Log.w(", scanner)
 
     def test_native_player_entry_rejects_non_local_deep_link_uris(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
@@ -389,7 +389,7 @@ E: manifest
         self.assertIn("SafScanner.persistPermission(this, uri, flags)", main)
         self.assertIn("scanTree(uri.toString(), requestId)", main)
         self.assertIn("takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)", scanner)
-        self.assertIn("check(hasPersistedReadPermission(context, uri))", scanner)
+        self.assertIn("check(hasPersistedReadPermission(context,uri))", scanner)
         self.assertIn("if (!SafScanner.hasPersistedReadPermission(this, treeUri))", main)
         self.assertIn("A permissão desta pasta foi removida.", main)
 
@@ -441,7 +441,7 @@ E: manifest
         self.assertIn("catch(e:Exception)", scanner)
         self.assertIn('errors.put("Não foi possível ler:', scanner)
         self.assertIn('errors.put("Não foi possível acessar:', scanner)
-        self.assertIn('put("partial", partial)', scanner)
+        self.assertIn('.put("partial",partial)', scanner)
 
     def test_google_identity_emits_only_token_free_validated_profile_fields(self):
         source = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "GoogleIdentity.kt").read_text(encoding="utf-8")

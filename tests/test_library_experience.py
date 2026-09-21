@@ -6,11 +6,11 @@ from core.consumption import playback_action
 from core.library_store import LibraryStore
 
 
-class Prompt14ExperienceTests(unittest.TestCase):
+class LibraryExperienceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = LibraryStore(self.tmp.name)
-        self.series = self.store.upsert_anime("prompt14-series", {"title": "Prompt 14", "genres": "[]"})
+        self.series = self.store.upsert_anime("series-case", {"title": "Library series case", "genres": "[]"})
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -36,7 +36,7 @@ class Prompt14ExperienceTests(unittest.TestCase):
         self.assertEqual(26, self.store.SCHEMA_VERSION)
 
     def test_movie_is_first_class_and_never_enters_episode_navigation(self):
-        movie = self.store.upsert_anime("prompt14-movie", {"title": "Movie", "genres": "[]", "media_kind": "movie"})
+        movie = self.store.upsert_anime("movie-case", {"title": "Movie", "genres": "[]", "media_kind": "movie"})
         path = "content://p14/movie"
         self.store.upsert_episode(movie, path, "Movie.mkv", 0, 1, episode_type="movie")
         self.store.save_progress(path, 50, 100)

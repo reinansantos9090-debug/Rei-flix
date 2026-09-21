@@ -226,7 +226,7 @@ class LibraryService:
             and (existing.get("volume_id") or "") == (volume_id or "")
         )
 
-    def _record_document(self, *, document, source_folder, source_kind, metadata, result, affected_anime_ids=None, known_paths=None):
+    def _record_document(self, *, document, source_folder, source_kind, metadata, result, affected_anime_ids=None, known_paths=None, scope_kind="source", scope_ref=None, native_generation=None):
         uri = document.get("uri")
         name = document.get("name")
         if not isinstance(uri, str) or not uri or not isinstance(name, str) or not name.strip():
@@ -250,10 +250,21 @@ class LibraryService:
         volume_id = document.get("volumeId")
         volume_uuid = document.get("volumeUuid")
         existing = self.store.physical_row(uri)
+        observation_scope_ref = scope_ref if scope_ref is not None else (source_folder if scope_kind == "source" else None)
         if self._physical_unchanged(
             existing, source_folder=source_folder, file_size=file_size,
             modified_at=modified_at, relative_path=relative_path, volume_id=volume_id,
         ):
+            self.store.record_observation(
+                existing["id"],
+                source_kind=source_kind,
+                scope_kind=scope_kind,
+                scope_ref=observation_scope_ref,
+                uri=uri,
+                volume_id=volume_id,
+                native_generation=native_generation or document.get("scanGeneration"),
+                fingerprint=document.get("nativeFingerprint"),
+            )
             result.unchanged += 1
             return uri
 
@@ -309,6 +320,16 @@ class LibraryService:
             episode_type=item.episode_type, episode_title=item.display_title,
             identification_source=item.identification_source,
             identification_confidence=item.confidence,
+        )
+        self.store.record_observation(
+            row_id,
+            source_kind=source_kind,
+            scope_kind=scope_kind,
+            scope_ref=observation_scope_ref,
+            uri=uri,
+            volume_id=volume_id,
+            native_generation=native_generation or document.get("scanGeneration"),
+            fingerprint=document.get("nativeFingerprint"),
         )
         # Per-episode thumbnails are discovered immediately. Poster/season
         # discovery is deferred to one pass per affected entity.
@@ -425,6 +446,8 @@ class LibraryService:
                         result=result,
                         affected_anime_ids=affected_anime_ids,
                         known_paths=seen_by_source.get(source_folder),
+                        scope_kind="source",
+                        scope_ref=source_folder,
                     )
                 for anime_id in sorted(affected_anime_ids):
                     self.artwork.reindex_entity(anime_id)
@@ -514,6 +537,9 @@ class LibraryService:
                         result=result,
                         affected_anime_ids=affected_anime_ids,
                         known_paths=seen,
+                        scope_kind=scope_kind,
+                        scope_ref=scope_ref,
+                        native_generation=native_generation,
                     )
                     if accepted:
                         result.videos += 1

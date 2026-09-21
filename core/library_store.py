@@ -951,6 +951,7 @@ class LibraryStore:
                     else by_path["episode_title"] if by_path["manual_override"]
                     else episode_title
                 )
+                survivor_id = by_identity["id"]
                 c.execute(
                     """UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,
                        file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
@@ -958,10 +959,20 @@ class LibraryStore:
                        missing=0,progress=?,watched=?,last_played_at=? WHERE id=?""",
                     (anime_id,path,file_name,duplicate_season,duplicate_number,mime_type,file_size,modified_at,source_folder,
                      media_identity,absolute_number,duplicate_type,duplicate_title,duplicate_source,
-                     duplicate_confidence,progress,watched,last_played,by_identity["id"]),
+                     duplicate_confidence,progress,watched,last_played,survivor_id),
+                )
+                c.execute(
+                    """INSERT OR IGNORE INTO episode_observations(
+                         episode_id,source_kind,scope_kind,scope_ref,uri,volume_id,native_generation,
+                         fingerprint,first_seen,last_seen,last_checked_at,state,error)
+                       SELECT ?,source_kind,scope_kind,scope_ref,uri,volume_id,native_generation,
+                         fingerprint,first_seen,last_seen,last_checked_at,state,error
+                       FROM episode_observations WHERE episode_id=?""",
+                    (survivor_id, by_path["id"]),
                 )
                 c.execute("DELETE FROM episodes WHERE id=?", (by_path["id"],))
-                return by_identity["id"]
+                self._recompute_episode_availability_locked(c, survivor_id)
+                return survivor_id
 
             if by_path:
                 return update_existing(by_path["id"])
@@ -1003,9 +1014,34 @@ class LibraryStore:
                     "UPDATE episodes SET progress=?,watched=?,last_played_at=?,missing=? WHERE id=?",
                     (best_progress, best_watched, best_played or None, min(int(row["missing"] or 1) for row in rows), survivor["id"]),
                 )
+                survivor_id = survivor["id"]
                 for row in rows[1:]:
+                    progress_value = max(best_progress, float(row["progress"] or 0))
+                    watched_value = max(best_watched, int(row["watched"] or 0))
+                    c.execute(
+                        """INSERT OR IGNORE INTO episode_observations(
+                             episode_id,source_kind,scope_kind,scope_ref,uri,volume_id,native_generation,
+                             fingerprint,first_seen,last_seen,last_checked_at,state,error)
+                           SELECT ?,source_kind,scope_kind,scope_ref,uri,volume_id,native_generation,
+                             fingerprint,first_seen,last_seen,last_checked_at,state,error
+                           FROM episode_observations WHERE episode_id=?""",
+                        (survivor_id, row["id"]),
+                    )
+                    if row["manual_override"] and not survivor["manual_override"]:
+                        c.execute(
+                            """UPDATE episodes SET season=?,number=?,episode_type=?,episode_title=?,
+                               identification_source=?,identification_confidence=?,manual_override=1 WHERE id=?""",
+                            (row["season"],row["number"],row["episode_type"],row["episode_title"],
+                             row["identification_source"],row["identification_confidence"],survivor_id),
+                        )
+                    c.execute(
+                        """UPDATE episodes SET progress=?,watched=?,last_played_at=?
+                           WHERE id=?""",
+                        (progress_value,watched_value,max(best_played,float(row["last_played_at"] or 0)) or None,survivor_id),
+                    )
                     c.execute("DELETE FROM episodes WHERE id=?", (row["id"],))
                     merged += 1
+                self._recompute_episode_availability_locked(c, survivor_id)
             return merged
 
     def physical_row(self, path):

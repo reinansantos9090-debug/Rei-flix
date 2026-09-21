@@ -145,7 +145,7 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("access", access)
                 .put("source", MediaStoreScanner.SOURCE)
                 .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REVALIDATED))))
-        if (granted) scanMediaStore() else {
+        if (granted) scanMediaStore(requestId) else {
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
                 .put("requestId", requestId ?: "")
                 .put("message", "A permissão para acessar os vídeos do dispositivo foi negada.")

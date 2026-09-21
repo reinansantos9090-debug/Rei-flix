@@ -24,12 +24,12 @@ class SettingsView:
                 return
             try:
                 page.update()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("[FLET] Settings update failed: %s", exc)
         try:
             page.on_disconnect = lambda _e: ui_alive.__setitem__(0, False)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[FLET] Settings on_disconnect hook unavailable: %s", exc)
         busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False, "permission": False, "backup": False, "restore": False}
 
         def notice(message, error=False):

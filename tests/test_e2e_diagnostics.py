@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class Prompt9DiagnosticsTests(unittest.TestCase):
+class DiagnosticsTests(unittest.TestCase):
     def test_diagnostic_timeline_is_bounded_and_structured(self):
         source = (ROOT / "core" / "diagnostics.py").read_text(encoding="utf-8")
         self.assertIn("deque(maxlen=max_events)", source)

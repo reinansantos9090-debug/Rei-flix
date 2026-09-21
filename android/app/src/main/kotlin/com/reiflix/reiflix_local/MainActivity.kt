@@ -497,9 +497,24 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("requestId", requestId ?: "")
                     .put("payload", SafScanner.identityPayload(treeUri).put("scanId", scanId).put("phase", "started")
                         .put("source", "saf").put("generationId", NativeIndex.generationId(NativeIndex.SOURCE_SAF, scanKey, generationId)))
-                val result = SafScanner.scan(appContext, treeUri, { progress ->
-                    NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan_progress")
-                        .put("payload", progress .put("treeUri", reference).put("scanId", scanId).put("requestId", requestId ?: "").put("phase", "scanning"))) }, { NativeScanController.isCancelled(scanId) }, scanId)
+                val result = SafScanner.scan(
+                    appContext,
+                    treeUri,
+                    { progress ->
+                        NativeMailbox.write(
+                            appContext,
+                            JSONObject()
+                                .put("type", "saf_scan_progress")
+                                .put("payload", progress
+                                    .put("treeUri", reference)
+                                    .put("scanId", scanId)
+                                    .put("requestId", requestId ?: "")
+                                    .put("phase", "scanning"))
+                        )
+                    },
+                    { NativeScanController.isCancelled(scanId) },
+                    scanId,
+                )
                 val partial = result.optBoolean("partial")
                 val scanStatus = result.optString("status").uppercase()
                 val status = when (scanStatus) {

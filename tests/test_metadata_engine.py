@@ -22,7 +22,7 @@ class ProfessionalMetadataTests(unittest.TestCase):
     def test_schema_and_metadata_model_are_persistent(self):
         self._anime()
         row = self.store.anime_metadata("attack on titan")
-        self.assertEqual(self.store.SCHEMA_VERSION, 25)
+        self.assertEqual(self.store.SCHEMA_VERSION, 26)
         self.assertEqual(row["metadata_source"], "local")
         self.assertEqual(row["metadata_status"], "unresolved")
         self.assertEqual(row["metadata_confidence"], "low")

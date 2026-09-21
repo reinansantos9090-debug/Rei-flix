@@ -56,7 +56,10 @@ class StorageOnboardingTests(unittest.TestCase):
     def test_project_has_no_invalid_alertdialog_close_calls(self):
         sources = "\n".join(path.read_text(encoding="utf-8") for path in ROOT.rglob("*.py") if "tests" not in path.parts)
         self.assertNotIn("dialog.close(", sources)
-        self.assertIn("dismiss_dialog", (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8"))
+        settings = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
+        self.assertIn("page.show_dialog(dialog)", settings)
+        self.assertIn("page.pop_dialog()", settings)
+        self.assertNotIn("page.overlay.append(dialog)", settings)
 
     def test_permission_intent_is_single_task_and_lifecycle_queued(self):
         manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")

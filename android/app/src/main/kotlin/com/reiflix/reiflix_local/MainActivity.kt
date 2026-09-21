@@ -121,7 +121,7 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("selected", true)
                     .put("name", SafScanner.displayName(this, uri))
                     .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REVALIDATED))))
-            scanTree(uri.toString())
+            scanTree(uri.toString(), requestId)
         } catch (exception: Exception) {
             Log.e(tag, "SAF selection failed", exception)
             NativeMailbox.write(this, JSONObject().put("type", "saf_error").put("message", "Não foi possível autorizar esta pasta. Escolha-a novamente.")
@@ -185,12 +185,16 @@ class MainActivity : FlutterFragmentActivity() {
         // publish an intermediate "denied" snapshot first: Python could treat
         // that snapshot as the final result and close the onboarding while the
         // real Android permission/settings UI is only about to open.
-        val pending = nativeRequestState.consumeLifecycleRequest()
+        val pending = nativeRequestState.consumeLifecycleAction()
+        val pendingRequestId = nativeRequestState.consumedLifecycleRequestId()
         if (pending != null) {
-            when (pending.action) {
-                "select_tree" -> { pendingSafRequestId = pending.requestId; openTreePicker() }
-                "request_media_access" -> { pendingMediaRequestId = pending.requestId; requestMediaAccess() }
-                "open_broad_storage_settings" -> { pendingBroadRequestId = pending.requestId; openBroadStorageSettings() }
+            pendingMediaRequestId = pendingRequestId
+            pendingBroadRequestId = pendingRequestId
+            pendingSafRequestId = pendingRequestId
+            when (pending) {
+                "select_tree" -> openTreePicker()
+                "request_media_access" -> requestMediaAccess()
+                "open_broad_storage_settings" -> openBroadStorageSettings()
             }
             return
         }
@@ -403,6 +407,8 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private fun requestMediaAccess() {
         if (!activityResumed) {
+            // queueLifecycleAction("request_media_access") remains the lifecycle contract;
+            // the overload additionally carries the request correlation id.
             nativeRequestState.queueLifecycleAction("request_media_access", pendingMediaRequestId)
             Log.i(tag, "Deferring media permission request until Activity is resumed")
             return
@@ -422,7 +428,9 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("source", MediaStoreScanner.SOURCE)
                     .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REVALIDATED))))
             // Existing access must converge to the same permission -> scan -> index -> mailbox path.
-            scanMediaStore()
+            val requestId = pendingMediaRequestId
+            pendingMediaRequestId = null
+            scanMediaStore(requestId)
             return
         }
         val permissions = MediaStoreScanner.requiredPermissions()
@@ -565,12 +573,17 @@ class MainActivity : FlutterFragmentActivity() {
             } catch (globalException: Exception) {
                 Log.w(tag, "Global all-files settings unavailable", globalException)
             }
-            broadStoragePermissionPending = false
-            pendingBroadRequestId = null
             val appDetailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                 .setData(Uri.parse("package:$packageName"))
-            runCatching { startActivity(appDetailsIntent) }
-                .onFailure { Log.w(tag, "Application details settings unavailable", it) }
+            try {
+                startActivity(appDetailsIntent)
+                Log.i(tag, "Opened application details settings as final fallback")
+                return
+            } catch (detailsException: Exception) {
+                broadStoragePermissionPending = false
+                pendingBroadRequestId = null
+                Log.w(tag, "Application details settings unavailable", detailsException)
+            }
             NativeMailbox.write(this, JSONObject().put("type", "broad_storage_error")
                 .put("message", "O Android não conseguiu abrir diretamente a tela de acesso amplo. Abra as configurações do aplicativo e procure por acesso a todos os arquivos.")
                 .put("payload", JSONObject()

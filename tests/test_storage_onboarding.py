@@ -167,8 +167,8 @@ class StorageOnboardingTests(unittest.TestCase):
     def test_main_handles_authoritative_saf_inventory_and_marks_revoked_sources(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         block = source[source.index("event_type == 'saf_inventory':"):source.index("event_type == 'saf_cancelled':")]
-        self.assertIn("current_uris", block)
-        self.assertIn("folder.get('kind') != 'saf'", block)
+        self.assertIn("status_by_uri", block)
+        self.assertIn("inventory_complete", block)
         self.assertIn("A autorização SAF desta pasta não está mais presente no Android.", block)
         self.assertIn("store.update_folder_status", block)
 

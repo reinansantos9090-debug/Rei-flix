@@ -370,7 +370,7 @@ E: manifest
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("SafScanner.isAuthorizedDocument(this, uri)", player)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", player)
-        self.assertIn("contentResolver.openFileDescriptor(localUri, "r")", player)
+        self.assertIn('contentResolver.openFileDescriptor(localUri, "r")', player)
         self.assertIn("Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix.", player)
 
     def test_android_bridge_accepts_only_local_media_references(self):
@@ -395,7 +395,7 @@ E: manifest
     def test_player_preflight_uses_authorized_source_and_real_readability(self):
         player = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("normalizeLocalReference(rawUri)", player)
-        self.assertIn("contentResolver.openFileDescriptor(localUri, "r")", player)
+        self.assertIn('contentResolver.openFileDescriptor(localUri, "r")', player)
         self.assertIn("file.exists()", player)
         self.assertIn("file.canRead()", player)
         self.assertIn("MediaStore.AUTHORITY", player)

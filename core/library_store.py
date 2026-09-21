@@ -14,7 +14,7 @@ from core.consumption import consumption_state, is_completed, is_in_progress, is
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 24
+    SCHEMA_VERSION = 25
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -37,7 +37,9 @@ class LibraryStore:
             CREATE TABLE IF NOT EXISTS folders (
               path TEXT PRIMARY KEY, name TEXT, kind TEXT NOT NULL DEFAULT 'path',
               authorization TEXT NOT NULL DEFAULT 'unknown', account_id TEXT, added_at REAL NOT NULL,
-              last_scan_at REAL, last_error TEXT
+              last_scan_at REAL, last_error TEXT,
+              saf_authority TEXT, saf_document_id TEXT, saf_volume_id TEXT,
+              saf_identity TEXT
             );
             CREATE TABLE IF NOT EXISTS anime (
               id INTEGER PRIMARY KEY, lookup_title TEXT UNIQUE NOT NULL, anilist_id INTEGER,
@@ -80,6 +82,7 @@ class LibraryStore:
             for column, definition in {
                 "name": "TEXT", "kind": "TEXT NOT NULL DEFAULT 'path'", "authorization": "TEXT NOT NULL DEFAULT 'unknown'",
                 "last_scan_at": "REAL", "last_error": "TEXT", "account_id": "TEXT",
+                "saf_authority": "TEXT", "saf_document_id": "TEXT", "saf_volume_id": "TEXT", "saf_identity": "TEXT",
             }.items():
                 if column not in existing:
                     c.execute(f"ALTER TABLE folders ADD COLUMN {column} {definition}")
@@ -98,6 +101,7 @@ class LibraryStore:
             # Version records make additive schema changes auditable
             # while CREATE IF NOT EXISTS keeps all earlier databases intact.
             c.execute("CREATE INDEX IF NOT EXISTS idx_folders_account ON folders(account_id)")
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_saf_identity ON folders(saf_identity) WHERE saf_identity IS NOT NULL")
             scan_columns = {r[1] for r in c.execute("PRAGMA table_info(scan_runs)")}
             for column, definition in {
                 "status": "TEXT NOT NULL DEFAULT 'running'", "new_files": "INTEGER DEFAULT 0", "updated_files": "INTEGER DEFAULT 0",
@@ -449,14 +453,41 @@ class LibraryStore:
         with self._conn() as c:
             return [dict(r) for r in c.execute("SELECT * FROM folders ORDER BY added_at")]
 
-    def add_folder(self, reference, name=None, kind="path", authorization="granted", account_id=None):
+    def add_folder(self, reference, name=None, kind="path", authorization="granted", account_id=None,
+                   saf_authority=None, saf_document_id=None, saf_volume_id=None, saf_identity=None):
         name = name or os.path.basename(reference.rstrip("/")) or reference
         with self._conn() as c:
-            c.execute("""INSERT INTO folders(path,name,kind,authorization,account_id,added_at) VALUES (?,?,?,?,?,?)
-                         ON CONFLICT(path) DO UPDATE SET name=excluded.name,kind=excluded.kind,
-                         authorization=excluded.authorization,account_id=COALESCE(excluded.account_id,folders.account_id),
-                         last_error=NULL""",
-                      (reference, name, kind, authorization, account_id, time.time()))
+            c.execute("""INSERT INTO folders(
+                            path,name,kind,authorization,account_id,added_at,
+                            saf_authority,saf_document_id,saf_volume_id,saf_identity
+                         ) VALUES (?,?,?,?,?,?,?,?,?,?)
+                         ON CONFLICT(path) DO UPDATE SET
+                            name=excluded.name,kind=excluded.kind,
+                            authorization=excluded.authorization,
+                            account_id=COALESCE(excluded.account_id,folders.account_id),
+                            saf_authority=COALESCE(excluded.saf_authority,folders.saf_authority),
+                            saf_document_id=COALESCE(excluded.saf_document_id,folders.saf_document_id),
+                            saf_volume_id=COALESCE(excluded.saf_volume_id,folders.saf_volume_id),
+                            saf_identity=COALESCE(excluded.saf_identity,folders.saf_identity),
+                            last_error=NULL""",
+                      (reference, name, kind, authorization, account_id,
+                       time.time(), saf_authority, saf_document_id, saf_volume_id, saf_identity))
+
+    def update_saf_identity(self, reference, authority, document_id, volume_id=None, identity=None):
+        with self._conn() as c:
+            c.execute(
+                """UPDATE folders
+                   SET kind='saf',saf_authority=?,saf_document_id=?,saf_volume_id=?,saf_identity=?
+                   WHERE path=?""",
+                (authority, document_id, volume_id, identity, reference),
+            )
+
+    def saf_folder_by_identity(self, identity):
+        if not identity:
+            return None
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM folders WHERE saf_identity=? LIMIT 1", (str(identity),)).fetchone()
+            return dict(row) if row else None
 
     def update_folder_status(self, reference, authorization, error=None):
         with self._conn() as c:

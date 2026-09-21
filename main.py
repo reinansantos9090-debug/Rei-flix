@@ -80,7 +80,7 @@ async def main(page: ft.Page):
     navigation = NavigationController()
     saf_selection = SafSelectionState()
     # Runtime snapshots are deliberately not stored in SQLite: only Android is
-    # proof of a current grant.  ``dismissed`` prevents an automatic prompt loop.
+    # proof of a current grant.  ``dismissed`` prevents an automatic onboarding loop.
     storage_onboarding = {"dismissed": False, "dialog_open": False, "waiting_for_result": False}
     storage_capabilities = [StorageCapabilities.unknown()]
     processed_native_operations = set()

@@ -1847,9 +1847,9 @@ class OrganizeTests(unittest.TestCase):
             self.assertIsNotNone(req_btn)
             self.assertIsNotNone(scn_btn)
 
-            req_btn.on_click(None)
+            asyncio.run(req_btn.on_click(None))
             self.assertTrue(requested[0])
-            scn_btn.on_click(None)
+            asyncio.run(scn_btn.on_click(None))
             self.assertTrue(scanned[0])
 
     def test_android_bridge_drains_independent_native_event_files_without_shared_lock(self):

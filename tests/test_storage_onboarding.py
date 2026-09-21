@@ -48,6 +48,30 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn('queueLifecycleAction("request_media_access")', request_block)
         self.assertIn("mediaPermissionRequester.launch(permissions)", request_block)
 
+    def test_existing_media_permission_continues_to_scan_instead_of_stopping_at_grant_event(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        request_block = source.split("private fun requestMediaAccess()", 1)[1].split("private fun publishStorageStatus()", 1)[0]
+        self.assertIn('val currentAccess = MediaStoreScanner.accessLevel(this)', request_block)
+        self.assertIn('if (currentAccess != "denied")', request_block)
+        self.assertLess(request_block.index('put("type", "mediastore_permission")'), request_block.index("scanMediaStore()"))
+        self.assertIn("Existing access must converge to the same permission -> scan -> index -> mailbox path.", request_block)
+
+    def test_saf_picker_is_lifecycle_gated_and_single_shot(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        picker = source.split("private fun openTreePicker()", 1)[1].split("override fun onWindowFocusChanged", 1)[0]
+        self.assertIn('if (!activityResumed)', picker)
+        self.assertIn('queueLifecycleAction("select_tree")', picker)
+        self.assertIn("safPickerPending", picker)
+        self.assertIn("treePicker.launch(", picker)
+        self.assertIn("safPickerPending = false", source)
+
+    def test_permission_callback_uses_authoritative_access_level(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        callback = source.split("private val mediaPermissionRequester", 1)[1].split("private val legacyBroadPermissionRequester", 1)[0]
+        self.assertIn("MediaStoreScanner.accessLevel(this)", callback)
+        self.assertIn('val granted = access != "denied"', callback)
+        self.assertNotIn('grants.any { it.value } && MediaStoreScanner.hasReadPermission(this)', callback)
+
     def test_storage_state_machine_keeps_sources_independent(self):
         self.assertEqual(storage_source_states("denied", False)["media"], "media_denied")
         self.assertEqual(storage_source_states("partial", False)["media"], "media_partial")

@@ -173,8 +173,7 @@ class NativePlayerActivity : ComponentActivity() {
                 ),
             )
         }
-        val mediaItemBuilder = MediaItem.Builder()
-            .setUri(uri)
+        val mediaItemBuilder = MediaItem.Builder().setUri(uri)
             .setMediaId(uri.toString())
         if (subtitleTracks.isNotEmpty()) {
             mediaItemBuilder.setSubtitleConfigurations(

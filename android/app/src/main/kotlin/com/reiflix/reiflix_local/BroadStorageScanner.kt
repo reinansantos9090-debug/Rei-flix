@@ -410,9 +410,10 @@ object BroadStorageScanner {
             val scopeStats = statsByVolume[volumeId] ?: JSONObject()
             val complete = isReadableState(root.state) && volumeErrors.length() == 0 && !cancelled
             val status = when {
-                complete -> NativeIndex.STATUS_COMPLETED
                 cancelled -> NativeIndex.STATUS_CANCELLED
-                else -> NativeIndex.STATUS_PARTIAL
+                !complete -> NativeIndex.STATUS_PARTIAL
+                (docsByVolume[volumeId]?.length() ?: 0) == 0 -> NativeIndex.STATUS_EMPTY_COMPLETE
+                else -> NativeIndex.STATUS_COMPLETED
             }
             val metadata = JSONObject()
                 .put("volumeId", volumeId)

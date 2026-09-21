@@ -518,6 +518,11 @@ async def main(page: ft.Page):
                                         scope_errors = scope.get('errors') or []
                                         if scope_errors:
                                             scope_stats['errors'] = scope_errors
+                                        scope_status = str(scope.get('status') or '').casefold()
+                                        if scope_status:
+                                            scope_stats['status'] = scope_status
+                                        if scope_status in {'cancelled', 'canceled'}:
+                                            scope_stats['cancelled'] = True
                                         if not scope.get('complete'):
                                             scope_stats['partial'] = True
                                         catalog = await asyncio.to_thread(

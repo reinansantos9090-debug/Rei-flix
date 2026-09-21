@@ -564,7 +564,7 @@ class LibraryService:
                 catalog = self.store.catalog()
                 result.catalog = catalog
                 result.folders = 1
-                if result.errors and result.status != "cancelled":
+                if result.errors and result.status not in {"cancelled", "error"}:
                     result.status = "partial"
                     self.store.update_folder_status(tree_uri, "granted", "; ".join(result.errors[-10:]))
                 result.files = int(scan_stats.get("files") or result.files)

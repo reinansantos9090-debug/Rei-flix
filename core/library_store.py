@@ -200,9 +200,23 @@ class LibraryStore:
 
     def record_native_volume_change(self, payload):
         payload = payload or {}
+        event_at = 0.0
+        for candidate in (payload.get("eventTimestamp"), payload.get("timestamp"), payload.get("observedAt")):
+            try:
+                event_at = float(candidate or 0)
+            except (TypeError, ValueError):
+                event_at = 0.0
+            if event_at > 0:
+                break
+        try:
+            last_event_at = float(self.get_preference("native_volume_event_at", 0) or 0)
+        except (TypeError, ValueError):
+            last_event_at = 0.0
+        previous = self.native_volume_states()
+        if event_at and last_event_at and event_at < last_event_at:
+            return dict(previous)
         current = payload.get("current") or []
         removed = payload.get("removed") or []
-        previous = self.native_volume_states()
         merged = dict(previous)
         mounted_states = {"mounted", "mounted_ro", "mounted_rofs"}
 
@@ -247,6 +261,8 @@ class LibraryStore:
             self.mark_volume_unavailable(volume_id, before["reason"])
 
         self.set_native_volume_states(list(merged.values()))
+        if event_at:
+            self.set_preference("native_volume_event_at", max(event_at, last_event_at))
         return merged
 
     def native_volume_states(self):

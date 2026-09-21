@@ -331,7 +331,9 @@ class MainActivity : FlutterFragmentActivity() {
 
         val currentMediaAccess = MediaStoreScanner.accessLevel(this)
         val currentBroadAccess = BroadStorageScanner.hasAccess(this)
-        val mediaBecameAvailable = lastObservedMediaAccess == "denied" && currentMediaAccess != "denied"
+        val mediaAccessChangedToUsable = lastObservedMediaAccess != null &&
+            lastObservedMediaAccess != currentMediaAccess &&
+            currentMediaAccess != "denied"
         val broadBecameAvailable = lastObservedBroadAccess == false && currentBroadAccess
         val shouldDiscover = !startupDiscoveryTriggered
         startupDiscoveryTriggered = true
@@ -344,7 +346,7 @@ class MainActivity : FlutterFragmentActivity() {
         // storage source that is already authorized is actually indexed rather
         // than merely reported as authorized.  Permission state remains
         // authoritative in Android; this only starts scans for confirmed sources.
-        if (shouldDiscover || mediaBecameAvailable) {
+        if (shouldDiscover || mediaAccessChangedToUsable) {
             if (currentMediaAccess != "denied") {
                 scanMediaStore(null)
             }

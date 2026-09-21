@@ -836,7 +836,7 @@ class LibraryStore:
                     c.execute(
                         """UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
-                           episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE id=?""",
+                           episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0,availability_state='available' WHERE id=?""",
                         (anime_id,new_path,file_name,effective_season,effective_number,mime_type,file_size,modified_at,source_folder,
                          media_identity,absolute_number,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )

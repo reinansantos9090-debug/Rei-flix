@@ -91,7 +91,7 @@ def has_package_contract(badging: str) -> bool:
 
 
 def has_target_sdk_36(badging: str) -> bool:
-    return bool(re.search(r"""targetSdkVersion=['"]36['"]""", badging))
+    return bool(re.search(r"""targetSdkVersion\s*[:=]\s*['"]?36['"]?""", badging))
 
 
 def main() -> int:

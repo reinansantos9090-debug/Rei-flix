@@ -42,13 +42,13 @@ object NativeMailbox {
             }
             type == "scan_cancelled" -> "scan_cancelled"
             type in setOf("saf_error","mediastore_error","broad_storage_error") ->
-                if (payload?.has("scanId") == true) {
-                    when (payload?.optString("status")) {
-                        "PARTIAL" -> "scan_partial"
-                        "CANCELLED" -> "scan_cancelled"
-                        else -> "scan_failed"
-                    }
-                } else "permission_failed"
+                when (payload?.optString("status")) {
+                    "REVOKED" -> "saf_revoked"
+                    "UNAVAILABLE" -> "saf_unavailable"
+                    "PARTIAL" -> "scan_partial"
+                    "CANCELLED" -> "scan_cancelled"
+                    else -> if (payload?.has("scanId") == true) "scan_failed" else "permission_failed"
+                }
             else -> type.ifBlank { "unknown" }
         }
     }

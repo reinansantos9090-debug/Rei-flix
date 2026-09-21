@@ -201,6 +201,30 @@ object NativeIndex {
         NativePrepared(output, effectiveGeneration, newItems, changedItems, unchangedItems, duplicates, removedItems, normalizedStatus, scopeKey)
     }
 
+    /**
+     * Marks every in-flight generation for a source as FAILED after a scanner-level
+     * exception. The last completed snapshot remains intact because only the
+     * generation status is changed.
+     */
+    fun failActiveGenerations(context: Context, source: String, error: String) = synchronized(this) {
+        val state = read(context)
+        val scopeMap = scopes(state)
+        val now = System.currentTimeMillis()
+        val keys = scopeMap.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val scope = scopeMap.optJSONObject(key) ?: continue
+            if (scope.optString("source") != source) continue
+            val status = scope.optString("status")
+            if (status == STATUS_STARTED || status == STATUS_RUNNING) {
+                scope.put("status", STATUS_FAILED)
+                    .put("finishedAt", now)
+                    .put("error", error)
+            }
+        }
+        write(context, state)
+    }
+
     fun failGeneration(context: Context, source: String, scopeKey: String, generation: Long, error: String, metadata: JSONObject = JSONObject()) = synchronized(this) {
         val state = read(context)
         val scopeMap = scopes(state)

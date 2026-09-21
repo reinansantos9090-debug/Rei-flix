@@ -349,9 +349,9 @@ E: manifest
 
     def test_saf_scanner_uses_iterative_traversal_and_partial_results(self):
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
-        self.assertIn("ArrayDeque<Pair<String, String>>()", scanner)
+        self.assertIn("ArrayDeque<Pair<String,String>>()", scanner)
         self.assertIn("pending.removeLast()", scanner)
-        self.assertIn('put("partial", partial)', scanner)
+        self.assertIn('.put("partial",partial)', scanner)
         self.assertIn("DocumentsContract.buildChildDocumentsUriUsingTree", scanner)
         self.assertIn("DocumentsContract.buildDocumentUriUsingTree", scanner)
         self.assertIn("COLUMN_DOCUMENT_ID", scanner)
@@ -385,7 +385,8 @@ E: manifest
     def test_saf_regrant_path_persists_before_scanning_and_reports_revocation(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
-        self.assertIn("SafScanner.persistPermission(this, uri, resultIntent.flags)", main)
+        self.assertIn("val flags = resultIntent.flags", main)
+        self.assertIn("SafScanner.persistPermission(this, uri, flags)", main)
         self.assertIn("scanTree(uri.toString(), requestId)", main)
         self.assertIn("takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)", scanner)
         self.assertIn("check(hasPersistedReadPermission(context, uri))", scanner)
@@ -480,8 +481,8 @@ class TestSafSelectionRegistration(unittest.TestCase):
 class TestSafScannerHardening(unittest.TestCase):
     def test_scanner_has_revisit_guard_and_progress_callback(self):
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
-        self.assertIn("onProgress: ((JSONObject) -> Unit)? = null", scanner)
-        self.assertIn("val visited = HashSet<String>()", scanner)
+        self.assertIn("onProgress:((JSONObject)->Unit)?=null", scanner)
+        self.assertIn("visited=HashSet<String>()", scanner)
         self.assertIn("if(!visited.add(parentId))", scanner)
         self.assertNotIn('put("pending", pending.size)', scanner)
 

@@ -33,7 +33,7 @@ class Prompt14ExperienceTests(unittest.TestCase):
         self.assertEqual(1, season["remaining_count"])
         self.assertEqual(0, season["active_count"])
         self.assertEqual(0.5, season["progress_ratio"])
-        self.assertEqual(25, self.store.SCHEMA_VERSION)
+        self.assertEqual(26, self.store.SCHEMA_VERSION)
 
     def test_movie_is_first_class_and_never_enters_episode_navigation(self):
         movie = self.store.upsert_anime("prompt14-movie", {"title": "Movie", "genres": "[]", "media_kind": "movie"})

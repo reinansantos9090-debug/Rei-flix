@@ -223,14 +223,14 @@ object BroadStorageScanner {
         return "path:" + runCatching { root.canonicalPath }.getOrDefault(root.path)
     }
 
-    fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null, shouldCancel: () -> Boolean = { false }, scanId: String? = null): JSONObject {
+    fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null, shouldCancel: () -> Boolean = { false }, scanId: String? = null, onBatch: ((JSONObject) -> Unit)? = null): JSONObject {
         val access = hasAccess(context)
         Log.i(TAG, "SCAN_STARTED: api=" + Build.VERSION.SDK_INT + ", granted=" + access)
         check(access) { "Acesso amplo ao armazenamento não foi concedido." }
         val errors = JSONArray()
         val rootFiles = roots(context)
-        val docsByVolume = LinkedHashMap<String, JSONArray>()
         val errorsByVolume = LinkedHashMap<String, JSONArray>()
+        val batchesByVolume = LinkedHashMap<String, NativeBatch.Accumulator>()
         val statsByVolume = LinkedHashMap<String, JSONObject>()
         val generationByVolume = LinkedHashMap<String, Long>()
         val rootByVolume = LinkedHashMap<String, StorageRoot>()
@@ -242,7 +242,17 @@ object BroadStorageScanner {
 
         rootFiles.forEach { root ->
             rootByVolume[root.volumeId] = root
-            docsByVolume[root.volumeId] = JSONArray()
+            batchesByVolume[root.volumeId] = NativeBatch.Accumulator(NativeBatch.DEFAULT_SIZE) { batch, batchId, batchNumber ->
+                onBatch?.invoke(
+                    JSONObject()
+                        .put("volumeId", root.volumeId)
+                        .put("volumeUuid", root.volumeUuid ?: "")
+                        .put("batchId", batchId)
+                        .put("batchNumber", batchNumber)
+                        .put("batchSize", batch.length())
+                        .put("documents", batch)
+                )
+            }
             errorsByVolume[root.volumeId] = JSONArray()
             statsByVolume[root.volumeId] = JSONObject().put("directories", 0).put("files", 0).put("videos", 0)
                 .put("excludedNoMedia", 0)
@@ -381,7 +391,7 @@ object BroadStorageScanner {
                     .put("mimeType", mimeFor(file.extension))
                     .put("size", runCatching { file.length() }.getOrDefault(0L))
                     .put("modifiedAt", runCatching { file.lastModified() }.getOrDefault(0L))
-                docsByVolume.getOrPut(volumeName) { JSONArray() }.put(document)
+                batchesByVolume[volumeName]?.add(document)
                 videos++
                 volumeStats.put("videos", volumeStats.optInt("videos", 0) + 1)
                 if (videos % 100 == 0) {
@@ -395,24 +405,23 @@ object BroadStorageScanner {
             if (cancelled) break
         }
 
+        batchesByVolume.values.forEach { it.flush() }
+
         val volumeScopes = JSONArray()
-        val preparedDocuments = JSONArray()
-        var totalNew = 0
-        var totalChanged = 0
-        var totalUnchanged = 0
         var totalDuplicates = 0
-        var totalRemoved = 0
 
         for ((volumeId, root) in rootByVolume) {
             val scopeKey = "broad-storage:" + volumeId
             val generation = generationByVolume[volumeId] ?: continue
             val volumeErrors = errorsByVolume[volumeId] ?: JSONArray()
             val scopeStats = statsByVolume[volumeId] ?: JSONObject()
+            val batchCount = NativeIndex.batchCount(context, SOURCE, scopeKey, generation)
+            val stagedDocuments = NativeIndex.stagedDocumentCount(context, SOURCE, scopeKey, generation)
             val complete = isReadableState(root.state) && volumeErrors.length() == 0 && !cancelled
             val status = when {
                 cancelled -> NativeIndex.STATUS_CANCELLED
                 !complete -> NativeIndex.STATUS_PARTIAL
-                (docsByVolume[volumeId]?.length() ?: 0) == 0 -> NativeIndex.STATUS_EMPTY_COMPLETE
+                stagedDocuments == 0 -> NativeIndex.STATUS_EMPTY_COMPLETE
                 else -> NativeIndex.STATUS_COMPLETED
             }
             val metadata = JSONObject()
@@ -425,31 +434,23 @@ object BroadStorageScanner {
                 .put("status", status)
                 .put("files", scopeStats.optInt("files", 0))
                 .put("videos", scopeStats.optInt("videos", 0))
-            val prepared = NativeIndex.prepare(
-                context, SOURCE, scopeKey, docsByVolume[volumeId] ?: JSONArray(), complete,
-                metadata, generation, status
-            )
-            for (i in 0 until prepared.documents.length()) preparedDocuments.put(prepared.documents.getJSONObject(i))
-            totalNew += prepared.newItems
-            totalChanged += prepared.changedItems
-            totalUnchanged += prepared.unchangedItems
-            totalDuplicates += prepared.duplicates
-            totalRemoved += prepared.removedItems
+                .put("batchCount", batchCount)
+                .put("processed", stagedDocuments)
+            val finished = NativeIndex.finishGeneration(context, SOURCE, scopeKey, generation, status, metadata)
+            totalDuplicates += finished.optInt("duplicates", 0)
             volumeScopes.put(JSONObject()
                 .put("volumeId", volumeId)
                 .put("scopeKind", "volume")
                 .put("scopeRef", volumeId)
-                .put("scanGeneration", prepared.generation)
-                .put("generationId", NativeIndex.generationId(SOURCE, scopeKey, prepared.generation))
-                .put("status", prepared.status)
-                .put("documents", prepared.documents)
+                .put("scanGeneration", generation)
+                .put("generationId", NativeIndex.generationId(SOURCE, scopeKey, generation))
+                .put("status", status)
                 .put("complete", complete)
                 .put("reused", false)
-                .put("new", prepared.newItems)
-                .put("changed", prepared.changedItems)
-                .put("unchanged", prepared.unchangedItems)
-                .put("duplicates", prepared.duplicates)
-                .put("removed", prepared.removedItems)
+                .put("batchCount", batchCount)
+                .put("processed", stagedDocuments)
+                .put("duplicates", finished.optInt("duplicates", 0))
+                .put("removed", 0)
                 .put("errors", volumeErrors)
                 .put("stats", scopeStats))
         }
@@ -463,7 +464,6 @@ object BroadStorageScanner {
         return JSONObject()
             .put("source", SOURCE)
             .put("name", DISPLAY_NAME)
-            .put("documents", preparedDocuments)
             .put("volumeScopes", volumeScopes)
             .put("stats", JSONObject()
                 .put("directories", directories).put("files", files).put("videos", videos)
@@ -471,8 +471,7 @@ object BroadStorageScanner {
                 .put("nomediaDirectories", excludedNoMedia)
                 .put("nomediaFiles", (0 until volumeScopes.length()).sumOf { volumeScopes.getJSONObject(it).optJSONObject("stats")?.optInt("nomediaFiles", 0) ?: 0 })
                 .put("errors", errors).put("access", access)
-                .put("new", totalNew).put("changed", totalChanged).put("unchanged", totalUnchanged)
-                .put("duplicates", totalDuplicates).put("removed", totalRemoved)
+                .put("duplicates", totalDuplicates).put("removed", 0)
                 .put("status", when { cancelled -> "cancelled"; partial -> "partial"; else -> "completed" })
                 .put("generationStatus", when { cancelled -> NativeIndex.STATUS_CANCELLED; partial -> NativeIndex.STATUS_PARTIAL; else -> NativeIndex.STATUS_COMPLETED }))
             .put("partial", errors.length() > 0 || cancelled)

@@ -31,6 +31,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var broadStoragePermissionPending = false
     private var legacyBroadPermissionRequestPending = false
     private var mediaPermissionRequestPending = false
+    private var safPickerPending = false
     private var activityResumed = false
     private val nativeRequestState = NativeRequestState()
 
@@ -38,6 +39,7 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_LAST_NATIVE_REQUEST_ID = "reiflix.lastNativeRequestId"
         private const val STATE_PENDING_LIFECYCLE_ACTION = "reiflix.pendingLifecycleAction"
         private const val STATE_BROAD_SETTINGS_PENDING = "reiflix.broadSettingsPending"
+        private const val STATE_SAF_PICKER_PENDING = "reiflix.safPickerPending"
         private const val STATE_SEEN_NATIVE_REQUEST_IDS = "reiflix.seenNativeRequestIds"
     }
     private val activeNativeScans = mutableSetOf<String>()
@@ -57,10 +59,13 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private val mediaPermissionRequester = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         mediaPermissionRequestPending = false
-        val granted = grants.any { it.value } && MediaStoreScanner.hasReadPermission(this)
+        val access = MediaStoreScanner.accessLevel(this)
+        // Android's callback map is only a notification; the current package permissions are authoritative.
+        val granted = access != "denied"
+        Log.i(tag, "MEDIA_PERMISSION_CALLBACK grants=" + grants + " access=" + access + " granted=" + granted)
         NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission").put("payload", JSONObject()
             .put("granted", granted)
-            .put("access", MediaStoreScanner.accessLevel(this))
+            .put("access", access)
             .put("source", MediaStoreScanner.SOURCE)))
         if (granted) scanMediaStore() else {
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
@@ -87,6 +92,7 @@ class MainActivity : FlutterFragmentActivity() {
     private fun handleTreePickerResult(result: androidx.activity.result.ActivityResult) {
         val resultIntent = result.data
         val uri = resultIntent?.data
+        safPickerPending = false
         if (uri == null) {
             Log.i(tag, "SAF selection cancelled")
             NativeMailbox.write(this, JSONObject().put("type", "saf_cancelled"))
@@ -131,6 +137,7 @@ class MainActivity : FlutterFragmentActivity() {
         )
         nativeRequestState.restoreSeenRequestIds(savedInstanceState?.getString(STATE_SEEN_NATIVE_REQUEST_IDS))
         broadStoragePermissionPending = savedInstanceState?.getBoolean(STATE_BROAD_SETTINGS_PENDING) ?: false
+        safPickerPending = savedInstanceState?.getBoolean(STATE_SAF_PICKER_PENDING) ?: false
         logLifecycle("onCreate", intent)
         systemUiController = SystemUiController(window)
         onBackPressedDispatcher.addCallback(this, backCallback)
@@ -166,6 +173,7 @@ class MainActivity : FlutterFragmentActivity() {
         if (pending != null) {
             Log.i(tag, "Executing queued lifecycle action after onResume: $pending")
             when (pending) {
+                "select_tree" -> openTreePicker()
                 "request_media_access" -> requestMediaAccess()
                 "open_broad_storage_settings" -> openBroadStorageSettings()
             }
@@ -207,6 +215,7 @@ class MainActivity : FlutterFragmentActivity() {
         outState.putString(STATE_LAST_NATIVE_REQUEST_ID, nativeRequestState.lastHandledRequestId)
         outState.putString(STATE_PENDING_LIFECYCLE_ACTION, nativeRequestState.pendingLifecycleAction)
         outState.putBoolean(STATE_BROAD_SETTINGS_PENDING, broadStoragePermissionPending)
+        outState.putBoolean(STATE_SAF_PICKER_PENDING, safPickerPending)
         outState.putString(STATE_SEEN_NATIVE_REQUEST_IDS, nativeRequestState.seenRequestIdsState())
         super.onSaveInstanceState(outState)
     }
@@ -229,7 +238,15 @@ class MainActivity : FlutterFragmentActivity() {
         }
         Log.i(tag, "NATIVE_INTENT action=$action requestId=${requestId ?: "-"} task=$taskId resumed=$activityResumed focus=${window?.decorView?.hasWindowFocus() == true} flags=0x${intent.flags.toString(16)}")
         when (action) {
-            "select_tree" -> openTreePicker()
+            "select_tree" -> {
+                if (!activityResumed) {
+                    if (nativeRequestState.queueLifecycleAction("select_tree")) {
+                        Log.i(tag, "Queued SAF picker until Activity is resumed")
+                    }
+                    return
+                }
+                openTreePicker()
+            }
             "scan_tree" -> scanTree(intent.data?.getQueryParameter("tree_uri"), requestId)
             "verify_tree" -> verifyTree(intent.data?.getQueryParameter("tree_uri"))
             "release_tree" -> releaseTree(intent.data?.getQueryParameter("tree_uri"))
@@ -307,11 +324,15 @@ class MainActivity : FlutterFragmentActivity() {
             Log.i(tag, "Media permission request already pending")
             return
         }
-        if (MediaStoreScanner.hasReadPermission(this)) {
+        val currentAccess = MediaStoreScanner.accessLevel(this)
+        if (currentAccess != "denied") {
+            Log.i(tag, "Media access already present; continuing directly to scan access=" + currentAccess)
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission").put("payload", JSONObject()
                 .put("granted", true)
-                .put("access", MediaStoreScanner.accessLevel(this))
+                .put("access", currentAccess)
                 .put("source", MediaStoreScanner.SOURCE)))
+            // Existing access must converge to the same permission -> scan -> index -> mailbox path.
+            scanMediaStore()
             return
         }
         val permissions = MediaStoreScanner.requiredPermissions()
@@ -620,9 +641,30 @@ class MainActivity : FlutterFragmentActivity() {
             .putExtra("canPrevious", data.getQueryParameter("can_previous")?.toBoolean() ?: false))
     }
     private fun openTreePicker() {
-        Log.i(tag, "SAF launch requested")
-        treePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
-            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION))
+        if (!activityResumed) {
+            if (nativeRequestState.queueLifecycleAction("select_tree")) {
+                Log.i(tag, "Deferring SAF picker until Activity is resumed")
+            }
+            return
+        }
+        if (safPickerPending) {
+            Log.i(tag, "SAF picker request already pending")
+            return
+        }
+        safPickerPending = true
+        Log.i(tag, "SAF launch requested taskId=" + taskId)
+        try {
+            treePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PREFIX_URI_PERMISSION))
+        } catch (exception: Exception) {
+            safPickerPending = false
+            Log.e(tag, "SAF picker launcher failed", exception)
+            NativeMailbox.write(this, JSONObject().put("type", "saf_error")
+                .put("message", "Não foi possível abrir o seletor de pasta.")
+                .put("payload", JSONObject().put("stage", "launch")))
+        }
     }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)

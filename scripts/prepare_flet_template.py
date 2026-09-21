@@ -91,6 +91,23 @@ for permission, max_sdk in permission_specs:
     if max_sdk is not None:
         attrs["{" + ANDROID + "}maxSdkVersion"] = max_sdk
     manifest.insert(0, ET.Element("uses-permission", attrs))
+feature_name_attr = "{" + ANDROID + "}name"
+pip_feature = next(
+    (
+        node for node in manifest.findall("uses-feature")
+        if node.get(feature_name_attr) == "android.software.picture_in_picture"
+    ),
+    None,
+)
+if pip_feature is None:
+    pip_feature = ET.Element("uses-feature", {
+        feature_name_attr: "android.software.picture_in_picture",
+        "{" + ANDROID + "}required": "false",
+    })
+    manifest.insert(0, pip_feature)
+else:
+    pip_feature.set("{" + ANDROID + "}required", "false")
+
 theme_attr = "{" + ANDROID + "}theme"
 launch_attr = "{" + ANDROID + "}launchMode"
 document_launch_attr = "{" + ANDROID + "}documentLaunchMode"

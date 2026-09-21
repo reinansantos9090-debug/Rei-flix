@@ -515,7 +515,7 @@ class LibraryService:
                 trusted_scope_seen = {}
                 for scope in scan_scopes:
                     status = str(scope.get("status") or ("completed" if scope.get("complete") else "partial")).casefold()
-                    complete_scope = bool(scope.get("complete")) and status in {"completed", "complete"}
+                    complete_scope = bool(scope.get("complete")) and status in {"completed", "complete", "empty_complete"}
                     skind = str(scope.get("scopeKind") or ("volume" if scope.get("volumeId") else scope_kind)).strip() or scope_kind
                     sref = str(scope.get("scopeRef") or scope.get("volumeId") or "").strip()
                     if complete_scope and sref:

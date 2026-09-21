@@ -14,7 +14,7 @@ from core.consumption import consumption_state, is_completed, is_in_progress, is
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 22
+    SCHEMA_VERSION = 24
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -51,7 +51,7 @@ class LibraryStore:
               path TEXT UNIQUE NOT NULL, file_name TEXT NOT NULL, season INTEGER NOT NULL,
               number REAL, duration REAL DEFAULT 0, progress REAL DEFAULT 0, watched INTEGER DEFAULT 0,
               mime_type TEXT, file_size INTEGER, modified_at REAL, source_folder TEXT, absolute_number REAL, relative_path TEXT, volume_id TEXT, volume_uuid TEXT, episode_type TEXT NOT NULL DEFAULT 'regular', episode_title TEXT, identification_source TEXT NOT NULL DEFAULT 'legacy', identification_confidence TEXT NOT NULL DEFAULT 'medium', manual_override INTEGER NOT NULL DEFAULT 0,
-              missing INTEGER DEFAULT 0, last_played_at REAL, media_identity TEXT);
+              missing INTEGER DEFAULT 0, last_played_at REAL, media_identity TEXT, availability_state TEXT NOT NULL DEFAULT 'available');
             CREATE TABLE IF NOT EXISTS artwork (
               id INTEGER PRIMARY KEY, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,
               artwork_type TEXT NOT NULL, source TEXT NOT NULL, source_ref TEXT,
@@ -73,7 +73,7 @@ class LibraryStore:
             CREATE TABLE IF NOT EXISTS scan_runs (
               id INTEGER PRIMARY KEY, started_at REAL NOT NULL, finished_at REAL, status TEXT NOT NULL DEFAULT 'running', folders INTEGER DEFAULT 0,
               files INTEGER DEFAULT 0, videos INTEGER DEFAULT 0, animes INTEGER DEFAULT 0,
-              episodes INTEGER DEFAULT 0, new_files INTEGER DEFAULT 0, updated_files INTEGER DEFAULT 0, unchanged_files INTEGER DEFAULT 0, ignored_files INTEGER DEFAULT 0, duplicate_files INTEGER DEFAULT 0, unknown_files INTEGER DEFAULT 0, reconciled_files INTEGER DEFAULT 0, scan_id TEXT, source_kind TEXT, scope_kind TEXT, scope_ref TEXT, native_generation INTEGER, errors TEXT NOT NULL DEFAULT '[]');
+              episodes INTEGER DEFAULT 0, new_files INTEGER DEFAULT 0, updated_files INTEGER DEFAULT 0, unchanged_files INTEGER DEFAULT 0, ignored_files INTEGER DEFAULT 0, duplicate_files INTEGER DEFAULT 0, unknown_files INTEGER DEFAULT 0, reconciled_files INTEGER DEFAULT 0, scan_id TEXT, source_kind TEXT, scope_kind TEXT, scope_ref TEXT, native_generation INTEGER, generation_id TEXT, generation_status TEXT, cancelled INTEGER NOT NULL DEFAULT 0, errors TEXT NOT NULL DEFAULT '[]');
             ''')
             # Migration for databases made by earlier versions.
             existing = {r[1] for r in c.execute("PRAGMA table_info(folders)")}
@@ -88,11 +88,12 @@ class LibraryStore:
                 if column not in anime_columns:
                     c.execute(f"ALTER TABLE anime ADD COLUMN {column} {definition}")
             episode_columns = {r[1] for r in c.execute("PRAGMA table_info(episodes)")}
-            for column, definition in {"mime_type": "TEXT", "file_size": "INTEGER", "modified_at": "REAL", "source_folder": "TEXT", "absolute_number": "REAL", "relative_path": "TEXT", "volume_id": "TEXT", "volume_uuid": "TEXT", "episode_type": "TEXT NOT NULL DEFAULT 'regular'", "episode_title": "TEXT", "identification_source": "TEXT NOT NULL DEFAULT 'legacy'", "identification_confidence": "TEXT NOT NULL DEFAULT 'medium'", "manual_override": "INTEGER NOT NULL DEFAULT 0", "last_played_at": "REAL", "media_identity": "TEXT"}.items():
+            for column, definition in {"mime_type": "TEXT", "file_size": "INTEGER", "modified_at": "REAL", "source_folder": "TEXT", "absolute_number": "REAL", "relative_path": "TEXT", "volume_id": "TEXT", "volume_uuid": "TEXT", "episode_type": "TEXT NOT NULL DEFAULT 'regular'", "episode_title": "TEXT", "identification_source": "TEXT NOT NULL DEFAULT 'legacy'", "identification_confidence": "TEXT NOT NULL DEFAULT 'medium'", "manual_override": "INTEGER NOT NULL DEFAULT 0", "last_played_at": "REAL", "media_identity": "TEXT", "availability_state": "TEXT NOT NULL DEFAULT 'available'"}.items():
                 if column not in episode_columns:
                     c.execute(f"ALTER TABLE episodes ADD COLUMN {column} {definition}")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_anime_playback ON episodes(anime_id, missing, watched, last_played_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_source_folder ON episodes(source_folder)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_volume_availability ON episodes(volume_id, availability_state, missing)")
             c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_media_identity ON episodes(media_identity) WHERE media_identity IS NOT NULL")
             # Version records make additive schema changes auditable
             # while CREATE IF NOT EXISTS keeps all earlier databases intact.
@@ -103,6 +104,7 @@ class LibraryStore:
                 "unchanged_files": "INTEGER DEFAULT 0", "ignored_files": "INTEGER DEFAULT 0", "duplicate_files": "INTEGER DEFAULT 0",
                 "unknown_files": "INTEGER DEFAULT 0", "reconciled_files": "INTEGER DEFAULT 0", "scan_id": "TEXT",
                 "source_kind": "TEXT", "scope_kind": "TEXT", "scope_ref": "TEXT", "native_generation": "INTEGER",
+                "generation_id": "TEXT", "generation_status": "TEXT", "cancelled": "INTEGER NOT NULL DEFAULT 0",
             }.items():
                 if column not in scan_columns:
                     c.execute(f"ALTER TABLE scan_runs ADD COLUMN {column} {definition}")
@@ -121,6 +123,24 @@ class LibraryStore:
         with self._conn() as c:
             row = c.execute("SELECT value FROM preferences WHERE key=?", (key,)).fetchone()
             return row["value"] if row else default
+
+    @staticmethod
+    def _normalize_scan_generation_status(status, *, cancelled=False):
+        if cancelled:
+            return "CANCELLED"
+        value = str(status or "completed").strip().casefold()
+        return {
+            "started": "STARTED",
+            "running": "RUNNING",
+            "completed": "COMPLETED",
+            "complete": "COMPLETED",
+            "partial": "PARTIAL",
+            "cancelled": "CANCELLED",
+            "canceled": "CANCELLED",
+            "failed": "FAILED",
+            "error": "FAILED",
+            "interrupted": "FAILED",
+        }.get(value, "FAILED" if value else "COMPLETED")
 
     def set_native_volume_states(self, volumes):
         """Persist the latest native volume snapshot in the existing SQLite preferences store."""
@@ -143,6 +163,59 @@ class LibraryStore:
             }
         self.set_preference("native_volume_states", json.dumps(normalized, ensure_ascii=False, sort_keys=True))
         return normalized
+
+    def record_native_volume_change(self, payload):
+        payload = payload or {}
+        current = payload.get("current") or []
+        removed = payload.get("removed") or []
+        previous = self.native_volume_states()
+        merged = dict(previous)
+        mounted_states = {"mounted", "mounted_ro", "mounted_rofs"}
+
+        for item in current:
+            if not isinstance(item, dict):
+                continue
+            volume_id = str(item.get("volumeId") or "").strip()
+            if not volume_id:
+                continue
+            state = str(item.get("state") or "unknown").strip().casefold()
+            available = bool(item.get("available")) if "available" in item else state in mounted_states
+            merged[volume_id] = {
+                "volumeId": volume_id,
+                "uuid": str(item.get("uuid") or ""),
+                "state": state or "unknown",
+                "available": available,
+                "removable": bool(item.get("removable")),
+                "emulated": bool(item.get("emulated")),
+                "primary": bool(item.get("primary")),
+                "directory": str(item.get("directory") or ""),
+                "description": str(item.get("description") or ""),
+                "observed_at": time.time(),
+            }
+            if available:
+                self.restore_volume(volume_id)
+            else:
+                self.mark_volume_unavailable(volume_id, state)
+
+        for item in removed:
+            if not isinstance(item, dict):
+                continue
+            volume_id = str(item.get("volumeId") or item.get("uuid") or "").strip()
+            if not volume_id:
+                continue
+            before = dict(merged.get(volume_id) or {})
+            before.update({
+                "volumeId": volume_id,
+                "state": "unavailable",
+                "available": False,
+                "unavailable_at": time.time(),
+                "reason": str(payload.get("reason") or "volume_removed"),
+            })
+            merged[volume_id] = before
+            self.mark_volume_unavailable(volume_id, before["reason"])
+
+        self.set_native_volume_states(list(merged.values()))
+        return merged
 
     def native_volume_states(self):
         raw = self.get_preference("native_volume_states", "{}")
@@ -393,28 +466,35 @@ class LibraryStore:
         episodes owned by the removed source stop being playable.
         """
         with self._conn() as c:
-            c.execute("UPDATE episodes SET missing=1 WHERE source_folder=?", (reference,))
+            c.execute("UPDATE episodes SET missing=1,availability_state='scope_removed' WHERE source_folder=?", (reference,))
             c.execute("DELETE FROM folders WHERE path=?", (reference,))
 
-    def begin_scan(self, scan_id=None, *, source_kind=None, scope_kind="global", scope_ref=None, native_generation=None):
+    def begin_scan(self, scan_id=None, *, source_kind=None, scope_kind="global", scope_ref=None, native_generation=None, generation_id=None):
         import uuid
         scan_id = scan_id or str(uuid.uuid4())
+        generation_id = str(generation_id or (f"native:{native_generation}" if native_generation is not None else scan_id))
         with self._conn() as c:
             cur = c.execute(
-                """INSERT INTO scan_runs(started_at,status,scan_id,source_kind,scope_kind,scope_ref,native_generation)
-                   VALUES (?, 'running', ?, ?, ?, ?, ?)""",
-                (time.time(), scan_id, source_kind, scope_kind, scope_ref, native_generation),
+                """INSERT INTO scan_runs(started_at,status,scan_id,source_kind,scope_kind,scope_ref,native_generation,generation_id,generation_status,cancelled)
+                   VALUES (?, 'running', ?, ?, ?, ?, ?, ?, 'RUNNING', 0)""",
+                (time.time(), scan_id, source_kind, scope_kind, scope_ref, native_generation, generation_id),
             )
             return cur.lastrowid
 
     def finish_scan(self, run_id, summary):
+        status = str(summary.get("status", "completed") or "completed").casefold()
+        cancelled = bool(summary.get("cancelled")) or status in {"cancelled", "canceled"}
+        generation_status = self._normalize_scan_generation_status(status, cancelled=cancelled)
+        final_status = "cancelled" if cancelled else ("error" if status in {"error", "failed"} else status)
         with self._conn() as c:
             c.execute("""UPDATE scan_runs SET finished_at=?,status=?,folders=?,files=?,videos=?,animes=?,episodes=?,
-                         new_files=?,updated_files=?,unchanged_files=?,ignored_files=?,duplicate_files=?,unknown_files=?,reconciled_files=?,errors=? WHERE id=?""",
-                      (time.time(), summary.get("status", "completed"), summary.get("folders", 0), summary.get("files", 0), summary.get("videos", 0),
+                         new_files=?,updated_files=?,unchanged_files=?,ignored_files=?,duplicate_files=?,unknown_files=?,reconciled_files=?,
+                         generation_status=?,cancelled=?,errors=? WHERE id=?""",
+                      (time.time(), final_status, summary.get("folders", 0), summary.get("files", 0), summary.get("videos", 0),
                        summary.get("animes", 0), summary.get("episodes", 0), summary.get("new", 0), summary.get("updated", 0),
                        summary.get("unchanged", 0), summary.get("ignored", 0), summary.get("duplicates", 0),
-                       summary.get("unknown", 0), summary.get("reconciled", 0), json.dumps(summary.get("errors", []), ensure_ascii=False), run_id))
+                       summary.get("unknown", 0), summary.get("reconciled", 0), generation_status, int(cancelled),
+                       json.dumps(summary.get("errors", []), ensure_ascii=False), run_id))
 
     def last_scan(self):
         with self._conn() as c:
@@ -498,7 +578,7 @@ class LibraryStore:
             if not rows:
                 return 0
             c.executemany(
-                "UPDATE scan_runs SET status='interrupted',finished_at=? WHERE id=?",
+                "UPDATE scan_runs SET status='interrupted',generation_status='FAILED',cancelled=1,finished_at=? WHERE id=?",
                 ((time.time(), row["id"]) for row in rows),
             )
             return len(rows)
@@ -748,7 +828,7 @@ class LibraryStore:
                     c.execute(
                         """UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
-                           episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE id=?""",
+                           episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0,availability_state='available' WHERE id=?""",
                         (anime_id,file_name,effective_season,effective_number,mime_type,file_size,modified_at,source_folder,
                          media_identity,absolute_number,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )
@@ -815,9 +895,9 @@ class LibraryStore:
 
             cur = c.execute(
                 """INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,
-                                         source_folder,missing,media_identity,absolute_number,episode_type,episode_title,
+                                         source_folder,missing,media_identity,availability_state,absolute_number,episode_type,episode_title,
                                          identification_source,identification_confidence)
-                   VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?)""",
+                   VALUES(?,?,?,?,?,?,?,?,?,0,?,'available',?,?,?,?,?)""",
                 (anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
                  media_identity,absolute_number,episode_type,episode_title,
                  identification_source or "legacy", identification_confidence or "medium"),
@@ -895,9 +975,56 @@ class LibraryStore:
             elif scope_kind == "volume" and scope_ref:
                 where += " AND volume_id=?"
                 params.append(scope_ref)
-            c.execute(f"UPDATE episodes SET missing=1 WHERE {where}", tuple(params))
+            c.execute(f"UPDATE episodes SET missing=1,availability_state='missing' WHERE {where} AND availability_state != 'scope_removed'", tuple(params))
             if seen:
-                c.executemany("UPDATE episodes SET missing=0 WHERE path=?", ((p,) for p in seen))
+                c.executemany("UPDATE episodes SET missing=0,availability_state='available' WHERE path=?", ((p,) for p in seen))
+
+    def mark_volume_unavailable(self, volume_id, reason=None):
+        volume_id = str(volume_id or "").strip()
+        if not volume_id:
+            return 0
+        with self._conn() as c:
+            return c.execute(
+                """UPDATE episodes
+                   SET missing=1,availability_state='volume_unavailable'
+                   WHERE volume_id=? AND availability_state != 'scope_removed'""",
+                (volume_id,),
+            ).rowcount
+
+    def restore_volume(self, volume_id):
+        volume_id = str(volume_id or "").strip()
+        if not volume_id:
+            return 0
+        with self._conn() as c:
+            return c.execute(
+                """UPDATE episodes
+                   SET missing=0,availability_state='available'
+                   WHERE volume_id=? AND availability_state='volume_unavailable'""",
+                (volume_id,),
+            ).rowcount
+
+    def mark_source_unavailable(self, source_folder, reason=None):
+        source_folder = str(source_folder or "").strip()
+        if not source_folder:
+            return 0
+        with self._conn() as c:
+            return c.execute(
+                """UPDATE episodes
+                   SET missing=1,availability_state='scope_unavailable'
+                   WHERE source_folder=? AND availability_state != 'scope_removed'""",
+                (source_folder,),
+            ).rowcount
+
+    def restore_source(self, source_folder):
+        source_folder = str(source_folder or "").strip()
+        if not source_folder:
+            return 0
+        with self._conn() as c:
+            return c.execute(
+                """UPDATE episodes SET missing=0,availability_state='available'
+                   WHERE source_folder=? AND availability_state='scope_unavailable'""",
+                (source_folder,),
+            ).rowcount
 
     def mark_missing(self, source_folder, seen):
         self.reconcile_missing(source_folder, seen, scope_kind="source")
@@ -936,7 +1063,7 @@ class LibraryStore:
                     "identification_confidence": e["identification_confidence"], "manual_override": bool(e["manual_override"]),
                     "progress": e["progress"], "duration": e["duration"], "watched": bool(e["watched"]),
                     "consumption_state": consumption_state(dict(e)).value,
-                    "missing": bool(e["missing"]), "last_played_at": e["last_played_at"],
+                    "missing": bool(e["missing"]), "availability_state": e["availability_state"] or ("missing" if e["missing"] else "available"), "last_played_at": e["last_played_at"],
                     "mime_type": e["mime_type"], "file_size": e["file_size"], "modified_at": e["modified_at"],
                     "source_folder": e["source_folder"], "source_kind": folder_kinds.get(e["source_folder"]),
                     "relative_path": e["relative_path"], "media_identity": e["media_identity"],

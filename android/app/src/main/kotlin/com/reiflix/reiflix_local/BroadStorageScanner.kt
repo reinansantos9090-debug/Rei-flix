@@ -117,8 +117,49 @@ object BroadStorageScanner {
                     )
                 )
             }
+        } else if (Build.VERSION.SDK_INT >= 19) {
+            // StorageVolume.directory is only public from API 30. On API 19-29,
+            // getExternalFilesDirs() is the supported way to enumerate every
+            // shared/external volume, including a mounted SD card. Derive the
+            // volume root from the app-specific path without persisting that
+            // absolute path as the volume identity.
+            context.getExternalFilesDirs(null).forEach { appDirectory ->
+                val volumeRoot = inferVolumeRoot(context, appDirectory) ?: return@forEach
+                val primaryVolume = runCatching {
+                    volumeRoot.canonicalFile == primary?.canonicalFile
+                }.getOrDefault(false)
+                val removable = runCatching { Environment.isExternalStorageRemovable(volumeRoot) }.getOrDefault(false)
+                val emulated = runCatching { Environment.isExternalStorageEmulated(volumeRoot) }.getOrDefault(primaryVolume)
+                val volumeId = if (primaryVolume) {
+                    "external_primary"
+                } else {
+                    "removable:" + volumeRoot.name
+                }
+                addRoot(
+                    StorageRoot(
+                        volumeRoot,
+                        volumeId,
+                        volumeRoot.name.takeIf { removable },
+                        primaryVolume,
+                        removable,
+                        emulated,
+                        Environment.getExternalStorageState(volumeRoot),
+                    )
+                )
+            }
         }
         return found.values.toList()
+    }
+
+    private fun inferVolumeRoot(context: Context, appDirectory: File?): File? {
+        val directory = appDirectory ?: return null
+        val canonical = runCatching { directory.canonicalFile }.getOrNull() ?: return null
+        val marker = File.separator + "Android" + File.separator + "data" +
+            File.separator + context.packageName + File.separator + "files"
+        val path = canonical.path
+        val index = path.lastIndexOf(marker)
+        if (index <= 0) return null
+        return runCatching { File(path.substring(0, index)).canonicalFile }.getOrNull()
     }
 
     fun isAuthorizedFile(context: Context, uri: Uri): Boolean {

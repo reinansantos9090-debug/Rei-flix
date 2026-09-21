@@ -1,6 +1,8 @@
 package com.reiflix.reiflix_local
 
+import android.content.BroadcastReceiver
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ActivityNotFoundException
 import android.net.Uri
 import android.os.Build
@@ -54,6 +56,55 @@ class MainActivity : FlutterFragmentActivity() {
         override fun handleOnBackPressed() {
             NativeMailbox.write(this@MainActivity, JSONObject().put("type", "android_back"))
         }
+    }
+    private var storageReceiverRegistered = false
+    private val storageReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context, intent: Intent) {
+            val action = intent.action ?: return
+            val changes = NativeIndex.updateVolumeSnapshot(
+                applicationContext,
+                NativeIndex.volumeSnapshot(applicationContext),
+            )
+            if (!changes.optBoolean("changed")) return
+            val payload = JSONObject(changes.toString())
+                .put("source", "android_storage")
+                .put("reason", action)
+                .put("timestamp", System.currentTimeMillis())
+                .put("volumeEventUri", intent.data?.toString() ?: "")
+            NativeMailbox.write(this@MainActivity, JSONObject()
+                .put("type", "volume_changed")
+                .put("payload", payload))
+        }
+    }
+
+    private fun registerStorageReceiver() {
+        if (storageReceiverRegistered) return
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_MEDIA_MOUNTED)
+            addAction(Intent.ACTION_MEDIA_UNMOUNTED)
+            addAction(Intent.ACTION_MEDIA_REMOVED)
+            addAction(Intent.ACTION_MEDIA_EJECT)
+            addAction(Intent.ACTION_MEDIA_BAD_REMOVAL)
+            addAction(Intent.ACTION_MEDIA_CHECKING)
+            addDataScheme("file")
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(storageReceiver, filter, RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(storageReceiver, filter)
+            }
+            storageReceiverRegistered = true
+        } catch (exception: Exception) {
+            Log.w(tag, "Unable to register storage volume receiver", exception)
+        }
+    }
+
+    private fun unregisterStorageReceiver() {
+        if (!storageReceiverRegistered) return
+        runCatching { unregisterReceiver(storageReceiver) }
+        storageReceiverRegistered = false
     }
     private val mediaPermissionRequester = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         mediaPermissionRequestPending = false
@@ -171,6 +222,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onStart() {
         super.onStart()
+        registerStorageReceiver()
         logLifecycle("onStart")
     }
 
@@ -230,12 +282,14 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onStop() {
         logLifecycle("onStop")
+        unregisterStorageReceiver()
         super.onStop()
     }
 
     override fun onDestroy() {
         logLifecycle("onDestroy")
         if (isFinishing) NativeScanController.cancelAll()
+        unregisterStorageReceiver()
         super.onDestroy()
     }
 
@@ -382,23 +436,46 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject().put("treeUri", reference).put("requestId", requestId ?: "").put("phase", "already_running")))
             return
         }
+        val generationId = NativeIndex.startGeneration(
+            this, NativeIndex.SOURCE_SAF, scanKey,
+            JSONObject().put("treeUri", reference).put("scopeKind", "root").put("scopeRef", reference)
+        )
         val appContext = applicationContext
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
+                NativeIndex.markGenerationRunning(appContext, NativeIndex.SOURCE_SAF, scanKey, generationId)
                 NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan_progress").put("payload", JSONObject().put("treeUri", reference).put("scanId", scanId).put("requestId", requestId ?: "").put("phase", "started")))
                 val result = SafScanner.scan(appContext, treeUri, { progress ->
                     NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan_progress")
                         .put("payload", progress .put("treeUri", reference).put("scanId", scanId).put("requestId", requestId ?: "").put("phase", "scanning"))) }, { NativeScanController.isCancelled(scanId) })
                 val partial = result.optBoolean("partial")
-                val prepared = NativeIndex.prepare(appContext, NativeIndex.SOURCE_SAF, "saf:" + reference, result.optJSONArray("documents") ?: JSONArray(), !partial && !result.optBoolean("cancelled"))
-                result.put("documents", prepared.documents).put("scanGeneration", prepared.generation).put("nativeNew", prepared.newItems).put("nativeChanged", prepared.changedItems).put("nativeUnchanged", prepared.unchangedItems).put("nativeDuplicates", prepared.duplicates).put("nativeRemoved", prepared.removedItems).put("requestId", requestId ?: "").put("scanId", scanId).put("scopeKind", "root").put("scopeRef", "")
+                val status = when {
+                    result.optBoolean("cancelled") -> NativeIndex.STATUS_CANCELLED
+                    partial -> NativeIndex.STATUS_PARTIAL
+                    else -> NativeIndex.STATUS_COMPLETED
+                }
+                val prepared = NativeIndex.prepare(
+                    appContext, NativeIndex.SOURCE_SAF, scanKey,
+                    result.optJSONArray("documents") ?: JSONArray(), !partial && !result.optBoolean("cancelled"),
+                    JSONObject().put("stats", result.optJSONObject("stats") ?: JSONObject()).put("status", status),
+                    generationId, status
+                )
+                result.put("documents", prepared.documents).put("scanGeneration", prepared.generation).put("generationId", "native:" + prepared.generation)
+                    .put("generationStatus", prepared.status).put("nativeNew", prepared.newItems).put("nativeChanged", prepared.changedItems)
+                    .put("nativeUnchanged", prepared.unchangedItems).put("nativeDuplicates", prepared.duplicates).put("nativeRemoved", prepared.removedItems)
+                    .put("requestId", requestId ?: "").put("scanId", scanId).put("scopeKind", "root").put("scopeRef", reference)
+                    .put("volumeId", result.optJSONObject("stats")?.optString("volumeId") ?: "")
                 NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan").put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
                 Log.e(tag, "SAF scan failed", exception)
+                NativeIndex.failGeneration(appContext, NativeIndex.SOURCE_SAF, scanKey, generationId,
+                    exception.message ?: "SAF scan failed",
+                    JSONObject().put("treeUri", reference))
                 NativeMailbox.write(appContext, JSONObject().put("type", "saf_error")
                     .put("requestId", requestId ?: "")
                     .put("message", "Não foi possível atualizar esta pasta autorizada.")
-                    .put("payload", JSONObject().put("treeUri", reference).put("scanId", scanId)))
+                    .put("payload", JSONObject().put("treeUri", reference).put("scanId", scanId)
+                        .put("generationId", "native:" + generationId).put("status", NativeIndex.STATUS_FAILED)))
             } finally {
                 NativeScanController.finish(scanId)
                 synchronized(activeNativeScanJobs) { activeNativeScanJobs.remove(scanId) }
@@ -496,7 +573,13 @@ class MainActivity : FlutterFragmentActivity() {
                     }))
         )
         val volumeChanges = NativeIndex.updateVolumeSnapshot(this, NativeIndex.volumeSnapshot(this))
-        if (volumeChanges.optBoolean("changed")) NativeMailbox.write(this, JSONObject().put("type","volume_changed").put("payload",volumeChanges))
+        if (volumeChanges.optBoolean("changed")) {
+            NativeMailbox.write(this, JSONObject().put("type","volume_changed").put("payload",
+                JSONObject(volumeChanges.toString())
+                    .put("source", "android_storage")
+                    .put("reason", "lifecycle")
+                    .put("timestamp", System.currentTimeMillis())))
+        }
         NativeMailbox.write(this, JSONObject().put("type", "storage_capabilities").put("payload", capabilities))
         publishSafInventory()
     }
@@ -657,13 +740,10 @@ class MainActivity : FlutterFragmentActivity() {
                     { NativeScanController.isCancelled(scanId) },
                 )
                 val partial = result.optBoolean("partial")
-                val prepared = NativeIndex.prepare(appContext, NativeIndex.SOURCE_BROAD, "broad-storage",
-                    result.optJSONArray("documents") ?: JSONArray(), !partial && !result.optBoolean("cancelled"))
-                result.put("documents", prepared.documents).put("scanGeneration", prepared.generation)
-                    .put("nativeNew", prepared.newItems).put("nativeChanged", prepared.changedItems)
-                    .put("nativeUnchanged", prepared.unchangedItems).put("nativeDuplicates", prepared.duplicates)
-                    .put("nativeRemoved", prepared.removedItems).put("requestId", requestId ?: "")
+                result.put("requestId", requestId ?: "")
                     .put("scanId", scanId).put("scopeKind", "global").put("scopeRef", "broad-storage")
+                    .put("generationId", "native-scoped")
+                    .put("generationStatus", if (result.optBoolean("cancelled")) NativeIndex.STATUS_CANCELLED else if (partial) NativeIndex.STATUS_PARTIAL else NativeIndex.STATUS_COMPLETED)
                 NativeMailbox.write(appContext, JSONObject().put("type", "broad_storage_scan")
                     .put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
@@ -729,12 +809,11 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun cancelNativeScans(requestId: String? = null) {
         val ids = NativeScanController.cancelAll()
-        synchronized(activeNativeScanJobs) {
-            activeNativeScanJobs.values.forEach { it.cancel() }
-            activeNativeScanJobs.clear()
-        }
-        NativeMailbox.write(this, JSONObject().put("type", "scan_cancelled").put("requestId", requestId ?: "")
-            .put("payload", JSONObject().put("scanIds", JSONArray(ids)).put("count", ids.size)))
+        // Do not cancel the coroutine immediately: scanners need to observe the flag,
+        // emit a final CANCELLED generation, and keep the last good snapshot intact.
+        NativeMailbox.write(this, JSONObject().put("type", "scan_cancel_requested").put("requestId", requestId ?: "")
+            .put("payload", JSONObject().put("scanIds", JSONArray(ids)).put("count", ids.size)
+                .put("status", NativeIndex.STATUS_CANCELLED)))
     }
     private fun releaseTree(reference: String?) {
         if (reference.isNullOrBlank()) return

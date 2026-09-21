@@ -524,6 +524,7 @@ class MainActivity : FlutterFragmentActivity() {
                         .put("batchNumber", batchEvent.optInt("batchNumber", 0))
                         .put("error", exception.message ?: "native_batch_failed"))
             )
+            throw exception
         }
     }
 

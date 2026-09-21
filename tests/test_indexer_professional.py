@@ -9,7 +9,7 @@ class ProfessionalIndexerTests(unittest.TestCase):
     def _service(self, directory):
         store = LibraryStore(directory)
         service = LibraryService(store)
-        service._identify = lambda lookup, display, on_status: {"title": display, "genres": "[]"}
+        service._identify = lambda lookup, display, on_status, **kwargs: {"title": display, "genres": "[]"}
         return store, service
 
     def test_same_native_document_twice_is_idempotent(self):

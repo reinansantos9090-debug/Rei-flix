@@ -2,11 +2,39 @@ import unittest
 from pathlib import Path
 
 from core.dialogs import dismiss_dialog
-from core.storage_access import StorageAccessState, storage_access_state, storage_source_states
+from core.storage_access import StorageAccessState, StorageCapabilities, storage_access_state, storage_source_states
 
 ROOT = Path(__file__).resolve().parents[1]
 
 class StorageOnboardingTests(unittest.TestCase):
+    def test_prompt_2_storage_capabilities_normalize_native_snapshot(self):
+        capabilities = StorageCapabilities.from_native({
+            "mediaReadState": "partial",
+            "broadStorageState": "available",
+            "safRoots": ["content://tree/1", "content://tree/1"],
+            "removableVolumes": ["AB", "AB"],
+            "scannerCapabilities": ["mediastore", "broad-storage"],
+            "lifecycleState": "revalidated",
+            "api": 36,
+        })
+        self.assertEqual("partial", capabilities.media_read_state)
+        self.assertEqual("available", capabilities.broad_storage_state)
+        self.assertEqual(("content://tree/1",), capabilities.saf_roots)
+        self.assertEqual(("AB",), capabilities.removable_volumes)
+        self.assertTrue(capabilities.can_scan("mediastore"))
+        self.assertTrue(capabilities.can_scan("broad-storage"))
+        self.assertEqual(36, capabilities.api)
+
+    def test_prompt_2_partial_never_implies_broad_access(self):
+        capabilities = StorageCapabilities(
+            media_read_state="partial",
+            broad_storage_state="unavailable",
+            scanner_capabilities=frozenset({"mediastore"}),
+        )
+        self.assertTrue(capabilities.can_scan("mediastore"))
+        self.assertFalse(capabilities.can_scan("broad-storage"))
+        self.assertEqual(StorageAccessState.MEDIA_PARTIAL, storage_access_state("partial", False))
+
     def test_real_permission_snapshot_has_deterministic_states(self):
         self.assertEqual(storage_access_state("denied", False), StorageAccessState.NEEDS_MEDIA_PERMISSION)
         self.assertEqual(storage_access_state("partial", False), StorageAccessState.MEDIA_PARTIAL)

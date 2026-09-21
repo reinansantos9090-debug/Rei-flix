@@ -17,7 +17,13 @@ object BroadStorageScanner {
     private const val TAG = "[REIFLIX][SCANNER]"
     const val SOURCE = "broad-storage"
     const val DISPLAY_NAME = "Armazenamento local"
-    private val videoExtensions = setOf("mp4","mkv","webm","avi","mov","m4v","ts","m2ts","flv","wmv")
+    // Keep the extension fallback close to Nova's local video intent/indexing
+    // surface, while still allowing MediaStore/SAF MIME types to win when present.
+    private val videoExtensions = setOf(
+        "3g2","3gp","3gp2","3gpp","asf","avi","divx","flv","f4v","qt","m4v",
+        "mtv","mkv","mp4","mpeg","mpe","mpg","mov","ogm","ogv","ogx","vob","wtv",
+        "webm","ts","m2ts","wmv"
+    )
 
     /** A physical shared-storage root, not merely a path supplied by one scanner. */
     data class StorageRoot(
@@ -53,11 +59,17 @@ object BroadStorageScanner {
             .put("permissionCheckedAt", System.currentTimeMillis())
         val rootsJson = JSONArray()
         roots(context).forEach { root ->
+            val pathAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                runCatching { Environment.isExternalStorageManager(root.file) }.getOrDefault(false)
+            } else {
+                hasAccess(context)
+            }
             val check = JSONObject().put("path", root.file.path)
                 .put("volumeId", root.volumeId).put("uuid", root.volumeUuid ?: "")
                 .put("primary", root.primary).put("removable", root.removable).put("emulated", root.emulated)
                 .put("state", root.state).put("exists", root.file.exists())
                 .put("directory", root.file.isDirectory).put("readable", root.file.canRead())
+                .put("allFilesAccessForPath", pathAccess)
             if (root.file.exists() && root.file.isDirectory) {
                 check.put("children", runCatching { root.file.list()?.size ?: 0 }.getOrDefault(-1))
             }
@@ -263,6 +275,12 @@ object BroadStorageScanner {
                 JSONObject().put("volumeId", root.volumeId).put("volumeUuid", root.volumeUuid ?: "").put("scanId", scanId ?: "")
                     .put("state", root.state).put("removable", root.removable).put("primary", root.primary)
             )
+            val rootAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                runCatching { Environment.isExternalStorageManager(root.file) }.getOrDefault(false)
+            } else {
+                true
+            }
+            statsByVolume[root.volumeId]?.put("allFilesAccessForPath", rootAccess)
             if (!isReadableState(root.state)) {
                 val message = "Volume não disponível: " + root.volumeId + " (" + root.state + ")."
                 val classified = JSONObject()
@@ -272,13 +290,27 @@ object BroadStorageScanner {
                     .put("state", root.state)
                 errors.put(classified)
                 errorsByVolume[root.volumeId]?.put(classified)
+            } else if (!rootAccess) {
+                val classified = JSONObject()
+                    .put("type", "ACCESS_DENIED")
+                    .put("message", "O Android não permite leitura ampla neste volume: " + root.volumeId)
+                    .put("volumeId", root.volumeId)
+                    .put("state", root.state)
+                    .put("allFilesAccessForPath", false)
+                errors.put(classified)
+                errorsByVolume[root.volumeId]?.put(classified)
             }
         }
         if (rootFiles.isEmpty()) errors.put("Nenhuma raiz de armazenamento compartilhado foi encontrada.")
 
         val visited = HashSet<String>()
         val pending = ArrayDeque<Pair<File, StorageRoot>>()
-        rootFiles.filter { isReadableState(it.state) }.forEach { pending.addLast(it.file to it) }
+        rootFiles.filter {
+            isReadableState(it.state) && (
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.R ||
+                    runCatching { Environment.isExternalStorageManager(it.file) }.getOrDefault(false)
+            )
+        }.forEach { pending.addLast(it.file to it) }
         onProgress?.invoke(JSONObject().put("phase", "started").put("source", SOURCE)
             .put("directories", 0).put("files", 0).put("videos", 0).put("excludedNoMedia", 0).put("nomediaDirectories", 0).put("nomediaFiles", 0))
 
@@ -419,6 +451,11 @@ object BroadStorageScanner {
             val scopeStats = statsByVolume[volumeId] ?: JSONObject()
             val endState = runCatching { Environment.getExternalStorageState(root.file) }.getOrDefault(root.state)
             val volumeStillReadable = isReadableState(endState)
+            val volumeStillAuthorized = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                runCatching { Environment.isExternalStorageManager(root.file) }.getOrDefault(false)
+            } else {
+                true
+            }
             if (!volumeStillReadable && !cancelled) {
                 val endError = JSONObject()
                     .put("type", volumeErrorType(endState))
@@ -430,7 +467,11 @@ object BroadStorageScanner {
             }
             val batchCount = NativeIndex.batchCount(context, SOURCE, scopeKey, generation)
             val stagedDocuments = NativeIndex.stagedDocumentCount(context, SOURCE, scopeKey, generation)
-            val complete = isReadableState(root.state) && volumeStillReadable && volumeErrors.length() == 0 && !cancelled
+            val complete = isReadableState(root.state) &&
+                volumeStillReadable &&
+                volumeStillAuthorized &&
+                volumeErrors.length() == 0 &&
+                !cancelled
             val status = when {
                 cancelled -> NativeIndex.STATUS_CANCELLED
                 !complete -> NativeIndex.STATUS_PARTIAL
@@ -442,6 +483,7 @@ object BroadStorageScanner {
                 .put("volumeUuid", root.volumeUuid ?: "")
                 .put("state", endState)
                 .put("initialState", root.state)
+                .put("allFilesAccessForPath", volumeStillAuthorized)
                 .put("removable", root.removable)
                 .put("primary", root.primary)
                 .put("errors", volumeErrors)

@@ -77,6 +77,10 @@ jobs:
         shell: bash
         run: |
           while IFS= read -r -d '' file; do
+            if grep -q "{{cookiecutter." "$file" || grep -q "{%" "$file"; then
+              echo "Unrendered Jinja JSON template (skipped): $file"
+              continue
+            fi
             python -m json.tool "$file" >/dev/null
             echo "Valid JSON: $file"
           done < <(find . -path './.git' -prune -o -path './build' -prune -o -type f -name '*.json' -print0)
@@ -141,10 +145,11 @@ jobs:
               return "".join(out)
 
           for path in glob.glob("build/flet-build-template/**/*.json", recursive=True):
-              if "{{cookiecutter." in path:
-                  continue
               with open(path, "r", encoding="utf-8") as handle:
                   raw = handle.read()
+              if "{{cookiecutter." in raw or "{%" in raw:
+                  print(f"Unrendered Jinja JSON template (skipped): {path}")
+                  continue
               cleaned = strip_trailing_commas(raw)
               try:
                   data = json.loads(cleaned)

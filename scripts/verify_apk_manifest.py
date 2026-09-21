@@ -80,6 +80,20 @@ def has_launchable_activity(badging: str, activity_name: str) -> bool:
         badging,
     ))
 
+def has_package_contract(badging: str) -> bool:
+    return bool(re.search(
+        r"""package:\s+name=['"]com\.reiflix\.reiflix_local['"]\s+
+            versionCode=['"]1['"]\s+
+            versionName=['"]0\.2\.0['"]""",
+        badging,
+        re.X,
+    ))
+
+
+def has_target_sdk_36(badging: str) -> bool:
+    return bool(re.search(r"""targetSdkVersion\s*[:=]\s*['"]?36['"]?""", badging))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("apk", type=Path)
@@ -99,6 +113,10 @@ def main() -> int:
 
     main_block = extract_activity_block(manifest, MAIN_ACTIVITY)
     failed: list[str] = []
+    if not has_package_contract(badging):
+        failed.append("packaged APK package/versionCode/versionName contract is incorrect")
+    if not has_target_sdk_36(badging):
+        failed.append("packaged APK targetSdkVersion is not 36")
     if main_block is None:
         failed.append(f"MainActivity not found in packaged manifest: {MAIN_ACTIVITY}")
     else:
@@ -127,6 +145,10 @@ def main() -> int:
         return 1
 
     print("Verified packaged AndroidManifest.xml:")
+    print("  package: com.reiflix.reiflix_local")
+    print("  versionCode: 1")
+    print("  versionName: 0.2.0")
+    print("  targetSdkVersion: 36")
     print(f"  MainActivity: {MAIN_ACTIVITY}")
     print("  launchMode: singleTask (AAPT2 ActivityInfo constant 2)")
     print("  documentLaunchMode: never (AAPT2 ActivityInfo constant 3)")

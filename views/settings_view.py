@@ -17,7 +17,7 @@ class SettingsView:
     def build(page, store, library, on_back, on_catalog_changed, on_add_folder, on_remove_folder,
               on_refresh_library, on_request_video_access, on_open_broad_storage, on_login, on_logout, account, account_state="disconnected",
               folder_selection_pending=lambda: False, on_resolve_match=lambda _lookup, _id: None,
-              on_create_backup=None, on_restore_backup=None):
+              on_create_backup=None, on_restore_backup=None, storage_snapshot=None, scan_snapshot=None):
         status = ft.Text("", color="#9DA3B4", size=12)
         busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False, "permission": False, "backup": False, "restore": False}
 
@@ -53,11 +53,16 @@ class SettingsView:
         folders = store.folders()
         summary = store.library_summary()
         statistics = library.library_statistics()
-        broad_folder = next((f for f in folders if f.get("kind") == "broad_storage"), None)
-        media_folder = next((f for f in folders if f.get("kind") == "mediastore"), None)
-        broad_granted = bool(broad_folder and broad_folder.get("authorization") == "granted")
-        media_granted = bool(media_folder and media_folder.get("authorization") == "granted")
-        media_partial = bool(media_folder and "parcial" in str(media_folder.get("last_error") or "").casefold())
+        snapshot = storage_snapshot or {}
+        scan = scan_snapshot or {}
+        media_state = str(getattr(storage_snapshot, "media_read_state", snapshot.get("mediaReadState", "denied"))).casefold()
+        broad_state = str(getattr(storage_snapshot, "broad_storage_state", snapshot.get("broadStorageState", "unavailable"))).casefold()
+        saf_roots = tuple(getattr(storage_snapshot, "saf_roots", snapshot.get("safRoots", ())) or ())
+        volumes = tuple(getattr(storage_snapshot, "removable_volumes", snapshot.get("removableVolumes", ())) or ())
+        broad_granted = broad_state == "available"
+        media_granted = media_state in {"partial", "full"}
+        media_partial = media_state == "partial"
+        media_full = media_state == "full"
 
         def show_video_permission_dialog(_=None):
             if busy["permission"]:
@@ -201,9 +206,9 @@ class SettingsView:
         scan_button.on_click = scan
 
         video_permission_button = ft.FilledButton(
-            "Permitir leitura de vídeos" if not media_granted else "Permissão de vídeos concedida",
+            "Solicitar leitura de vídeos" if not media_granted else ("Rever acesso parcial" if media_partial else "Permissão de vídeos concedida"),
             icon=ft.Icons.VIDEO_LIBRARY_OUTLINED,
-            disabled=media_granted and not media_partial,
+            disabled=media_full,
             on_click=show_video_permission_dialog,
         )
         broad_storage_button = ft.OutlinedButton(
@@ -223,22 +228,36 @@ class SettingsView:
             media_permission_text = "⚠ Permissão para ler vídeos ainda não concedida"
             media_permission_color = "#FFB4AB"
 
+        media_label = {
+            "full": "COMPLETO — acesso aos vídeos confirmado pelo Android",
+            "partial": "PARCIAL — o Android liberou apenas itens selecionados",
+            "denied": "NEGADO — o Android não liberou leitura de vídeos",
+        }.get(media_state, "DESCONHECIDO")
+        broad_label = "DISPONÍVEL — acesso amplo confirmado pelo Android" if broad_granted else "INDISPONÍVEL — acesso amplo não concedido"
+        saf_label = f"PASTAS AUTORIZADAS — {len(saf_roots)}" if saf_roots else "SEM PASTA SAF AUTORIZADA"
+        scan_state_label = str(scan.get("state") or "IDLE")
+        scan_source = str(scan.get("source") or "—")
+        scan_volume = str(scan.get("volume") or "—")
+        scan_found = int(scan.get("found") or 0)
+        scan_error = str(scan.get("error") or "")
         permission_lines = [
-            ft.Text(
-                ("✓ Permissão para ler vídeos (acesso parcial)" if media_partial else "✓ Permissão para ler vídeos")
-                if media_granted else "⚠ Permissão para ler vídeos ainda não concedida",
-                color="#9FE3B1" if media_granted else "#FFB4AB", size=11,
-            ),
-            ft.Text(
-                "✓ Acesso amplo ao armazenamento concedido" if broad_granted else "○ Acesso amplo opcional não concedido — use uma pasta SAF como alternativa",
-                color="#9FE3B1" if broad_granted else "#AAA7B6", size=11,
-            ),
+            ft.Text(f"MEDIASTORE: {media_label}", color="#9FE3B1" if media_granted else "#FFB4AB", size=11),
+            ft.Text(f"SAF: {saf_label}", color="#9FE3B1" if saf_roots else "#AAA7B6", size=11),
+            ft.Text(f"BROAD STORAGE: {broad_label}", color="#9FE3B1" if broad_granted else "#AAA7B6", size=11),
             ft.Row([video_permission_button, broad_storage_button], wrap=True, spacing=8, run_spacing=8),
             ft.Text(
-                "Use acesso amplo para uma varredura geral do armazenamento compartilhado. Para um controle mais restrito, escolha uma pasta específica em “Adicionar pasta”.",
+                "Os estados acima vêm do snapshot atual do Android; as linhas do SQLite são apenas histórico/configuração.",
                 color="#AAA7B6", size=10,
             ),
         ]
+        diagnostics_content = ft.Column([
+            ft.Text(f"SCAN: {scan_state_label}", color=TEXT, size=12, weight=ft.FontWeight.BOLD),
+            ft.Text(f"Fonte: {scan_source} • Volume: {scan_volume}", color=TEXT_MUTED, size=11),
+            ft.Text(f"Encontrados: {scan_found} • Diretórios: {int(scan.get('directories') or 0)} • Arquivos: {int(scan.get('files') or 0)}", color=TEXT_MUTED, size=11),
+            ft.Text(f"Volumes removíveis: {len(volumes)}", color=TEXT_MUTED, size=11),
+            ft.Text(f"Erro: {scan_error}" if scan_error else "Erro: nenhum", color="#FFB4AB" if scan_error else TEXT_MUTED, size=11),
+            ft.Text(f"Timestamp: {scan.get('timestamp') or '—'}", color=TEXT_MUTED, size=10),
+        ], spacing=4)
 
         resume_switch = ft.Switch(label="Continuar do progresso salvo", value=store.get_preference("resume_playback", "true") == "true")
         def save_resume(event):
@@ -408,6 +427,7 @@ class SettingsView:
                 ft.Row([add_folder_button, scan_button], wrap=True),
                 ft.Text(diagnostic, color="#AAA7B6", size=11),
             ], spacing=8)),
+            section("DIAGNÓSTICOS DE ARMAZENAMENTO", ft.Icons.DIAGNOSTICS_OUTLINED, diagnostics_content),
             section("ESTATÍSTICAS OFFLINE", ft.Icons.INSIGHTS_OUTLINED, ft.Column([
                 ft.Text(stats_text, color="#C7C5D0", size=12),
                 ft.Text("“Registrado” representa a posição atual salva nos episódios disponíveis; não é tempo histórico assistido.", color=TEXT_MUTED, size=10),

@@ -46,7 +46,7 @@ class ProbeStore:
         self.progress.append(dict(summary))
         return True
 
-class Prompt11BatchService(LibraryService):
+class BatchServiceProbe(LibraryService):
     def __init__(self):
         self.store = ProbeStore()
         self._scan_lock = threading.Lock()
@@ -63,7 +63,7 @@ def documents(count, offset=0):
 
 class TestPrompt11Scalability(unittest.TestCase):
     def test_duplicate_document_across_batches_is_deduplicated(self):
-        service = Prompt11BatchService()
+        service = BatchServiceProbe()
         doc = next(documents(1))
         first = service.ingest_documents_batch(
             "broad-storage", [doc],

@@ -283,7 +283,11 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject().put("treeUri", reference).put("phase", "already_running")))
             return
         }
-        if (!NativeScanController.begin(scanId, scanKey)) return
+        if (!NativeScanController.begin(scanId, scanKey)) {
+            NativeMailbox.write(this, JSONObject().put("type", "saf_scan_progress")
+                .put("payload", JSONObject().put("treeUri", reference).put("requestId", requestId ?: "").put("phase", "already_running")))
+            return
+        }
         val appContext = applicationContext
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -503,7 +507,11 @@ class MainActivity : FlutterFragmentActivity() {
         NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
             .put("requestId", requestId ?: "")
             .put("payload", JSONObject().put("granted", true).put("source", BroadStorageScanner.SOURCE)))
-        if (!NativeScanController.begin(scanId, BroadStorageScanner.SOURCE)) return
+        if (!NativeScanController.begin(scanId, BroadStorageScanner.SOURCE)) {
+            NativeMailbox.write(this, JSONObject().put("type", "broad_storage_scan_progress")
+                .put("payload", JSONObject().put("source", BroadStorageScanner.SOURCE).put("requestId", requestId ?: "").put("phase", "already_running")))
+            return
+        }
         val appContext = applicationContext
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -549,7 +557,11 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
             return
         }
-        if (!NativeScanController.begin(scanId, MediaStoreScanner.SOURCE)) return
+        if (!NativeScanController.begin(scanId, MediaStoreScanner.SOURCE)) {
+            NativeMailbox.write(this, JSONObject().put("type", "mediastore_scan_progress")
+                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE).put("requestId", requestId ?: "").put("phase", "already_running")))
+            return
+        }
         val appContext = applicationContext
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {

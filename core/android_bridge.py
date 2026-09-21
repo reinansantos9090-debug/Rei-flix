@@ -142,8 +142,8 @@ class AndroidBridge:
             if self.mailbox.exists():
                 try:
                     self.mailbox.replace(legacy)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logger.error("[ANDROID] Failed to claim legacy native mailbox: %s", exc)
                 else:
                     try:
                         payload = json.loads(legacy.read_text(encoding="utf-8"))
@@ -152,7 +152,8 @@ class AndroidBridge:
                         elif isinstance(payload, dict):
                             events.append(payload)
                         claimed.append(legacy)
-                    except (OSError, json.JSONDecodeError):
+                    except (OSError, json.JSONDecodeError) as exc:
+                        logger.error("[ANDROID] Invalid legacy native mailbox batch discarded: %s", exc)
                         legacy.unlink(missing_ok=True)
             for source in sorted(self.queue_dir.glob("event-*.json")):
                 consumed = source.with_suffix(".consumed")
@@ -162,7 +163,8 @@ class AndroidBridge:
                     continue
                 try:
                     payload = json.loads(consumed.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
+                except (OSError, json.JSONDecodeError) as exc:
+                    logger.error("[ANDROID] Invalid native mailbox event discarded: %s (%s)", consumed.name, exc)
                     consumed.unlink(missing_ok=True)
                     continue
                 if isinstance(payload, list):
@@ -179,7 +181,7 @@ class AndroidBridge:
             self._retained = set()
             return [event for _, event in indexed]
         except OSError as exc:
-            logger.warning("[ANDROID] Failed to drain native bridge events: %s", exc)
+            logger.error("[ANDROID] Native mailbox drain failed; claimed events will be restored/retried: %s", exc)
             # Never discard a claimed event because of a later I/O failure.
             # Leave it in .consumed form when restoration is not possible; the
             # next process start converts outstanding .consumed files back to

@@ -51,6 +51,11 @@ def main() -> int:
     version_name = re.search(r'versionName\s*=\s*"([^"]+)"', build_gradle)
     if not version_code or not version_name:
         failures.append("version contract is incomplete")
+    else:
+        if int(version_code.group(1)) < 2:
+            failures.append("versionCode must be >= 2 for installable updates")
+        if version_name.group(1) != "0.2.1":
+            failures.append("versionName must be 0.2.1")
     if 'android:name=".MainActivity" android:exported="true"' not in manifest:
         failures.append("MainActivity exported contract missing")
     if 'android:launchMode="singleTask"' not in manifest:

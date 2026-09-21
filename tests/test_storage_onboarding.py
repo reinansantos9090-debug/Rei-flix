@@ -81,7 +81,7 @@ class StorageOnboardingTests(unittest.TestCase):
         request_block = source.split("private fun requestMediaAccess()", 1)[1].split("private fun publishStorageStatus()", 1)[0]
         self.assertIn('val currentAccess = MediaStoreScanner.accessLevel(this)', request_block)
         self.assertIn('if (currentAccess != "denied")', request_block)
-        self.assertLess(request_block.index('put("type", "mediastore_permission")'), request_block.index("scanMediaStore()"))
+        self.assertLess(request_block.index('put("type", "mediastore_permission")'), request_block.index("scanMediaStore(requestId)"))
         self.assertIn("Existing access must converge to the same permission -> scan -> index -> mailbox path.", request_block)
 
     def test_saf_picker_is_lifecycle_gated_and_single_shot(self):
@@ -130,7 +130,9 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn('ft.FilledButton("PERMITIR"', onboarding)
         source_state = source[source.index("def storage_state()"):source.index("def maybe_show_storage_onboarding")]
         self.assertIn("storage_access_state(", source_state)
-        self.assertIn('storage_onboarding["saf"] is True', source_state)
+        self.assertIn("bool(caps.saf_roots)", source_state)
+        self.assertIn("caps.media_read_state", source_state)
+        self.assertIn('caps.broad_storage_state == "available"', source_state)
 
     def test_storage_onboarding_cancel_uses_managed_flet_dialog_stack(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
@@ -244,7 +246,7 @@ class StorageOnboardingTests(unittest.TestCase):
     def test_refresh_library_gates_broad_scanner_on_authorization(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         refresh = source[source.index("    async def refresh_library"):source.index("    async def login", source.index("    async def refresh_library"))]
-        self.assertIn("broad_granted = any(", refresh)
+        self.assertIn('broad_granted = caps.can_scan("broad-storage")', refresh)
         self.assertIn("if broad_granted:", refresh)
 
     def test_on_resume_does_not_publish_intermediate_denied_before_pending_request(self):
@@ -380,7 +382,8 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("pendingMediaRequestId", activity)
         self.assertIn("pendingBroadRequestId", activity)
         self.assertIn("pendingSafRequestId", activity)
-        self.assertIn("consumeLifecycleRequest()", activity)
+        self.assertIn("consumeLifecycleAction()", activity)
+        self.assertIn("consumedLifecycleRequestId()", activity)
         self.assertIn("pendingLifecycleRequestId", state)
 
     def test_prompt_2_settings_return_revalidates_broad_api(self):

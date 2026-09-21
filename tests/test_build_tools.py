@@ -285,7 +285,7 @@ E: manifest
 
     def test_refresh_recovers_when_a_saf_scan_cannot_start(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        start = source.index("            saf_folders = [folder for folder in folders")
+        start = source.index("            saf_folders = [")
         end = source.index("            result = await asyncio.to_thread(library.scan)", start)
         block = source[start:end]
         self.assertIn("pending_native_scans[0] = 0", block)
@@ -326,7 +326,9 @@ E: manifest
 
     def test_refresh_library_skips_revoked_saf_trees_until_permission_returns(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn("folder.get('kind') == 'saf' and folder.get('authorization') == 'granted'", source)
+        self.assertIn("authorized_roots = set(caps.saf_roots)", source)
+        self.assertIn("folder.get('kind') == 'saf'", source)
+        self.assertIn("folder.get('path') in authorized_roots", source)
         self.assertIn("await bridge.rescan_tree(folder['path'])", source)
 
     def test_refresh_library_waits_for_every_saf_scan_result_or_error(self):
@@ -384,7 +386,7 @@ E: manifest
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
         self.assertIn("SafScanner.persistPermission(this, uri, resultIntent.flags)", main)
-        self.assertIn("scanTree(uri.toString())", main)
+        self.assertIn("scanTree(uri.toString(), requestId)", main)
         self.assertIn("takePersistableUriPermission(uri, granted)", scanner)
         self.assertIn("check(hasPersistedReadPermission(context, uri))", scanner)
         self.assertIn("if (!SafScanner.hasPersistedReadPermission(this, treeUri))", main)
@@ -454,7 +456,7 @@ class TestSafSelectionRegistration(unittest.TestCase):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn('put("selected", true)', main)
         self.assertIn('SafScanner.displayName(this, uri)', main)
-        self.assertLess(main.index('put("selected", true)'), main.index('scanTree(uri.toString())'))
+        self.assertLess(main.index('put("selected", true)'), main.index('scanTree(uri.toString(), requestId)'))
 
     def test_python_registers_selected_saf_tree_before_ingest_result(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")

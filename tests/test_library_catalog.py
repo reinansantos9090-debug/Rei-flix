@@ -7,7 +7,7 @@ from core.library_service import LibraryService
 from core.library_store import LibraryStore
 
 
-class Prompt15LibraryTests(unittest.TestCase):
+class LibraryCatalogTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = LibraryStore(self.tmp.name)

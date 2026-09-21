@@ -371,8 +371,8 @@ E: manifest
 
     def test_native_player_rechecks_saf_authorization_before_media3_start(self):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
-        self.assertIn("SafScanner.isAuthorizedDocument(this, uri)", player)
-        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", player)
+        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", player)
+        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn('contentResolver.openFileDescriptor(localUri, "r")', player)
         self.assertIn("Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix.", player)
 
@@ -445,9 +445,9 @@ E: manifest
         self.assertIn('localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri)', main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("startActivity(Intent(this, NativePlayerActivity::class.java)", main)
-        self.assertIn('uri.scheme == "content" && SafScanner.isAuthorizedDocument(this, uri)', player)
-        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", player)
-        self.assertIn("BroadStorageScanner.isAuthorizedFile(this, uri)", player)
+        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", player)
+        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
+        self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", player)
         self.assertIn('reportError("Arquivo local inválido.")', player)
         self.assertIn("finish()", player)
 

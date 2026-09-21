@@ -196,6 +196,7 @@ class MainActivity : FlutterFragmentActivity() {
                 "request_media_access" -> requestMediaAccess()
                 "open_broad_storage_settings" -> openBroadStorageSettings()
             }
+            // Established host contract: "request_media_access" -> requestMediaAccess()
             return
         }
 

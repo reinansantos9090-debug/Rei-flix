@@ -37,6 +37,8 @@ class ScanResult:
     reconciled: int = 0
     scan_id: str | None = None
     status: str = "completed"
+    nomedia_directories: int = 0
+    nomedia_files: int = 0
 
     def message(self):
         if self.videos == 0:
@@ -323,7 +325,7 @@ class LibraryService:
     def scan(self, on_status=lambda _ : None):
         with self._scan_lock:
             scan_id = str(uuid.uuid4())
-            run_id = self.store.begin_scan(scan_id=scan_id, source_kind="filesystem", scope_kind="global", scope_ref=None)
+            run_id = self.store.begin_scan(scan_id=scan_id, source_kind="filesystem", scope_kind="global", scope_ref=None, generation_id=scan_id)
             result = ScanResult(catalog=[], scan_id=scan_id)
             try:
                 parsed = []
@@ -349,9 +351,36 @@ class LibraryService:
                         def _on_walk_error(error):
                             walk_errors.append(error)
                             result.errors.append(f"{folder['name']}: diretório não pôde ser lido: {getattr(error, 'filename', error)}")
-                        for root, _, files in os.walk(reference, onerror=_on_walk_error):
+                        for root, dirnames, files in os.walk(reference, onerror=_on_walk_error):
+                            names_casefold = {str(name).casefold() for name in files}
+                            if ".nomedia" in names_casefold:
+                                result.nomedia_directories += 1
+                                result.nomedia_files += 1
+                                result.ignored += sum(1 for name in files if str(name).casefold() != ".nomedia")
+                                dirnames[:] = []
+                                continue
+
+                            allowed_dirs = []
+                            for dirname in dirnames:
+                                child = os.path.join(root, dirname)
+                                try:
+                                    has_nomedia = os.path.isfile(os.path.join(child, ".nomedia"))
+                                except OSError as exc:
+                                    walk_errors.append(exc)
+                                    result.errors.append(f"{folder['name']}: não foi possível verificar {dirname}: {exc}")
+                                    has_nomedia = False
+                                if has_nomedia:
+                                    result.nomedia_directories += 1
+                                    result.nomedia_files += 1
+                                    continue
+                                allowed_dirs.append(dirname)
+                            dirnames[:] = allowed_dirs
+
                             for name in files:
                                 result.files += 1
+                                if str(name).casefold() == ".nomedia":
+                                    result.ignored += 1
+                                    continue
                                 if os.path.splitext(name)[1].lower() not in VIDEO_EXTENSIONS:
                                     result.ignored += 1
                                     continue
@@ -428,18 +457,21 @@ class LibraryService:
                 if latest is not None and native_generation < latest:
                     logger.info("Ignoring stale native scan generation %s < %s", native_generation, latest)
                     return self.store.catalog()
+            scan_scopes = [scope for scope in (scope_scans or []) if isinstance(scope, dict)]
+            generation_id = str(scan_stats.get("generationId") or scan_stats.get("generation_id") or scan_id)
             run_id = self.store.begin_scan(
                 scan_id=scan_id, source_kind=source_kind, scope_kind=scope_kind,
                 scope_ref=scope_ref or tree_uri, native_generation=native_generation,
+                generation_id=generation_id,
             )
             result = ScanResult(catalog=[], scan_id=scan_id)
             scan_errors = list(scan_errors or [])
             scan_stats = scan_stats or {}
-            native_scan_state = str(scan_stats.get("status") or "").casefold()
+            native_scan_state = str(scan_stats.get("status") or scan_stats.get("generationStatus") or "").casefold()
             partial_scan = bool(
                 scan_stats.get("partial")
                 or scan_stats.get("cancelled")
-                or native_scan_state in {"partial", "failed", "cancelled"}
+                or native_scan_state in {"partial", "failed", "cancelled", "canceled", "error"}
             )
             try:
                 self.store.add_folder(
@@ -452,6 +484,17 @@ class LibraryService:
                 metadata = {}
                 affected_anime_ids = set()
                 seen = set()
+                trusted_scope_defs = {}
+                trusted_scope_seen = {}
+                for scope in scan_scopes:
+                    status = str(scope.get("status") or ("completed" if scope.get("complete") else "partial")).casefold()
+                    complete_scope = bool(scope.get("complete")) and status in {"completed", "complete"}
+                    skind = str(scope.get("scopeKind") or ("volume" if scope.get("volumeId") else scope_kind)).strip() or scope_kind
+                    sref = str(scope.get("scopeRef") or scope.get("volumeId") or "").strip()
+                    if complete_scope and sref:
+                        key = (skind, sref)
+                        trusted_scope_defs[key] = scope
+                        trusted_scope_seen[key] = set()
                 for document in documents or []:
                     uri = document.get("uri") if isinstance(document, dict) else None
                     if uri in seen:
@@ -471,6 +514,10 @@ class LibraryService:
                     )
                     if accepted:
                         result.videos += 1
+                        volume_id = str((document or {}).get("volumeId") or "").strip() if isinstance(document, dict) else ""
+                        for key in trusted_scope_seen:
+                            if key[0] == "volume" and key[1] == volume_id:
+                                trusted_scope_seen[key].add(uri)
 
                 for anime_id in sorted(affected_anime_ids):
                     self.artwork.reindex_entity(anime_id)
@@ -478,7 +525,17 @@ class LibraryService:
                 result.errors.extend(str(error) for error in scan_errors)
                 if scan_errors or partial_scan:
                     result.status = "partial" if native_scan_state != "failed" else "error"
-                if not scan_errors and not partial_scan:
+                if not scan_errors and not partial_scan and trusted_scope_defs:
+                    for (skind, sref), _scope in trusted_scope_defs.items():
+                        self.store.reconcile_missing(
+                            tree_uri,
+                            list(trusted_scope_seen.get((skind, sref), set())),
+                            scope_kind=skind,
+                            scope_ref=sref,
+                        )
+                        result.reconciled += 1
+                    self.store.update_folder_status(tree_uri, "granted")
+                elif not scan_errors and not partial_scan:
                     if source_kind in {"broad_storage", "mediastore"}:
                         volumes = {}
                         for document in documents or []:
@@ -541,8 +598,8 @@ class LibraryService:
                 "directory": str(item.get("directory") or ""),
                 "description": str(item.get("description") or ""),
             })
-        self.store.set_native_volume_states(normalized)
-        return self.store.native_volume_states()
+        removed = payload.get("removed") or []
+        return self.store.record_native_volume_change({"current": normalized, "removed": removed})
 
     def resolve_match(self, lookup_title, anilist_id):
         """Persist an explicit AniList choice and refresh its metadata immediately."""

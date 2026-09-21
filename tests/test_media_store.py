@@ -57,6 +57,7 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
         self.assertIn("scope_errors = scope.get('errors') or []", main)
         self.assertIn("if not scope.get('complete'):", main)
         self.assertIn("scope_stats['partial'] = True", main)
+        self.assertIn("library.finish_ingest_documents", main)
         self.assertIn("scan_errors=scope_errors, scan_stats=scope_stats", main)
 
     def test_player_accepts_saf_or_media_store_without_path_conversion(self):

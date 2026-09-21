@@ -504,6 +504,8 @@ class MainActivity : FlutterFragmentActivity() {
                     SafScanner.STATUS_UNAVAILABLE -> SafScanner.STATUS_UNAVAILABLE
                     SafScanner.STATUS_CANCELLED -> SafScanner.STATUS_CANCELLED
                     SafScanner.STATUS_PARTIAL -> SafScanner.STATUS_PARTIAL
+                    SafScanner.STATUS_EMPTY_COMPLETE -> NativeIndex.STATUS_EMPTY_COMPLETE
+                    SafScanner.STATUS_UNAVAILABLE -> NativeIndex.STATUS_UNAVAILABLE
                     else -> NativeIndex.STATUS_COMPLETED
                 }
                 val prepared = NativeIndex.prepare(

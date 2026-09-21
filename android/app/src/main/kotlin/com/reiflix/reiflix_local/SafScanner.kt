@@ -46,6 +46,10 @@ object SafScanner {
         try { context.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         catch(e:SecurityException) { Log.w(TAG,"Persistable SAF grant rejected",e); throw IllegalStateException("O provedor não permitiu persistir o acesso desta pasta.",e) }
         check(hasPersistedReadPermission(context,uri)) { "A autorização da pasta não foi persistida." }
+        val inspection=inspectTree(context,uri,requirePersisted=true)
+        check(inspection.optString("status") in setOf(STATUS_COMPLETED,STATUS_EMPTY_COMPLETE)) {
+            "A pasta foi autorizada, mas o provedor não está acessível."
+        }
     }
 
     fun hasPersistedReadPermission(context:Context,treeUri:Uri):Boolean {

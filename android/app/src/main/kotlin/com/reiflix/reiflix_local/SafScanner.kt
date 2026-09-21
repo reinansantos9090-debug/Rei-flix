@@ -18,7 +18,13 @@ object SafScanner {
     const val STATUS_REVOKED = "REVOKED"
     const val STATUS_UNAVAILABLE = "UNAVAILABLE"
     const val STATUS_COMPLETED = "COMPLETED"
-    private val videoExtensions = setOf("mp4","mkv","webm","avi","mov","m4v","ts","m2ts","flv","wmv")
+    // Match Nova's broad local video extension surface; provider MIME values
+    // remain authoritative when available.
+    private val videoExtensions = setOf(
+        "3g2","3gp","3gp2","3gpp","asf","avi","divx","flv","f4v","qt","m4v",
+        "mtv","mkv","mp4","mpeg","mpe","mpg","mov","ogm","ogv","ogx","vob","wtv",
+        "webm","ts","m2ts","wmv"
+    )
 
     data class TreeIdentity(val treeUri:String,val authority:String,val documentId:String,val volumeId:String,val identity:String)
 

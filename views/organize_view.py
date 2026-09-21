@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import inspect
 import flet as ft
 from core.consumption import consumption_state, progress_ratio
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title

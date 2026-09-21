@@ -1,4 +1,3 @@
-import re
 import tempfile
 import threading
 import unittest
@@ -46,7 +45,7 @@ class ProbeStore:
         self.progress.append(dict(summary))
         return True
 
-class Prompt11BatchService(LibraryService):
+class BatchServiceProbe(LibraryService):
     def __init__(self):
         self.store = ProbeStore()
         self._scan_lock = threading.Lock()
@@ -59,11 +58,11 @@ class Prompt11BatchService(LibraryService):
 
 def documents(count, offset=0):
     for index in range(offset, offset + count):
-        yield {'uri': f'content://prompt11/{index}', 'name': f'{index}.mp4'}
+        yield {'uri': f'content://library-scale/{index}', 'name': f'{index}.mp4'}
 
-class TestPrompt11Scalability(unittest.TestCase):
+class TestScalability(unittest.TestCase):
     def test_duplicate_document_across_batches_is_deduplicated(self):
-        service = Prompt11BatchService()
+        service = BatchServiceProbe()
         doc = next(documents(1))
         first = service.ingest_documents_batch(
             "broad-storage", [doc],

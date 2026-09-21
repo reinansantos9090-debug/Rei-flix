@@ -505,7 +505,7 @@ async def main(page: ft.Page):
                         elif event_type == 'broad_storage_scan':
                             try:
                                 stats = payload.get('stats') or {}
-                                    source = payload.get('source') or 'broad-storage'
+                                source = payload.get('source') or 'broad-storage'
                                 scopes = payload.get('volumeScopes') or []
                                 catalog = store.catalog()
                                 if scopes:

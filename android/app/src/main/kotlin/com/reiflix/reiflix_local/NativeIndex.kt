@@ -273,6 +273,13 @@ object NativeIndex {
         return output
     }
 
+    private fun volumeSemantics(item: JSONObject): String {
+        val normalized = JSONObject(item.toString())
+        normalized.remove("observedAt")
+        normalized.remove("lastObservedAt")
+        return normalized.toString()
+    }
+
     fun updateVolumeSnapshot(context: Context, current: JSONArray): JSONObject = synchronized(this) {
         val state = read(context)
         val previous = state.optJSONObject("volumes") ?: JSONObject()
@@ -296,7 +303,8 @@ object NativeIndex {
             val before = previous.optJSONObject(id)
             when {
                 before == null -> added.put(item)
-                before.toString() != item.toString() -> changed.put(JSONObject().put("before", JSONObject(before.toString())).put("after", item))
+                before != null && volumeSemantics(before) != volumeSemantics(item) ->
+                    changed.put(JSONObject().put("before", JSONObject(before.toString())).put("after", item))
             }
         }
         val now = System.currentTimeMillis()

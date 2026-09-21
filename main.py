@@ -754,8 +754,7 @@ async def main(page: ft.Page):
                                             generation_id=scope.get('generationId'),
                                             status=scope.get('status') or ('completed' if scope.get('complete') else 'partial'),
                                             folder_name=payload.get('name') or 'Armazenamento local',
-                                            scan_errors=scope_errors,
-                                            scan_stats=scope_stats,
+                                            scan_errors=scope_errors, scan_stats=scope_stats,
                                         )
                                         catalog = final_result.catalog
                                 else:

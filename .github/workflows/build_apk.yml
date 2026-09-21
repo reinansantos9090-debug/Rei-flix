@@ -195,6 +195,8 @@ jobs:
 
       - name: Run Android instrumented tests on API 30 emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/flutter/site-packages
         with:
           api-level: 30
           arch: x86_64
@@ -202,11 +204,12 @@ jobs:
           working-directory: build/flutter/android
           script: |
             mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
-            export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
             ./gradlew :app:connectedDebugAndroidTest --no-daemon
 
       - name: Run Android instrumented tests on API 36 emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/flutter/site-packages
         with:
           api-level: 36
           arch: x86_64
@@ -214,7 +217,6 @@ jobs:
           working-directory: build/flutter/android
           script: |
             mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
-            export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
             ./gradlew :app:connectedDebugAndroidTest --no-daemon
 
       - name: Locate APK

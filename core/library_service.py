@@ -400,6 +400,13 @@ class LibraryService:
                 for anime_id in sorted(self.store.generation_anime_ids(source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=generation)): self.artwork.reindex_entity(anime_id)
                 self.store.update_folder_status(tree_uri, "granted")
             row = self.store.scan_by_id(scan_id) or {}
+            try:
+                historical_errors = json.loads(row.get("errors") or "[]")
+            except (TypeError, json.JSONDecodeError):
+                historical_errors = []
+            if not isinstance(historical_errors, list):
+                historical_errors = []
+            errors = list(dict.fromkeys([str(e) for e in historical_errors] + errors))
             result = ScanResult(catalog=[], scan_id=scan_id, status=final_status)
             for attr,col in (("files","files"),("videos","videos"),("new","new_files"),("updated","updated_files"),("unchanged","unchanged_files"),("duplicates","duplicate_files"),("ignored","ignored_files"),("unknown","unknown_files")): setattr(result,attr,int(row.get(col) or stats.get(col,0) or 0))
             result.reconciled = reconciled; result.errors = errors

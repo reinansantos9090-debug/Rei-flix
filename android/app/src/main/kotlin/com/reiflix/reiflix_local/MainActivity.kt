@@ -40,6 +40,9 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingMediaRequestId: String? = null
     private var pendingBroadRequestId: String? = null
     private var pendingSafRequestId: String? = null
+    private var startupDiscoveryTriggered = false
+    private var lastObservedMediaAccess: String? = null
+    private var lastObservedBroadAccess: Boolean? = null
     private val nativeRequestState = NativeRequestState()
 
     companion object {
@@ -52,6 +55,9 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_PENDING_SAF_REQUEST_ID = "reiflix.pendingSafRequestId"
         private const val STATE_SAF_PICKER_PENDING = "reiflix.safPickerPending"
         private const val STATE_SEEN_NATIVE_REQUEST_IDS = "reiflix.seenNativeRequestIds"
+        private const val STATE_STARTUP_DISCOVERY_TRIGGERED = "reiflix.startupDiscoveryTriggered"
+        private const val STATE_LAST_OBSERVED_MEDIA_ACCESS = "reiflix.lastObservedMediaAccess"
+        private const val STATE_LAST_OBSERVED_BROAD_ACCESS = "reiflix.lastObservedBroadAccess"
     }
     private val activeNativeScanJobs = mutableMapOf<String, Job>()
     private val backCallback = object : OnBackPressedCallback(true) {
@@ -249,6 +255,11 @@ class MainActivity : FlutterFragmentActivity() {
         pendingBroadRequestId = savedInstanceState?.getString(STATE_PENDING_BROAD_REQUEST_ID)
         pendingSafRequestId = savedInstanceState?.getString(STATE_PENDING_SAF_REQUEST_ID)
         safPickerPending = savedInstanceState?.getBoolean(STATE_SAF_PICKER_PENDING) ?: false
+        startupDiscoveryTriggered = savedInstanceState?.getBoolean(STATE_STARTUP_DISCOVERY_TRIGGERED) ?: false
+        lastObservedMediaAccess = savedInstanceState?.getString(STATE_LAST_OBSERVED_MEDIA_ACCESS)
+        if (savedInstanceState?.containsKey(STATE_LAST_OBSERVED_BROAD_ACCESS) == true) {
+            lastObservedBroadAccess = savedInstanceState.getBoolean(STATE_LAST_OBSERVED_BROAD_ACCESS)
+        }
         logLifecycle("onCreate", intent)
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
@@ -318,7 +329,38 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
 
+        val currentMediaAccess = MediaStoreScanner.accessLevel(this)
+        val currentBroadAccess = BroadStorageScanner.hasAccess(this)
+        val mediaBecameAvailable = lastObservedMediaAccess == "denied" && currentMediaAccess != "denied"
+        val broadBecameAvailable = lastObservedBroadAccess == false && currentBroadAccess
+        val shouldDiscover = !startupDiscoveryTriggered
+        startupDiscoveryTriggered = true
+        lastObservedMediaAccess = currentMediaAccess
+        lastObservedBroadAccess = currentBroadAccess
+
         publishStorageStatus()
+
+        // Match Nova's local-library behavior: after a process start/resume, any
+        // storage source that is already authorized is actually indexed rather
+        // than merely reported as authorized.  Permission state remains
+        // authoritative in Android; this only starts scans for confirmed sources.
+        if (shouldDiscover || mediaBecameAvailable) {
+            if (currentMediaAccess != "denied") {
+                scanMediaStore(null)
+            }
+        }
+        if (shouldDiscover || broadBecameAvailable) {
+            if (currentBroadAccess) {
+                scanAllStorage(null)
+            }
+        }
+        if (shouldDiscover) {
+            persistedSafTreeUris().forEach { tree ->
+                if (!NativeScanController.isRunning("saf:$tree")) {
+                    scanTree(tree, null)
+                }
+            }
+        }
     }
 
     override fun onPause() {
@@ -352,6 +394,9 @@ class MainActivity : FlutterFragmentActivity() {
         outState.putString(STATE_PENDING_SAF_REQUEST_ID, pendingSafRequestId)
         outState.putBoolean(STATE_BROAD_SETTINGS_PENDING, broadStoragePermissionPending)
         outState.putBoolean(STATE_SAF_PICKER_PENDING, safPickerPending)
+        outState.putBoolean(STATE_STARTUP_DISCOVERY_TRIGGERED, startupDiscoveryTriggered)
+        outState.putString(STATE_LAST_OBSERVED_MEDIA_ACCESS, lastObservedMediaAccess)
+        lastObservedBroadAccess?.let { outState.putBoolean(STATE_LAST_OBSERVED_BROAD_ACCESS, it) }
         outState.putString(STATE_SEEN_NATIVE_REQUEST_IDS, nativeRequestState.seenRequestIdsState())
         super.onSaveInstanceState(outState)
     }
@@ -850,7 +895,22 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         if (BroadStorageScanner.hasAccess(this)) {
-            publishStorageStatus()
+            val requestId = pendingBroadRequestId
+            pendingBroadRequestId = null
+            NativeMailbox.write(
+                this,
+                JSONObject().put("type", "broad_storage_permission")
+                    .put("requestId", requestId ?: "")
+                    .put("payload", JSONObject()
+                        .put("granted", true)
+                        .put("source", BroadStorageScanner.SOURCE)
+                        .put("revalidatedAfterSettings", true)
+                        .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REVALIDATED)))
+            )
+            // Existing broad access must converge to the same permission ->
+            // scan -> native index -> mailbox -> Python path.
+            scanAllStorage(requestId)
+            publishStorageCapabilities(StorageLifecycleState.REVALIDATED)
             return
         }
         if (Build.VERSION.SDK_INT >= 30) {

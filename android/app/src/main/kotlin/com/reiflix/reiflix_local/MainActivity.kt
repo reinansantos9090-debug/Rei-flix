@@ -607,7 +607,7 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject()
                     .put("source", BroadStorageScanner.SOURCE)
                     .put("state", "requesting")
-                    .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REQUESTING)))))
+                    .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REQUESTING))))
             legacyBroadPermissionRequester.launch(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE))
         }
     }

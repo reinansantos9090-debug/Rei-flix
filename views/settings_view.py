@@ -6,8 +6,11 @@ out of Flet controls.  It intentionally reads only compact store projections.
 from __future__ import annotations
 
 import json
+import logging
 
 import flet as ft
+
+logger = logging.getLogger("reiflix.settings")
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title
 
 

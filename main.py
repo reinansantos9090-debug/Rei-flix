@@ -481,9 +481,17 @@ async def main(page: ft.Page):
                                     raise ValueError('Resultado SAF sem pasta de origem.')
                                 catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats, scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'root', scope_ref=payload.get('scopeRef') or None, scan_generation=payload.get('scanGeneration'))
                                 videos = int(stats.get('videos') or 0)
-                                partial = bool(payload.get('partial') or stats.get('errors'))
-                                message = ("Scan concluído parcialmente. Alguns diretórios não puderam ser acessados. " if partial else "")
-                                message += f"Encontramos {videos} vídeo(s) em {len(catalog)} anime(s)." if videos else "Não encontramos vídeos compatíveis nesta pasta."
+                                status = str(payload.get('status') or stats.get('status') or '').upper()
+                                partial = bool(payload.get('partial') or stats.get('errors') or status in {'PARTIAL', 'UNAVAILABLE'})
+                                if status == 'CANCELLED':
+                                    message = "Varredura da pasta cancelada. Os itens anteriores foram preservados."
+                                elif status == 'UNAVAILABLE':
+                                    message = "O provedor desta pasta está indisponível. Os itens anteriores foram preservados."
+                                elif status == 'EMPTY_COMPLETE':
+                                    message = "A pasta foi lida com sucesso e não contém vídeos compatíveis."
+                                else:
+                                    message = "Scan concluído parcialmente. Alguns diretórios não puderam ser acessados. " if partial else ""
+                                    message += f"Encontramos {videos} vídeo(s) em {len(catalog)} anime(s)." if videos else "Não encontramos vídeos compatíveis nesta pasta."
                                 page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; page.update()
                             except Exception:
                                 page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar a atualização da biblioteca.')); page.snack_bar.open=True; page.update()

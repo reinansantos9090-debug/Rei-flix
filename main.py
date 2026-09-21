@@ -6,7 +6,7 @@ from flet.auth import OAuthProvider
 from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URL as CONFIG_GOOGLE_REDIRECT_URL, GOOGLE_WEB_CLIENT_ID as CONFIG_GOOGLE_WEB_CLIENT_ID
 from core.android_bridge import AndroidBridge
 from core.navigation import NavigationController, SafSelectionState
-from core.storage_access import StorageAccessState, StorageCapabilities, storage_access_state
+from core.storage_access import StorageAccessState, StorageCapabilities, ScanUiState, scan_ui_state_from_native, storage_access_state, storage_source_states
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
 from core.google_account import normalize_google_profile
@@ -32,6 +32,39 @@ async def main(page: ft.Page):
     account_state=["connected" if store.account().get("email") else "disconnected"]
     scan_in_progress=[False]
     pending_native_scans=[0]
+    scan_state = [{
+        "state": ScanUiState.IDLE.value,
+        "source": None,
+        "volume": None,
+        "scanId": None,
+        "found": 0,
+        "files": 0,
+        "directories": 0,
+        "error": None,
+        "timestamp": None,
+    }]
+    ui_alive = [True]
+    def safe_update():
+        if not ui_alive[0]:
+            return
+        try:
+            page.update()
+        except Exception as exc:
+            logger.debug("[FLET] safe_update ignored stale lifecycle callback: %s", exc)
+    def set_scan_state(state, *, source=None, volume=None, scan_id=None, found=None,
+                       files=None, directories=None, error=None, timestamp=None):
+        current = scan_state[0]
+        scan_state[0] = {
+            "state": str(state.value if isinstance(state, ScanUiState) else state),
+            "source": source if source is not None else current.get("source"),
+            "volume": volume if volume is not None else current.get("volume"),
+            "scanId": scan_id if scan_id is not None else current.get("scanId"),
+            "found": int(found if found is not None else current.get("found") or 0),
+            "files": int(files if files is not None else current.get("files") or 0),
+            "directories": int(directories if directories is not None else current.get("directories") or 0),
+            "error": error,
+            "timestamp": timestamp or current.get("timestamp"),
+        }
     pending_folder_removals=set()
     # View-local query/filter state survives Details/Player round-trips while
     # the catalog itself is still read afresh from SQLite on each view entry.
@@ -64,7 +97,8 @@ async def main(page: ft.Page):
         elif navigation.current == "settings":
             show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
                                     folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match,
-                                    on_create_backup=create_backup, on_restore_backup=restore_backup))
+                                    on_create_backup=create_backup, on_restore_backup=restore_backup,
+                                    storage_snapshot=storage_capabilities[0], scan_snapshot=scan_state[0]))
         elif navigation.current == "player":
             path, title, progress = player_context[0]
             show(PlayerView.build(page, path, title, navigate_back, None, start_native_player, progress))
@@ -318,10 +352,13 @@ async def main(page: ft.Page):
         if scan_in_progress[0]:
             return "Uma atualização da biblioteca já está em andamento.", True
         scan_in_progress[0] = True
+        set_scan_state(ScanUiState.CHECKING, source="orchestrator", error=None, timestamp=asyncio.get_running_loop().time())
+        safe_update()
         try:
             folders = store.folders()
             caps = storage_capabilities[0]
             if bridge.available and not caps.known:
+                set_scan_state(ScanUiState.CHECKING, source="permissions")
                 await bridge.check_storage_access()
                 return "Verificando as permissões do armazenamento…", True
             authorized_roots = set(caps.saf_roots)
@@ -360,6 +397,7 @@ async def main(page: ft.Page):
                             "Não foi possível iniciar a varredura MediaStore.",
                         )
                 if pending_native_scans[0] > 0:
+                    set_scan_state(ScanUiState.SCANNING, source="multiple")
                     missing_sources = []
                     if not mediastore_granted:
                         missing_sources.append("vídeos do dispositivo")
@@ -369,11 +407,14 @@ async def main(page: ft.Page):
                         return "Atualização iniciada. Ainda sem acesso a " + ", ".join(missing_sources) + ".", True
                     return "Atualização iniciada. Verificando as fontes locais…", True
                 scan_in_progress[0] = False
+                set_scan_state(ScanUiState.COMPLETED, source="orchestrator", found=0)
                 return "Nenhuma fonte local pôde iniciar uma varredura.", False
             result = await asyncio.to_thread(library.scan)
             return result.message(), False
-        except Exception:
+        except Exception as exc:
             scan_in_progress[0] = False
+            set_scan_state(ScanUiState.FAILED, source="orchestrator", error=str(exc))
+            safe_update()
             raise
         finally:
             if not (bridge.available and pending_native_scans[0] > 0):

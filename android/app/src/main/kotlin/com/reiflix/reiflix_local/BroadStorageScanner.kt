@@ -285,7 +285,7 @@ object BroadStorageScanner {
             }
             if (children == null) {
                 val label = if (rootFiles.any { it.file.path == canonical.path }) "raiz" else "diretório"
-                val message = "Não foi possível acessar \$label: \${canonical.path}"
+                val message = "Não foi possível acessar $label: ${canonical.path}"
                 errors.put(message)
                 errorsByVolume[root.volumeId]?.put(message)
                 continue

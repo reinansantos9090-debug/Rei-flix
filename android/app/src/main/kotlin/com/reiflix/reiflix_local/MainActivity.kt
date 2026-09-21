@@ -42,16 +42,7 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_SAF_PICKER_PENDING = "reiflix.safPickerPending"
         private const val STATE_SEEN_NATIVE_REQUEST_IDS = "reiflix.seenNativeRequestIds"
     }
-    private val activeNativeScans = mutableSetOf<String>()
     private val activeNativeScanJobs = mutableMapOf<String, Job>()
-
-    @Synchronized
-    private fun tryBeginNativeScan(key: String): Boolean = activeNativeScans.add(key)
-
-    @Synchronized
-    private fun endNativeScan(key: String) {
-        activeNativeScans.remove(key)
-    }
     private val backCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
             NativeMailbox.write(this@MainActivity, JSONObject().put("type", "android_back"))
@@ -208,6 +199,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onDestroy() {
         logLifecycle("onDestroy")
+        if (isFinishing) NativeScanController.cancelAll()
         super.onDestroy()
     }
 
@@ -291,15 +283,16 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject().put("treeUri", reference).put("phase", "already_running")))
             return
         }
-        if (!NativeScanController.begin(scanId)) return
+        if (!NativeScanController.begin(scanId, scanKey)) return
+        val appContext = applicationContext
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan_progress").put("payload", JSONObject().put("treeUri", reference).put("scanId", scanId).put("requestId", requestId ?: "").put("phase", "started")))
-                val result = SafScanner.scan(this@MainActivity, treeUri, { progress ->
+                val result = SafScanner.scan(appContext, treeUri, { progress ->
                     NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan_progress")
                         .put("payload", progress .put("treeUri", reference).put("scanId", scanId).put("requestId", requestId ?: "").put("phase", "scanning"))) }, { NativeScanController.isCancelled(scanId) })
                 val partial = result.optBoolean("partial")
-                val prepared = NativeIndex.prepare(this@MainActivity, NativeIndex.SOURCE_SAF, "saf:" + reference, result.optJSONArray("documents") ?: JSONArray(), !partial && !result.optBoolean("cancelled"))
+                val prepared = NativeIndex.prepare(appContext, NativeIndex.SOURCE_SAF, "saf:" + reference, result.optJSONArray("documents") ?: JSONArray(), !partial && !result.optBoolean("cancelled"))
                 result.put("documents", prepared.documents).put("scanGeneration", prepared.generation).put("nativeNew", prepared.newItems).put("nativeChanged", prepared.changedItems).put("nativeUnchanged", prepared.unchangedItems).put("nativeDuplicates", prepared.duplicates).put("nativeRemoved", prepared.removedItems).put("requestId", requestId ?: "").put("scanId", scanId).put("scopeKind", "root").put("scopeRef", "")
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan").put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
@@ -308,7 +301,6 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("payload", JSONObject().put("treeUri", reference)))
             } finally {
                 NativeScanController.finish(scanId)
-                endNativeScan(scanKey)
                 synchronized(activeNativeScanJobs) { activeNativeScanJobs.remove(scanId) }
             }
         }
@@ -511,11 +503,12 @@ class MainActivity : FlutterFragmentActivity() {
         NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
             .put("requestId", requestId ?: "")
             .put("payload", JSONObject().put("granted", true).put("source", BroadStorageScanner.SOURCE)))
-        if (!tryBeginNativeScan(BroadStorageScanner.SOURCE) || !NativeScanController.begin(scanId)) return
+        if (!NativeScanController.begin(scanId, BroadStorageScanner.SOURCE)) return
+        val appContext = applicationContext
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
                 val result = BroadStorageScanner.scan(
-                    this@MainActivity,
+                    appContext,
                     { progress ->
                         NativeMailbox.write(this@MainActivity, JSONObject().put("type", "broad_storage_scan_progress")
                             .put("payload", progress.put("scanId", scanId).put("requestId", requestId ?: "").put("scopeKind", "global")))
@@ -523,7 +516,7 @@ class MainActivity : FlutterFragmentActivity() {
                     { NativeScanController.isCancelled(scanId) },
                 )
                 val partial = result.optBoolean("partial")
-                val prepared = NativeIndex.prepare(this@MainActivity, NativeIndex.SOURCE_BROAD, "broad-storage",
+                val prepared = NativeIndex.prepare(appContext, NativeIndex.SOURCE_BROAD, "broad-storage",
                     result.optJSONArray("documents") ?: JSONArray(), !partial && !result.optBoolean("cancelled"))
                 result.put("documents", prepared.documents).put("scanGeneration", prepared.generation)
                     .put("nativeNew", prepared.newItems).put("nativeChanged", prepared.changedItems)
@@ -540,7 +533,6 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("payload", JSONObject().put("source", BroadStorageScanner.SOURCE)))
             } finally {
                 NativeScanController.finish(scanId)
-                endNativeScan(BroadStorageScanner.SOURCE)
                 synchronized(activeNativeScanJobs) { activeNativeScanJobs.remove(scanId) }
             }
         }
@@ -557,14 +549,15 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
             return
         }
-        if (!tryBeginNativeScan(MediaStoreScanner.SOURCE) || !NativeScanController.begin(scanId)) return
+        if (!NativeScanController.begin(scanId, MediaStoreScanner.SOURCE)) return
+        val appContext = applicationContext
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
                 NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_scan_progress")
                     .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE).put("scanId", scanId)
                         .put("requestId", requestId ?: "").put("phase", "started")))
                 val result = MediaStoreScanner.scan(
-                    this@MainActivity,
+                    appContext,
                     { progress ->
                         NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_scan_progress")
                             .put("payload", progress.put("scanId", scanId).put("requestId", requestId ?: "").put("scopeKind", "global")))
@@ -583,7 +576,6 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
             } finally {
                 NativeScanController.finish(scanId)
-                endNativeScan(MediaStoreScanner.SOURCE)
                 synchronized(activeNativeScanJobs) { activeNativeScanJobs.remove(scanId) }
             }
         }
@@ -596,7 +588,6 @@ class MainActivity : FlutterFragmentActivity() {
             activeNativeScanJobs.values.forEach { it.cancel() }
             activeNativeScanJobs.clear()
         }
-        activeNativeScans.clear()
         NativeMailbox.write(this, JSONObject().put("type", "scan_cancelled").put("requestId", requestId ?: "")
             .put("payload", JSONObject().put("scanIds", JSONArray(ids)).put("count", ids.size)))
     }

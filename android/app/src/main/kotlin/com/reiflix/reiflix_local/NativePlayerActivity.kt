@@ -148,7 +148,7 @@ class NativePlayerActivity : ComponentActivity() {
         })
         player.setMediaItem(MediaItem.Builder().setUri(uri).setMediaId(uri.toString()).build())
         player.prepare()
-        player.playWhenReady = true
+        player.playWhenReady = savedInstanceState?.takeIf { it.containsKey("play_when_ready") }?.getBoolean("play_when_ready") ?: true
     }
 
     private fun addEpisodeButtons(root: FrameLayout) {
@@ -277,6 +277,7 @@ class NativePlayerActivity : ComponentActivity() {
             outState.putLong("position_ms", player.currentPosition.coerceAtLeast(0L))
             outState.putLong("duration_ms", player.duration.coerceAtLeast(0L))
             outState.putFloat("playback_speed", player.playbackParameters.speed)
+            outState.putBoolean("play_when_ready", player.playWhenReady)
             outState.putBundle("track_selection_parameters", player.trackSelectionParameters.toBundle())
         }
         if (::playerView.isInitialized) outState.putInt("resize_mode", playerView.resizeMode)

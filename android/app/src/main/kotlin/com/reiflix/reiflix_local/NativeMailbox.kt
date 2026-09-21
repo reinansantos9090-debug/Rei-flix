@@ -29,6 +29,8 @@ object NativeMailbox {
             type in setOf("saf_scan_progress","mediastore_scan_progress","broad_storage_scan_progress") &&
                 payload?.optString("phase") == "started" -> "scan_started"
             type == "saf_scan" -> when (payload?.optString("status")) {
+                "REVOKED" -> "saf_revoked"
+                "UNAVAILABLE" -> "saf_unavailable"
                 "CANCELLED" -> "scan_cancelled"
                 "PARTIAL" -> "scan_partial"
                 "FAILED" -> "scan_failed"

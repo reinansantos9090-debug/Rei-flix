@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class Prompt8UiStateTests(unittest.TestCase):
+class UiStateTests(unittest.TestCase):
     def test_scan_states_are_explicit(self):
         source = (ROOT / "core" / "storage_access.py").read_text(encoding="utf-8")
         for state in ("IDLE", "CHECKING", "SCANNING", "COMPLETED", "PARTIAL", "CANCELLED", "FAILED", "WAITING_FOR_MEDIASTORE", "VOLUME_UNAVAILABLE"):

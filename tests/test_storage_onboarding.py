@@ -261,4 +261,22 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("import os", source)
         self.assertIn('os.getenv("FLET_APP_STORAGE_DATA")', source)
 
+    def test_legacy_external_volume_discovery_contract(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("getExternalFilesDirs(null)", source)
+        self.assertIn("inferVolumeRoot", source)
+        self.assertIn("Environment.isExternalStorageRemovable(volumeRoot)", source)
+
+    def test_generated_manifest_normalizes_existing_legacy_permission(self):
+        source = (ROOT / "scripts/prepare_flet_template.py").read_text(encoding="utf-8")
+        self.assertIn("existing_nodes = [", source)
+        self.assertIn('permission == "android.permission.READ_EXTERNAL_STORAGE"', source)
+        self.assertIn('node.set("{" + ANDROID + "}maxSdkVersion", max_sdk)', source)
+
+    def test_duplicate_native_scan_reports_already_running(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn('put("phase", "already_running")', source)
+        self.assertIn('"saf_scan_progress"', source)
+        self.assertIn('"broad_storage_scan_progress"', source)
+        self.assertIn('"mediastore_scan_progress"', source)
 if __name__ == "__main__": unittest.main()

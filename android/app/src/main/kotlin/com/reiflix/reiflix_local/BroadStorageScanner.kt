@@ -221,86 +221,200 @@ object BroadStorageScanner {
 
     fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null, shouldCancel: () -> Boolean = { false }): JSONObject {
         val access = hasAccess(context)
-        Log.i(TAG, "SCAN_STARTED: api=${Build.VERSION.SDK_INT}, granted=$access")
+        Log.i(TAG, "SCAN_STARTED: api=" + Build.VERSION.SDK_INT + ", granted=" + access)
         check(access) { "Acesso amplo ao armazenamento não foi concedido." }
-        val docs = JSONArray()
         val errors = JSONArray()
-        val snapshot = accessSnapshot(context)
-        val visited = HashSet<String>()
-        val pending = ArrayDeque<Pair<File, StorageRoot>>()
         val rootFiles = roots(context)
-        rootFiles.forEach { root ->
-            if (isReadableState(root.state)) {
-                pending.addLast(root.file to root)
-            } else {
-                errors.put("Volume não disponível: ${root.volumeId} (${root.state}).")
-            }
-        }
-        if (rootFiles.isEmpty()) errors.put("Nenhuma raiz de armazenamento compartilhado foi encontrada.")
+        val docsByVolume = LinkedHashMap<String, JSONArray>()
+        val errorsByVolume = LinkedHashMap<String, JSONArray>()
+        val statsByVolume = LinkedHashMap<String, JSONObject>()
+        val generationByVolume = LinkedHashMap<String, Long>()
+        val rootByVolume = LinkedHashMap<String, StorageRoot>()
+        var cancelled = false
         var directories = 0
         var files = 0
         var videos = 0
         var excludedNoMedia = 0
-        var cancelled = false
-        onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE)
-            .put("directories",0).put("files",0).put("videos",0).put("excludedNoMedia",0))
+
+        rootFiles.forEach { root ->
+            rootByVolume[root.volumeId] = root
+            docsByVolume[root.volumeId] = JSONArray()
+            errorsByVolume[root.volumeId] = JSONArray()
+            statsByVolume[root.volumeId] = JSONObject().put("directories", 0).put("files", 0).put("videos", 0)
+                .put("excludedNoMedia", 0)
+            generationByVolume[root.volumeId] = NativeIndex.startGeneration(
+                context, SOURCE, "broad-storage:" + root.volumeId,
+                JSONObject().put("volumeId", root.volumeId).put("volumeUuid", root.volumeUuid ?: "")
+                    .put("state", root.state).put("removable", root.removable).put("primary", root.primary)
+            )
+            if (!isReadableState(root.state)) {
+                val message = "Volume não disponível: " + root.volumeId + " (" + root.state + ")."
+                errors.put(message)
+                errorsByVolume[root.volumeId]?.put(message)
+            }
+        }
+        if (rootFiles.isEmpty()) errors.put("Nenhuma raiz de armazenamento compartilhado foi encontrada.")
+
+        val visited = HashSet<String>()
+        val pending = ArrayDeque<Pair<File, StorageRoot>>()
+        rootFiles.filter { isReadableState(it.state) }.forEach { pending.addLast(it.file to it) }
+        onProgress?.invoke(JSONObject().put("phase", "started").put("source", SOURCE)
+            .put("directories", 0).put("files", 0).put("videos", 0).put("excludedNoMedia", 0))
+
         while (pending.isNotEmpty()) {
             if (shouldCancel()) { cancelled = true; break }
             val (dir, root) = pending.removeLast()
             val canonical = runCatching { dir.canonicalFile }.getOrElse { dir }
             if (!visited.add(canonical.path) || isRestricted(canonical)) continue
+
+            val volumeStats = statsByVolume[root.volumeId] ?: JSONObject()
             if (isNoMediaDirectory(canonical)) {
                 excludedNoMedia++
+                volumeStats.put("excludedNoMedia", volumeStats.optInt("excludedNoMedia", 0) + 1)
+                statsByVolume[root.volumeId] = volumeStats
                 continue
             }
             directories++
-            val children = try { canonical.listFiles() } catch (exception: Exception) {
-                Log.w(TAG, "DIRECTORY_ACCESS_DENIED: ${canonical.path}", exception)
+            volumeStats.put("directories", volumeStats.optInt("directories", 0) + 1)
+            val children = try {
+                canonical.listFiles()
+            } catch (exception: Exception) {
                 null
             }
             if (children == null) {
-                val label = if (rootFiles.any { it.file.path == canonical.path }) "raiz" else "diretório"
-                errors.put("Não foi possível acessar $label: ${canonical.path}")
+                val message = "Não foi possível acessar diretório: " + canonical.path
+                errors.put(message)
+                errorsByVolume[root.volumeId]?.put(message)
                 continue
             }
             if (children.any { it.isFile && it.name.equals(".nomedia", ignoreCase = true) }) {
                 excludedNoMedia++
+                volumeStats.put("excludedNoMedia", volumeStats.optInt("excludedNoMedia", 0) + 1)
+                statsByVolume[root.volumeId] = volumeStats
                 continue
             }
+
             for (child in children) {
+                if (shouldCancel()) { cancelled = true; break }
                 if (isRestricted(child)) continue
                 if (child.isDirectory) { pending.addLast(child to root); continue }
+
                 files++
+                volumeStats.put("files", volumeStats.optInt("files", 0) + 1)
+                if (child.name.equals(".nomedia", ignoreCase = true)) continue
                 if (!child.isFile || child.extension.lowercase() !in videoExtensions) continue
+
                 val file = runCatching { child.canonicalFile }.getOrNull() ?: continue
-                val root = rootForFile(file, rootFiles)
-                val volumeName = root?.let { volumeKey(context, it.file) } ?: ""
-                val relative = root?.let { relativePath(file, it.file) } ?: file.name
-                docs.put(JSONObject().put("uri",Uri.fromFile(file).toString()).put("path",file.path)
-                    .put("name",file.name).put("relativePath",relative).put("volumeName",volumeName)
-                    .put("mimeType",mimeFor(file.extension))
-                    .put("size",runCatching{file.length()}.getOrDefault(0L))
-                    .put("modifiedAt",runCatching{file.lastModified()}.getOrDefault(0L))
-                    .put("volumeId",volumeName).put("volumeUuid",root?.volumeUuid ?: ""))
+                val owningRoot = rootForFile(file, rootFiles)
+                val volumeName = owningRoot?.let { volumeKey(context, it.file) } ?: root.volumeId
+                val relative = owningRoot?.let { relativePath(file, it.file) } ?: file.name
+                val document = JSONObject()
+                    .put("uri", Uri.fromFile(file).toString())
+                    .put("path", file.path)
+                    .put("name", file.name)
+                    .put("relativePath", relative)
+                    .put("volumeName", volumeName)
+                    .put("volumeId", volumeName)
+                    .put("volumeUuid", root.volumeUuid ?: "")
+                    .put("mimeType", mimeFor(file.extension))
+                    .put("size", runCatching { file.length() }.getOrDefault(0L))
+                    .put("modifiedAt", runCatching { file.lastModified() }.getOrDefault(0L))
+                docsByVolume.getOrPut(volumeName) { JSONArray() }.put(document)
                 videos++
+                volumeStats.put("videos", volumeStats.optInt("videos", 0) + 1)
                 if (videos % 100 == 0) {
-                    Log.i(TAG, "VIDEO_PROGRESS: videos=$videos, files=$files, directories=$directories")
+                    Log.i(TAG, "VIDEO_PROGRESS: videos=" + videos + ", files=" + files + ", directories=" + directories)
+                    onProgress?.invoke(JSONObject().put("phase", "scanning").put("source", SOURCE)
+                        .put("volumeId", volumeName).put("directories", directories).put("files", files)
+                        .put("videos", videos).put("excludedNoMedia", excludedNoMedia))
                 }
-                if (videos % 100 == 0) onProgress?.invoke(JSONObject().put("phase","scanning")
-                    .put("source",SOURCE).put("directories",directories).put("files",files).put("videos",videos).put("excludedNoMedia",excludedNoMedia).put("nomediaDirectories",excludedNoMedia))
             }
+            statsByVolume[root.volumeId] = volumeStats
+            if (cancelled) break
         }
-        Log.i(TAG, "SCAN_COMPLETED: directories=$directories, files=$files, videos=$videos, nomedia=$excludedNoMedia, errors=${errors.length()}")
-        onProgress?.invoke(JSONObject().put("phase","finished").put("source",SOURCE)
-            .put("directories",directories).put("files",files).put("videos",videos).put("excludedNoMedia",excludedNoMedia).put("nomediaDirectories",excludedNoMedia))
-        return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("documents",docs)
-            .put("stats",JSONObject().put("directories",directories).put("files",files).put("videos",videos)
-                .put("excludedNoMedia",excludedNoMedia).put("nomediaDirectories",excludedNoMedia).put("errors",errors).put("access", snapshot))
-            .put("partial",errors.length()>0 || cancelled)
+
+        val volumeScopes = JSONArray()
+        val preparedDocuments = JSONArray()
+        var totalNew = 0
+        var totalChanged = 0
+        var totalUnchanged = 0
+        var totalDuplicates = 0
+        var totalRemoved = 0
+
+        for ((volumeId, root) in rootByVolume) {
+            val scopeKey = "broad-storage:" + volumeId
+            val generation = generationByVolume[volumeId] ?: continue
+            val volumeErrors = errorsByVolume[volumeId] ?: JSONArray()
+            val scopeStats = statsByVolume[volumeId] ?: JSONObject()
+            val complete = isReadableState(root.state) && volumeErrors.length() == 0 && !cancelled
+            val status = when {
+                complete -> NativeIndex.STATUS_COMPLETED
+                cancelled -> NativeIndex.STATUS_CANCELLED
+                else -> NativeIndex.STATUS_PARTIAL
+            }
+            val metadata = JSONObject()
+                .put("volumeId", volumeId)
+                .put("volumeUuid", root.volumeUuid ?: "")
+                .put("state", root.state)
+                .put("removable", root.removable)
+                .put("primary", root.primary)
+                .put("errors", volumeErrors)
+                .put("status", status)
+                .put("files", scopeStats.optInt("files", 0))
+                .put("videos", scopeStats.optInt("videos", 0))
+            val prepared = NativeIndex.prepare(
+                context, SOURCE, scopeKey, docsByVolume[volumeId] ?: JSONArray(), complete,
+                metadata, generation, status
+            )
+            for (i in 0 until prepared.documents.length()) preparedDocuments.put(prepared.documents.getJSONObject(i))
+            totalNew += prepared.newItems
+            totalChanged += prepared.changedItems
+            totalUnchanged += prepared.unchangedItems
+            totalDuplicates += prepared.duplicates
+            totalRemoved += prepared.removedItems
+            volumeScopes.put(JSONObject()
+                .put("volumeId", volumeId)
+                .put("scopeKind", "volume")
+                .put("scopeRef", volumeId)
+                .put("scanGeneration", prepared.generation)
+                .put("generationId", "native:" + prepared.generation)
+                .put("status", prepared.status)
+                .put("documents", prepared.documents)
+                .put("complete", complete)
+                .put("reused", false)
+                .put("new", prepared.newItems)
+                .put("changed", prepared.changedItems)
+                .put("unchanged", prepared.unchangedItems)
+                .put("duplicates", prepared.duplicates)
+                .put("removed", prepared.removedItems)
+                .put("errors", volumeErrors)
+                .put("stats", scopeStats))
+        }
+
+        val partial = errors.length() > 0 || cancelled || volumeScopes.length() == 0 ||
+            (0 until volumeScopes.length()).any { !volumeScopes.getJSONObject(it).optBoolean("complete", false) }
+        Log.i(TAG, "SCAN_COMPLETED: directories=" + directories + ", files=" + files + ", videos=" + videos + ", nomedia=" + excludedNoMedia + ", errors=" + errors.length() + ", partial=" + partial)
+        onProgress?.invoke(JSONObject().put("phase", "finished").put("source", SOURCE)
+            .put("directories", directories).put("files", files).put("videos", videos)
+            .put("excludedNoMedia", excludedNoMedia).put("cancelled", cancelled))
+
+        return JSONObject()
+            .put("source", SOURCE)
+            .put("name", DISPLAY_NAME)
+            .put("documents", preparedDocuments)
+            .put("volumeScopes", volumeScopes)
+            .put("stats", JSONObject()
+                .put("directories", directories).put("files", files).put("videos", videos)
+                .put("excludedNoMedia", excludedNoMedia).put("nomediaDirectories", excludedNoMedia)
+                .put("errors", errors).put("access", access)
+                .put("new", totalNew).put("changed", totalChanged).put("unchanged", totalUnchanged)
+                .put("duplicates", totalDuplicates).put("removed", totalRemoved)
+                .put("status", when { cancelled -> "cancelled"; partial -> "partial"; else -> "completed" })
+                .put("generationStatus", when { cancelled -> NativeIndex.STATUS_CANCELLED; partial -> NativeIndex.STATUS_PARTIAL; else -> NativeIndex.STATUS_COMPLETED }))
+            .put("partial", partial)
             .put("cancelled", cancelled)
     }
-
-    private fun mimeFor(ext:String):String = when(ext.lowercase()) {
+private fun mimeFor(ext:String):String = when(ext.lowercase()) {
         "mkv" -> "video/x-matroska"; "webm" -> "video/webm"; "avi" -> "video/x-msvideo"; "mov" -> "video/quicktime"
         "m4v" -> "video/x-m4v"; "ts","m2ts" -> "video/mp2t"; "flv" -> "video/x-flv"; "wmv" -> "video/x-ms-wmv"; else -> "video/mp4"
     }

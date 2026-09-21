@@ -24,6 +24,7 @@ class AndroidBridge:
         self.mailbox = self.data_dir / MAILBOX
         self.queue_dir = self.data_dir / "reiflix-native-events"
         self._claimed: list[Path] = []
+        self._retained: set[Path] = set()
         self._recover_unacknowledged_batches()
 
     def _recover_unacknowledged_batches(self) -> None:
@@ -103,6 +104,18 @@ class AndroidBridge:
         # be used as a second, unscoped storage-access path.
         return bool(uri) and (uri.startswith("content://") or uri.startswith("file://"))
 
+    @staticmethod
+    def _event_time(event: dict) -> float:
+        for key in ("createdAt", "timestamp"):
+            value = event.get(key)
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        # Events written by older clients without a clock remain after timed
+        # events while preserving their original relative order.
+        return float("inf")
+
     def drain(self) -> list[dict]:
         if self._claimed:
             return []
@@ -142,13 +155,20 @@ class AndroidBridge:
                 elif isinstance(payload, dict):
                     events.append(payload)
                 claimed.append(consumed)
+            # NativeMailbox filenames use random UUIDs, so lexical filename order
+            # is not event order. Apply the native creation clock when present so
+            # permission/scan/player events are consumed chronologically.
+            indexed = list(enumerate(events))
+            indexed.sort(key=lambda item: (self._event_time(item[1]), item[0]))
             self._claimed = claimed
-            return events
+            self._retained = set()
+            return [event for _, event in indexed]
         except OSError as exc:
             logger.warning("[ANDROID] Failed to drain native bridge events: %s", exc)
             for path in claimed:
                 path.unlink(missing_ok=True)
             self._claimed = []
+        self._retained = set()
             return []
 
     def requeue_event_ids(self, event_ids: set[str]) -> None:
@@ -159,17 +179,21 @@ class AndroidBridge:
             try:
                 payload = json.loads(consumed.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
+                self._retained.add(consumed)
                 continue
             if isinstance(payload, dict) and str(payload.get("eventId") or "").strip() in wanted:
                 try:
                     consumed.replace(consumed.with_suffix(".json"))
                 except OSError as exc:
+                    self._retained.add(consumed)
                     logger.warning("[ANDROID] Failed to requeue native event %s: %s", consumed.name, exc)
 
     def acknowledge(self) -> None:
         if not self._claimed:
             return
         for consumed in self._claimed:
+            if consumed in self._retained:
+                continue
             try:
                 consumed.unlink(missing_ok=True)
             except OSError as exc:

@@ -758,6 +758,7 @@ async def main(page: ft.Page):
                                 if reference in current_uris:
                                     if folder.get('authorization') != 'granted':
                                         store.update_folder_status(reference, 'granted')
+                                    store.restore_source(reference)
                                 else:
                                     store.update_folder_status(
                                         reference,
@@ -793,6 +794,7 @@ async def main(page: ft.Page):
                                         store.update_folder_status(tree_uri, 'granted')
                                 else:
                                     store.update_folder_status(tree_uri, 'revoked', 'A permissão desta pasta foi removida.')
+                                    store.mark_source_unavailable(tree_uri, 'saf_permission_revoked')
                                     store.mark_source_unavailable(tree_uri, 'saf_permission_revoked')
                                 refresh_settings_if_active()
                         elif event_type == 'saf_released':

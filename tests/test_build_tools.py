@@ -564,3 +564,19 @@ class TestNativePlayerHardening(unittest.TestCase):
         gradle = (ROOT / "android" / "app" / "build.gradle.kts").read_text(encoding="utf-8")
         self.assertIn('implementation("androidx.media3:media3-exoplayer:1.5.1")', gradle)
         self.assertIn('implementation("androidx.media3:media3-ui:1.5.1")', gradle)
+
+
+class TestFletAsyncCallbacks(unittest.TestCase):
+    def test_organize_view_does_not_pass_coroutine_objects_to_page_run_task(self):
+        source = (ROOT / "views" / "organize_view.py").read_text(encoding="utf-8")
+        self.assertNotIn("page.run_task(lambda:", source)
+        self.assertIn("async def handle_request_video_access", source)
+        self.assertIn("await on_request_video_access()", source)
+        self.assertIn("async def handle_add_folder", source)
+        self.assertIn("await on_add_folder()", source)
+
+    def test_settings_confirm_uses_an_async_event_handler(self):
+        source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
+        self.assertNotIn("page.run_task(lambda:", source)
+        self.assertIn("async def run_action(_event):", source)
+        self.assertIn("await result", source)

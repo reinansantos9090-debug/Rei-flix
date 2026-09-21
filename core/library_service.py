@@ -341,9 +341,11 @@ class LibraryService:
                     if not os.path.isdir(reference):
                         error = "Pasta indisponível, removida ou sem autorização para este processo."
                         self.store.update_folder_status(reference, "revoked", error)
+                        self.store.mark_source_unavailable(reference, "folder_unavailable")
                         result.errors.append(f"{folder['name']}: {error}")
                         continue
                     self.store.update_folder_status(reference, "granted")
+                    self.store.restore_source(reference)
                     on_status(f"Encontrando vídeos em {folder['name']}…")
                     try:
                         seen = []
@@ -523,7 +525,9 @@ class LibraryService:
                     self.artwork.reindex_entity(anime_id)
 
                 result.errors.extend(str(error) for error in scan_errors)
-                if scan_errors or partial_scan:
+                if scan_stats.get("cancelled") or native_scan_state in {"cancelled", "canceled"}:
+                    result.status = "cancelled"
+                elif scan_errors or partial_scan:
                     result.status = "partial" if native_scan_state != "failed" else "error"
                 if not scan_errors and not partial_scan and trusted_scope_defs:
                     for (skind, sref), _scope in trusted_scope_defs.items():

@@ -130,20 +130,20 @@ class LibraryStore:
             c.execute("CREATE INDEX IF NOT EXISTS idx_folders_account ON folders(account_id)")
             c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_saf_identity ON folders(saf_identity) WHERE saf_identity IS NOT NULL")
             scan_columns = {r[1] for r in c.execute("PRAGMA table_info(scan_runs)")}
-            for column, definition in {            for column, definition in {
+            for column, definition in {
+                "status": "TEXT NOT NULL DEFAULT 'running'",
+                "new_files": "INTEGER DEFAULT 0", "updated_files": "INTEGER DEFAULT 0",
+                "unchanged_files": "INTEGER DEFAULT 0", "ignored_files": "INTEGER DEFAULT 0",
+                "duplicate_files": "INTEGER DEFAULT 0", "unknown_files": "INTEGER DEFAULT 0",
+                "reconciled_files": "INTEGER DEFAULT 0", "scan_id": "TEXT",
                 "request_id": "TEXT", "source": "TEXT", "volume_id": "TEXT", "scope": "TEXT",
+                "source_kind": "TEXT", "scope_kind": "TEXT", "scope_ref": "TEXT",
+                "native_generation": "INTEGER", "generation_id": "TEXT",
+                "generation_status": "TEXT", "cancelled": "INTEGER NOT NULL DEFAULT 0",
                 "batch_id": "TEXT", "batch_number": "INTEGER DEFAULT 0", "batch_size": "INTEGER DEFAULT 0",
                 "discovered": "INTEGER DEFAULT 0", "processed": "INTEGER DEFAULT 0",
-                "inserted_files": "INTEGER DEFAULT 0", "removed_files": "INTEGER DEFAULT 0", "elapsed_ms": "INTEGER DEFAULT 0",
-            }.items():
-                if column not in scan_columns:
-                    c.execute(f"ALTER TABLE scan_runs ADD COLUMN {column} {definition}")
-
-                "status": "TEXT NOT NULL DEFAULT 'running'", "new_files": "INTEGER DEFAULT 0", "updated_files": "INTEGER DEFAULT 0",
-                "unchanged_files": "INTEGER DEFAULT 0", "ignored_files": "INTEGER DEFAULT 0", "duplicate_files": "INTEGER DEFAULT 0",
-                "unknown_files": "INTEGER DEFAULT 0", "reconciled_files": "INTEGER DEFAULT 0", "scan_id": "TEXT",
-                "source_kind": "TEXT", "scope_kind": "TEXT", "scope_ref": "TEXT", "native_generation": "INTEGER",
-                "generation_id": "TEXT", "generation_status": "TEXT", "cancelled": "INTEGER NOT NULL DEFAULT 0",
+                "inserted_files": "INTEGER DEFAULT 0", "removed_files": "INTEGER DEFAULT 0",
+                "elapsed_ms": "INTEGER DEFAULT 0",
             }.items():
                 if column not in scan_columns:
                     c.execute(f"ALTER TABLE scan_runs ADD COLUMN {column} {definition}")

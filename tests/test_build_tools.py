@@ -15,6 +15,7 @@ PREPARE_TEMPLATE = ROOT / "scripts" / "prepare_flet_template.py"
 DESCRIPTORS = (
     b"Lcom/reiflix/reiflix_local/MainActivity;",
     b"Lcom/reiflix/reiflix_local/NativeMailbox;",
+    b"Lcom/reiflix/reiflix_local/NativeRequestState;",
     b"Lcom/reiflix/reiflix_local/SafScanner;",
     b"Lcom/reiflix/reiflix_local/MediaStoreScanner;",
     b"Lcom/reiflix/reiflix_local/BroadStorageScanner;",

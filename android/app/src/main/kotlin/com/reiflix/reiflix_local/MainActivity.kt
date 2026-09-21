@@ -512,7 +512,7 @@ class MainActivity : FlutterFragmentActivity() {
                     JSONObject().put("stats", result.optJSONObject("stats") ?: JSONObject()).put("status", status).put("scanId", scanId),
                     generationId, status
                 )
-                result.put("documents", prepared.documents).put("scanGeneration", prepared.generation).put("generationId", "native:" + prepared.generation)
+                result.put("documents", prepared.documents).put("scanGeneration", prepared.generation).put("generationId", NativeIndex.generationId(NativeIndex.SOURCE_SAF, scanKey, prepared.generation))
                     .put("generationStatus", prepared.status).put("nativeNew", prepared.newItems).put("nativeChanged", prepared.changedItems)
                     .put("nativeUnchanged", prepared.unchangedItems).put("nativeDuplicates", prepared.duplicates).put("nativeRemoved", prepared.removedItems)
                     .put("requestId", requestId ?: "").put("scanId", scanId).put("scopeKind", "root").put("scopeRef", reference)

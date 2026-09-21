@@ -409,6 +409,8 @@ E: manifest
         template = PREPARE_TEMPLATE.read_text(encoding="utf-8")
         self.assertIn("TrackSelectionParameters.fromBundle(bundle)", player)
         self.assertIn('outState.putBundle("track_selection_parameters"', player)
+        self.assertIn('outState.putBoolean("play_when_ready", player.playWhenReady)', player)
+        self.assertIn('getBoolean("play_when_ready")', player)
         self.assertIn("builder.setAutoEnterEnabled(true)", player)
         self.assertIn("runCatching", player[player.index("override fun onUserLeaveHint"):player.index("private fun canEnterPictureInPicture")])
         self.assertIn("android.software.picture_in_picture", manifest)

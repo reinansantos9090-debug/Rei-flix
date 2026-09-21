@@ -276,6 +276,16 @@ object NativeIndex {
     fun updateVolumeSnapshot(context: Context, current: JSONArray): JSONObject = synchronized(this) {
         val state = read(context)
         val previous = state.optJSONObject("volumes") ?: JSONObject()
+        if (current.length() == 0 && previous.length() > 0) {
+            return JSONObject()
+                .put("changed", false)
+                .put("added", JSONArray())
+                .put("removed", JSONArray())
+                .put("changedVolumes", JSONArray())
+                .put("current", JSONArray())
+                .put("observedAt", System.currentTimeMillis())
+                .put("observationComplete", false)
+        }
         val next = JSONObject()
         val added = JSONArray(); val removed = JSONArray(); val changed = JSONArray(); val seen = HashSet<String>()
         for (i in 0 until current.length()) {
@@ -295,14 +305,18 @@ object NativeIndex {
             val id = oldKeys.next()
             if (!seen.contains(id)) {
                 val before = previous.optJSONObject(id)
+                val wasAvailable = before?.let {
+                    if (it.has("available")) it.optBoolean("available", false)
+                    else !it.optString("state").equals("unavailable", ignoreCase = true)
+                } ?: true
                 val unavailable = if (before != null) JSONObject(before.toString()) else JSONObject().put("volumeId", id)
                 unavailable.put("state", "unavailable")
                     .put("available", false)
-                    .put("unavailableAt", now)
+                    .put("unavailableAt", if (before?.has("unavailableAt") == true) before.optLong("unavailableAt", now) else now)
                     .put("lastObservedAt", now)
                     .put("reason", "volume_removed_from_observation")
                 next.put(id, unavailable)
-                removed.put(unavailable)
+                if (wasAvailable) removed.put(unavailable)
             }
         }
         state.put("volumes", next)
@@ -311,5 +325,6 @@ object NativeIndex {
         JSONObject().put("changed", added.length() + removed.length() + changed.length() > 0)
             .put("added", added).put("removed", removed).put("changedVolumes", changed).put("current", current)
             .put("observedAt", now)
+            .put("observationComplete", true)
     }
 }

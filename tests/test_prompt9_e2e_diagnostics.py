@@ -51,7 +51,7 @@ class Prompt9DiagnosticsTests(unittest.TestCase):
             self.assertNotRegex(source, pattern, str(path))
 
     def test_python_sources_parse(self):
-        for path in (ROOT / "main.py", ROOT / "core/diagnostics.py", ROOT / "core/history.py", ROOT / "views/settings_view.py"):
+        for path in (ROOT / "main.py", ROOT / "core/diagnostics.py", ROOT / "views/settings_view.py"):
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
 

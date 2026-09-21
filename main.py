@@ -479,34 +479,43 @@ async def main(page: ft.Page):
                         if event_id and store.has_native_event(event_id):
                             continue
                         event_type = event.get('type')
-                        event_request_id = event.get('requestId') or (payload.get('requestId') if isinstance(payload, dict) else None)
-                        event_scan_id = (payload.get('scanId') if isinstance(payload, dict) else None) or event.get('scanId')
-                        timeline_name = {
-                            'storage_capabilities': 'ACTUAL_PERMISSION_STATE',
-                            'mediastore_permission': 'PERMISSION_RESULT',
-                            'broad_storage_permission': 'PERMISSION_RESULT',
-                            'saf_permission': 'PERMISSION_RESULT',
-                            'saf_scan_progress': 'SCAN_PROGRESS',
-                            'broad_storage_scan_progress': 'SCAN_PROGRESS',
-                            'mediastore_scan_progress': 'SCAN_PROGRESS',
-                            'saf_scan': 'SCAN_COMPLETED',
-                            'broad_storage_scan': 'SCAN_COMPLETED',
-                            'mediastore_scan': 'SCAN_COMPLETED',
-                            'saf_error': 'SCAN_FAILED',
-                            'broad_storage_error': 'SCAN_FAILED',
-                            'mediastore_error': 'SCAN_FAILED',
-                            'volume_changed': 'VOLUME_CHANGED',
-                        }.get(event_type)
-                        if timeline_name:
-                            diagnostics.record(timeline_name, request_id=event_request_id, scan_id=event_scan_id,
-                                               source=(payload.get('source') if isinstance(payload, dict) else None),
-                                               result=(payload.get('status') if isinstance(payload, dict) else None),
-                                               error=event.get('message'))
                         payload = event.get('payload')
                         if payload is None:
                             payload = {}
                         if not isinstance(payload, dict):
                             continue
+                        event_request_id = event.get('requestId') or payload.get('requestId')
+                        event_scan_id = payload.get('scanId') or event.get('scanId')
+                        if event_type == 'diagnostic':
+                            diagnostics.record(
+                                str(payload.get('event') or 'NATIVE_DIAGNOSTIC'),
+                                request_id=event_request_id,
+                                scan_id=event_scan_id,
+                                source=payload.get('source'),
+                                result=payload.get('result') or payload.get('access'),
+                            )
+                        else:
+                            timeline_name = {
+                                'storage_capabilities': 'ACTUAL_PERMISSION_STATE',
+                                'mediastore_permission': 'PERMISSION_RESULT',
+                                'broad_storage_permission': 'PERMISSION_RESULT',
+                                'saf_permission': 'PERMISSION_RESULT',
+                                'saf_scan_progress': 'SCAN_PROGRESS',
+                                'broad_storage_scan_progress': 'SCAN_PROGRESS',
+                                'mediastore_scan_progress': 'SCAN_PROGRESS',
+                                'saf_scan': 'SCAN_COMPLETED',
+                                'broad_storage_scan': 'SCAN_COMPLETED',
+                                'mediastore_scan': 'SCAN_COMPLETED',
+                                'saf_error': 'SCAN_FAILED',
+                                'broad_storage_error': 'SCAN_FAILED',
+                                'mediastore_error': 'SCAN_FAILED',
+                                'volume_changed': 'VOLUME_CHANGED',
+                            }.get(event_type)
+                            if timeline_name:
+                                diagnostics.record(timeline_name, request_id=event_request_id, scan_id=event_scan_id,
+                                                   source=payload.get('source'),
+                                                   result=payload.get('status'),
+                                                   error=event.get('message'))
                         # Every native event updates one compact UI state projection.
                         # The projection is diagnostic only; Android remains authoritative.
                         if event_type in {'saf_scan_progress', 'broad_storage_scan_progress', 'mediastore_scan_progress'}:

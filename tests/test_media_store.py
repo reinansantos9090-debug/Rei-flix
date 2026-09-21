@@ -43,6 +43,13 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
         self.assertIn('val complete=access=="full"&&localErrors.length()==0&&!shouldCancel()', scanner)
         self.assertIn('access!="full"', scanner)
 
+    def test_storage_authorization_explicitly_separates_scan_from_reconciliation(self):
+        source = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "StorageAuthorization.kt").read_text(encoding="utf-8")
+        self.assertIn("fun canScanMediaStore(access: MediaAccessLevel): Boolean", source)
+        self.assertIn("fun canReconcileMediaStore(access: MediaAccessLevel): Boolean", source)
+        self.assertIn("access == MediaAccessLevel.FULL || access == MediaAccessLevel.PARTIAL", source)
+        self.assertIn("access == MediaAccessLevel.FULL", source)
+
     def test_partial_media_store_results_are_ingested_without_reconciliation(self):
         main = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("scope_stats = dict(stats)", main)

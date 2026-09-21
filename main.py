@@ -475,8 +475,6 @@ async def main(page: ft.Page):
                         elif event_type == 'saf_scan':
                             try:
                                 saf_selection.finish()
-                                if payload.get('cancelled'):
-                                    finish_native_scan(); continue
                                 stats = payload.get('stats') or {}
                                 tree_uri = payload.get('treeUri', '')
                                 if not tree_uri:
@@ -507,10 +505,36 @@ async def main(page: ft.Page):
                         elif event_type == 'broad_storage_scan':
                             try:
                                 stats = payload.get('stats') or {}
-                                if payload.get('cancelled'):
-                                    finish_native_scan(); continue
-                                source = payload.get('source') or 'broad-storage'
-                                catalog = await asyncio.to_thread(library.ingest_documents, source, payload.get('documents') or [], folder_name=payload.get('name') or 'Armazenamento local', scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='broad_storage', scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'global', scope_ref=payload.get('scopeRef') or source, scan_generation=payload.get('scanGeneration'))
+                                    source = payload.get('source') or 'broad-storage'
+                                scopes = payload.get('volumeScopes') or []
+                                catalog = store.catalog()
+                                if scopes:
+                                    for scope in scopes:
+                                        if not isinstance(scope, dict) or not scope.get('volumeId'):
+                                            continue
+                                        volume = str(scope.get('volumeId'))
+                                        scan_id = (payload.get('scanId') or 'broad-storage') + ':' + volume
+                                        scope_stats = dict(stats)
+                                        scope_errors = scope.get('errors') or []
+                                        if scope_errors:
+                                            scope_stats['errors'] = scope_errors
+                                        if not scope.get('complete'):
+                                            scope_stats['partial'] = True
+                                        catalog = await asyncio.to_thread(
+                                            library.ingest_documents, source, scope.get('documents') or [],
+                                            folder_name=payload.get('name') or 'Armazenamento local',
+                                            scan_errors=scope_errors, scan_stats=scope_stats, source_kind='broad_storage',
+                                            scan_id=scan_id, scope_kind='volume', scope_ref=volume,
+                                            scan_generation=scope.get('scanGeneration'),
+                                        )
+                                else:
+                                    catalog = await asyncio.to_thread(
+                                        library.ingest_documents, source, payload.get('documents') or [],
+                                        folder_name=payload.get('name') or 'Armazenamento local',
+                                        scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='broad_storage',
+                                        scan_id=payload.get('scanId'), scope_kind='global', scope_ref=payload.get('scopeRef') or source,
+                                        scan_generation=payload.get('scanGeneration'),
+                                    )
                                 videos = int(stats.get('videos') or 0)
                                 partial = bool(payload.get('partial') or stats.get('errors'))
                                 message = ('Armazenamento local atualizado parcialmente. ' if partial else 'Armazenamento local atualizado. ')
@@ -534,8 +558,10 @@ async def main(page: ft.Page):
                                 store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
                                 readable = sum(1 for root in roots if root.get('readable') and root.get('directory'))
                                 store.update_folder_status('broad-storage', 'granted', f'Diagnóstico: {readable} raiz(es) legível(is), {len(volumes)} volume(s) detectado(s).')
+                                store.restore_source('broad-storage')
                             else:
                                 store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento não concedido.')
+                                store.mark_source_unavailable('broad-storage', 'broad_access_revoked')
                             refresh_settings_if_active()
                             maybe_show_storage_onboarding()
                         elif event_type == 'broad_storage_permission':
@@ -546,6 +572,7 @@ async def main(page: ft.Page):
                             if granted:
                                 storage_onboarding["dismissed"] = False
                                 store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
+                                store.restore_source('broad-storage')
                             else:
                                 if was_waiting:
                                     # The native host emits a status event immediately before
@@ -553,12 +580,14 @@ async def main(page: ft.Page):
                                     # over that external flow.
                                     storage_onboarding["dismissed"] = True
                                 store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento ainda não foi concedido.')
+                                store.mark_source_unavailable('broad-storage', 'broad_access_denied')
                                 finish_native_scan()
                             refresh_settings_if_active()
                             maybe_show_storage_onboarding()
                         elif event_type == 'broad_storage_error':
                             storage_onboarding["waiting_for_result"] = False
                             store.update_folder_status('broad-storage', 'revoked', event.get('message', 'Não foi possível acessar o armazenamento local.'))
+                            store.mark_source_unavailable('broad-storage', event.get('message', 'broad_storage_unavailable'))
                             finish_native_scan(); page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; page.update()
                             refresh_settings_if_active()
                         elif event_type == 'mediastore_scan_progress':
@@ -576,8 +605,6 @@ async def main(page: ft.Page):
                         elif event_type == 'mediastore_scan':
                             try:
                                 stats = payload.get('stats') or {}
-                                if payload.get('cancelled'):
-                                    finish_native_scan(); continue
                                 source = payload.get('source') or 'mediastore:external:video'
                                 scopes = payload.get('volumeScopes') or []
                                 catalog = store.catalog()
@@ -636,8 +663,10 @@ async def main(page: ft.Page):
                                     account_id=store.account().get('id'),
                                 )
                                 store.update_folder_status(source, 'granted', f'Permissão de vídeos: {label}.')
+                                store.restore_source(source)
                             else:
                                 store.update_folder_status(source, 'revoked', 'A permissão para vídeos do dispositivo foi removida.')
+                                store.mark_source_unavailable(source, 'media_permission_revoked')
                             refresh_settings_if_active()
                             maybe_show_storage_onboarding()
                         elif event_type == 'mediastore_error':
@@ -696,6 +725,7 @@ async def main(page: ft.Page):
                                 store.save_account(profile); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
                         elif event_type == 'volume_changed':
                             await asyncio.to_thread(library.ingest_native_volume_change, payload)
+                            on_catalog_changed()
                             logger.info(
                                 "[STORAGE] action=volume_changed native_result=received "
                                 "current=%s added=%s removed=%s changed=%s",
@@ -763,6 +793,7 @@ async def main(page: ft.Page):
                                         store.update_folder_status(tree_uri, 'granted')
                                 else:
                                     store.update_folder_status(tree_uri, 'revoked', 'A permissão desta pasta foi removida.')
+                                    store.mark_source_unavailable(tree_uri, 'saf_permission_revoked')
                                 refresh_settings_if_active()
                         elif event_type == 'saf_released':
                             tree_uri = payload.get('treeUri')

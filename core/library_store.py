@@ -155,11 +155,15 @@ class LibraryStore:
                 "volumeId": volume_id,
                 "uuid": str(item.get("uuid") or ""),
                 "state": str(item.get("state") or "unknown"),
+                "available": bool(item.get("available")) if "available" in item else str(item.get("state") or "").casefold() in {"mounted", "mounted_ro", "mounted_rofs"},
                 "removable": bool(item.get("removable")),
                 "emulated": bool(item.get("emulated")),
                 "primary": bool(item.get("primary")),
                 "directory": str(item.get("directory") or ""),
                 "description": str(item.get("description") or ""),
+                "observed_at": float(item.get("observed_at") or time.time()),
+                "unavailable_at": item.get("unavailable_at"),
+                "reason": str(item.get("reason") or ""),
             }
         self.set_preference("native_volume_states", json.dumps(normalized, ensure_ascii=False, sort_keys=True))
         return normalized

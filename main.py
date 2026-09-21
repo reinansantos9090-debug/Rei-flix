@@ -840,8 +840,14 @@ async def main(page: ft.Page):
                             maybe_show_storage_onboarding()
                         elif event_type == 'broad_storage_error':
                             storage_onboarding["waiting_for_result"] = False
-                            store.update_folder_status('broad-storage', 'revoked', event.get('message', 'Não foi possível acessar o armazenamento local.'))
-                            store.mark_source_unavailable('broad-storage', event.get('message', 'broad_storage_unavailable'))
+                            message = event.get('message', 'Não foi possível acessar o armazenamento local.')
+                            error_status = str(payload.get('status') or 'FAILED').upper()
+                            if error_status in {'REVOKED', 'DENIED'}:
+                                store.update_folder_status('broad-storage', 'revoked', message)
+                                store.mark_source_unavailable('broad-storage', 'broad_access_revoked')
+                            else:
+                                store.update_folder_status('broad-storage', 'unavailable', message)
+                                store.mark_source_unavailable('broad-storage', 'broad_scan_failed')
                             finish_native_scan(); page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; safe_update()
                             refresh_settings_if_active()
                         elif event_type == 'mediastore_scan_progress':
@@ -913,8 +919,12 @@ async def main(page: ft.Page):
                                     timestamp=event.get('createdAt'),
                                 )
                                 diagnostics.record("CATALOG_UPDATED", request_id=request_id, scan_id=payload.get('scanId'), source=source, counts={"videos": videos, "catalog": len(catalog)}, result=str(stats.get('status') or payload.get('status') or 'COMPLETED'))
-                                message = 'Vídeos do dispositivo atualizados. '
-                                message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
+                                scan_status = str(stats.get('status') or payload.get('status') or 'COMPLETED').upper()
+                                if scan_status == ScanUiState.WAITING_FOR_MEDIASTORE.value:
+                                    message = 'Aguardando o Android concluir a indexação de mídia; a atualização continuará automaticamente.'
+                                else:
+                                    message = 'Vídeos do dispositivo atualizados. '
+                                    message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
                                 page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; safe_update()
                             except Exception:
                                 page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar os vídeos do dispositivo.')); page.snack_bar.open=True; safe_update()
@@ -948,7 +958,14 @@ async def main(page: ft.Page):
                             maybe_show_storage_onboarding()
                         elif event_type == 'mediastore_error':
                             source = payload.get('source') or 'mediastore:external:video'
-                            store.update_folder_status(source, 'revoked', event.get('message', 'Não foi possível acessar os vídeos do dispositivo.'))
+                            error_status = str(payload.get('status') or 'FAILED').upper()
+                            message = event.get('message', 'Não foi possível acessar os vídeos do dispositivo.')
+                            if error_status in {'REVOKED', 'DENIED'}:
+                                store.update_folder_status(source, 'revoked', message)
+                                store.mark_source_unavailable(source, 'media_permission_revoked')
+                            else:
+                                store.update_folder_status(source, 'unavailable', message)
+                                store.mark_source_unavailable(source, 'mediastore_scan_failed')
                             finish_native_scan()
                             page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar os vídeos do dispositivo.')))
                             page.snack_bar.open = True

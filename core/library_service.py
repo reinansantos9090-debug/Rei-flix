@@ -560,32 +560,24 @@ class LibraryService:
                     result.status = "partial" if native_scan_state not in {"failed", "error"} else "error"
                 if not scan_errors and not partial_scan and trusted_scope_defs:
                     for (skind, sref), _scope in trusted_scope_defs.items():
-                        self.store.reconcile_missing(
+                        self.store.reconcile_scope(
                             tree_uri,
                             list(trusted_scope_seen.get((skind, sref), set())),
+                            source_kind=source_kind,
                             scope_kind=skind,
                             scope_ref=sref,
                         )
                         result.reconciled += 1
                     self.store.update_folder_status(tree_uri, "granted")
                 elif not scan_errors and not partial_scan:
-                    if source_kind in {"broad_storage", "mediastore"}:
-                        volumes = {}
-                        for document in documents or []:
-                            if isinstance(document, dict) and document.get("uri") in seen:
-                                volume = document.get("volumeId")
-                                if volume:
-                                    volumes.setdefault(str(volume), set()).add(document.get("uri"))
-                        if volumes:
-                            for volume, volume_seen in volumes.items():
-                                self.store.reconcile_missing(tree_uri, list(volume_seen), scope_kind="volume", scope_ref=volume)
-                            result.reconciled = len(volumes)
-                        else:
-                            self.store.reconcile_missing(tree_uri, list(seen), scope_kind=scope_kind, scope_ref=scope_ref)
-                            result.reconciled = 1
-                    else:
-                        self.store.reconcile_missing(tree_uri, list(seen), scope_kind=scope_kind, scope_ref=scope_ref)
-                        result.reconciled = 1
+                    self.store.reconcile_scope(
+                        tree_uri,
+                        list(seen),
+                        source_kind=source_kind,
+                        scope_kind=scope_kind,
+                        scope_ref=scope_ref,
+                    )
+                    result.reconciled = 1
                     self.store.update_folder_status(tree_uri, "granted")
                 else:
                     self.store.update_folder_status(tree_uri, "granted", "; ".join(map(str, scan_errors)))

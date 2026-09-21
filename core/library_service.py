@@ -443,7 +443,8 @@ class LibraryService:
 
     def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *,
                          folder_name=None, scan_errors=None, scan_stats=None, source_kind="saf",
-                         scan_id=None, scope_kind="global", scope_ref=None, scan_generation=None):
+                         scan_id=None, scope_kind="global", scope_ref=None, scan_generation=None,
+                         scope_scans=None):
         """Index one native source without destructive reconciliation on partial scans."""
         with self._scan_lock:
             scan_id = scan_id or str(uuid.uuid4())

@@ -737,7 +737,12 @@ async def main(page: ft.Page):
                             else:
                                 store.save_account(profile); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
                         elif event_type == 'volume_changed':
-                            await asyncio.to_thread(library.ingest_native_volume_change, payload)
+                            volume_event = dict(payload)
+                            volume_event["eventTimestamp"] = event.get('timestamp') or event.get('createdAt') or payload.get('timestamp')
+                            volume_result = await asyncio.to_thread(library.ingest_native_volume_change, volume_event)
+                            if volume_result.get("ignored"):
+                                logger.info("[STORAGE] stale volume_changed event ignored timestamp=%s", volume_event.get("eventTimestamp"))
+                                continue
                             on_catalog_changed()
                             volume_returned = False
                             for item in (payload.get('added') or []):

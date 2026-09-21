@@ -142,7 +142,21 @@ class NativePlayerActivity : ComponentActivity() {
                 // still useful for Resume. Flush it before leaving the Activity.
                 saveProgress("player_progress", force = true)
                 suppressExitEvent = true
-                reportError("Não foi possível reproduzir este arquivo neste dispositivo.")
+                val technicalCode = error.errorCodeName.orEmpty()
+                val detail = error.message?.trim().orEmpty()
+                val message = if (technicalCode.isNotBlank()) {
+                    "Não foi possível reproduzir este arquivo neste dispositivo (Media3: $technicalCode)."
+                } else {
+                    "Não foi possível reproduzir este arquivo neste dispositivo."
+                }
+                NativeMailbox.write(this, JSONObject()
+                    .put("type", "player_error")
+                    .put("message", message)
+                    .put("payload", JSONObject()
+                        .put("uri", uri.toString())
+                        .put("errorCode", technicalCode)
+                        .put("detail", detail)))
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                 finish()
             }
         })

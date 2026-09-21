@@ -698,7 +698,16 @@ class LibraryStore:
             return int(row["native_generation"]) if row and row["native_generation"] is not None else None
 
     def latest_completed_native_generation(self, source_kind, scope_kind, scope_ref):
-        return self.latest_native_generation(source_kind, scope_kind, scope_ref)
+        with self._conn() as c:
+            row = c.execute(
+                """SELECT native_generation FROM scan_runs
+                   WHERE source_kind=? AND scope_kind=? AND scope_ref=?
+                     AND native_generation IS NOT NULL
+                     AND generation_status IN ('COMPLETE','EMPTY_COMPLETE')
+                   ORDER BY native_generation DESC, id DESC LIMIT 1""",
+                (source_kind, scope_kind, scope_ref),
+            ).fetchone()
+            return int(row["native_generation"]) if row and row["native_generation"] is not None else None
 
     def has_native_event(self, event_id):
         event_id = str(event_id or "").strip()

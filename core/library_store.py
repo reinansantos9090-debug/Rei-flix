@@ -1111,12 +1111,21 @@ class LibraryStore:
 
     @staticmethod
     def _recompute_episode_availability_locked(c, episode_id):
-        states = {
-            str(row["state"] or "").casefold()
-            for row in c.execute("SELECT state FROM episode_observations WHERE episode_id=?", (episode_id,))
-        }
-        if not states:
+        rows = c.execute(
+            """SELECT source_kind,state,last_checked_at,id
+               FROM episode_observations
+               WHERE episode_id=?
+               ORDER BY last_checked_at DESC,id DESC""",
+            (episode_id,),
+        ).fetchall()
+        if not rows:
             return
+        latest_by_source = {}
+        for row in rows:
+            source = str(row["source_kind"] or "unknown").casefold()
+            if source not in latest_by_source:
+                latest_by_source[source] = str(row["state"] or "").casefold()
+        states = set(latest_by_source.values())
         if "available" in states:
             missing, availability = 0, "available"
         elif "volume_unavailable" in states:

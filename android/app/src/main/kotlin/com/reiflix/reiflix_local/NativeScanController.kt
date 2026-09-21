@@ -32,6 +32,9 @@ object NativeScanController {
     fun isCancelled(scanId: String): Boolean =
         tokens[scanId]?.cancelled?.get() == true
 
+    fun isRunning(sourceKey: String): Boolean =
+        sourceOwners.containsKey(sourceKey)
+
     fun cancelAll(): List<String> {
         val ids = tokens.keys.toList()
         ids.forEach { tokens[it]?.cancelled?.set(true) }

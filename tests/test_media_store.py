@@ -139,3 +139,30 @@ class TestMediaStorePersistence(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFinalStorageHardening(unittest.TestCase):
+    def test_media_store_has_stability_observer_and_waiting_state(self):
+        source = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MediaStoreScanner.kt").read_text(encoding="utf-8")
+        index = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativeIndex.kt").read_text(encoding="utf-8")
+        self.assertIn("ContentObserver", source)
+        self.assertIn("WAITING_FOR_MEDIASTORE", source)
+        self.assertIn("Thread.sleep(300L)", source)
+        self.assertIn("getGeneration", source)
+        self.assertIn("STATUS_WAITING_FOR_MEDIASTORE", index)
+
+    def test_native_request_state_persists_across_process_death(self):
+        source = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativeRequestState.kt").read_text(encoding="utf-8")
+        self.assertIn("getSharedPreferences", source)
+        self.assertIn("seen_request_ids", source)
+        self.assertIn("persist()", source)
+
+    def test_broad_batch_reads_generation_after_start(self):
+        source = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "BroadStorageScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("currentGeneration()", source)
+        self.assertNotIn('val generation = generationByVolume[root.volumeId] ?: 0L', source)
+
+    def test_storage_capabilities_expose_reconciliation_layer(self):
+        source = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("reconciliationCapabilities", source)
+        self.assertIn("WAITING_FOR_MEDIASTORE", source)

@@ -8,6 +8,8 @@ import android.content.ActivityNotFoundException
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.DocumentsContract
 import android.provider.Settings
 import android.util.Log
@@ -59,6 +61,20 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private var storageReceiverRegistered = false
     private var safInventoryRunning = false
+    private val mediaStoreRescanHandler = Handler(Looper.getMainLooper())
+    private var mediaStoreRescanScheduled = false
+
+    private fun scheduleMediaStoreIncrementalRescan() {
+        if (mediaStoreRescanScheduled) return
+        mediaStoreRescanScheduled = true
+        mediaStoreRescanHandler.postDelayed({
+            mediaStoreRescanScheduled = false
+            if (!activityResumed || !MediaStoreScanner.hasReadPermission(this)) return@postDelayed
+            if (NativeScanController.isRunning(MediaStoreScanner.SOURCE)) return@postDelayed
+            Log.i(tag, "MEDIASTORE_OBSERVER_RESCAN scheduled after content change")
+            scanMediaStore(null)
+        }, 750L)
+    }
     private val storageReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context, intent: Intent) {
             val action = intent.action ?: return
@@ -127,7 +143,7 @@ class MainActivity : FlutterFragmentActivity() {
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
                 .put("requestId", requestId ?: "")
                 .put("message", "A permissão para acessar os vídeos do dispositivo foi negada.")
-                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
+                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE).put("status", NativeIndex.STATUS_FAILED).put("access", access)))
         }
     }
     private val treePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
@@ -221,6 +237,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        nativeRequestState.bind(this)
         nativeRequestState.restore(
             savedInstanceState?.getString(STATE_LAST_NATIVE_REQUEST_ID),
             savedInstanceState?.getString(STATE_PENDING_LIFECYCLE_ACTION),
@@ -251,6 +268,7 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onStart() {
         super.onStart()
         registerStorageReceiver()
+        MediaStoreScanner.startChangeObserver(this) { scheduleMediaStoreIncrementalRescan() }
         logLifecycle("onStart")
     }
 
@@ -312,6 +330,9 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onStop() {
         logLifecycle("onStop")
         unregisterStorageReceiver()
+        MediaStoreScanner.stopChangeObserver(this)
+        mediaStoreRescanHandler.removeCallbacksAndMessages(null)
+        mediaStoreRescanScheduled = false
         super.onStop()
     }
 
@@ -371,6 +392,7 @@ class MainActivity : FlutterFragmentActivity() {
             .put("safRoots", JSONArray(capabilities.safRoots))
             .put("removableVolumes", JSONArray(capabilities.removableVolumes))
             .put("scannerCapabilities", JSONArray(capabilities.scannerCapabilities.toList()))
+            .put("reconciliationCapabilities", JSONArray(capabilities.reconciliationCapabilities.toList()))
             .put("lifecycleState", capabilities.lifecycleState.name.lowercase())
             .put("api", Build.VERSION.SDK_INT)
     }
@@ -984,13 +1006,14 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun scanMediaStore(requestId: String? = null) {
+        MediaStoreScanner.clearChangeNotification()
         val scanId = UUID.randomUUID().toString()
         if (!MediaStoreScanner.hasReadPermission(this)) {
             publishStorageStatus()
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
                 .put("requestId", requestId ?: "")
                 .put("message", "A permissão para ler vídeos ainda não foi concedida.")
-                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
+                .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE).put("status", "DENIED").put("access", "denied")))
             return
         }
         if (!NativeScanController.begin(scanId, MediaStoreScanner.SOURCE)) {
@@ -1029,14 +1052,29 @@ class MainActivity : FlutterFragmentActivity() {
                 }
                 result.put("requestId", requestId ?: "").put("scanId", scanId)
                     .put("scopeKind", "global").put("scopeRef", MediaStoreScanner.SOURCE)
+                val finalStatus = result.optJSONObject("stats")?.optString("status").orEmpty().uppercase()
+                if (finalStatus == NativeIndex.STATUS_WAITING_FOR_MEDIASTORE) {
+                    NativeMailbox.write(appContext, JSONObject().put("type", "diagnostic")
+                        .put("payload", JSONObject().put("event", "WAITING_FOR_MEDIASTORE").put("scanId", scanId).put("requestId", requestId ?: "")))
+                    mediaStoreRescanHandler.postDelayed({
+                        if (activityResumed && MediaStoreScanner.hasReadPermission(this@MainActivity) && !NativeScanController.isRunning(MediaStoreScanner.SOURCE)) {
+                            scanMediaStore(requestId)
+                        }
+                    }, 900L)
+                }
                 NativeMailbox.writeOrThrow(appContext, JSONObject().put("type", "mediastore_scan")
                     .put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
                 Log.e(tag, "MediaStore scan failed", exception)
+                NativeIndex.failActiveGenerations(appContext, NativeIndex.SOURCE_MEDIASTORE, exception.message ?: "MediaStore scan failed")
                 NativeMailbox.write(appContext, JSONObject().put("type", "mediastore_error")
                     .put("requestId", requestId ?: "")
                     .put("message", "Não foi possível atualizar os vídeos do dispositivo.")
-                    .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE).put("scanId", scanId)))
+                    .put("payload", JSONObject()
+                        .put("source", MediaStoreScanner.SOURCE)
+                        .put("scanId", scanId)
+                        .put("status", NativeIndex.STATUS_FAILED)
+                        .put("access", MediaStoreScanner.accessLevel(appContext))))
             } finally {
                 NativeScanController.finish(scanId)
                 synchronized(activeNativeScanJobs) { activeNativeScanJobs.remove(scanId) }

@@ -22,6 +22,7 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertEqual(("content://tree/1",), capabilities.saf_roots)
         self.assertEqual(("AB",), capabilities.removable_volumes)
         self.assertTrue(capabilities.can_scan("mediastore"))
+        self.assertFalse(capabilities.can_reconcile("mediastore"))
         self.assertTrue(capabilities.can_scan("broad-storage"))
         self.assertEqual(36, capabilities.api)
 

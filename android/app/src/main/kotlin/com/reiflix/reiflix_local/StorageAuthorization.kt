@@ -1,5 +1,8 @@
 package com.reiflix.reiflix_local
 
+import android.net.Uri
+import android.provider.DocumentsContract
+
 /**
  * Single native authorization model.
  *
@@ -21,9 +24,11 @@ data class StorageCapabilities(
     val safRoots: List<String>,
     val removableVolumes: List<String>,
     val scannerCapabilities: Set<String>,
+    val reconciliationCapabilities: Set<String>,
     val lifecycleState: StorageLifecycleState,
 ) {
     fun canScan(source: String): Boolean = source in scannerCapabilities
+    fun canReconcile(source: String): Boolean = source in reconciliationCapabilities
 }
 
 object StorageAuthorization {
@@ -45,10 +50,26 @@ object StorageAuthorization {
             if (readMediaVideo) MediaAccessLevel.FULL else MediaAccessLevel.DENIED
     }
 
+    private fun safIdentity(value: String): String? = runCatching {
+        val uri = Uri.parse(value.trim())
+        if (uri.scheme != "content") return@runCatching null
+        val authority = uri.authority?.trim().orEmpty()
+        val segments = uri.pathSegments
+        val treeIndex = segments.indexOfFirst { it == "tree" }
+        val documentId = if (treeIndex >= 0) {
+            runCatching { DocumentsContract.getTreeDocumentId(uri) }
+                .getOrElse { segments.getOrNull(treeIndex + 1).orEmpty() }
+        } else ""
+        if (authority.isBlank() || documentId.isBlank()) null else "$authority:$documentId"
+    }.getOrNull()
+
     fun safAccess(configuredTreeUri: String?, persistedReadUris: Collection<String>): SafAccessLevel {
         val tree = configuredTreeUri?.trim().takeUnless { it.isNullOrEmpty() }
             ?: return SafAccessLevel.UNKNOWN
-        return if (persistedReadUris.contains(tree)) SafAccessLevel.AVAILABLE else SafAccessLevel.REVOKED
+        val expected = safIdentity(tree) ?: return SafAccessLevel.REVOKED
+        return if (persistedReadUris.asSequence().mapNotNull(::safIdentity).any { it == expected }) {
+            SafAccessLevel.AVAILABLE
+        } else SafAccessLevel.REVOKED
     }
 
     fun broadAccess(hasAllFilesAccess: Boolean): BroadStorageAccessLevel =
@@ -80,15 +101,24 @@ object StorageAuthorization {
         val normalizedSaf = safRoots.map(String::trim).filter(String::isNotEmpty).distinct()
         val normalizedVolumes = removableVolumes.map(String::trim).filter(String::isNotEmpty).distinct()
         val scanners = linkedSetOf<String>()
+        val reconciliators = linkedSetOf<String>()
         if (canScanMediaStore(mediaAccess)) scanners += "mediastore"
-        if (broadAccess == BroadStorageAccessLevel.AVAILABLE) scanners += "broad-storage"
-        if (normalizedSaf.isNotEmpty()) scanners += "saf"
+        if (canReconcileMediaStore(mediaAccess)) reconciliators += "mediastore"
+        if (broadAccess == BroadStorageAccessLevel.AVAILABLE) {
+            scanners += "broad-storage"
+            reconciliators += "broad-storage"
+        }
+        if (normalizedSaf.isNotEmpty()) {
+            scanners += "saf"
+            reconciliators += "saf"
+        }
         return StorageCapabilities(
             mediaReadState = mediaAccess,
             broadStorageState = broadAccess,
             safRoots = normalizedSaf,
             removableVolumes = normalizedVolumes,
             scannerCapabilities = scanners,
+            reconciliationCapabilities = reconciliators,
             lifecycleState = lifecycleState ?: deriveLifecycleState(mediaAccess, broadAccess, normalizedSaf),
         )
     }

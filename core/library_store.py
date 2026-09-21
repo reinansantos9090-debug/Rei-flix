@@ -1013,21 +1013,30 @@ class LibraryStore:
             def update_existing(row_id, new_path=None):
                 existing = c.execute("SELECT * FROM episodes WHERE id=?", (row_id,)).fetchone()
                 effective_season, effective_number, effective_type, effective_title, effective_source, effective_confidence = effective_identification(existing)
+                # Provider metadata can legitimately be absent (for example a SAF
+                # provider may omit size/mtime). Never replace durable known facts
+                # with null/empty values during a degraded rescan.
+                effective_mime = str(mime_type).strip() if mime_type is not None and str(mime_type).strip() else (existing["mime_type"] if existing else None)
+                if effective_mime == "application/octet-stream" and existing and existing["mime_type"]:
+                    effective_mime = existing["mime_type"]
+                effective_size = file_size if file_size is not None else (existing["file_size"] if existing else None)
+                effective_modified = modified_at if modified_at is not None else (existing["modified_at"] if existing else None)
+                effective_absolute = absolute_number if absolute_number is not None else (existing["absolute_number"] if existing else None)
                 if new_path is None:
                     c.execute(
                         """UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                            episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0,availability_state='available' WHERE id=?""",
-                        (anime_id,file_name,effective_season,effective_number,mime_type,file_size,modified_at,source_folder,
-                         media_identity,absolute_number,effective_type,effective_title,effective_source,effective_confidence,row_id),
+                        (anime_id,file_name,effective_season,effective_number,effective_mime,effective_size,effective_modified,source_folder,
+                         media_identity,effective_absolute,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )
                 else:
                     c.execute(
                         """UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                            episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0,availability_state='available' WHERE id=?""",
-                        (anime_id,new_path,file_name,effective_season,effective_number,mime_type,file_size,modified_at,source_folder,
-                         media_identity,absolute_number,effective_type,effective_title,effective_source,effective_confidence,row_id),
+                        (anime_id,new_path,file_name,effective_season,effective_number,effective_mime,effective_size,effective_modified,source_folder,
+                         media_identity,effective_absolute,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )
                 return row_id
 

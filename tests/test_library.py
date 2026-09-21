@@ -490,10 +490,10 @@ class SettingsPersistenceTests(unittest.TestCase):
 
 
 class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
-    def test_android_bridge_accepts_only_saf_content_uris(self):
+    def test_android_bridge_accepts_local_references_only(self):
         self.assertTrue(AndroidBridge.is_local_media_reference("content://com.android.providers.media.documents/document/video%3A1"))
         self.assertTrue(AndroidBridge.is_local_media_reference("file:///storage/emulated/0/Anime/ep.mkv"))
-        self.assertFalse(AndroidBridge.is_local_media_reference("/storage/emulated/0/Anime/ep.mkv"))
+        self.assertTrue(AndroidBridge.is_local_media_reference("/storage/emulated/0/Anime/ep.mkv"))
         self.assertFalse(AndroidBridge.is_local_media_reference("https://example.com/ep.mkv"))
 
     def test_android_bridge_can_drain_multiple_batches(self):

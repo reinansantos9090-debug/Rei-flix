@@ -343,6 +343,70 @@ class LibraryService:
             result.new += 1
         return uri
 
+    def ingest_documents_batch(self, tree_uri: str, documents: list[dict], *,
+                               source_kind="saf", scan_id=None, scope_kind="global", scope_ref=None,
+                               scan_generation=None, generation_id=None, request_id=None,
+                               batch_id=None, batch_number=0, batch_size=None, folder_name=None, scan_errors=None):
+        """Ingest one bounded native batch without destructive reconciliation."""
+        with self._scan_lock:
+            scan_id = scan_id or str(uuid.uuid4())
+            scope_ref = scope_ref or tree_uri
+            existing = self.store.scan_by_id(scan_id)
+            if existing and str(existing.get("status") or "").casefold() in {"completed","partial","cancelled","error","failed"}:
+                return {"scan_id": scan_id, "ignored": True, "reason": "scan_already_finalized"}
+            try:
+                generation = int(scan_generation) if scan_generation is not None else None
+            except (TypeError, ValueError):
+                generation = None
+            run_id = int(existing["id"]) if existing else self.store.begin_scan(scan_id=scan_id, source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=generation, generation_id=str(generation_id or scan_id))
+            if generation is not None:
+                latest = self.store.latest_completed_native_generation(source_kind, scope_kind, scope_ref)
+                if latest is not None and generation < latest:
+                    return {"scan_id": scan_id, "ignored": True, "reason": "stale_generation"}
+            self.store.add_folder(tree_uri, name=folder_name or tree_uri.rsplit("/",1)[-1], kind=source_kind, authorization="granted", account_id=self.store.account().get("id"))
+            result = ScanResult(catalog=[], scan_id=scan_id)
+            metadata, affected_anime_ids, seen = {}, set(), set()
+            started = time.time()
+            for document in documents or []:
+                if not isinstance(document, dict):
+                    result.ignored += 1; continue
+                uri = document.get("uri")
+                if not isinstance(uri, str) or not uri:
+                    result.ignored += 1; continue
+                if uri in seen:
+                    result.duplicates += 1; continue
+                seen.add(uri)
+                if generation is not None and self.store.has_observation_for_generation(uri, source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=generation):
+                    result.duplicates += 1; continue
+                accepted = self._record_document(document=document, source_folder=tree_uri, source_kind=source_kind, metadata=metadata, result=result, affected_anime_ids=affected_anime_ids, known_paths=seen, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=generation)
+                if accepted: result.videos += 1
+            result.errors.extend(str(e) for e in (scan_errors or []))
+            elapsed_ms = int((time.time()-started)*1000)
+            self.store.update_scan_progress(run_id, result.__dict__, request_id=request_id, source=source_kind, volume_id=scope_ref if scope_kind=="volume" else None, scope=scope_ref, batch_id=batch_id, batch_number=batch_number, batch_size=batch_size if batch_size is not None else len(documents or []), discovered=len(documents or []), processed=result.files, inserted=result.new, elapsed_ms=elapsed_ms, errors=result.errors)
+            return {"scan_id":scan_id,"request_id":request_id,"generation_id":generation_id or scan_id,"batch_id":batch_id,"batch_number":batch_number,"batch_size":batch_size if batch_size is not None else len(documents or []),"files":result.files,"videos":result.videos,"new":result.new,"updated":result.updated,"unchanged":result.unchanged,"duplicates":result.duplicates,"ignored":result.ignored,"unknown":result.unknown,"errors":result.errors,"elapsed_ms":elapsed_ms}
+
+    def finish_ingest_documents(self, tree_uri: str, *, source_kind="saf", scan_id=None, scope_kind="global", scope_ref=None, scan_generation=None, generation_id=None, status="completed", folder_name=None, scan_errors=None, scan_stats=None):
+        """Finalize a native scan; only a trusted COMPLETE generation reconciles."""
+        with self._scan_lock:
+            scan_id = scan_id or str(uuid.uuid4()); scope_ref = scope_ref or tree_uri
+            row = self.store.scan_by_id(scan_id)
+            run_id = int(row["id"]) if row else self.store.begin_scan(scan_id=scan_id, source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=scan_generation, generation_id=str(generation_id or scan_id))
+            final_status = str(status or "completed").casefold(); errors = [str(e) for e in (scan_errors or [])]; stats = scan_stats or {}
+            complete = final_status in {"completed","complete","empty_complete"} and not errors and scan_generation is not None
+            generation = int(scan_generation) if scan_generation is not None else None
+            reconciled = 0
+            if complete:
+                reconciled = self.store.reconcile_scope_generation(tree_uri, source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=generation, complete=True)
+                for anime_id in sorted(self.store.generation_anime_ids(source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=generation)): self.artwork.reindex_entity(anime_id)
+                self.store.update_folder_status(tree_uri, "granted")
+            row = self.store.scan_by_id(scan_id) or {}
+            result = ScanResult(catalog=[], scan_id=scan_id, status=final_status)
+            for attr,col in (("files","files"),("videos","videos"),("new","new_files"),("updated","updated_files"),("unchanged","unchanged_files"),("duplicates","duplicate_files"),("ignored","ignored_files"),("unknown","unknown_files")): setattr(result,attr,int(row.get(col) or stats.get(col,0) or 0))
+            result.reconciled = reconciled; result.errors = errors
+            summary = dict(result.__dict__); summary.update(discovered=int(row.get("discovered") or result.files), processed=int(row.get("processed") or result.files), inserted=int(row.get("inserted_files") or result.new), removed=reconciled, elapsed_ms=int(row.get("elapsed_ms") or 0))
+            self.store.finish_scan(run_id, summary)
+            result.catalog = self.store.catalog(); result.animes = len(result.catalog); result.episodes = sum(len(s["episodes"]) for a in result.catalog for s in a["seasons"]) + sum(len(a.get("media_files",[])) for a in result.catalog)
+            return result
     def scan(self, on_status=lambda _ : None):
         with self._scan_lock:
             scan_id = str(uuid.uuid4())

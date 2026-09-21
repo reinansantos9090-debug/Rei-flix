@@ -559,6 +559,8 @@ class LibraryService:
                     result.status = "revoked"
                 elif scan_errors or partial_scan:
                     result.status = "partial" if native_scan_state not in {"failed", "error"} else "error"
+                elif native_scan_state == "empty_complete":
+                    result.status = "empty_complete"
                 if not scan_errors and not partial_scan and trusted_scope_defs:
                     for (skind, sref), _scope in trusted_scope_defs.items():
                         self.store.reconcile_scope(

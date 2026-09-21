@@ -197,7 +197,8 @@ E: manifest
         self.assertIn("has_target_sdk_36", verifier)
         self.assertIn("expected_version_code", verifier)
         self.assertIn("expected-version-code", verifier)
-        self.assertIn("versionName: 0.2.1", verifier)
+        self.assertIn('expected_version_name: str = "0.2.1"', verifier)
+        self.assertIn('--expected-version-name', verifier)
 
     def test_packaged_manifest_validator_checks_identity_and_target_sdk(self):
         verifier = (ROOT / "scripts" / "verify_apk_manifest.py").read_text(encoding="utf-8")

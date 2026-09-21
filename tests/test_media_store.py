@@ -166,3 +166,12 @@ class TestFinalStorageHardening(unittest.TestCase):
         source = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("reconciliationCapabilities", source)
         self.assertIn("WAITING_FOR_MEDIASTORE", source)
+
+
+class TestNovaFormatCompatibility(unittest.TestCase):
+    def test_media_store_and_saf_use_extended_video_extension_fallback(self):
+        media = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MediaStoreScanner.kt").read_text(encoding="utf-8")
+        saf = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SafScanner.kt").read_text(encoding="utf-8")
+        for source in (media, saf):
+            for extension in ("3g2","3gp","asf","divx","f4v","mpeg","mpg","ogm","ogv","ogx","vob","wtv","webm"):
+                self.assertIn('"' + extension + '"', source)

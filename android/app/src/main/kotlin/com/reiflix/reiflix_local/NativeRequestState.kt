@@ -1,5 +1,7 @@
 package com.reiflix.reiflix_local
 
+import android.content.Context
+import android.content.SharedPreferences
 import org.json.JSONArray
 
 class NativeRequestState {
@@ -18,6 +20,30 @@ class NativeRequestState {
     var pendingLifecycleRequestId:String?=null
         private set
     private var lastConsumedLifecycleRequest:LifecycleAction?=null
+    private var preferences:SharedPreferences?=null
+
+    fun bind(context:Context){
+        preferences=context.applicationContext.getSharedPreferences("reiflix_native_request_state",Context.MODE_PRIVATE)
+        val serialized=preferences?.getString("seen_request_ids",null)
+        if(!serialized.isNullOrBlank()) restoreSeenRequestIds(serialized)
+        val persistedLast=preferences?.getString("last_handled_request_id",null)?.trim().orEmpty()
+        if(persistedLast.isNotEmpty()) lastHandledRequestId=persistedLast
+        val persistedAction=preferences?.getString("pending_lifecycle_action",null)
+        val persistedRequestId=preferences?.getString("pending_lifecycle_request_id",null)
+        if(pendingLifecycleAction==null && isSupportedAction(persistedAction)){
+            pendingLifecycleAction=persistedAction
+            pendingLifecycleRequestId=persistedRequestId?.trim()?.takeIf{it.isNotEmpty()}
+        }
+    }
+
+    private fun persist(){
+        preferences?.edit()
+            ?.putString("seen_request_ids",seenRequestIdsState())
+            ?.putString("last_handled_request_id",lastHandledRequestId)
+            ?.putString("pending_lifecycle_action",pendingLifecycleAction)
+            ?.putString("pending_lifecycle_request_id",pendingLifecycleRequestId)
+            ?.apply()
+    }
 
     fun acceptRequest(requestId:String?):Boolean{
         val id=requestId?.trim().orEmpty()
@@ -25,14 +51,15 @@ class NativeRequestState {
         if(!seenRequestIds.add(id))return false
         while(seenRequestIds.size>64)seenRequestIds.iterator().apply{next();remove()}
         lastHandledRequestId=id
+        persist()
         return true
     }
 
     fun seenRequestIdsState():String=JSONArray(seenRequestIds.toList()).toString()
 
     fun restoreSeenRequestIds(serialized:String?){
-        seenRequestIds.clear()
         if(serialized.isNullOrBlank())return
+        seenRequestIds.clear()
         runCatching{
             val a=JSONArray(serialized)
             for(i in 0 until a.length()){
@@ -47,6 +74,7 @@ class NativeRequestState {
         if(!isSupportedAction(action) || pendingLifecycleAction!=null)return false
         pendingLifecycleAction=action
         pendingLifecycleRequestId=requestId?.trim()?.takeIf{it.isNotEmpty()}
+        persist()
         return true
     }
 
@@ -57,6 +85,7 @@ class NativeRequestState {
         pendingLifecycleAction=null
         pendingLifecycleRequestId=null
         lastConsumedLifecycleRequest=result
+        persist()
         return result
     }
 
@@ -64,12 +93,15 @@ class NativeRequestState {
     fun consumedLifecycleRequestId():String?=lastConsumedLifecycleRequest?.requestId
 
     fun restore(lastRequestId:String?,pendingAction:String?,pendingRequestId:String?=null){
-        seenRequestIds.clear()
         val restoredId=lastRequestId?.trim().orEmpty()
         if(restoredId.isNotEmpty()) seenRequestIds.add(restoredId)
-        lastHandledRequestId=if(restoredId.isNotEmpty()) restoredId else null
-        pendingLifecycleAction=pendingAction?.takeIf{isSupportedAction(it)}
-        pendingLifecycleRequestId=if(pendingLifecycleAction!=null) pendingRequestId?.trim()?.takeIf{it.isNotEmpty()} else null
+        if(restoredId.isNotEmpty()) lastHandledRequestId=restoredId
+        if(isSupportedAction(pendingAction)){
+            pendingLifecycleAction=pendingAction
+            pendingLifecycleRequestId=pendingRequestId?.trim()?.takeIf{it.isNotEmpty()}
+        }
+        while(seenRequestIds.size>64)seenRequestIds.iterator().apply{next();remove()}
+        persist()
     }
 
     companion object{

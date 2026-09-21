@@ -24,6 +24,10 @@ GOOGLE_WEB_CLIENT_ID = os.getenv('REIFLIX_GOOGLE_WEB_CLIENT_ID', CONFIG_GOOGLE_W
 
 async def main(page: ft.Page):
     page.title='Rei-Flix Local'; page.theme_mode=ft.ThemeMode.DARK; page.bgcolor='#16151F'; page.padding=0
+    try:
+        page.on_disconnect = lambda _e: ui_alive.__setitem__(0, False)
+    except Exception:
+        pass
     page.theme=ft.Theme(color_scheme_seed='#E50914',font_family='Roboto')
     data_dir=os.getenv("FLET_APP_STORAGE_DATA") or os.path.join(os.path.dirname(__file__),'.reiflix-data')
     store=LibraryStore(data_dir)
@@ -475,6 +479,24 @@ async def main(page: ft.Page):
                             payload = {}
                         if not isinstance(payload, dict):
                             continue
+                        # Every native event updates one compact UI state projection.
+                        # The projection is diagnostic only; Android remains authoritative.
+                        if event_type in {'saf_scan_progress', 'broad_storage_scan_progress', 'mediastore_scan_progress'}:
+                            phase = str(payload.get('phase') or 'scanning').upper()
+                            native_state = ScanUiState.SCANNING if phase not in {'STARTED', 'CHECKING'} else ScanUiState.CHECKING
+                            if phase == 'ALREADY_RUNNING':
+                                native_state = ScanUiState.SCANNING
+                            set_scan_state(
+                                native_state,
+                                source=payload.get('source') or event_type.replace('_scan_progress', ''),
+                                volume=payload.get('volumeId') or payload.get('volume') or None,
+                                scan_id=payload.get('scanId'),
+                                found=payload.get('videos'),
+                                files=payload.get('files'),
+                                directories=payload.get('directories'),
+                                timestamp=event.get('createdAt') or payload.get('timestamp'),
+                            )
+                            safe_update()
                         contract_event = str(event.get('eventType') or '').strip()
                         request_id = str(event.get('requestId') or payload.get('requestId') or '').strip()
                         operation_key = None
@@ -524,6 +546,20 @@ async def main(page: ft.Page):
                                 videos = int(stats.get('videos') or 0)
                                 status = str(payload.get('status') or stats.get('status') or '').upper()
                                 partial = bool(payload.get('partial') or stats.get('errors') or status in {'PARTIAL', 'UNAVAILABLE'})
+                                set_scan_state(
+                                    scan_ui_state_from_native(
+                                        status,
+                                        errors=bool(stats.get('errors')),
+                                        cancelled=status == 'CANCELLED',
+                                        volume_available=status != 'UNAVAILABLE',
+                                    ),
+                                    source="saf",
+                                    volume=payload.get('volumeId'),
+                                    scan_id=payload.get('scanId'),
+                                    found=videos,
+                                    error=(stats.get('errors') or [None])[0] if stats.get('errors') else None,
+                                    timestamp=event.get('createdAt'),
+                                )
                                 if status == 'CANCELLED':
                                     message = "Varredura da pasta cancelada. Os itens anteriores foram preservados."
                                 elif status == 'UNAVAILABLE':
@@ -591,6 +627,20 @@ async def main(page: ft.Page):
                                     )
                                 videos = int(stats.get('videos') or 0)
                                 partial = bool(payload.get('partial') or stats.get('errors'))
+                                set_scan_state(
+                                    scan_ui_state_from_native(
+                                        str(stats.get('status') or payload.get('status') or ''),
+                                        errors=partial,
+                                        cancelled=bool(stats.get('cancelled')),
+                                        volume_available=True,
+                                    ),
+                                    source="broad-storage",
+                                    volume=payload.get('volumeId'),
+                                    scan_id=payload.get('scanId'),
+                                    found=videos,
+                                    error=(stats.get('errors') or [None])[0] if stats.get('errors') else None,
+                                    timestamp=event.get('createdAt'),
+                                )
                                 message = ('Armazenamento local atualizado parcialmente. ' if partial else 'Armazenamento local atualizado. ')
                                 message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
                                 page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; page.update()
@@ -690,6 +740,20 @@ async def main(page: ft.Page):
                                         scan_generation=payload.get('scanGeneration'),
                                     )
                                 videos = int(stats.get('videos') or 0)
+                                set_scan_state(
+                                    scan_ui_state_from_native(
+                                        str(stats.get('status') or payload.get('status') or 'COMPLETED'),
+                                        errors=bool(stats.get('errors')),
+                                        cancelled=bool(stats.get('cancelled')),
+                                        waiting_for_mediastore=False,
+                                    ),
+                                    source="mediastore",
+                                    volume=payload.get('volumeId'),
+                                    scan_id=payload.get('scanId'),
+                                    found=videos,
+                                    error=(stats.get('errors') or [None])[0] if stats.get('errors') else None,
+                                    timestamp=event.get('createdAt'),
+                                )
                                 message = 'Vídeos do dispositivo atualizados. '
                                 message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
                                 page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; page.update()
@@ -778,6 +842,14 @@ async def main(page: ft.Page):
                             else:
                                 store.save_account(profile); account_state[0] = 'connected'; page.snack_bar=ft.SnackBar(ft.Text('Conta Google conectada.')); page.snack_bar.open=True; page.update(); refresh_settings_if_active()
                         elif event_type == 'volume_changed':
+                            set_scan_state(
+                                ScanUiState.SCANNING if any(
+                                    isinstance(item, dict) and item.get('available') for item in (payload.get('added') or [])
+                                ) else ScanUiState.VOLUME_UNAVAILABLE,
+                                source="volume",
+                                volume=(payload.get('changedVolumes') or [{}])[0].get('volumeId') if payload.get('changedVolumes') else None,
+                                timestamp=event.get('createdAt') or payload.get('timestamp'),
+                            )
                             volume_event = dict(payload)
                             volume_event["eventTimestamp"] = event.get('timestamp') or event.get('createdAt') or payload.get('timestamp')
                             volume_result = await asyncio.to_thread(library.ingest_native_volume_change, volume_event)
@@ -880,6 +952,7 @@ async def main(page: ft.Page):
                         elif event_type == 'saf_cancelled':
                             saf_selection.finish()
                             storage_onboarding["waiting_for_result"] = False
+                            set_scan_state(ScanUiState.CANCELLED, source="saf", error=None, timestamp=event.get('createdAt'))
                             page.snack_bar=ft.SnackBar(ft.Text('Seleção de pasta cancelada.')); page.snack_bar.open=True; page.update()
                             refresh_settings_if_active()
                         elif event_type == 'saf_permission':
@@ -929,6 +1002,19 @@ async def main(page: ft.Page):
                         elif event_type in {'saf_error','google_error'}:
                             if event_type == 'saf_error':
                                 storage_onboarding["waiting_for_result"] = False
+                                status = str(payload.get('status') or '').upper()
+                                set_scan_state(
+                                    scan_ui_state_from_native(
+                                        status,
+                                        errors=True,
+                                        volume_available=status not in {'UNAVAILABLE', 'REVOKED'},
+                                    ),
+                                    source="saf",
+                                    volume=payload.get('volumeId'),
+                                    scan_id=payload.get('scanId'),
+                                    error=event.get('message') or payload.get('error'),
+                                    timestamp=event.get('createdAt'),
+                                )
                                 saf_selection.finish()
                                 tree_uri = payload.get('treeUri')
                                 if tree_uri and tree_uri in pending_folder_removals:

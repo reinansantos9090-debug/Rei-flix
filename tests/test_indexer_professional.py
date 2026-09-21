@@ -209,7 +209,9 @@ class ProfessionalIndexerTests(unittest.TestCase):
             with store._conn() as con:
                 episode_columns = {row[1] for row in con.execute("PRAGMA table_info(episodes)")}
                 scan_columns = {row[1] for row in con.execute("PRAGMA table_info(scan_runs)")}
+                observation_columns = {row[1] for row in con.execute("PRAGMA table_info(episode_observations)")}
             self.assertTrue({"relative_path", "volume_id", "volume_uuid"} <= episode_columns)
+            self.assertTrue({"source_kind", "scope_kind", "scope_ref", "uri", "first_seen", "last_seen", "state"} <= observation_columns)
             self.assertTrue({"scan_id", "scope_kind", "scope_ref", "new_files", "unchanged_files"} <= scan_columns)
 
 

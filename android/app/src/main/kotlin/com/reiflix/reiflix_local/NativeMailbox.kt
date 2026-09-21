@@ -74,10 +74,28 @@ object NativeMailbox {
                 .put("eventType", eventType(event))
                 .put("createdAt",now)
                 .put("timestamp",now)
+            val nested = payload.optJSONObject("payload")
+            fun promote(name: String, vararg aliases: String) {
+                if (payload.has(name) || nested == null) return
+                for (alias in aliases) {
+                    if (nested.has(alias)) {
+                        payload.put(name, nested.get(alias))
+                        return
+                    }
+                }
+            }
             val requestId=payload.optString("requestId").ifBlank{
-                payload.optJSONObject("payload")?.optString("requestId").orEmpty()
+                nested?.optString("requestId").orEmpty()
             }.trim()
             if(requestId.isNotEmpty())payload.put("requestId",requestId)
+            promote("scanId", "scanId")
+            promote("source", "source")
+            promote("scope", "scope", "scopeRef", "scopeKind")
+            promote("volumeId", "volumeId", "volumeName")
+            promote("state", "state", "status", "generationStatus")
+            promote("counts", "counts", "stats")
+            promote("errors", "errors")
+            promote("generationId", "generationId")
             FileOutputStream(temp).use { stream ->
                 stream.write(payload.toString().toByteArray(Charsets.UTF_8))
                 stream.fd.sync()

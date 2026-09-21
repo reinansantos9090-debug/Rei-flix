@@ -165,10 +165,18 @@ class AndroidBridge:
             return [event for _, event in indexed]
         except OSError as exc:
             logger.warning("[ANDROID] Failed to drain native bridge events: %s", exc)
+            # Never discard a claimed event because of a later I/O failure.
+            # Leave it in .consumed form when restoration is not possible; the
+            # next process start converts outstanding .consumed files back to
+            # .json for another delivery attempt.
             for path in claimed:
-                path.unlink(missing_ok=True)
+                try:
+                    if path.suffix == ".consumed":
+                        path.replace(path.with_suffix(".json"))
+                except OSError as restore_exc:
+                    logger.warning("[ANDROID] Failed to restore native event %s: %s", path.name, restore_exc)
             self._claimed = []
-        self._retained = set()
+            self._retained = set()
             return []
 
     def requeue_event_ids(self, event_ids: set[str]) -> None:

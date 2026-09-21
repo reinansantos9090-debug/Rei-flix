@@ -259,7 +259,7 @@ object BroadStorageScanner {
         val pending = ArrayDeque<Pair<File, StorageRoot>>()
         rootFiles.filter { isReadableState(it.state) }.forEach { pending.addLast(it.file to it) }
         onProgress?.invoke(JSONObject().put("phase", "started").put("source", SOURCE)
-            .put("directories", 0).put("files", 0).put("videos", 0).put("excludedNoMedia", 0))
+            .put("directories", 0).put("files", 0).put("videos", 0).put("excludedNoMedia", 0).put("nomediaDirectories", 0).put("nomediaFiles", 0))
 
         while (pending.isNotEmpty()) {
             if (shouldCancel()) { cancelled = true; break }
@@ -271,6 +271,8 @@ object BroadStorageScanner {
             if (isNoMediaDirectory(canonical)) {
                 excludedNoMedia++
                 volumeStats.put("excludedNoMedia", volumeStats.optInt("excludedNoMedia", 0) + 1)
+                    .put("nomediaDirectories", volumeStats.optInt("nomediaDirectories", 0) + 1)
+                    .put("nomediaFiles", volumeStats.optInt("nomediaFiles", 0) + 1)
                 statsByVolume[root.volumeId] = volumeStats
                 continue
             }
@@ -291,6 +293,8 @@ object BroadStorageScanner {
             if (children.any { it.isFile && it.name.equals(".nomedia", ignoreCase = true) }) {
                 excludedNoMedia++
                 volumeStats.put("excludedNoMedia", volumeStats.optInt("excludedNoMedia", 0) + 1)
+                    .put("nomediaDirectories", volumeStats.optInt("nomediaDirectories", 0) + 1)
+                    .put("nomediaFiles", volumeStats.optInt("nomediaFiles", 0) + 1)
                 statsByVolume[root.volumeId] = volumeStats
                 continue
             }
@@ -302,13 +306,16 @@ object BroadStorageScanner {
 
                 files++
                 volumeStats.put("files", volumeStats.optInt("files", 0) + 1)
-                if (child.name.equals(".nomedia", ignoreCase = true)) continue
+                if (child.name.equals(".nomedia", ignoreCase = true)) {
+                    volumeStats.put("nomediaFiles", volumeStats.optInt("nomediaFiles", 0) + 1)
+                    continue
+                }
                 if (!child.isFile || child.extension.lowercase() !in videoExtensions) continue
 
                 val file = runCatching { child.canonicalFile }.getOrNull() ?: continue
                 val owningRoot = rootForFile(file, rootFiles)
-                val volumeName = owningRoot?.let { volumeKey(context, it.file) } ?: root.volumeId
-                val relative = owningRoot?.let { relativePath(file, it.file) } ?: file.name
+                val volumeName = root.volumeId
+                val relative = relativePath(file, root.file)
                 val document = JSONObject()
                     .put("uri", Uri.fromFile(file).toString())
                     .put("path", file.path)
@@ -406,7 +413,9 @@ object BroadStorageScanner {
             .put("volumeScopes", volumeScopes)
             .put("stats", JSONObject()
                 .put("directories", directories).put("files", files).put("videos", videos)
-                .put("excludedNoMedia", excludedNoMedia).put("nomediaDirectories", excludedNoMedia)
+                .put("excludedNoMedia", excludedNoMedia)
+                .put("nomediaDirectories", excludedNoMedia)
+                .put("nomediaFiles", (0 until volumeScopes.length()).sumOf { volumeScopes.getJSONObject(it).optJSONObject("stats")?.optInt("nomediaFiles", 0) ?: 0 })
                 .put("errors", errors).put("access", access)
                 .put("new", totalNew).put("changed", totalChanged).put("unchanged", totalUnchanged)
                 .put("duplicates", totalDuplicates).put("removed", totalRemoved)

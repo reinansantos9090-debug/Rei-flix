@@ -307,4 +307,9 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn('path.replace(path.with_suffix(".json"))', block)
         self.assertNotIn("path.unlink(missing_ok=True)", block)
 
+    def test_main_activity_has_no_legacy_saf_scan_guard_reference(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        self.assertNotIn("tryBeginNativeScan", source)
+        self.assertIn('NativeScanController.begin(scanId, scanKey)', source)
+
 if __name__ == "__main__": unittest.main()

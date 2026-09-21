@@ -278,11 +278,6 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         val scanKey = "saf:$reference"
-        if (!tryBeginNativeScan(scanKey)) {
-            NativeMailbox.write(this, JSONObject().put("type", "saf_scan_progress")
-                .put("payload", JSONObject().put("treeUri", reference).put("phase", "already_running")))
-            return
-        }
         if (!NativeScanController.begin(scanId, scanKey)) {
             NativeMailbox.write(this, JSONObject().put("type", "saf_scan_progress")
                 .put("payload", JSONObject().put("treeUri", reference).put("requestId", requestId ?: "").put("phase", "already_running")))

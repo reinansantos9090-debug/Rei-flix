@@ -65,6 +65,7 @@ class StorageCapabilities:
     saf_roots: tuple[str, ...] = ()
     removable_volumes: tuple[str, ...] = ()
     scanner_capabilities: frozenset[str] = frozenset()
+    reconciliation_capabilities: frozenset[str] = frozenset()
     lifecycle_state: str = "unknown"
     api: int | None = None
 
@@ -94,6 +95,10 @@ class StorageCapabilities:
             str(value).strip() for value in (payload.get("scannerCapabilities") or [])
             if str(value).strip()
         )
+        reconciliators = frozenset(
+            str(value).strip() for value in (payload.get("reconciliationCapabilities") or [])
+            if str(value).strip()
+        )
         try:
             api = int(payload["api"]) if payload.get("api") is not None else None
         except (TypeError, ValueError):
@@ -104,6 +109,7 @@ class StorageCapabilities:
             saf_roots=saf,
             removable_volumes=removable,
             scanner_capabilities=scanners,
+            reconciliation_capabilities=reconciliators,
             lifecycle_state=str(payload.get("lifecycleState") or "unknown").casefold(),
             api=api,
         )
@@ -114,6 +120,9 @@ class StorageCapabilities:
 
     def can_scan(self, source: str) -> bool:
         return source in self.scanner_capabilities
+
+    def can_reconcile(self, source: str) -> bool:
+        return source in self.reconciliation_capabilities
 
 
 def storage_access_state(

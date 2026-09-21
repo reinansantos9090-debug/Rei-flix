@@ -183,6 +183,20 @@ class Prompt3DiscoveryEngineTests(unittest.TestCase):
             "removed": [],
         })
         row = self.store.physical_row(doc["uri"])
+        # A remount is only a discovery signal. The item becomes playable again
+        # after a successful scan observes the resource on the mounted volume.
+        self.assertTrue(row["missing"])
+        self.assertEqual("volume_unavailable", row["availability_state"])
+        self.service.ingest_documents(
+            "mediastore:external:video",
+            [doc],
+            source_kind="mediastore",
+            scan_id="volume-remount-rescan",
+            scope_kind="volume",
+            scope_ref="sdcard-123",
+            scan_generation=2,
+        )
+        row = self.store.physical_row(doc["uri"])
         self.assertFalse(row["missing"])
         self.assertEqual("available", row["availability_state"])
         self.assertEqual(77, row["progress"])

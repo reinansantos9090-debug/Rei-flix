@@ -474,7 +474,7 @@ class LibraryService:
             partial_scan = bool(
                 scan_stats.get("partial")
                 or scan_stats.get("cancelled")
-                or native_scan_state in {"partial", "failed", "cancelled", "canceled", "error"}
+                or native_scan_state in {"partial", "failed", "cancelled", "canceled", "error", "unavailable"}
             )
             try:
                 self.store.add_folder(

@@ -417,9 +417,20 @@ object BroadStorageScanner {
             val generation = generationByVolume[volumeId] ?: continue
             val volumeErrors = errorsByVolume[volumeId] ?: JSONArray()
             val scopeStats = statsByVolume[volumeId] ?: JSONObject()
+            val endState = runCatching { Environment.getExternalStorageState(root.file) }.getOrDefault(root.state)
+            val volumeStillReadable = isReadableState(endState)
+            if (!volumeStillReadable && !cancelled) {
+                val endError = JSONObject()
+                    .put("type", volumeErrorType(endState))
+                    .put("message", "Volume ficou indisponível durante a varredura: " + volumeId + " (" + endState + ").")
+                    .put("volumeId", volumeId)
+                    .put("state", endState)
+                volumeErrors.put(endError)
+                errors.put(endError)
+            }
             val batchCount = NativeIndex.batchCount(context, SOURCE, scopeKey, generation)
             val stagedDocuments = NativeIndex.stagedDocumentCount(context, SOURCE, scopeKey, generation)
-            val complete = isReadableState(root.state) && volumeErrors.length() == 0 && !cancelled
+            val complete = isReadableState(root.state) && volumeStillReadable && volumeErrors.length() == 0 && !cancelled
             val status = when {
                 cancelled -> NativeIndex.STATUS_CANCELLED
                 !complete -> NativeIndex.STATUS_PARTIAL
@@ -429,7 +440,8 @@ object BroadStorageScanner {
             val metadata = JSONObject()
                 .put("volumeId", volumeId)
                 .put("volumeUuid", root.volumeUuid ?: "")
-                .put("state", root.state)
+                .put("state", endState)
+                .put("initialState", root.state)
                 .put("removable", root.removable)
                 .put("primary", root.primary)
                 .put("errors", volumeErrors)

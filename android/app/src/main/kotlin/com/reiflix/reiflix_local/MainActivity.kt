@@ -291,17 +291,17 @@ class MainActivity : FlutterFragmentActivity() {
         val appContext = applicationContext
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
-                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan_progress").put("payload", JSONObject().put("treeUri", reference).put("scanId", scanId).put("requestId", requestId ?: "").put("phase", "started")))
+                NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan_progress").put("payload", JSONObject().put("treeUri", reference).put("scanId", scanId).put("requestId", requestId ?: "").put("phase", "started")))
                 val result = SafScanner.scan(appContext, treeUri, { progress ->
-                    NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan_progress")
+                    NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan_progress")
                         .put("payload", progress .put("treeUri", reference).put("scanId", scanId).put("requestId", requestId ?: "").put("phase", "scanning"))) }, { NativeScanController.isCancelled(scanId) })
                 val partial = result.optBoolean("partial")
                 val prepared = NativeIndex.prepare(appContext, NativeIndex.SOURCE_SAF, "saf:" + reference, result.optJSONArray("documents") ?: JSONArray(), !partial && !result.optBoolean("cancelled"))
                 result.put("documents", prepared.documents).put("scanGeneration", prepared.generation).put("nativeNew", prepared.newItems).put("nativeChanged", prepared.changedItems).put("nativeUnchanged", prepared.unchangedItems).put("nativeDuplicates", prepared.duplicates).put("nativeRemoved", prepared.removedItems).put("requestId", requestId ?: "").put("scanId", scanId).put("scopeKind", "root").put("scopeRef", "")
-                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_scan").put("requestId", requestId ?: "").put("payload", result))
+                NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan").put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
                 Log.e(tag, "SAF scan failed", exception)
-                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "saf_error").put("message", "Não foi possível atualizar esta pasta autorizada.")
+                NativeMailbox.write(appContext, JSONObject().put("type", "saf_error").put("message", "Não foi possível atualizar esta pasta autorizada.")
                     .put("payload", JSONObject().put("treeUri", reference)))
             } finally {
                 NativeScanController.finish(scanId)
@@ -518,7 +518,7 @@ class MainActivity : FlutterFragmentActivity() {
                 val result = BroadStorageScanner.scan(
                     appContext,
                     { progress ->
-                        NativeMailbox.write(this@MainActivity, JSONObject().put("type", "broad_storage_scan_progress")
+                        NativeMailbox.write(appContext, JSONObject().put("type", "broad_storage_scan_progress")
                             .put("payload", progress.put("scanId", scanId).put("requestId", requestId ?: "").put("scopeKind", "global")))
                     },
                     { NativeScanController.isCancelled(scanId) },
@@ -531,11 +531,11 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("nativeUnchanged", prepared.unchangedItems).put("nativeDuplicates", prepared.duplicates)
                     .put("nativeRemoved", prepared.removedItems).put("requestId", requestId ?: "")
                     .put("scanId", scanId).put("scopeKind", "global").put("scopeRef", "broad-storage")
-                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "broad_storage_scan")
+                NativeMailbox.write(appContext, JSONObject().put("type", "broad_storage_scan")
                     .put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
                 Log.e(tag, "Broad storage scan failed", exception)
-                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "broad_storage_error")
+                NativeMailbox.write(appContext, JSONObject().put("type", "broad_storage_error")
                     .put("requestId", requestId ?: "")
                     .put("message", "Não foi possível varrer o armazenamento local.")
                     .put("payload", JSONObject().put("source", BroadStorageScanner.SOURCE)))
@@ -565,24 +565,24 @@ class MainActivity : FlutterFragmentActivity() {
         val appContext = applicationContext
         val job = CoroutineScope(Dispatchers.IO).launch {
             try {
-                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_scan_progress")
+                NativeMailbox.write(appContext, JSONObject().put("type", "mediastore_scan_progress")
                     .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE).put("scanId", scanId)
                         .put("requestId", requestId ?: "").put("phase", "started")))
                 val result = MediaStoreScanner.scan(
                     appContext,
                     { progress ->
-                        NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_scan_progress")
+                        NativeMailbox.write(appContext, JSONObject().put("type", "mediastore_scan_progress")
                             .put("payload", progress.put("scanId", scanId).put("requestId", requestId ?: "").put("scopeKind", "global")))
                     },
                     { NativeScanController.isCancelled(scanId) },
                 )
                 result.put("requestId", requestId ?: "").put("scanId", scanId)
                     .put("scopeKind", "global").put("scopeRef", MediaStoreScanner.SOURCE)
-                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_scan")
+                NativeMailbox.write(appContext, JSONObject().put("type", "mediastore_scan")
                     .put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
                 Log.e(tag, "MediaStore scan failed", exception)
-                NativeMailbox.write(this@MainActivity, JSONObject().put("type", "mediastore_error")
+                NativeMailbox.write(appContext, JSONObject().put("type", "mediastore_error")
                     .put("requestId", requestId ?: "")
                     .put("message", "Não foi possível atualizar os vídeos do dispositivo.")
                     .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))

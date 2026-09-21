@@ -368,19 +368,60 @@ E: manifest
 
     def test_native_player_rechecks_saf_authorization_before_media3_start(self):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
-        self.assertIn('uri.scheme == "content" && SafScanner.isAuthorizedDocument(this, uri)', player)
         self.assertIn("SafScanner.isAuthorizedDocument(this, uri)", player)
+        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", player)
+        self.assertIn("contentResolver.openFileDescriptor(localUri, "r")", player)
         self.assertIn("Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix.", player)
 
-    def test_android_bridge_accepts_only_content_media_references(self):
+    def test_android_bridge_accepts_only_local_media_references(self):
         from core.android_bridge import AndroidBridge
 
         self.assertTrue(AndroidBridge.is_local_media_reference(
             "content://com.android.providers.media.documents/document/video%3A1"
         ))
-        for value in ("", "/sdcard/video.mkv", "http://example/video.mkv"):
-            self.assertFalse(AndroidBridge.is_local_media_reference(value))
+        self.assertTrue(AndroidBridge.is_local_media_reference("/sdcard/video.mkv"))
         self.assertTrue(AndroidBridge.is_local_media_reference("file:///sdcard/video.mkv"))
+        for value in ("", "http://example/video.mkv", "https://example/video.m3u8"):
+            self.assertFalse(AndroidBridge.is_local_media_reference(value))
+        self.assertEqual(
+            AndroidBridge.normalize_local_media_reference("/sdcard/video.mkv"),
+            Path("/sdcard/video.mkv").resolve().as_uri(),
+        )
+        self.assertEqual(
+            AndroidBridge.normalize_local_media_reference("content://provider/video/1"),
+            "content://provider/video/1",
+        )
+
+    def test_player_preflight_uses_authorized_source_and_real_readability(self):
+        player = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("normalizeLocalReference(rawUri)", player)
+        self.assertIn("contentResolver.openFileDescriptor(localUri, "r")", player)
+        self.assertIn("file.exists()", player)
+        self.assertIn("file.canRead()", player)
+        self.assertIn("MediaStore.AUTHORITY", player)
+        self.assertIn("A permissão para ler vídeos foi revogada.", player)
+        self.assertIn("Arquivo local removido ou indisponível.", player)
+        self.assertIn("O provedor local não está disponível", player)
+
+    def test_player_recreates_with_track_selection_and_pip_is_optional(self):
+        player = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
+        manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        template = PREPARE_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn("TrackSelectionParameters.fromBundle(bundle)", player)
+        self.assertIn('outState.putBundle("track_selection_parameters"', player)
+        self.assertIn("builder.setAutoEnterEnabled(true)", player)
+        self.assertIn("runCatching", player[player.index("override fun onUserLeaveHint"):player.index("private fun canEnterPictureInPicture")])
+        self.assertIn("android.software.picture_in_picture", manifest)
+        self.assertIn('android:required="false"', manifest)
+        self.assertIn("android.software.picture_in_picture", template)
+        self.assertIn('pip_feature.set("{" + ANDROID + "}required", "false")', template)
+
+    def test_packaged_manifest_verifier_checks_native_player_pip_contract(self):
+        verifier = (ROOT / "scripts/verify_apk_manifest.py").read_text(encoding="utf-8")
+        self.assertIn("PLAYER_ACTIVITY", verifier)
+        self.assertIn("PIP_FEATURE", verifier)
+        self.assertIn("supportsPictureInPicture", verifier)
+        self.assertIn("has_optional_feature", verifier)
 
     def test_saf_regrant_path_persists_before_scanning_and_reports_revocation(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
@@ -412,8 +453,9 @@ E: manifest
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", player)
         self.assertIn("MediaItem.Builder().setUri(uri)", player)
-        self.assertIn('return bool(uri) and (uri.startswith("content://") or uri.startswith("file://"))', bridge)
-        self.assertNotIn("Uri.fromFile", main + player)
+        self.assertIn("normalize_local_media_reference", bridge)
+        self.assertIn("os.path.isabs(value)", bridge)
+        self.assertIn("Uri.fromFile", player)
         self.assertNotIn("/storage/emulated/0", main + player)
 
     def test_native_player_error_does_not_emit_a_second_exit_event(self):

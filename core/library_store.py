@@ -1239,12 +1239,35 @@ class LibraryStore:
         source_folder = str(source_folder or "").strip()
         if not source_folder:
             return 0
+        source_kind = self._infer_source_kind(source_folder)
         with self._conn() as c:
-            return c.execute(
+            if source_kind == "saf":
+                scope_filter = "source_kind='saf' AND scope_ref=?"
+                params = (source_folder,)
+            elif source_kind == "broad_storage":
+                scope_filter = "source_kind='broad_storage'"
+                params = ()
+            else:
+                scope_filter = "source_kind=? AND scope_ref=?"
+                params = (source_kind, source_folder)
+            rows = c.execute(
+                "SELECT DISTINCT episode_id FROM episode_observations WHERE " + scope_filter + " AND state='scope_unavailable'",
+                params,
+            ).fetchall()
+            changed = 0
+            for row in rows:
+                changed += c.execute(
+                    "UPDATE episode_observations SET state='available',error=NULL,last_checked_at=? WHERE episode_id=? AND state='scope_unavailable' AND " + scope_filter,
+                    (time.time(), row["episode_id"], *params),
+                ).rowcount
+                self._recompute_episode_availability_locked(c, row["episode_id"])
+            changed += c.execute(
                 """UPDATE episodes SET missing=0,availability_state='available'
-                   WHERE source_folder=? AND availability_state='scope_unavailable'""",
+                   WHERE source_folder=? AND availability_state='scope_unavailable'
+                     AND id NOT IN (SELECT episode_id FROM episode_observations)""",
                 (source_folder,),
             ).rowcount
+            return changed
 
     def mark_missing(self, source_folder, seen):
         self.reconcile_missing(source_folder, seen, scope_kind="source")

@@ -115,6 +115,7 @@ class MainActivity : FlutterFragmentActivity() {
         // Android's callback map is only a notification; the current package permissions are authoritative.
         val granted = access != "denied"
         Log.i(tag, "MEDIA_PERMISSION_CALLBACK grants=" + grants + " access=" + access + " granted=" + granted)
+        NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "PERMISSION_RESULT").put("source", MediaStoreScanner.SOURCE).put("access", access)))
         NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission")
             .put("requestId", requestId ?: "")
             .put("payload", JSONObject()
@@ -232,6 +233,7 @@ class MainActivity : FlutterFragmentActivity() {
         pendingSafRequestId = savedInstanceState?.getString(STATE_PENDING_SAF_REQUEST_ID)
         safPickerPending = savedInstanceState?.getBoolean(STATE_SAF_PICKER_PENDING) ?: false
         logLifecycle("onCreate", intent)
+        NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
         onBackPressedDispatcher.addCallback(this, backCallback)
         applyImmersiveSystemUi()
@@ -256,6 +258,7 @@ class MainActivity : FlutterFragmentActivity() {
         super.onResume()
         activityResumed = true
         logLifecycle("onResume")
+        NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "ON_RESUME").put("lifecycle", "onResume")))
         applyImmersiveSystemUi()
 
         // A lifecycle-sensitive command may have been queued because the

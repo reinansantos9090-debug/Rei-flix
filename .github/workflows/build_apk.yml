@@ -68,6 +68,7 @@ jobs:
               raise SystemExit("REIFLIX_GOOGLE_WEB_CLIENT_ID must be a Google OAuth Web client ID")
           path = Path("app_config.py")
           original = path.read_text(encoding="utf-8")
+          Path("build").mkdir(parents=True, exist_ok=True)
           marker = 'GOOGLE_WEB_CLIENT_ID = ""'
           path.write_text(original.replace(marker, f'GOOGLE_WEB_CLIENT_ID = {value!r}'), encoding="utf-8")
           Path("build/app_config.source.py").write_text(original, encoding="utf-8")

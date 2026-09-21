@@ -453,7 +453,7 @@ E: manifest
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         bridge = (ROOT / "core" / "android_bridge.py").read_text(encoding="utf-8")
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", player)
+        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("MediaItem.Builder().setUri(uri)", player)
         self.assertIn("normalize_local_media_reference", bridge)
         self.assertIn("os.path.isabs(value)", bridge)
@@ -466,7 +466,8 @@ E: manifest
         destroy = player.index("override fun onDestroy")
         block = player[error:destroy]
         self.assertIn("suppressExitEvent = true", block)
-        self.assertIn('reportError("Não foi possível reproduzir este arquivo neste dispositivo.")', block)
+        self.assertIn('put("errorCode", technicalCode)', block)
+        self.assertIn('put("detail", detail)', block)
         self.assertIn("finish()", block)
 
     def test_native_player_next_previous_suppress_normal_exit(self):

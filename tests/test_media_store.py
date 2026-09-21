@@ -63,9 +63,12 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", player)
-        self.assertNotIn("Uri.fromFile", main + player)
-        self.assertNotIn("/storage/emulated/0", main + player)
+        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, uri)", main)
+        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
+        self.assertIn("MediaItem.Builder().setUri(uri)", player)
+        self.assertIn("contentResolver.openFileDescriptor(localUri, \"r\")", player)
+        self.assertNotIn("Uri.fromFile", main)
+        self.assertNotIn("/storage/emulated/0", main)
 
     def test_flet_template_copies_media_store_scanner_and_permissions(self):
         template = (ROOT / "scripts" / "prepare_flet_template.py").read_text(encoding="utf-8")

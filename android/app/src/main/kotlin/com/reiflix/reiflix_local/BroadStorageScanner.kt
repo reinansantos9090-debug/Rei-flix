@@ -285,9 +285,8 @@ object BroadStorageScanner {
             }
             if (children == null) {
                 val label = if (rootFiles.any { it.file.path == canonical.path }) "raiz" else "diretório"
-                val message = "Não foi possível acessar $label: ${canonical.path}"
-                errors.put(message)
-                errorsByVolume[root.volumeId]?.put(message)
+                errors.put("Não foi possível acessar $label: ${canonical.path}")
+                errorsByVolume[root.volumeId]?.put("Não foi possível acessar $label: ${canonical.path}")
                 continue
             }
             if (children.any { it.isFile && it.name.equals(".nomedia", ignoreCase = true) }) {

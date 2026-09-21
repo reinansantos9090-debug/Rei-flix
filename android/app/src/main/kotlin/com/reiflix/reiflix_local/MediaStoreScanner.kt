@@ -82,7 +82,11 @@ object MediaStoreScanner {
                     onProgress?.invoke(JSONObject().put("phase","reused").put("source",SOURCE).put("volumeId",volumeName).put("files",files).put("videos",videos))
                     continue
                 }
+                val scopeMetadata=JSONObject().put("mediaStoreVersion",version).put("mediaStoreGeneration",generation)
+                    .put("accessLevel",access).put("volumeId",volumeName)
+                val generationId=NativeIndex.startGeneration(context,SOURCE,scopeKey,scopeMetadata)
                 val raw=JSONArray();val localErrors=JSONArray()
+                var localCancelled=false
                 val collection=if(Build.VERSION.SDK_INT>=29)MediaStore.Video.Media.getContentUri(volumeName)else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                 resolver.query(collection,projection.toTypedArray(),null,null,MediaStore.Video.Media.DISPLAY_NAME+" COLLATE NOCASE ASC")?.use{cursor->
                     val idCol=cursor.getColumnIndex(MediaStore.Video.Media._ID);val nameCol=cursor.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
@@ -92,7 +96,7 @@ object MediaStoreScanner {
                     val gaCol=if(Build.VERSION.SDK_INT>=30)cursor.getColumnIndex(MediaStore.MediaColumns.GENERATION_ADDED)else -1
                     val gmCol=if(Build.VERSION.SDK_INT>=30)cursor.getColumnIndex(MediaStore.MediaColumns.GENERATION_MODIFIED)else -1
                     if(idCol<0||nameCol<0)localErrors.put("O MediaStore não retornou os dados necessários.")else while(cursor.moveToNext()){
-                        if(shouldCancel()){cancelled=true;break}
+                        if(shouldCancel()){cancelled=true;localCancelled=true;break}
                         files++;val id=cursor.getLong(idCol);val name=cursor.getString(nameCol)?:"video-"+id
                         val mime=if(mimeCol>=0&&!cursor.isNull(mimeCol))cursor.getString(mimeCol) else "video/*"
                         val ext=name.substringAfterLast('.',"").lowercase();if(!mime.startsWith("video/")&&ext !in videoExtensions)continue
@@ -108,12 +112,13 @@ object MediaStoreScanner {
                     }
                 }?:localErrors.put("O MediaStore não conseguiu consultar o volume "+volumeName+".")
                 for(i in 0 until localErrors.length())errors.put(localErrors.getString(i))
+                if(shouldCancel()){cancelled=true;localCancelled=true}
                 val complete=StorageAuthorization.canReconcileMediaStore(accessState) &&
-                    localErrors.length()==0 && !shouldCancel()
-                if(shouldCancel())cancelled=true
-                val prepared=NativeIndex.prepare(context,SOURCE,scopeKey,raw,complete,JSONObject().put("mediaStoreVersion",version).put("mediaStoreGeneration",generation).put("accessLevel",access).put("volumeId",volumeName))
+                    localErrors.length()==0 && !localCancelled && !cancelled
+                val status=when { complete->NativeIndex.STATUS_COMPLETED; localCancelled||cancelled->NativeIndex.STATUS_CANCELLED; else->NativeIndex.STATUS_PARTIAL }
+                val prepared=NativeIndex.prepare(context,SOURCE,scopeKey,raw,complete,JSONObject(scopeMetadata.toString()).put("errors",localErrors).put("status",status),generationId,status)
                 for(i in 0 until prepared.documents.length())documents.put(prepared.documents.getJSONObject(i))
-                volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",prepared.generation).put("documents",prepared.documents)
+                volumeScopes.put(JSONObject().put("volumeId",volumeName).put("scanGeneration",prepared.generation).put("generationId","native:"+prepared.generation).put("status",prepared.status).put("documents",prepared.documents)
                     .put("complete",complete).put("reused",false).put("new",prepared.newItems).put("changed",prepared.changedItems)
                     .put("unchanged",prepared.unchangedItems).put("duplicates",prepared.duplicates).put("removed",prepared.removedItems)
                     .put("errors",localErrors))

@@ -496,7 +496,7 @@ class MainActivity : FlutterFragmentActivity() {
                 NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan_progress")
                     .put("requestId", requestId ?: "")
                     .put("payload", SafScanner.identityPayload(treeUri).put("scanId", scanId).put("phase", "started")
-                        .put("source", "saf").put("generationId", NativeIndex.generationId(NativeIndex.SOURCE_SAF, scanKey, generationId)))
+                        .put("source", "saf").put("generationId", NativeIndex.generationId(NativeIndex.SOURCE_SAF, scanKey, generationId))))
                 val onScanProgress: (JSONObject) -> Unit = { progress ->
                     NativeMailbox.write(
                         appContext,

@@ -14,8 +14,8 @@ class Prompt8UiStateTests(unittest.TestCase):
     def test_settings_uses_android_snapshot_not_sqlite_for_permission_state(self):
         source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
         self.assertIn("storage_snapshot=None", source)
-        self.assertIn("getattr(storage_snapshot, "media_read_state"", source)
-        self.assertIn("getattr(storage_snapshot, "broad_storage_state"", source)
+        self.assertIn('getattr(storage_snapshot, "media_read_state"', source)
+        self.assertIn('getattr(storage_snapshot, "broad_storage_state"', source)
         self.assertIn("MEDIASTORE:", source)
         self.assertIn("SAF:", source)
         self.assertIn("BROAD STORAGE:", source)

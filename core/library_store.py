@@ -1176,7 +1176,9 @@ class LibraryStore:
                  "missing" if row["missing"] else "available"),
             )
 
-    def reconcile_scope(self, source_folder, seen, *, source_kind=None, scope_kind="source", scope_ref=None):
+    def reconcile_scope(self, source_folder, seen, *, source_kind=None, scope_kind="source", scope_ref=None, complete=False):
+        if not complete:
+            return 0
         source_kind = self._infer_source_kind(source_folder, source_kind)
         scope_kind = str(scope_kind or "source").strip().casefold()
         scope_ref = self._scope_ref(scope_ref)
@@ -1201,7 +1203,7 @@ class LibraryStore:
                 self._recompute_episode_availability_locked(c, episode_id)
         return len(affected)
 
-    def reconcile_missing(self, source_folder, seen, *, scope_kind="source", scope_ref=None, source_kind=None):
+    def reconcile_missing(self, source_folder, seen, *, scope_kind="source", scope_ref=None, source_kind=None, complete=False):
         """Compatibility facade for the single scoped reconciliation engine."""
         return self.reconcile_scope(
             source_folder,
@@ -1209,6 +1211,7 @@ class LibraryStore:
             source_kind=source_kind,
             scope_kind=scope_kind,
             scope_ref=scope_ref,
+            complete=complete,
         )
 
     def mark_volume_unavailable(self, volume_id, reason=None):

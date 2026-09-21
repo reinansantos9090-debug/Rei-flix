@@ -85,11 +85,12 @@ class AndroidBridge:
     async def sign_in(self, server_client_id: str): await self._launch("google_sign_in", server_client_id=server_client_id)
     async def play(self, uri: str, title: str, position_ms: int = 0, *, can_next=False,
                    can_previous=False, autoplay=False):
-        if not self.is_local_media_reference(uri):
+        normalized_uri = self.normalize_local_media_reference(uri)
+        if normalized_uri is None:
             raise ValueError("A reprodução aceita somente arquivos locais ou URIs content://.")
         await self._launch(
             "play",
-            uri=uri,
+            uri=normalized_uri,
             title=title,
             position_ms=max(0, int(position_ms)),
             can_next=str(bool(can_next)).lower(),
@@ -98,11 +99,25 @@ class AndroidBridge:
         )
 
     @staticmethod
-    def is_local_media_reference(uri: str) -> bool:
-        # Android library entries come from SAF and must remain content:// URIs.
-        # Reject file:// and raw filesystem paths so the native player cannot
-        # be used as a second, unscoped storage-access path.
-        return bool(uri) and (uri.startswith("content://") or uri.startswith("file://"))
+    def normalize_local_media_reference(reference: str) -> str | None:
+        value = str(reference or "").strip()
+        if not value:
+            return None
+        if value.startswith("content://") or value.startswith("file://"):
+            return value
+        # Broad Storage may still hand the bridge a real absolute filesystem
+        # path. Convert only that local path to file://; content:// is never
+        # rewritten into a filesystem path.
+        if os.path.isabs(value):
+            try:
+                return Path(value).resolve().as_uri()
+            except (OSError, ValueError):
+                return None
+        return None
+
+    @classmethod
+    def is_local_media_reference(cls, uri: str) -> bool:
+        return cls.normalize_local_media_reference(uri) is not None
 
     @staticmethod
     def _event_time(event: dict) -> float:

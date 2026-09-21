@@ -30,8 +30,6 @@ class AndroidBridge:
     def _recover_unacknowledged_batches(self) -> None:
         """Return batches left in .consumed form by a previous Python process."""
         try:
-            # Recovery must not create the queue itself; drain() owns queue creation.
-            # This keeps startup recovery side-effect free when no native writer exists.
             legacy = self.mailbox.with_suffix(".consumed")
             if legacy.exists() and not self.mailbox.exists():
                 legacy.replace(self.mailbox)
@@ -64,13 +62,9 @@ class AndroidBridge:
             request_id,
             action,
         )
-        # Flet delivers the custom-scheme intent through Android's external URL
-        # resolver. Every command gets a unique request id so MainActivity can
-        # distinguish a real repeated command from duplicate delivery of the same
-        # onNewIntent payload.
-        await self.page.launch_url(
-            url, mode=ft.LaunchMode.EXTERNAL_NON_BROWSER_APPLICATION
-        )
+        # Flet 0.86.5 does not accept the removed launch_url(mode=...) argument.
+        # Keep the app-owned custom scheme and change only the incompatible call.
+        await self.page.launch_url(url)
 
     async def select_tree(self): await self._launch("select_tree")
     async def rescan_tree(self, tree_uri: str): await self._launch("scan_tree", tree_uri=tree_uri)
@@ -83,6 +77,7 @@ class AndroidBridge:
     async def verify_tree(self, tree_uri: str): await self._launch("verify_tree", tree_uri=tree_uri)
     async def release_tree(self, tree_uri: str): await self._launch("release_tree", tree_uri=tree_uri)
     async def sign_in(self, server_client_id: str): await self._launch("google_sign_in", server_client_id=server_client_id)
+
     async def play(self, uri: str, title: str, position_ms: int = 0, *, can_next=False,
                    can_previous=False, autoplay=False):
         normalized_uri = self.normalize_local_media_reference(uri)
@@ -105,9 +100,6 @@ class AndroidBridge:
             return None
         if value.startswith("content://") or value.startswith("file://"):
             return value
-        # Broad Storage may still hand the bridge a real absolute filesystem
-        # path. Convert only that local path to file://; content:// is never
-        # rewritten into a filesystem path.
         if os.path.isabs(value):
             try:
                 return Path(value).resolve().as_uri()
@@ -127,8 +119,6 @@ class AndroidBridge:
                 return float(value)
             except (TypeError, ValueError):
                 continue
-        # Events written by older clients without a clock remain after timed
-        # events while preserving their original relative order.
         return float("inf")
 
     def drain(self) -> list[dict]:
@@ -172,9 +162,6 @@ class AndroidBridge:
                 elif isinstance(payload, dict):
                     events.append(payload)
                 claimed.append(consumed)
-            # NativeMailbox filenames use random UUIDs, so lexical filename order
-            # is not event order. Apply the native creation clock when present so
-            # permission/scan/player events are consumed chronologically.
             indexed = list(enumerate(events))
             indexed.sort(key=lambda item: (self._event_time(item[1]), item[0]))
             self._claimed = claimed
@@ -182,10 +169,6 @@ class AndroidBridge:
             return [event for _, event in indexed]
         except OSError as exc:
             logger.error("[ANDROID] Native mailbox drain failed; claimed events will be restored/retried: %s", exc)
-            # Never discard a claimed event because of a later I/O failure.
-            # Leave it in .consumed form when restoration is not possible; the
-            # next process start converts outstanding .consumed files back to
-            # .json for another delivery attempt.
             for path in claimed:
                 try:
                     if path.suffix == ".consumed":

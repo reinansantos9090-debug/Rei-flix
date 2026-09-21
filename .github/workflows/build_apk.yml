@@ -159,6 +159,13 @@ jobs:
                   json.dump(data, handle, indent=2)
           PY
 
+      - name: Run Android unit tests
+        shell: bash
+        run: |
+          cd build/flet-build-template
+          ./gradlew testDebugUnitTest --no-daemon --stacktrace
+          cd "$GITHUB_WORKSPACE"
+
       - name: Build APK
         run: flet build apk --template build/flet-build-template --yes -v
 

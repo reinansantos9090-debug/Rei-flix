@@ -316,4 +316,16 @@ class StorageOnboardingTests(unittest.TestCase):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertEqual(source.count("import os"), 1)
 
+    def test_prompt_1_1_closure_contract_remains_storage_only(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        bridge = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
+        activity = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        template = (ROOT / "scripts/prepare_flet_template.py").read_text(encoding="utf-8")
+        self.assertIn("FLET_APP_STORAGE_DATA", main)
+        self.assertIn("eventId", bridge)
+        self.assertIn("NativeScanController.begin", activity)
+        self.assertIn("READ_MEDIA_VIDEO", template)
+        self.assertNotIn("PermissionEngine", activity + main + bridge)
+        self.assertNotIn("Capability", activity + main + bridge)
+
 if __name__ == "__main__": unittest.main()

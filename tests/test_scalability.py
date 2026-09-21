@@ -126,6 +126,34 @@ class TestScalability(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(service.store.reconcile_calls, 1)
 
+    def test_only_completed_generation_is_considered_latest(self):
+        from core.library_store import LibraryStore
+        with tempfile.TemporaryDirectory() as data_dir:
+            store = LibraryStore(data_dir)
+            cancelled = store.begin_scan(
+                scan_id="cancelled-generation", source_kind="broad_storage",
+                scope_kind="volume", scope_ref="external_primary",
+                native_generation=9, generation_id="native:test:9",
+            )
+            store.finish_scan(cancelled, {"status": "cancelled"})
+            self.assertIsNone(
+                store.latest_completed_native_generation(
+                    "broad_storage", "volume", "external_primary"
+                )
+            )
+            completed = store.begin_scan(
+                scan_id="completed-generation", source_kind="broad_storage",
+                scope_kind="volume", scope_ref="external_primary",
+                native_generation=10, generation_id="native:test:10",
+            )
+            store.finish_scan(completed, {"status": "completed"})
+            self.assertEqual(
+                10,
+                store.latest_completed_native_generation(
+                    "broad_storage", "volume", "external_primary"
+                )
+            )
+
     def test_scan_progress_is_persisted_in_existing_sqlite_store(self):
         from core.library_store import LibraryStore
         with tempfile.TemporaryDirectory() as data_dir:

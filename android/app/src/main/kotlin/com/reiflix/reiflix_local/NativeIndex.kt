@@ -237,7 +237,7 @@ object NativeIndex {
                                  currentVersion: String, currentGeneration: Long): Boolean = synchronized(this) {
         if (Build.VERSION.SDK_INT < 30 || accessLevel != "full" || currentVersion.isBlank() || currentGeneration <= 0L) return@synchronized false
         val scope = scopes(read(context)).optJSONObject("mediastore:" + volumeName) ?: return@synchronized false
-        if (scope.optString("status") != "completed") return@synchronized false
+        if (scope.optString("status") != STATUS_COMPLETED) return@synchronized false
         val meta = scope.optJSONObject("metadata") ?: return@synchronized false
         meta.optString("mediaStoreVersion") == currentVersion &&
             meta.optLong("mediaStoreGeneration", -1L) == currentGeneration &&

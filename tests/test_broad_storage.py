@@ -13,6 +13,9 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         self.assertIn('child == "data" || child == "obb"', scanner)
         self.assertIn(".nomedia", scanner)
         self.assertIn('"volumeName"', scanner)
+        self.assertIn('"permissionAuthority"', scanner)
+        self.assertIn('"type", "ACCESS_DENIED"', scanner)
+        self.assertIn('"VOLUME_UNMOUNTED"', scanner)
 
     def test_inaccessible_nested_directory_is_a_partial_scan(self):
         scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
@@ -56,13 +59,14 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         self.assertIn("await bridge.scan_all_storage()", source)
         self.assertIn("event_type == 'broad_storage_scan'", source)
 
-    def test_legacy_android_broad_storage_requests_runtime_read_permission(self):
+    def test_broad_access_uses_only_android_authoritative_special_permission(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
-        self.assertIn("legacyBroadPermissionRequester", source)
-        self.assertIn("arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)", source)
-        self.assertIn("fun hasAccess(context: Context): Boolean", scanner)
-        self.assertIn("context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)", scanner)
+        self.assertIn("Environment.isExternalStorageManager()", scanner)
+        self.assertIn("permissionAuthority", scanner)
+        self.assertNotIn("legacyBroadPermissionRequester", source)
+        self.assertNotIn("READ_EXTERNAL_STORAGE", scanner)
+        self.assertIn("NativeIndex.failActiveGenerations", source)
 
     def test_nomedia_directory_filtering_supported(self):
         broad_scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")

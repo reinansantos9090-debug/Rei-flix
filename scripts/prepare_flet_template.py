@@ -73,7 +73,17 @@ permission_specs = [
     ("android.permission.MANAGE_EXTERNAL_STORAGE", None),
 ]
 for permission, max_sdk in permission_specs:
-    if permission in existing_permissions:
+    existing_nodes = [
+        node for node in manifest.findall("uses-permission")
+        if node.get(permission_attr) == permission
+    ]
+    if existing_nodes:
+        if permission == "android.permission.READ_EXTERNAL_STORAGE" and max_sdk is not None:
+            # A Flet template may already declare the legacy permission.
+            # Normalize it instead of leaving an unbounded READ_EXTERNAL_STORAGE
+            # entry in the effective manifest.
+            for node in existing_nodes:
+                node.set("{" + ANDROID + "}maxSdkVersion", max_sdk)
         continue
     attrs = {permission_attr: permission}
     if max_sdk is not None:

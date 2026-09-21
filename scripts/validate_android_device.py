@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rei-Flix Prompt 11 device validation runner.
+"""Rei-Flix Android device validation runner.
 
 This script intentionally refuses to claim a physical test when adb/device
 access is unavailable. Interactive picker/player cases remain manual because

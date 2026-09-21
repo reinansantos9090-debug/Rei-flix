@@ -161,6 +161,7 @@ class LibraryStore:
             "running": "RUNNING",
             "completed": "COMPLETED",
             "complete": "COMPLETED",
+            "empty_complete": "EMPTY_COMPLETE",
             "partial": "PARTIAL",
             "cancelled": "CANCELLED",
             "canceled": "CANCELLED",
@@ -225,9 +226,7 @@ class LibraryStore:
                 "description": str(item.get("description") or ""),
                 "observed_at": time.time(),
             }
-            if available:
-                self.restore_volume(volume_id)
-            else:
+            if not available:
                 self.mark_volume_unavailable(volume_id, state)
 
         for item in removed:
@@ -574,7 +573,7 @@ class LibraryStore:
             row = c.execute(
                 """SELECT native_generation FROM scan_runs
                    WHERE source_kind=? AND scope_kind=? AND scope_ref=?
-                     AND status='completed' AND native_generation IS NOT NULL
+                     AND status IN ('completed','empty_complete') AND native_generation IS NOT NULL
                    ORDER BY native_generation DESC LIMIT 1""",
                 (source_kind, scope_kind, scope_ref),
             ).fetchone()

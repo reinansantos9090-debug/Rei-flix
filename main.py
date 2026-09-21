@@ -476,9 +476,15 @@ async def main(page: ft.Page):
             documents = payload.get("documents") or []
             scope_kind = payload.get("scopeKind") or default_scope_kind
             scope_ref = payload.get("scopeRef") or payload.get("scope") or payload.get("volumeId") or event_type
+            source_reference = (
+                payload.get("treeUri")
+                if source_kind == "saf"
+                else payload.get("source")
+                or ("broad-storage" if source_kind == "broad_storage" else "mediastore:external:video")
+            )
             result = await asyncio.to_thread(
                 library.ingest_documents_batch,
-                payload.get("scope") or payload.get("treeUri") or source_kind,
+                source_reference or source_kind,
                 documents,
                 source_kind=source_kind,
                 scan_id=payload.get("scanId"),

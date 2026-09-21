@@ -52,7 +52,7 @@ object NativeMailbox {
             val payload=JSONObject(event.toString())
                 .put("eventId",id)
                 .put("eventVersion",EVENT_VERSION)
-                .put("eventType",eventType(event))
+                .put("eventType", eventType(event))
                 .put("createdAt",now)
                 .put("timestamp",now)
             val requestId=payload.optString("requestId").ifBlank{

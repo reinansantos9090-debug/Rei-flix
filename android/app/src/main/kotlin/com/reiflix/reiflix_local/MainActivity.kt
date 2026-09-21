@@ -1,6 +1,7 @@
 package com.reiflix.reiflix_local
 
 import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ActivityNotFoundException
@@ -90,7 +91,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
         try {
             if (Build.VERSION.SDK_INT >= 33) {
-                registerReceiver(storageReceiver, filter, RECEIVER_NOT_EXPORTED)
+                registerReceiver(storageReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
             } else {
                 @Suppress("DEPRECATION")
                 registerReceiver(storageReceiver, filter)

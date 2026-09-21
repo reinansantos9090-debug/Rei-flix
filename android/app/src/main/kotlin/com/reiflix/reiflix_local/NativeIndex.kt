@@ -51,6 +51,7 @@ object NativeIndex {
     const val STATUS_PARTIAL = "PARTIAL"
     const val STATUS_CANCELLED = "CANCELLED"
     const val STATUS_FAILED = "FAILED"
+    const val STATUS_WAITING_FOR_MEDIASTORE = "WAITING_FOR_MEDIASTORE"
 
     private fun file(context: Context) = File(File(context.filesDir, DATA_DIR), FILE_NAME)
 
@@ -73,8 +74,9 @@ object NativeIndex {
     private fun read(context: Context): JSONObject {
         val target = file(context)
         if (!target.isFile) return JSONObject().put("version", VERSION)
-        return runCatching { JSONObject(target.readText(Charsets.UTF_8)) }.getOrElse {
-            JSONObject().put("version", VERSION)
+        return runCatching { JSONObject(target.readText(Charsets.UTF_8)) }.getOrElse { error ->
+            Log.e("NativeIndex", "Native index snapshot is unreadable; LibraryStore remains authoritative and the native cache will rebuild on the next scan.", error)
+            JSONObject().put("version", VERSION).put("recovery", "corrupt_snapshot")
         }.also {
             val storedVersion = it.optInt("version", 1)
             if (storedVersion <= VERSION) {
@@ -308,6 +310,7 @@ object NativeIndex {
             status.equals(STATUS_CANCELLED, true) -> STATUS_CANCELLED
             status.equals(STATUS_FAILED, true) -> STATUS_FAILED
             status.equals(STATUS_UNAVAILABLE, true) -> STATUS_UNAVAILABLE
+            status.equals(STATUS_WAITING_FOR_MEDIASTORE, true) -> STATUS_WAITING_FOR_MEDIASTORE
             else -> STATUS_PARTIAL
         }
         val effectiveGeneration = if (generation > 0L) generation else scope.optLong("generation", 0L)
@@ -320,12 +323,20 @@ object NativeIndex {
         if (complete) {
             check(staging.parentFile?.isDirectory == true || staging.parentFile?.mkdirs() == true)
             if (!staging.exists()) staging.writeText("", Charsets.UTF_8)
-            java.nio.file.Files.move(
-                staging.toPath(),
-                committed.toPath(),
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-            )
+            try {
+                java.nio.file.Files.move(
+                    staging.toPath(),
+                    committed.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                )
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                java.nio.file.Files.move(
+                    staging.toPath(),
+                    committed.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                )
+            }
             published = true
         }
         val counts = scope.optJSONObject("counts") ?: JSONObject()

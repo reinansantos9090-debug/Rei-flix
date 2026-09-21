@@ -114,6 +114,36 @@ class StorageCapabilities:
             api=api,
         )
 
+    def as_mapping(self) -> dict[str, object]:
+        return {
+            "mediaReadState": self.media_read_state,
+            "broadStorageState": self.broad_storage_state,
+            "safRoots": list(self.saf_roots),
+            "removableVolumes": list(self.removable_volumes),
+            "scannerCapabilities": list(self.scanner_capabilities),
+            "reconciliationCapabilities": list(self.reconciliation_capabilities),
+            "lifecycleState": self.lifecycle_state,
+            "api": self.api,
+        }
+
+    def get(self, key: str, default=None):
+        if not isinstance(key, str):
+            return default
+        mapping = {
+            "mediaReadState": "media_read_state",
+            "broadStorageState": "broad_storage_state",
+            "safRoots": "saf_roots",
+            "removableVolumes": "removable_volumes",
+            "scannerCapabilities": "scanner_capabilities",
+            "reconciliationCapabilities": "reconciliation_capabilities",
+            "lifecycleState": "lifecycle_state",
+            "api": "api",
+        }
+        attr = mapping.get(key, key)
+        if hasattr(self, attr):
+            return getattr(self, attr, default)
+        return default
+
     @property
     def known(self) -> bool:
         return self.api is not None or self.lifecycle_state != "unknown"

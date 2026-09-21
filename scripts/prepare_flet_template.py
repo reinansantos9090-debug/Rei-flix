@@ -81,7 +81,7 @@ for permission, max_sdk in permission_specs:
         # Keep exactly one declaration for each ReiFlix storage permission.
         # Templates can already contain the permission, and duplicate nodes
         # make the generated contract harder to reason about.
-        keep = existing_nodes[0]
+        node = existing_nodes[0]
         for duplicate in existing_nodes[1:]:
             manifest.remove(duplicate)
         if permission == "android.permission.READ_EXTERNAL_STORAGE" and max_sdk is not None:
@@ -126,10 +126,10 @@ for candidate in main.findall("intent-filter"):
         break
 if bridge is None:
     bridge = ET.SubElement(main, "intent-filter")
-ET.SubElement(bridge, "action", {name: "android.intent.action.VIEW"})
-ET.SubElement(bridge, "category", {name: "android.intent.category.DEFAULT"})
-ET.SubElement(bridge, "category", {name: "android.intent.category.BROWSABLE"})
-ET.SubElement(bridge, "data", {scheme_attr: "reiflix", host_attr: "native"})
+    ET.SubElement(bridge, "action", {name: "android.intent.action.VIEW"})
+    ET.SubElement(bridge, "category", {name: "android.intent.category.DEFAULT"})
+    ET.SubElement(bridge, "category", {name: "android.intent.category.BROWSABLE"})
+    ET.SubElement(bridge, "data", {scheme_attr: "reiflix", host_attr: "native"})
 
 player_name = "com.reiflix.reiflix_local.NativePlayerActivity"
 player = next((activity for activity in application.findall("activity") if activity.get(name) == player_name), None)

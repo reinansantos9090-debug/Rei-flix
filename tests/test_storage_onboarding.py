@@ -329,3 +329,49 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertNotIn("Capability", activity + main + bridge)
 
 if __name__ == "__main__": unittest.main()
+
+
+    def test_prompt_2_native_mailbox_contract_is_versioned_and_atomic(self):
+        mailbox = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt").read_text(encoding="utf-8")
+        self.assertIn("EVENT_VERSION = 2", mailbox)
+        self.assertIn('put("eventType", eventType(event))', mailbox)
+        self.assertIn("stream.fd.sync()", mailbox)
+        self.assertIn("temp.renameTo(target)", mailbox)
+        self.assertIn("requestId", mailbox)
+
+    def test_prompt_2_runtime_capabilities_are_single_python_snapshot(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("storage_capabilities = [StorageCapabilities.unknown()]", source)
+        self.assertIn("StorageCapabilities.from_native(payload)", source)
+        self.assertIn('caps.can_scan("mediastore")', source)
+        self.assertIn('caps.can_scan("broad-storage")', source)
+        self.assertNotIn('storage_onboarding["media"]', source)
+        self.assertNotIn('storage_onboarding["broad"]', source)
+        self.assertNotIn('storage_onboarding["saf"]', source)
+
+    def test_prompt_2_request_ids_cross_lifecycle(self):
+        activity = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        state = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeRequestState.kt").read_text(encoding="utf-8")
+        self.assertIn("pendingMediaRequestId", activity)
+        self.assertIn("pendingBroadRequestId", activity)
+        self.assertIn("pendingSafRequestId", activity)
+        self.assertIn("consumeLifecycleRequest()", activity)
+        self.assertIn("pendingLifecycleRequestId", state)
+
+    def test_prompt_2_settings_return_revalidates_broad_api(self):
+        activity = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("BroadStorageScanner.hasAccess(this)", activity)
+        self.assertIn("revalidatedAfterSettings", activity)
+        block = activity.split("if (broadStoragePermissionPending)", 1)[1].split("publishStorageCapabilities", 1)[0]
+        self.assertNotIn('.put("granted", true)', block)
+
+    def test_prompt_2_no_fixed_permission_polling_delay(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertNotIn("await asyncio.sleep(0.2)", source)
+        self.assertIn("poll_interval", source)
+
+    def test_prompt_2_template_enforces_activity_launch_contract(self):
+        hook = (ROOT / "scripts/prepare_flet_template.py").read_text(encoding="utf-8")
+        self.assertIn('main.set(exported_attr, "true")', hook)
+        self.assertIn('main.set(launch_attr, "singleTask")', hook)
+        self.assertIn('main.set(document_launch_attr, "never")', hook)

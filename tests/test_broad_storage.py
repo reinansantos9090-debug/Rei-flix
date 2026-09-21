@@ -86,3 +86,10 @@ class TestBroadStorageArchitecture(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_prompt_2_volume_identity(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
+        self.assertIn('"volumeId"', source)
+        self.assertIn("volume.mediaStoreVolumeName", source)
+        self.assertIn("volume.isRemovable", source)

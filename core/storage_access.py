@@ -1,9 +1,11 @@
-"""Deterministic storage authorization states shared by Android onboarding and scanners.
-The Android side remains the authority for current permission grants; Python only
-interprets snapshots and persisted SAF inventory.
+"""Deterministic storage authorization states.
+
+Android is authoritative for current grants. Python consumes the native
+capability snapshot for UI, onboarding, Settings and scan orchestration.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -22,6 +24,64 @@ class StorageAccessState(str, Enum):
     DECLINED = "declined"
 
 
+@dataclass(frozen=True)
+class StorageCapabilities:
+    media_read_state: str = "denied"
+    broad_storage_state: str = "unavailable"
+    saf_roots: tuple[str, ...] = ()
+    removable_volumes: tuple[str, ...] = ()
+    scanner_capabilities: frozenset[str] = frozenset()
+    lifecycle_state: str = "unknown"
+    api: int | None = None
+
+    @classmethod
+    def unknown(cls) -> "StorageCapabilities":
+        return cls()
+
+    @classmethod
+    def from_native(cls, payload: dict | None) -> "StorageCapabilities":
+        if not isinstance(payload, dict):
+            return cls.unknown()
+        media = str(payload.get("mediaReadState") or "denied").casefold()
+        if media not in {"denied", "partial", "full"}:
+            media = "denied"
+        broad = str(payload.get("broadStorageState") or "unavailable").casefold()
+        if broad not in {"available", "unavailable"}:
+            broad = "unavailable"
+        saf = tuple(dict.fromkeys(
+            str(value).strip() for value in (payload.get("safRoots") or [])
+            if str(value).strip()
+        ))
+        removable = tuple(dict.fromkeys(
+            str(value).strip() for value in (payload.get("removableVolumes") or [])
+            if str(value).strip()
+        ))
+        scanners = frozenset(
+            str(value).strip() for value in (payload.get("scannerCapabilities") or [])
+            if str(value).strip()
+        )
+        try:
+            api = int(payload["api"]) if payload.get("api") is not None else None
+        except (TypeError, ValueError):
+            api = None
+        return cls(
+            media_read_state=media,
+            broad_storage_state=broad,
+            saf_roots=saf,
+            removable_volumes=removable,
+            scanner_capabilities=scanners,
+            lifecycle_state=str(payload.get("lifecycleState") or "unknown").casefold(),
+            api=api,
+        )
+
+    @property
+    def known(self) -> bool:
+        return self.api is not None or self.lifecycle_state != "unknown"
+
+    def can_scan(self, source: str) -> bool:
+        return source in self.scanner_capabilities
+
+
 def storage_access_state(
     media_access: str | None,
     broad_granted: bool,
@@ -30,21 +90,11 @@ def storage_access_state(
     dismissed: bool = False,
     require_broad: bool = False,
 ) -> StorageAccessState:
-    """Map an Android snapshot to one deterministic onboarding decision.
-
-    require_broad is deliberately opt-in: MediaStore/SAF can satisfy the
-    core local-library flow, so broad filesystem access is never silently made
-    a prerequisite.
-    """
     if dismissed:
         return StorageAccessState.DECLINED
-
     access = str(media_access or "denied").casefold()
     if require_broad and not broad_granted:
         return StorageAccessState.NEEDS_BROAD_STORAGE
-    # MediaStore, SAF and broad storage are independent alternatives for local
-    # discovery. A currently authorized alternative source is enough to keep
-    # onboarding usable without forcing another permission.
     if saf_available or broad_granted:
         return StorageAccessState.READY
     if access == "partial":
@@ -61,26 +111,22 @@ def storage_source_states(
     *,
     saf_revoked: bool = False,
 ) -> dict[str, str]:
-    """Represent independent sources without collapsing their authorization."""
     media = str(media_access or "denied").casefold()
     media_state = {
         "full": StorageAccessState.MEDIA_FULL.value,
         "partial": StorageAccessState.MEDIA_PARTIAL.value,
     }.get(media, StorageAccessState.MEDIA_DENIED.value)
-
     broad_state = (
         StorageAccessState.BROAD_STORAGE_AVAILABLE.value
         if bool(broad_granted)
         else StorageAccessState.BROAD_STORAGE_UNAVAILABLE.value
     )
-
     if saf_uris:
         saf_state = StorageAccessState.SAF_AVAILABLE.value
     elif saf_revoked:
         saf_state = StorageAccessState.SAF_REVOKED.value
     else:
         saf_state = StorageAccessState.UNKNOWN.value
-
     return {
         "media": media_state,
         "saf": saf_state,

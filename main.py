@@ -6,7 +6,7 @@ from flet.auth import OAuthProvider
 from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URL as CONFIG_GOOGLE_REDIRECT_URL, GOOGLE_WEB_CLIENT_ID as CONFIG_GOOGLE_WEB_CLIENT_ID
 from core.android_bridge import AndroidBridge
 from core.navigation import NavigationController, SafSelectionState
-from core.storage_access import StorageAccessState, storage_access_state
+from core.storage_access import StorageAccessState, StorageCapabilities, storage_access_state
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
 from core.google_account import normalize_google_profile
@@ -41,8 +41,9 @@ async def main(page: ft.Page):
     saf_selection = SafSelectionState()
     # Runtime snapshots are deliberately not stored in SQLite: only Android is
     # proof of a current grant.  ``dismissed`` prevents an automatic prompt loop.
-    storage_onboarding = {"media": None, "broad": None, "saf": None, "dismissed": False,
-                          "dialog_open": False, "waiting_for_result": False}
+    storage_onboarding = {"dismissed": False, "dialog_open": False, "waiting_for_result": False}
+    storage_capabilities = [StorageCapabilities.unknown()]
+    processed_native_operations = set()
     def show(control): page.clean(); page.add(control); page.update()
     def render_current():
         if navigation.current == "home":
@@ -215,26 +216,44 @@ async def main(page: ft.Page):
         await bridge.open_broad_storage_settings()
 
     def storage_state():
-        # SAF is authoritative only after MainActivity has published its current
-        # persisted URI grant inventory. The durable folder row is not proof of
-        # a current Android grant across process restarts.
-        saf_available = storage_onboarding["saf"] is True
+        caps = storage_capabilities[0]
         return storage_access_state(
-            storage_onboarding["media"],
-            bool(storage_onboarding["broad"]),
-            saf_available,
+            caps.media_read_state,
+            caps.broad_storage_state == "available",
+            bool(caps.saf_roots),
             dismissed=storage_onboarding["dismissed"],
+        )
+
+    def apply_storage_capabilities(payload):
+        raw = payload.get("capabilities") if isinstance(payload, dict) else None
+        if isinstance(raw, dict):
+            storage_capabilities[0] = StorageCapabilities.from_native(raw)
+        elif isinstance(payload, dict) and ("mediaReadState" in payload or "broadStorageState" in payload):
+            storage_capabilities[0] = StorageCapabilities.from_native(payload)
+
+    def update_saf_capabilities(current_uris):
+        current = storage_capabilities[0]
+        roots = tuple(sorted({str(uri).strip() for uri in current_uris if str(uri).strip()}))
+        scanners = set(current.scanner_capabilities)
+        if roots:
+            scanners.add("saf")
+        else:
+            scanners.discard("saf")
+        storage_capabilities[0] = StorageCapabilities(
+            media_read_state=current.media_read_state,
+            broad_storage_state=current.broad_storage_state,
+            saf_roots=roots,
+            removable_volumes=current.removable_volumes,
+            scanner_capabilities=frozenset(scanners),
+            lifecycle_state=current.lifecycle_state,
+            api=current.api,
         )
 
     def maybe_show_storage_onboarding():
         """Show at most one post-render explanation based on Android's snapshot."""
         if not bridge.available or storage_onboarding["dialog_open"] or storage_onboarding["waiting_for_result"]:
             return
-        if (
-            storage_onboarding["media"] is None
-            or storage_onboarding["broad"] is None
-            or storage_onboarding["saf"] is None
-        ):
+        if not storage_capabilities[0].known:
             return
         state = storage_state()
         if state != StorageAccessState.NEEDS_MEDIA_PERMISSION:
@@ -301,20 +320,21 @@ async def main(page: ft.Page):
         scan_in_progress[0] = True
         try:
             folders = store.folders()
-            saf_folders = [folder for folder in folders
-                       if folder.get('kind') == 'saf' and folder.get('authorization') == 'granted']
-            mediastore_granted = any(
-                folder.get('kind') == 'mediastore' and folder.get('authorization') == 'granted'
-                for folder in folders
-            )
+            caps = storage_capabilities[0]
+            if bridge.available and not caps.known:
+                await bridge.check_storage_access()
+                return "Verificando as permissões do armazenamento…", True
+            authorized_roots = set(caps.saf_roots)
+            saf_folders = [
+                folder for folder in folders
+                if folder.get('kind') == 'saf' and folder.get('path') in authorized_roots
+            ]
+            mediastore_granted = caps.can_scan("mediastore")
             if bridge.available:
-                # Native sources remain independent for persistence/missing-state,
-                # while Python owns one user-visible refresh lifecycle.
+                # Android runtime capabilities are authoritative; SQLite rows are
+                # durable configuration/catalog data and never grant scan access.
                 pending_native_scans[0] = 0
-                broad_granted = any(
-                    folder.get('kind') == 'broad_storage' and folder.get('authorization') == 'granted'
-                    for folder in folders
-                )
+                broad_granted = caps.can_scan("broad-storage")
                 if broad_granted:
                     pending_native_scans[0] += 1
                     try:
@@ -396,6 +416,7 @@ async def main(page: ft.Page):
             if pending_native_scans[0] == 0:
                 scan_in_progress[0] = False
 
+        poll_interval = 0.1
         while True:
             try:
                 events = bridge.drain()
@@ -413,7 +434,28 @@ async def main(page: ft.Page):
                             payload = {}
                         if not isinstance(payload, dict):
                             continue
-                        if event_type == 'saf_scan_progress':
+                        contract_event = str(event.get('eventType') or '').strip()
+                        request_id = str(event.get('requestId') or payload.get('requestId') or '').strip()
+                        operation_key = None
+                        if event_type in {
+                            'saf_scan', 'broad_storage_scan', 'mediastore_scan',
+                            'saf_error', 'broad_storage_error', 'mediastore_error',
+                        }:
+                            discriminator = payload.get('scanId') or request_id
+                            if discriminator:
+                                operation_key = f"{event_type}:{discriminator}"
+                                if operation_key in processed_native_operations:
+                                    logger.info("[STORAGE] duplicate native operation ignored key=%s", operation_key)
+                                    continue
+                        if contract_event == 'permission_requested':
+                            logger.info("[STORAGE] permission_requested type=%s requestId=%s", event_type, request_id or "-")
+                        elif contract_event == 'permission_cancelled':
+                            storage_onboarding["waiting_for_result"] = False
+                        if event_type == 'storage_capabilities':
+                            apply_storage_capabilities(payload)
+                            refresh_settings_if_active()
+                            maybe_show_storage_onboarding()
+                        elif event_type == 'saf_scan_progress':
                             # Native scanner reports coarse progress so large SAF trees do not
                             # look frozen while the Android ContentResolver is traversing them.
                             files = int(payload.get('files') or 0)
@@ -482,7 +524,7 @@ async def main(page: ft.Page):
                                 refresh_settings_if_active()
                         elif event_type == 'broad_storage_status':
                             granted = bool(payload.get('hasAccess'))
-                            storage_onboarding["broad"] = granted
+                            apply_storage_capabilities(payload)
                             if storage_onboarding["waiting_for_result"] and not granted:
                                 storage_onboarding["dismissed"] = True
                             storage_onboarding["waiting_for_result"] = False
@@ -499,7 +541,7 @@ async def main(page: ft.Page):
                         elif event_type == 'broad_storage_permission':
                             granted = bool(payload.get('granted'))
                             was_waiting = storage_onboarding["waiting_for_result"]
-                            storage_onboarding["broad"] = granted
+                            apply_storage_capabilities(payload)
                             storage_onboarding["waiting_for_result"] = False
                             if granted:
                                 storage_onboarding["dismissed"] = False
@@ -579,7 +621,7 @@ async def main(page: ft.Page):
                         elif event_type == 'mediastore_permission':
                             source = payload.get('source') or 'mediastore:external:video'
                             access = str(payload.get('access') or 'denied')
-                            storage_onboarding["media"] = access
+                            apply_storage_capabilities(payload)
                             if storage_onboarding["waiting_for_result"]:
                                 storage_onboarding["waiting_for_result"] = False
                                 if access == 'denied':
@@ -670,7 +712,7 @@ async def main(page: ft.Page):
                                 for item in trees
                                 if isinstance(item, dict) and item.get('treeUri')
                             }
-                            storage_onboarding["saf"] = bool(current_uris)
+                            update_saf_capabilities(current_uris)
                             logger.info(
                                 "[STORAGE] action=saf_inventory native_result=received "
                                 "count=%s lifecycle=%s",
@@ -702,7 +744,7 @@ async def main(page: ft.Page):
                         elif event_type == 'saf_permission':
                             storage_onboarding["waiting_for_result"] = False
                             if payload.get('granted'):
-                                storage_onboarding["saf"] = True
+                                apply_storage_capabilities(payload)
                             tree_uri = payload.get('treeUri')
                             if tree_uri:
                                 if payload.get('granted'):
@@ -769,6 +811,8 @@ async def main(page: ft.Page):
                             if event_type == 'saf_error': refresh_settings_if_active()
                         elif event_type == 'android_back':
                             navigate_back()
+                        if operation_key:
+                            processed_native_operations.add(operation_key)
                         if event_id:
                             store.claim_native_event(event_id)
                     except Exception as exc:
@@ -780,9 +824,11 @@ async def main(page: ft.Page):
                 # before acknowledgement replays the complete batch safely.
                 bridge.requeue_event_ids(failed_event_ids)
                 bridge.acknowledge()
+                poll_interval = 0.1 if events else min(1.0, poll_interval * 1.5)
             except Exception as exc:
                 print(f"[ANDROID] Erro no loop da ponte nativa: {exc}")
-            await asyncio.sleep(0.2)
+                poll_interval = min(1.0, poll_interval * 1.5)
+            await asyncio.sleep(poll_interval)
     page.on_login=login_done
     page.run_task(poll_native_bridge)
     if recovered_scans:

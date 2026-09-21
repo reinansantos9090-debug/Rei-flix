@@ -757,19 +757,16 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("fallbackOpened", true)
                     .put("source", BroadStorageScanner.SOURCE)))
         } else {
-            if (legacyBroadPermissionRequestPending) {
-                Log.i(tag, "Legacy storage permission request already pending")
-                return
-            }
             broadStoragePermissionPending = false
-            legacyBroadPermissionRequestPending = true
-            NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission_request")
-                .put("requestId", pendingBroadRequestId ?: "")
+            pendingBroadRequestId = null
+            NativeMailbox.write(this, JSONObject().put("type", "broad_storage_error")
+                .put("message", "A varredura Broad Storage exige Android 11 (API 30) ou superior, onde o Android expõe a autoridade MANAGE_EXTERNAL_STORAGE.")
                 .put("payload", JSONObject()
                     .put("source", BroadStorageScanner.SOURCE)
-                    .put("state", "requesting")
-                    .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REQUESTING))))
-            legacyBroadPermissionRequester.launch(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE))
+                    .put("status", "UNAVAILABLE")
+                    .put("reason", "manage_external_storage_not_available")
+                    .put("api", Build.VERSION.SDK_INT)
+                    .put("permissionAuthority", "Environment.isExternalStorageManager")))
         }
     }
 
@@ -826,10 +823,22 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
                 Log.e(tag, "Broad storage scan failed", exception)
+                NativeIndex.failActiveGenerations(
+                    appContext,
+                    NativeIndex.SOURCE_BROAD,
+                    exception.message ?: "Broad storage scan failed",
+                )
                 NativeMailbox.write(appContext, JSONObject().put("type", "broad_storage_error")
                     .put("requestId", requestId ?: "")
-                    .put("message", "Não foi possível varrer o armazenamento local.")
-                    .put("payload", JSONObject().put("source", BroadStorageScanner.SOURCE).put("scanId", scanId)))
+                    .put("message", "Não foi possível concluir a varredura do armazenamento local.")
+                    .put("payload", JSONObject()
+                        .put("source", BroadStorageScanner.SOURCE)
+                        .put("scanId", scanId)
+                        .put("status", NativeIndex.STATUS_FAILED)
+                        .put("generationStatus", NativeIndex.STATUS_FAILED)
+                        .put("partial", true)
+                        .put("errorType", exception::class.java.simpleName)
+                        .put("error", exception.message ?: "Broad storage scan failed")))
             } finally {
                 NativeScanController.finish(scanId)
                 synchronized(activeNativeScanJobs) { activeNativeScanJobs.remove(scanId) }

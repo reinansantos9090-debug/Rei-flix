@@ -17,21 +17,23 @@ class OrganizeView:
         catalog = []
         view_state = view_state if view_state is not None else {}
 
+        async def _invoke_callback(callback):
+            if callback:
+                result = callback()
+                if inspect.isawaitable(result):
+                    await result
+
         async def handle_request_storage(_=None):
-            if on_request_storage_access:
-                await on_request_storage_access()
+            await _invoke_callback(on_request_storage_access)
 
         async def handle_scan_storage(_=None):
-            if on_scan_storage:
-                await on_scan_storage()
+            await _invoke_callback(on_scan_storage)
 
         async def handle_request_video_access(_=None):
-            if on_request_video_access:
-                await on_request_video_access()
+            await _invoke_callback(on_request_video_access)
 
         async def handle_add_folder(_=None):
-            if on_add_folder:
-                await on_add_folder()
+            await _invoke_callback(on_add_folder)
         selected_genre = [view_state.get("genre", "Todos")]
         selected_state = [view_state.get("state", "Todos")]
         selected_sort = [view_state.get("sort", "Mais recentes")]

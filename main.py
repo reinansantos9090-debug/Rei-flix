@@ -27,8 +27,8 @@ async def main(page: ft.Page):
     page.title='Rei-Flix Local'; page.theme_mode=ft.ThemeMode.DARK; page.bgcolor='#16151F'; page.padding=0
     try:
         page.on_disconnect = lambda _e: ui_alive.__setitem__(0, False)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("[FLET] on_disconnect hook unavailable: %s", exc)
     page.theme=ft.Theme(color_scheme_seed='#E50914',font_family='Roboto')
     data_dir=os.getenv("FLET_APP_STORAGE_DATA") or os.path.join(os.path.dirname(__file__),'.reiflix-data')
     store=LibraryStore(data_dir)

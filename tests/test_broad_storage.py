@@ -73,7 +73,7 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         saf_scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SafScanner.kt").read_text(encoding="utf-8")
         self.assertIn('.equals(".nomedia", ignoreCase = true)', broad_scanner)
         self.assertIn('nomediaDirectories', broad_scanner)
-        self.assertIn('.equals(".nomedia", ignoreCase = true)', saf_scanner)
+        self.assertIn('name.equals(".nomedia",ignoreCase=true)', saf_scanner)
         self.assertIn('nomediaDirectories', saf_scanner)
 
     def test_intent_fallback_chain_in_main_activity(self):

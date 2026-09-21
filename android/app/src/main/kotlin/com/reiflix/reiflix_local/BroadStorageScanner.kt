@@ -242,13 +242,13 @@ object BroadStorageScanner {
 
         rootFiles.forEach { root ->
             rootByVolume[root.volumeId] = root
-            val generation = generationByVolume[root.volumeId] ?: 0L
+            val currentGeneration = { generationByVolume[root.volumeId] ?: 0L }
             batchesByVolume[root.volumeId] = NativeBatch.Accumulator(NativeBatch.DEFAULT_SIZE) { batch, batchId, batchNumber ->
                 onBatch?.invoke(
                     JSONObject()
                         .put("volumeId", root.volumeId)
                         .put("volumeUuid", root.volumeUuid ?: "")
-                        .put("generation", generation)
+                        .put("generation", currentGeneration())
                         .put("batchId", batchId)
                         .put("batchNumber", batchNumber)
                         .put("batchSize", batch.length())

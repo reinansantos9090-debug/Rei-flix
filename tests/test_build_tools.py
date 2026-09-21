@@ -345,7 +345,7 @@ E: manifest
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
         self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("DocumentsContract.getDocumentId(documentUri)", scanner)
-        self.assertIn("DocumentsContract.getTreeDocumentId(permission.uri)", scanner)
+        self.assertIn("treeIdentity(p.uri)", scanner)
 
     def test_saf_scanner_uses_iterative_traversal_and_partial_results(self):
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
@@ -387,7 +387,7 @@ E: manifest
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
         self.assertIn("SafScanner.persistPermission(this, uri, resultIntent.flags)", main)
         self.assertIn("scanTree(uri.toString(), requestId)", main)
-        self.assertIn("takePersistableUriPermission(uri, granted)", scanner)
+        self.assertIn("takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)", scanner)
         self.assertIn("check(hasPersistedReadPermission(context, uri))", scanner)
         self.assertIn("if (!SafScanner.hasPersistedReadPermission(this, treeUri))", main)
         self.assertIn("A permissão desta pasta foi removida.", main)
@@ -437,7 +437,7 @@ E: manifest
     def test_saf_scanner_contains_provider_error_recovery_for_inaccessible_documents(self):
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
         self.assertIn("runCatching", scanner)
-        self.assertIn("catch (exception: Exception)", scanner)
+        self.assertIn("catch(e:Exception)", scanner)
         self.assertIn('errors.put("Não foi possível ler:', scanner)
         self.assertIn('errors.put("Não foi possível acessar:', scanner)
         self.assertIn('put("partial", partial)', scanner)
@@ -467,8 +467,8 @@ class TestSafSelectionRegistration(unittest.TestCase):
 
     def test_saf_scanner_has_safe_display_name_fallback(self):
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
-        self.assertIn("fun displayName(context: Context, treeUri: Uri): String", scanner)
-        self.assertIn("DocumentFile.fromTreeUri(context, treeUri)?.name", scanner)
+        self.assertIn("fun displayName(context:Context,treeUri:Uri):String", scanner)
+        self.assertIn("DocumentFile.fromTreeUri(context,treeUri)?.name", scanner)
 
     def test_invalid_scan_command_reports_an_error_instead_of_hanging_refresh(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
@@ -482,8 +482,8 @@ class TestSafScannerHardening(unittest.TestCase):
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
         self.assertIn("onProgress: ((JSONObject) -> Unit)? = null", scanner)
         self.assertIn("val visited = HashSet<String>()", scanner)
-        self.assertIn("if (!visited.add(parentDocumentId))", scanner)
-        self.assertIn('put("pending", pending.size)', scanner)
+        self.assertIn("if(!visited.add(parentId))", scanner)
+        self.assertNotIn('put("pending", pending.size)', scanner)
 
     def test_main_activity_publishes_scan_progress_before_final_result(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

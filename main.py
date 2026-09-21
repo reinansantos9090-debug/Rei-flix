@@ -7,6 +7,7 @@ from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIR
 from core.android_bridge import AndroidBridge
 from core.navigation import NavigationController, SafSelectionState
 from core.storage_access import StorageAccessState, StorageCapabilities, ScanUiState, scan_ui_state_from_native, storage_access_state, storage_source_states
+from core.diagnostics import DiagnosticTimeline
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
 from core.google_account import normalize_google_profile
@@ -34,6 +35,8 @@ async def main(page: ft.Page):
     recovered_scans=store.interrupted_scans()
     library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]
     account_state=["connected" if store.account().get("email") else "disconnected"]
+    diagnostics = DiagnosticTimeline()
+    diagnostics.record("APP_START", result="python_ui_initialized")
     scan_in_progress=[False]
     pending_native_scans=[0]
     scan_state = [{
@@ -167,6 +170,7 @@ async def main(page: ft.Page):
             page.snack_bar.open = True
             safe_update()
     def on_catalog_changed():
+        diagnostics.record("UI_REFRESHED", result="catalog_changed", source=navigation.current)
         # Native scan completion must immediately re-read SQLite on the active
         # screen; the previous implementation intentionally did nothing here,
         # leaving a freshly indexed catalog invisible until manual navigation.
@@ -219,6 +223,7 @@ async def main(page: ft.Page):
         navigation.push("settings")
         render_current()
         if bridge.available:
+            diagnostics.record("PERMISSION_CHECK", source="android")
             page.run_task(bridge.check_storage_access)
     def navigate_back():
         action = navigation.back()
@@ -474,6 +479,29 @@ async def main(page: ft.Page):
                         if event_id and store.has_native_event(event_id):
                             continue
                         event_type = event.get('type')
+                        event_request_id = event.get('requestId') or (payload.get('requestId') if isinstance(payload, dict) else None)
+                        event_scan_id = (payload.get('scanId') if isinstance(payload, dict) else None) or event.get('scanId')
+                        timeline_name = {
+                            'storage_capabilities': 'ACTUAL_PERMISSION_STATE',
+                            'mediastore_permission': 'PERMISSION_RESULT',
+                            'broad_storage_permission': 'PERMISSION_RESULT',
+                            'saf_permission': 'PERMISSION_RESULT',
+                            'saf_scan_progress': 'SCAN_PROGRESS',
+                            'broad_storage_scan_progress': 'SCAN_PROGRESS',
+                            'mediastore_scan_progress': 'SCAN_PROGRESS',
+                            'saf_scan': 'SCAN_COMPLETED',
+                            'broad_storage_scan': 'SCAN_COMPLETED',
+                            'mediastore_scan': 'SCAN_COMPLETED',
+                            'saf_error': 'SCAN_FAILED',
+                            'broad_storage_error': 'SCAN_FAILED',
+                            'mediastore_error': 'SCAN_FAILED',
+                            'volume_changed': 'VOLUME_CHANGED',
+                        }.get(event_type)
+                        if timeline_name:
+                            diagnostics.record(timeline_name, request_id=event_request_id, scan_id=event_scan_id,
+                                               source=(payload.get('source') if isinstance(payload, dict) else None),
+                                               result=(payload.get('status') if isinstance(payload, dict) else None),
+                                               error=event.get('message'))
                         payload = event.get('payload')
                         if payload is None:
                             payload = {}
@@ -542,6 +570,7 @@ async def main(page: ft.Page):
                                 tree_uri = payload.get('treeUri', '')
                                 if not tree_uri:
                                     raise ValueError('Resultado SAF sem pasta de origem.')
+                                diagnostics.record("PYTHON_INGEST", request_id=request_id, scan_id=payload.get('scanId'), source="saf")
                                 catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats, scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'root', scope_ref=payload.get('scopeRef') or None, scan_generation=payload.get('scanGeneration'))
                                 videos = int(stats.get('videos') or 0)
                                 status = str(payload.get('status') or stats.get('status') or '').upper()
@@ -560,6 +589,7 @@ async def main(page: ft.Page):
                                     error=(stats.get('errors') or [None])[0] if stats.get('errors') else None,
                                     timestamp=event.get('createdAt'),
                                 )
+                                diagnostics.record("CATALOG_UPDATED", request_id=request_id, scan_id=payload.get('scanId'), source="saf", counts={"videos": videos, "catalog": len(catalog)}, result=status or "COMPLETED")
                                 if status == 'CANCELLED':
                                     message = "Varredura da pasta cancelada. Os itens anteriores foram preservados."
                                 elif status == 'UNAVAILABLE':
@@ -610,6 +640,7 @@ async def main(page: ft.Page):
                                             scope_stats['cancelled'] = True
                                         if not scope.get('complete'):
                                             scope_stats['partial'] = True
+                                        diagnostics.record("PYTHON_INGEST", request_id=request_id, scan_id=scan_id, source=source)
                                         catalog = await asyncio.to_thread(
                                             library.ingest_documents, source, scope.get('documents') or [],
                                             folder_name=payload.get('name') or 'Armazenamento local',
@@ -618,6 +649,7 @@ async def main(page: ft.Page):
                                             scan_generation=scope.get('scanGeneration'),
                                         )
                                 else:
+                                    diagnostics.record("PYTHON_INGEST", request_id=request_id, scan_id=payload.get('scanId'), source=source)
                                     catalog = await asyncio.to_thread(
                                         library.ingest_documents, source, payload.get('documents') or [],
                                         folder_name=payload.get('name') or 'Armazenamento local',
@@ -641,6 +673,7 @@ async def main(page: ft.Page):
                                     error=(stats.get('errors') or [None])[0] if stats.get('errors') else None,
                                     timestamp=event.get('createdAt'),
                                 )
+                                diagnostics.record("CATALOG_UPDATED", request_id=request_id, scan_id=payload.get('scanId'), source=source, counts={"videos": videos, "catalog": len(catalog)}, result=str(stats.get('status') or payload.get('status') or 'COMPLETED'))
                                 message = ('Armazenamento local atualizado parcialmente. ' if partial else 'Armazenamento local atualizado. ')
                                 message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
                                 page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; safe_update()
@@ -754,6 +787,7 @@ async def main(page: ft.Page):
                                     error=(stats.get('errors') or [None])[0] if stats.get('errors') else None,
                                     timestamp=event.get('createdAt'),
                                 )
+                                diagnostics.record("CATALOG_UPDATED", request_id=request_id, scan_id=payload.get('scanId'), source=source, counts={"videos": videos, "catalog": len(catalog)}, result=str(stats.get('status') or payload.get('status') or 'COMPLETED'))
                                 message = 'Vídeos do dispositivo atualizados. '
                                 message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
                                 page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; safe_update()

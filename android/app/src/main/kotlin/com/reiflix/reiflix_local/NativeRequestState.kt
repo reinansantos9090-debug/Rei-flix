@@ -37,12 +37,13 @@ class NativeRequestState {
     }
 
     private fun persist(){
-        preferences?.edit()
+        val editor = preferences?.edit()
             ?.putString("seen_request_ids",seenRequestIdsState())
             ?.putString("last_handled_request_id",lastHandledRequestId)
             ?.putString("pending_lifecycle_action",pendingLifecycleAction)
             ?.putString("pending_lifecycle_request_id",pendingLifecycleRequestId)
-            ?.apply()
+        val committed = editor?.commit() ?: true
+        if (!committed) android.util.Log.e("NativeRequestState", "Failed to durably persist lifecycle/request state")
     }
 
     fun acceptRequest(requestId:String?):Boolean{

@@ -289,6 +289,7 @@ async def main(page: ft.Page):
             saf_roots=roots,
             removable_volumes=current.removable_volumes,
             scanner_capabilities=frozenset(scanners),
+            reconciliation_capabilities=current.reconciliation_capabilities,
             lifecycle_state=current.lifecycle_state,
             api=current.api,
         )

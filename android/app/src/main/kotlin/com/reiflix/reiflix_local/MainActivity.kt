@@ -1057,7 +1057,7 @@ class MainActivity : FlutterFragmentActivity() {
                     NativeMailbox.write(appContext, JSONObject().put("type", "diagnostic")
                         .put("payload", JSONObject().put("event", "WAITING_FOR_MEDIASTORE").put("scanId", scanId).put("requestId", requestId ?: "")))
                     mediaStoreRescanHandler.postDelayed({
-                        if (activityResumed && MediaStoreScanner.hasReadPermission(this) && !NativeScanController.isRunning(MediaStoreScanner.SOURCE)) {
+                        if (activityResumed && MediaStoreScanner.hasReadPermission(this@MainActivity) && !NativeScanController.isRunning(MediaStoreScanner.SOURCE)) {
                             scanMediaStore(requestId)
                         }
                     }, 900L)

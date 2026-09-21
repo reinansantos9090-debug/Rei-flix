@@ -19,9 +19,9 @@ class TestBroadStorageArchitecture(unittest.TestCase):
 
     def test_inaccessible_nested_directory_is_a_partial_scan(self):
         scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
-        self.assertIn('val label = if (rootFiles.any { it.file.path == canonical.path }) "raiz" else "diretório"', scanner)
-        self.assertIn('errors.put("Não foi possível acessar $label: ${canonical.path}")', scanner)
-        self.assertIn('.put("partial",errors.length()>0 || cancelled)', scanner)
+        self.assertIn('.put("type", "ACCESS_DENIED")', scanner)
+        self.assertIn('.put("type", "DIRECTORY_NOT_FOUND")', scanner)
+        self.assertIn('.put("partial", errors.length() > 0 || cancelled)', scanner)
 
     def test_bridge_accepts_content_and_file_uris(self):
         from core.android_bridge import AndroidBridge

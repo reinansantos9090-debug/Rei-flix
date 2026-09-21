@@ -102,6 +102,19 @@ class ProfessionalIndexerTests(unittest.TestCase):
             self.assertFalse(row["missing"])
             self.assertEqual(row["availability_state"],"available")
 
+    def test_removing_one_source_keeps_cross_source_entity_playable(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, service = self._service(d)
+            media={"uri":"content://media/remove-source","name":"Show S01E01.mkv","relativePath":"Shows/Show S01E01.mkv","volumeId":"external_primary","size":100,"modifiedAt":10}
+            broad={"uri":"file:///storage/emulated/0/Shows/Show S01E01.mkv","name":"Show S01E01.mkv","relativePath":"Shows/Show S01E01.mkv","volumeId":"external_primary","size":100,"modifiedAt":10}
+            service.ingest_documents("mediastore:external:video",[media],source_kind="mediastore",scope_kind="volume",scope_ref="external_primary")
+            service.ingest_documents("broad-storage",[broad],source_kind="broad_storage",scope_kind="volume",scope_ref="external_primary")
+            store.remove_folder("mediastore:external:video")
+            row=store.physical_row(broad["uri"])
+            self.assertIsNotNone(row)
+            self.assertFalse(row["missing"])
+            self.assertEqual("available",row["availability_state"])
+
     def test_same_name_on_different_volumes_is_not_merged(self):
         with tempfile.TemporaryDirectory() as d:
             store, service = self._service(d)

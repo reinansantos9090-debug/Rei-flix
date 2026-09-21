@@ -43,6 +43,7 @@ object SafScanner {
         treeIdentity(uri)
         val granted=flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         require(granted and Intent.FLAG_GRANT_READ_URI_PERMISSION!=0) { "A pasta não concedeu permissão persistente de leitura." }
+        require(flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) { "O provedor não ofereceu permissão SAF persistente." }
         try { context.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         catch(e:SecurityException) { Log.w(TAG,"Persistable SAF grant rejected",e); throw IllegalStateException("O provedor não permitiu persistir o acesso desta pasta.",e) }
         check(hasPersistedReadPermission(context,uri)) { "A autorização da pasta não foi persistida." }
@@ -76,7 +77,8 @@ object SafScanner {
                 val nameCol=c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
                 if(idCol<0 || mimeCol<0) return@use false
                 base.put("name",if(nameCol>=0)c.getString(nameCol).orEmpty() else "").put("mimeType",c.getString(mimeCol).orEmpty())
-                c.getString(idCol).orEmpty()==identity.documentId && c.getString(mimeCol).orEmpty()==DocumentsContract.Document.MIME_TYPE_DIR
+                c.getString(idCol).orEmpty()==identity.documentId &&
+                    c.getString(mimeCol).orEmpty().equals(DocumentsContract.Document.MIME_TYPE_DIR, ignoreCase=true)
             }
             if(valid) base.put("status",STATUS_COMPLETED) else base.put("status",STATUS_UNAVAILABLE).put("error","provider_root_not_readable")
         } catch(e:SecurityException) {
@@ -111,7 +113,7 @@ object SafScanner {
             .put("nomediaDirectories",0).put("nomediaFiles",0).put("metadataMissingSize",0).put("metadataMissingModified",0)
             .put("mimeFallbacks",0).put("successfulQueries",0).put("failedQueries",0).put("emptyDirectories",0).put("errors",errors)
         val pending=ArrayDeque<Pair<String,String>>(); val visited=HashSet<String>(); pending.addLast(identity.documentId to "")
-        var cancelled=false; var lastFiles=0; var lastDirs=0
+        var cancelled=false; var revokedDuringScan=false; var lastFiles=0; var lastDirs=0
         onProgress?.invoke(identityPayload(treeUri).put("phase","started").put("source","saf"))
         while(pending.isNotEmpty()){
             if(shouldCancel()){cancelled=true;break}
@@ -162,14 +164,18 @@ object SafScanner {
                         if(stats.getInt("files")-lastFiles>=100){lastFiles=stats.getInt("files");onProgress?.invoke(identityPayload(treeUri).put("phase","scanning").put("source","saf").put("directories",stats.getInt("directories")).put("files",lastFiles).put("videos",stats.getInt("videos")).put("currentPath",currentPath))}
                     }
                 }
-            }catch(e:SecurityException){stats.put("failedQueries",stats.getInt("failedQueries")+1);errors.put("A autorização do provedor SAF foi negada ao ler: "+currentPath);Log.w(TAG,"SAF SecurityException",e)
+            }catch(e:SecurityException){
+                stats.put("failedQueries",stats.getInt("failedQueries")+1)
+                errors.put("A autorização do provedor SAF foi negada ao ler: "+currentPath)
+                revokedDuringScan=!hasPersistedReadPermission(context,treeUri)
+                Log.w(TAG,"SAF SecurityException",e)
             }catch(e:Exception){stats.put("failedQueries",stats.getInt("failedQueries")+1);errors.put("Não foi possível ler: "+currentPath);Log.w(TAG,"SAF provider query failed",e)}
             if(stats.getInt("directories")-lastDirs>=25){lastDirs=stats.getInt("directories");onProgress?.invoke(identityPayload(treeUri).put("phase","scanning").put("source","saf").put("directories",lastDirs).put("files",stats.getInt("files")).put("videos",stats.getInt("videos")).put("currentPath",currentPath))}
         }
         if(shouldCancel())cancelled=true
         val failed=stats.getInt("failedQueries"); val successful=stats.getInt("successfulQueries"); val fileCount=stats.getInt("files")
-        val status=when{cancelled->STATUS_CANCELLED;successful==0&&failed>0->STATUS_UNAVAILABLE;failed>0->STATUS_PARTIAL;fileCount==0->STATUS_EMPTY_COMPLETE;else->STATUS_COMPLETED}
-        val partial=status==STATUS_PARTIAL||status==STATUS_UNAVAILABLE
+        val status=when{revokedDuringScan->STATUS_REVOKED;cancelled->STATUS_CANCELLED;successful==0&&failed>0->STATUS_UNAVAILABLE;failed>0->STATUS_PARTIAL;fileCount==0->STATUS_EMPTY_COMPLETE;else->STATUS_COMPLETED}
+        val partial=status in setOf(STATUS_PARTIAL,STATUS_UNAVAILABLE,STATUS_REVOKED)
         stats.put("status",status).put("emptyComplete",status==STATUS_EMPTY_COMPLETE)
         onProgress?.invoke(identityPayload(treeUri).put("phase","finished").put("source","saf").put("status",status).put("directories",stats.getInt("directories")).put("files",fileCount).put("videos",stats.getInt("videos")).put("cancelled",cancelled))
         return identityPayload(treeUri).put("name",root.name?:treeUri.toString()).put("scope",identity.identity).put("documents",documents)

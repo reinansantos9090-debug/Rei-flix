@@ -19,7 +19,7 @@ object NativeIndex {
     const val SOURCE_MEDIASTORE = "mediastore"
     const val SOURCE_SAF = "saf"
     const val SOURCE_BROAD = "broad_storage"
-    private const val VERSION = 2
+    private const val VERSION = 3
     private const val FILE_NAME = "reiflix-native-index.json"
     private const val DATA_DIR = "data"
 
@@ -46,10 +46,10 @@ object NativeIndex {
             JSONObject().put("version", VERSION)
         }.also {
             val storedVersion = it.optInt("version", 1)
-            if (storedVersion < VERSION) {
+            if (storedVersion <= VERSION) {
                 it.put("version", VERSION)
-            } else if (storedVersion > VERSION) {
-                it.remove("scopes"); it.remove("generationCounters"); it.remove("volumes"); it.put("version", VERSION)
+            } else {
+                Log.w("NativeIndex", "Native index version " + storedVersion + " is newer than supported " + VERSION)
             }
         }
     }
@@ -71,17 +71,23 @@ object NativeIndex {
 
     private fun cleanPath(value: String) = value.trim().replace('\\', '/').trim('/')
 
+    private fun canonicalVolume(value: String): String = when (value.trim().lowercase()) {
+        "", "primary", "external", "external_primary" -> "primary"
+        else -> value.trim()
+    }
+
     fun stableIdentity(document: JSONObject, source: String): String {
         val explicit = document.optString("stableId").trim()
         if (explicit.isNotEmpty()) return explicit
-        val volume = document.optString("volumeId").trim()
+        val volume = canonicalVolume(document.optString("volumeId"))
         val relative = cleanPath(document.optString("relativePath"))
         val tree = document.optString("treeUri").trim()
         val documentId = document.optString("documentId").trim()
         if (source == SOURCE_SAF && documentId.isNotEmpty()) {
-            if (volume.isNotEmpty() && documentId.contains(":")) {
+            if (documentId.contains(":")) {
+                val documentVolume = canonicalVolume(documentId.substringBefore(":"))
                 val documentPath = cleanPath(documentId.substringAfter(":"))
-                if (documentPath.isNotEmpty()) return "shared:" + volume + ":" + documentPath
+                if (documentPath.isNotEmpty()) return "shared:" + documentVolume + ":" + documentPath
             }
             if (tree.isNotEmpty()) return "saf:" + tree + ":" + documentId
         }
@@ -103,6 +109,9 @@ object NativeIndex {
     private fun counters(state: JSONObject) =
         state.optJSONObject("generationCounters") ?: JSONObject().also { state.put("generationCounters", it) }
 
+    fun generationId(source: String, scopeKey: String, generation: Long): String =
+        "native:" + source + ":" + scopeKey + ":" + generation
+
     private fun nextGeneration(state: JSONObject, scopeKey: String): Long {
         val map = counters(state)
         val next = map.optLong(scopeKey, 0L) + 1L
@@ -117,10 +126,15 @@ object NativeIndex {
         val generation = nextGeneration(state, scopeKey)
         val now = System.currentTimeMillis()
         scope.put("generation", generation)
+            .put("generationId", generationId(source, scopeKey, generation))
+            .put("version", VERSION)
             .put("status", STATUS_STARTED)
             .put("source", source)
             .put("scopeKey", scopeKey)
             .put("startedAt", now)
+            .put("scanId", metadata.optString("scanId"))
+            .put("state", metadata.optString("state", STATUS_STARTED))
+            .put("availability", "discovering")
             .put("finishedAt", JSONObject.NULL)
             .put("metadata", JSONObject(metadata.toString()))
         write(context, state)
@@ -144,6 +158,9 @@ object NativeIndex {
         val scope = scopeMap.optJSONObject(scopeKey) ?: JSONObject().also { scopeMap.put(scopeKey, it) }
         val previous = scope.optJSONObject("items") ?: JSONObject()
         val effectiveGeneration = if (generation > 0L) generation else nextGeneration(state, scopeKey)
+        val generationIdentifier = generationId(source, scopeKey, effectiveGeneration)
+        val scanId = metadata.optString("scanId").trim()
+        val now = System.currentTimeMillis()
         val output = JSONArray()
         val seen = HashSet<String>()
         var newItems = 0; var changedItems = 0; var unchangedItems = 0; var duplicates = 0
@@ -161,9 +178,17 @@ object NativeIndex {
                 else -> "CHANGED"
             }
             when (change) { "NEW" -> newItems++; "CHANGED" -> changedItems++; else -> unchangedItems++ }
+            val firstSeen = before?.optLong("firstSeen", now) ?: now
             document.put("stableId", stableId).put("nativeFingerprint", fp)
                 .put("nativeChange", change).put("scanGeneration", effectiveGeneration)
+                .put("generationId", generationIdentifier)
+                .put("nativeVersion", VERSION)
+                .put("scanId", scanId)
                 .put("source", source).put("scopeKey", scopeKey)
+                .put("state", "OBSERVED")
+                .put("availability", "available")
+                .put("firstSeen", firstSeen)
+                .put("lastSeen", now)
             output.put(document)
         }
 
@@ -175,11 +200,15 @@ object NativeIndex {
             status.equals(STATUS_FAILED, ignoreCase = true) || status.equals("failed", ignoreCase = true) -> STATUS_FAILED
             else -> STATUS_PARTIAL
         }
-        val now = System.currentTimeMillis()
         scope.put("generation", effectiveGeneration)
+            .put("generationId", generationIdentifier)
+            .put("version", VERSION)
             .put("status", normalizedStatus)
             .put("source", source)
             .put("scopeKey", scopeKey)
+            .put("scanId", scanId)
+            .put("state", normalizedStatus)
+            .put("availability", if (normalizedStatus == STATUS_COMPLETED) "available" else "partial")
             .put("finishedAt", now)
             .put("metadata", JSONObject(metadata.toString()))
             .put("counts", JSONObject()
@@ -188,7 +217,8 @@ object NativeIndex {
                 .put("unchanged", unchangedItems)
                 .put("duplicates", duplicates)
                 .put("removed", removedItems)
-                .put("observed", output.length()))
+                .put("observed", output.length())
+                .put("errors", metadata.optJSONArray("errors") ?: JSONArray()))
         if (complete) {
             val items = JSONObject()
             for (i in 0 until output.length()) {

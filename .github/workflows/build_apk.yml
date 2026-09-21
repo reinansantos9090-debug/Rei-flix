@@ -200,7 +200,10 @@ jobs:
           arch: x86_64
           profile: pixel_7
           working-directory: build/flutter/android
-          script: ./gradlew :app:connectedDebugAndroidTest --no-daemon
+          script: |
+            mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
+            export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon
 
       - name: Run Android instrumented tests on API 36 emulator
         uses: reactivecircus/android-emulator-runner@v2
@@ -209,7 +212,10 @@ jobs:
           arch: x86_64
           profile: pixel_7
           working-directory: build/flutter/android
-          script: ./gradlew :app:connectedDebugAndroidTest --no-daemon
+          script: |
+            mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
+            export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon
 
       - name: Locate APK
         id: apk

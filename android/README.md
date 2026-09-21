@@ -47,7 +47,7 @@ filesystem path for a SAF URI.
 If this check reports missing descriptors, the selected Flet template did not
 merge this overlay; the build must be fixed before an APK can be published.
 
-## Prompt 11 — validação física e bibliotecas grandes
+## Validação física e escalabilidade de bibliotecas
 
 O caminho Android de descoberta usa lotes de **250 documentos** por padrão. Esse
 valor limita a memória temporária da ponte e do scanner sem transformar cada
@@ -61,7 +61,7 @@ snapshot anterior só é substituído quando a geração termina em
 preservam o snapshot anterior e não executam reconciliação destrutiva.
 
 A instrumentação Android está em
-`app/src/androidTest/kotlin/com/reiflix/reiflix_local/Prompt11DeviceFlowInstrumentedTest.kt`.
+`app/src/androidTest/kotlin/com/reiflix/reiflix_local/DeviceFlowInstrumentedTest.kt`.
 O executor físico está em `scripts/validate_android_device.py` e exige `adb`;
 ele nunca registra um teste físico como concluído quando não existe dispositivo
 autorizado.
@@ -72,7 +72,7 @@ dependem do seletor SAF, Settings, volumes removíveis/USB e reprodução físic
 dos arquivos `66619.mp4`, `66621.mp4` e `66625.mp4` continuam como
 **AINDA NÃO VALIDADO** até execução no dispositivo.
 
-Os testes de carga Python de Prompt 11 simulam 10.000, 50.000 e 100.000
+Os testes de carga Python de escalabilidade simulam 10.000, 50.000 e 100.000
 documentos alimentando `LibraryService.ingest_documents_batch()` em blocos
 de 250, verificando que nenhum lote ultrapassa esse limite e que cada lote
 atualiza o progresso persistido.

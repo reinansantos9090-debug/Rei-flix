@@ -239,9 +239,10 @@ async def main(page: ft.Page):
             render_current()
     async def add_folder(_=None):
         if scan_in_progress[0] or not saf_selection.begin():
-            return
+            return False
         try:
             await bridge.select_tree()
+            return True
         except Exception as exc:
             saf_selection.finish()
             page.snack_bar=ft.SnackBar(ft.Text(str(exc))); page.snack_bar.open=True; safe_update()
@@ -329,7 +330,14 @@ async def main(page: ft.Page):
             storage_onboarding["waiting_for_result"] = True
             page.pop_dialog()
             try:
-                await add_folder()
+                started = await add_folder()
+                if not started:
+                    storage_onboarding["waiting_for_result"] = False
+                    page.snack_bar = ft.SnackBar(
+                        ft.Text("A seleção de pasta já está em andamento ou a biblioteca está sendo atualizada.")
+                    )
+                    page.snack_bar.open = True
+                    safe_update()
             except Exception:
                 storage_onboarding["waiting_for_result"] = False
                 page.snack_bar = ft.SnackBar(

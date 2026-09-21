@@ -446,7 +446,7 @@ class LibraryService:
         with self._scan_lock:
             scan_id = scan_id or str(uuid.uuid4())
             previous = self.store.scan_by_id(scan_id)
-            if previous and previous.get("status") in {"completed", "partial"}:
+            if previous and previous.get("status") in {"completed", "partial", "cancelled", "error", "failed"}:
                 return self.store.catalog()
             try:
                 native_generation = int(scan_generation) if scan_generation is not None else None
@@ -458,6 +458,8 @@ class LibraryService:
                     logger.info("Ignoring stale native scan generation %s < %s", native_generation, latest)
                     return self.store.catalog()
             scan_scopes = [scope for scope in (scope_scans or []) if isinstance(scope, dict)]
+            scan_errors = list(scan_errors or [])
+            scan_stats = scan_stats or {}
             generation_id = str(scan_stats.get("generationId") or scan_stats.get("generation_id") or scan_id)
             run_id = self.store.begin_scan(
                 scan_id=scan_id, source_kind=source_kind, scope_kind=scope_kind,
@@ -465,8 +467,6 @@ class LibraryService:
                 generation_id=generation_id,
             )
             result = ScanResult(catalog=[], scan_id=scan_id)
-            scan_errors = list(scan_errors or [])
-            scan_stats = scan_stats or {}
             native_scan_state = str(scan_stats.get("status") or scan_stats.get("generationStatus") or "").casefold()
             partial_scan = bool(
                 scan_stats.get("partial")

@@ -257,17 +257,20 @@ E: manifest
         self.assertIn("private lateinit var systemUiController: SystemUiController", main)
         self.assertIn("systemUiController = SystemUiController(window)", main)
         self.assertIn("override fun onResume()", main)
-        self.assertIn("applyImmersiveSystemUi()", main)
+        self.assertIn("applyNormalSystemUi()", main)
         self.assertIn("WindowCompat.getInsetsController(window, window.decorView)", controller)
-        self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", controller)
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
-        self.assertIn('<item name="android:windowFullscreen">true</item>', styles)
+        self.assertIn("setDecorFitsSystemWindows(window, true)", controller)
+        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", controller)
+        self.assertNotIn('<item name="android:windowFullscreen">true</item>', styles)
 
-    def test_native_host_uses_immersive_system_bars_for_flet_and_player(self):
+    def test_native_host_uses_normal_system_bars_and_player_uses_immersive_mode(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
+        controller = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SystemUiController.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("systemUiController = SystemUiController(window)", main)
-        self.assertIn("applyImmersiveSystemUi()", main)
+        self.assertIn("applyNormalSystemUi()", main)
+        self.assertIn("setDecorFitsSystemWindows(window, true)", controller)
+        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", player)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", player)
 
@@ -277,10 +280,10 @@ E: manifest
         self.assertIn("suppressExitEvent = true", player)
         self.assertIn("if (!suppressExitEvent && !isChangingConfigurations)", player)
 
-    def test_template_requires_the_immersive_system_ui_controller(self):
+    def test_template_requires_the_system_ui_controller(self):
         source = PREPARE_TEMPLATE.read_text(encoding="utf-8")
         self.assertIn("SystemUiController.kt", source)
-        self.assertIn("immersive host theme", source)
+        self.assertIn("normal system-bar host policy", source)
 
     def test_native_mailbox_uses_the_flet_application_data_subdirectory(self):
         mailbox = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativeMailbox.kt").read_text(encoding="utf-8")

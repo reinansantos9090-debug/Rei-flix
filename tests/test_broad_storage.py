@@ -23,11 +23,12 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         self.assertIn('.put("type", "DIRECTORY_NOT_FOUND")', scanner)
         self.assertIn('.put("partial", errors.length() > 0 || cancelled)', scanner)
 
-    def test_bridge_accepts_content_and_file_uris(self):
+    def test_bridge_accepts_content_file_and_broad_path_references(self):
         from core.android_bridge import AndroidBridge
         self.assertTrue(AndroidBridge.is_local_media_reference("content://media/external/video/1"))
         self.assertTrue(AndroidBridge.is_local_media_reference("file:///storage/emulated/0/a.mkv"))
-        self.assertFalse(AndroidBridge.is_local_media_reference("/storage/emulated/0/a.mkv"))
+        self.assertTrue(AndroidBridge.is_local_media_reference("/storage/emulated/0/a.mkv"))
+        self.assertFalse(AndroidBridge.is_local_media_reference("https://example.invalid/a.mkv"))
 
     def test_ingestion_accepts_file_uri(self):
         source = (ROOT / "core/library_service.py").read_text(encoding="utf-8")

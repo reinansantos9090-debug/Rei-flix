@@ -33,6 +33,8 @@ object NativeIndex {
     const val STATUS_STARTED = "STARTED"
     const val STATUS_RUNNING = "RUNNING"
     const val STATUS_COMPLETED = "COMPLETED"
+    const val STATUS_EMPTY_COMPLETE = "EMPTY_COMPLETE"
+    const val STATUS_UNAVAILABLE = "UNAVAILABLE"
     const val STATUS_PARTIAL = "PARTIAL"
     const val STATUS_CANCELLED = "CANCELLED"
     const val STATUS_FAILED = "FAILED"
@@ -195,9 +197,11 @@ object NativeIndex {
         val oldKeys = previous.keys().asSequence().toSet()
         val removedItems = oldKeys.count { !seen.contains(it) }
         val normalizedStatus = when {
-            complete -> STATUS_COMPLETED
+            status.equals(STATUS_EMPTY_COMPLETE, ignoreCase = true) || status.equals("empty_complete", ignoreCase = true) -> STATUS_EMPTY_COMPLETE
+            status.equals(STATUS_UNAVAILABLE, ignoreCase = true) || status.equals("unavailable", ignoreCase = true) || status.equals("revoked", ignoreCase = true) -> STATUS_UNAVAILABLE
             status.equals(STATUS_CANCELLED, ignoreCase = true) || status.equals("cancelled", ignoreCase = true) -> STATUS_CANCELLED
             status.equals(STATUS_FAILED, ignoreCase = true) || status.equals("failed", ignoreCase = true) -> STATUS_FAILED
+            complete -> STATUS_COMPLETED
             else -> STATUS_PARTIAL
         }
         scope.put("generation", effectiveGeneration)
@@ -208,7 +212,11 @@ object NativeIndex {
             .put("scopeKey", scopeKey)
             .put("scanId", scanId)
             .put("state", normalizedStatus)
-            .put("availability", if (normalizedStatus == STATUS_COMPLETED) "available" else "partial")
+            .put("availability", when (normalizedStatus) {
+                STATUS_COMPLETED, STATUS_EMPTY_COMPLETE -> "available"
+                STATUS_UNAVAILABLE -> "unavailable"
+                else -> "partial"
+            })
             .put("finishedAt", now)
             .put("metadata", JSONObject(metadata.toString()))
             .put("counts", JSONObject()
@@ -291,7 +299,7 @@ object NativeIndex {
                                  currentVersion: String, currentGeneration: Long): Boolean = synchronized(this) {
         if (Build.VERSION.SDK_INT < 30 || accessLevel != "full" || currentVersion.isBlank() || currentGeneration <= 0L) return@synchronized false
         val scope = scopes(read(context)).optJSONObject("mediastore:" + volumeName) ?: return@synchronized false
-        if (scope.optString("status") != STATUS_COMPLETED) return@synchronized false
+        if (scope.optString("status") !in setOf(STATUS_COMPLETED, STATUS_EMPTY_COMPLETE)) return@synchronized false
         val meta = scope.optJSONObject("metadata") ?: return@synchronized false
         meta.optString("mediaStoreVersion") == currentVersion &&
             meta.optLong("mediaStoreGeneration", -1L) == currentGeneration &&

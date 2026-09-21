@@ -21,6 +21,8 @@ class NativeIndexInstrumentedTest {
         val scope = "instrumented"
         NativeIndex.prepare(context, NativeIndex.SOURCE_BROAD, scope, JSONArray().put(JSONObject().put("uri","file:///one").put("name","one.mkv").put("relativePath","one.mkv")), true)
         NativeIndex.prepare(context, NativeIndex.SOURCE_BROAD, scope, JSONArray(), false)
-        assertEquals(1, NativeIndex.cachedDocuments(context, scope).length())
+        var total = 0
+        NativeIndex.forEachCachedBatch(context, scope, 250) { batch, _ -> total += batch.length() }
+        assertEquals(1, total)
     }
 }

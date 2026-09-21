@@ -256,4 +256,9 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("MediaStore query failed for volume $volumeName", source)
         self.assertIn("for(volumeName in volumeNames)", source)
         self.assertIn("catch(exception:Exception)", source)
+    def test_main_imports_os_for_durable_flet_storage_path(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("import os", source)
+        self.assertIn('os.getenv("FLET_APP_STORAGE_DATA")', source)
+
 if __name__ == "__main__": unittest.main()

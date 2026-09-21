@@ -474,28 +474,6 @@ object NativeIndex {
         write(context, state)
     }
 
-    fun cachedDocuments(context: Context, scopeKey: String): JSONArray = synchronized(this) {
-        val scope = scopes(read(context)).optJSONObject(scopeKey) ?: return@synchronized JSONArray()
-        val committed = committedFileFromScope(context, scope)
-        if (committed != null) {
-            val output = JSONArray()
-            NativeBatch.readNdjsonBatches(committed, Int.MAX_VALUE.coerceAtMost(10_000)) { batch ->
-                for (i in 0 until batch.length()) output.put(batch.getJSONObject(i))
-            }
-            return@synchronized output
-        }
-        val items = scope.optJSONObject("items") ?: return@synchronized JSONArray()
-        val output = JSONArray()
-        val keys = items.keys()
-        while (keys.hasNext()) {
-            val item = items.optJSONObject(keys.next()) ?: continue
-            val document = JSONObject(item.toString())
-            document.remove("fingerprint")
-            output.put(document)
-        }
-        output
-    }
-
     fun forEachCachedBatch(
         context: Context,
         scopeKey: String,

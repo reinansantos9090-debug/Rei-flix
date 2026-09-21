@@ -4,12 +4,14 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.MediaStore
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.app.PictureInPictureParams
 import android.os.Build
 import android.view.Gravity
+import java.io.File
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -21,6 +23,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -63,14 +66,25 @@ class NativePlayerActivity : ComponentActivity() {
         enterImmersiveMode()
         val rawUri = intent.getStringExtra("uri")
         if (rawUri.isNullOrBlank()) { reportError("Arquivo local inválido."); finish(); return }
-        uri = Uri.parse(rawUri)
-        if (!((uri.scheme == "content" && SafScanner.isAuthorizedDocument(this, uri)) || MediaStoreScanner.isAuthorizedDocument(this, uri) || BroadStorageScanner.isAuthorizedFile(this, uri))) {
-            reportError("Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix.")
+        val resolvedUri = normalizeLocalReference(rawUri)
+        if (resolvedUri == null) {
+            reportError("Referência local inválida.")
+            finish()
+            return
+        }
+        uri = resolvedUri
+        val preflightError = validateLocalSource(uri)
+        if (preflightError != null) {
+            reportError(preflightError)
             finish()
             return
         }
 
         player = ExoPlayer.Builder(this).build()
+        savedInstanceState?.getBundle("track_selection_parameters")?.let { bundle ->
+            runCatching { TrackSelectionParameters.fromBundle(bundle) }
+                .onSuccess { player.trackSelectionParameters = it }
+        }
         autoplayNext = savedInstanceState?.takeIf { it.containsKey("autoplay_next") }?.getBoolean("autoplay_next")
             ?: intent.getBooleanExtra("autoplay", true)
         playerView = PlayerView(this).apply {
@@ -263,6 +277,7 @@ class NativePlayerActivity : ComponentActivity() {
             outState.putLong("position_ms", player.currentPosition.coerceAtLeast(0L))
             outState.putLong("duration_ms", player.duration.coerceAtLeast(0L))
             outState.putFloat("playback_speed", player.playbackParameters.speed)
+            outState.putBundle("track_selection_parameters", player.trackSelectionParameters.toBundle())
         }
         if (::playerView.isInitialized) outState.putInt("resize_mode", playerView.resizeMode)
         outState.putBoolean("autoplay_next", autoplayNext)
@@ -285,13 +300,25 @@ class NativePlayerActivity : ComponentActivity() {
     override fun onUserLeaveHint() {
         // Some Android/TV builds omit PiP even on API 26+. Entering PiP without
         // the feature is not a fallback; it can throw and terminate playback.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
-            ::player.isInitialized && player.isPlaying) {
-            enterPictureInPictureMode(PictureInPictureParams.Builder().build())
+        if (canEnterPictureInPicture()) {
+            runCatching {
+                val builder = PictureInPictureParams.Builder()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    builder.setAutoEnterEnabled(true)
+                    builder.setSeamlessResizeEnabled(true)
+                }
+                enterPictureInPictureMode(builder.build())
+            }.onFailure { error ->
+                android.util.Log.w(TAG, "PiP indisponível neste dispositivo.", error)
+            }
         }
         super.onUserLeaveHint()
     }
+
+    private fun canEnterPictureInPicture(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
+            ::player.isInitialized && player.isPlaying
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) enterImmersiveMode() }
 
     private fun enterImmersiveMode() {
@@ -323,5 +350,65 @@ class NativePlayerActivity : ComponentActivity() {
         NativeMailbox.write(this, JSONObject().put("type", "player_error").put("message", message))
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
-    companion object { private const val PROGRESS_INTERVAL_MS = 15_000L }
+
+    private fun normalizeLocalReference(rawReference: String): Uri? {
+        val reference = rawReference.trim()
+        if (reference.isBlank()) return null
+        val parsed = runCatching { Uri.parse(reference) }.getOrNull() ?: return null
+        if (parsed.scheme.isNullOrBlank() && reference.startsWith(File.separator)) {
+            return runCatching { Uri.fromFile(File(reference).canonicalFile) }.getOrNull()
+        }
+        return parsed.takeIf {
+            it.scheme.equals("content", true) || it.scheme.equals("file", true)
+        }
+    }
+
+    private fun validateLocalSource(localUri: Uri): String? {
+        return when (localUri.scheme?.lowercase()) {
+            "content" -> {
+                val safAuthorized = runCatching {
+                    SafScanner.isAuthorizedDocument(this, localUri)
+                }.getOrDefault(false)
+                val mediaStoreAuthorized = if (!safAuthorized) {
+                    runCatching {
+                        MediaStoreScanner.isAuthorizedDocument(this, localUri)
+                    }.getOrDefault(false)
+                } else false
+                if (!safAuthorized && !mediaStoreAuthorized) {
+                    if (localUri.authority == MediaStore.AUTHORITY &&
+                        !MediaStoreScanner.hasReadPermission(this)) {
+                        "A permissão para ler vídeos foi revogada."
+                    } else {
+                        "A autorização deste arquivo não está mais disponível ou o provedor está indisponível."
+                    }
+                } else {
+                    val readable = runCatching {
+                        contentResolver.openFileDescriptor(localUri, "r")?.use { true } == true
+                    }.getOrDefault(false)
+                    if (!readable) {
+                        "O provedor local não está disponível para leitura deste arquivo."
+                    } else null
+                }
+            }
+            "file" -> {
+                val file = runCatching {
+                    File(localUri.path ?: "").canonicalFile
+                }.getOrNull() ?: return "Arquivo local inválido."
+                when {
+                    !BroadStorageScanner.isAuthorizedFile(this, localUri) ->
+                        "Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."
+                    !file.exists() -> "Arquivo local removido ou indisponível."
+                    !file.isFile -> "A referência local não aponta para um arquivo."
+                    !file.canRead() -> "O arquivo local não pode ser lido neste momento."
+                    else -> null
+                }
+            }
+            else -> "A reprodução aceita somente referências locais content:// ou file://."
+        }
+    }
+
+    companion object {
+        private const val TAG = "[REIFLIX][PLAYER]"
+        private const val PROGRESS_INTERVAL_MS = 15_000L
+    }
 }

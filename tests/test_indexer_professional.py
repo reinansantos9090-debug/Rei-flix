@@ -79,6 +79,29 @@ class ProfessionalIndexerTests(unittest.TestCase):
             self.assertEqual(len(rows),1)
             self.assertEqual(rows[0]["file_size"],200)
 
+    def test_stale_volume_event_cannot_roll_back_newer_snapshot(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, service = self._service(d)
+            newer={"current":[{"volumeId":"SD","state":"mounted","available":True}],"removed":[],"eventTimestamp":200.0}
+            older={"current":[],"removed":[{"volumeId":"SD"}],"eventTimestamp":100.0}
+            service.ingest_native_volume_change(newer)
+            service.ingest_native_volume_change(older)
+            state=store.native_volume_states()["SD"]
+            self.assertTrue(state["available"])
+            self.assertEqual(state["state"],"mounted")
+
+    def test_cross_source_observation_keeps_item_available_when_one_source_is_reconciled_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, service = self._service(d)
+            doc_media={"uri":"content://media/external_primary/1","name":"Show S01E01.mkv","relativePath":"Shows/Show S01E01.mkv","volumeId":"external_primary","size":100,"modifiedAt":10}
+            doc_broad={"uri":"file:///storage/emulated/0/Shows/Show S01E01.mkv","name":"Show S01E01.mkv","relativePath":"Shows/Show S01E01.mkv","volumeId":"external_primary","size":100,"modifiedAt":10}
+            service.ingest_documents("mediastore:external:video",[doc_media],source_kind="mediastore",scope_kind="volume",scope_ref="external_primary")
+            service.ingest_documents("broad-storage",[doc_broad],source_kind="broad_storage",scope_kind="volume",scope_ref="external_primary")
+            service.ingest_documents("mediastore:external:video",[],source_kind="mediastore",scope_kind="volume",scope_ref="external_primary",scan_stats={"status":"empty_complete"})
+            row=[e for a in store.catalog() for s in a["seasons"] for e in s["episodes"]][0]
+            self.assertFalse(row["missing"])
+            self.assertEqual(row["availability_state"],"available")
+
     def test_same_name_on_different_volumes_is_not_merged(self):
         with tempfile.TemporaryDirectory() as d:
             store, service = self._service(d)

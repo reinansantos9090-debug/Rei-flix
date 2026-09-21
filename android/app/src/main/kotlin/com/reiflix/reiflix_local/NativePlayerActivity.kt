@@ -149,14 +149,14 @@ class NativePlayerActivity : ComponentActivity() {
                 } else {
                     "Não foi possível reproduzir este arquivo neste dispositivo."
                 }
-                NativeMailbox.write(this, JSONObject()
+                NativeMailbox.write(this@NativePlayerActivity, JSONObject()
                     .put("type", "player_error")
                     .put("message", message)
                     .put("payload", JSONObject()
                         .put("uri", uri.toString())
                         .put("errorCode", technicalCode)
                         .put("detail", detail)))
-                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                Toast.makeText(this@NativePlayerActivity, message, Toast.LENGTH_LONG).show()
                 finish()
             }
         })

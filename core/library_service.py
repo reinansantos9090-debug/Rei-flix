@@ -430,7 +430,7 @@ class LibraryService:
                                 result.videos += 1
                         seen_by_source[reference] = set(seen)
                         if not walk_errors:
-                            self.store.reconcile_missing(reference, seen, source_kind="filesystem", scope_kind="source", scope_ref=reference)
+                            self.store.reconcile_missing(reference, seen, source_kind="filesystem", scope_kind="source", scope_ref=reference, complete=True)
                         else:
                             self.store.update_folder_status(reference, "granted", "Scan parcial; reconciliação de ausência não aplicada.")
                     except OSError as exc:
@@ -567,6 +567,7 @@ class LibraryService:
                             source_kind=source_kind,
                             scope_kind=skind,
                             scope_ref=sref,
+                            complete=True,
                         )
                         result.reconciled += 1
                     self.store.update_folder_status(tree_uri, "granted")
@@ -577,6 +578,7 @@ class LibraryService:
                         source_kind=source_kind,
                         scope_kind=scope_kind,
                         scope_ref=scope_ref,
+                        complete=True,
                     )
                     result.reconciled = 1
                     self.store.update_folder_status(tree_uri, "granted")

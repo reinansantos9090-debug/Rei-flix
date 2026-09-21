@@ -104,6 +104,7 @@ object MediaStoreScanner {
                 val batches=NativeBatch.Accumulator(NativeBatch.DEFAULT_SIZE) { batch,batchId,batchNumber ->
                     onBatch?.invoke(JSONObject()
                         .put("volumeId",volumeName)
+                        .put("generation",generationId)
                         .put("batchId",batchId)
                         .put("batchNumber",batchNumber)
                         .put("batchSize",batch.length())

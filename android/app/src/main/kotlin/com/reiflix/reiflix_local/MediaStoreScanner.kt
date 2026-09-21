@@ -2,19 +2,54 @@ package com.reiflix.reiflix_local
 
 import android.Manifest
 import android.content.Context
+import android.database.ContentObserver
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.storage.StorageManager
 import android.provider.MediaStore
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 object MediaStoreScanner {
     const val SOURCE = "mediastore:external:video"
     const val DISPLAY_NAME = "Vídeos do dispositivo"
     private const val TAG = "[REIFLIX][MEDIASTORE]"
     private val videoExtensions = setOf("mp4","mkv","webm","avi","mov","m4v","ts","m2ts","flv","wmv")
+    private val mediaStoreChanged = AtomicBoolean(false)
+    @Volatile private var changeObserver: ContentObserver? = null
+
+    @Synchronized
+    fun startChangeObserver(context: Context, onChanged: (() -> Unit)? = null) {
+        if (changeObserver != null) return
+        val uri = if (Build.VERSION.SDK_INT >= 29) {
+            MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        } else {
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        }
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, changedUri: Uri?) {
+                mediaStoreChanged.set(true)
+                onChanged?.invoke()
+            }
+        }
+        context.contentResolver.registerContentObserver(uri, true, observer)
+        changeObserver = observer
+    }
+
+    @Synchronized
+    fun stopChangeObserver(context: Context) {
+        changeObserver?.let { observer ->
+            runCatching { context.contentResolver.unregisterContentObserver(observer) }
+        }
+        changeObserver = null
+    }
+
+    fun clearChangeNotification() { mediaStoreChanged.set(false) }
+    fun consumeChangeNotification(): Boolean = mediaStoreChanged.getAndSet(false)
 
     fun requiredPermissions(): Array<String> = when {
         Build.VERSION.SDK_INT >= 34 -> arrayOf(Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
@@ -67,6 +102,8 @@ object MediaStoreScanner {
         val accessState = accessLevelValue(context)
         check(StorageAuthorization.canScanMediaStore(accessState)) { "Permissão de vídeos não concedida." }
         var files=0;var videos=0;var cancelled=false
+        var waitingForMediaStore=false
+        clearChangeNotification()
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE).put("files",0).put("videos",0))
         for(volumeName in volumeNames){
             if(shouldCancel()){cancelled=true;break}
@@ -75,6 +112,7 @@ object MediaStoreScanner {
             try{
                 val version=if(Build.VERSION.SDK_INT>=29)runCatching{MediaStore.getVersion(context,volumeName)}.getOrDefault("") else ""
                 val generation=if(Build.VERSION.SDK_INT>=30)runCatching{MediaStore.getGeneration(context,volumeName)}.getOrDefault(0L) else 0L
+                var volumeWaitingForMediaStore=false
                 val scopeKey=activeScopeKey
                 if(NativeIndex.canReuseMediaStoreVolume(context,volumeName,access,version,generation)){
                     val cachedGeneration=NativeIndex.cachedGeneration(context,scopeKey)
@@ -138,12 +176,40 @@ object MediaStoreScanner {
                         if(videos%100==0)onProgress?.invoke(JSONObject().put("phase","scanning").put("source",SOURCE).put("volumeId",volumeName).put("files",files).put("videos",videos))
                     }
                 }?:localErrors.put("O MediaStore não conseguiu consultar o volume "+volumeName+".")
+                if(!localCancelled && !cancelled && localErrors.length()==0 && StorageAuthorization.canReconcileMediaStore(accessState)) {
+                    val postVersion=if(Build.VERSION.SDK_INT>=29)runCatching{MediaStore.getVersion(context,volumeName)}.getOrDefault(version) else version
+                    val postGeneration=if(Build.VERSION.SDK_INT>=30)runCatching{MediaStore.getGeneration(context,volumeName)}.getOrDefault(generation) else generation
+                    val changedDuringQuery=consumeChangeNotification()
+                    if(changedDuringQuery || postVersion!=version || (Build.VERSION.SDK_INT>=30 && postGeneration!=generation)) {
+                        volumeWaitingForMediaStore=true
+                    } else if(videos==0) {
+                        // A single empty query is not proof that Android's media indexing has settled.
+                        Thread.sleep(300L)
+                        if(shouldCancel()){cancelled=true;localCancelled=true}
+                        val stableVersion=if(Build.VERSION.SDK_INT>=29)runCatching{MediaStore.getVersion(context,volumeName)}.getOrDefault(postVersion) else postVersion
+                        val stableGeneration=if(Build.VERSION.SDK_INT>=30)runCatching{MediaStore.getGeneration(context,volumeName)}.getOrDefault(postGeneration) else postGeneration
+                        val changedAfterWait=consumeChangeNotification()
+                        val probeHasMedia=if(!localCancelled && !cancelled && localErrors.length()==0){
+                            runCatching{
+                                resolver.query(collection,arrayOf(MediaStore.Video.Media._ID),null,null,null)?.use{probe->probe.moveToFirst()}
+                            }.getOrElse{
+                                localErrors.put("O MediaStore não conseguiu concluir a verificação de estabilidade do volume "+volumeName+".")
+                                false
+                            }
+                        } else false
+                        if(changedAfterWait || stableVersion!=postVersion || (Build.VERSION.SDK_INT>=30 && stableGeneration!=postGeneration) || probeHasMedia){
+                            volumeWaitingForMediaStore=true
+                        }
+                    }
+                }
+                if(volumeWaitingForMediaStore) waitingForMediaStore=true
                 for(i in 0 until localErrors.length())errors.put(localErrors.getString(i))
                 if(shouldCancel()){cancelled=true;localCancelled=true}
                 val complete=StorageAuthorization.canReconcileMediaStore(accessState) &&
-                    localErrors.length()==0 && !localCancelled && !cancelled
+                    localErrors.length()==0 && !localCancelled && !cancelled && !volumeWaitingForMediaStore
                 val status=when {
                     localCancelled||cancelled->NativeIndex.STATUS_CANCELLED
+                    volumeWaitingForMediaStore->NativeIndex.STATUS_WAITING_FOR_MEDIASTORE
                     !complete->NativeIndex.STATUS_PARTIAL
                     else->NativeIndex.STATUS_COMPLETED
                 }
@@ -173,7 +239,9 @@ object MediaStoreScanner {
         return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("volumeScopes",volumeScopes)
             .put("stats",JSONObject().put("files",files).put("videos",videos).put("errors",errors).put("access",access)
                 .put("canScan", StorageAuthorization.canScanMediaStore(accessState))
-                .put("canReconcile", StorageAuthorization.canReconcileMediaStore(accessState)))
-            .put("partial",errors.length()>0||cancelled||access!="full").put("cancelled",cancelled)
+                .put("canReconcile", StorageAuthorization.canReconcileMediaStore(accessState))
+                .put("status", when { cancelled -> "cancelled"; waitingForMediaStore -> NativeIndex.STATUS_WAITING_FOR_MEDIASTORE; errors.length()>0 -> "partial"; else -> "completed" })
+                .put("waitingForMediaStore", waitingForMediaStore))
+            .put("partial",errors.length()>0||cancelled||waitingForMediaStore||access!="full").put("cancelled",cancelled)
     }
 }

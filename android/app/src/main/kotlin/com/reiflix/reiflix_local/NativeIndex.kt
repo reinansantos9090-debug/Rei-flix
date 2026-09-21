@@ -93,7 +93,7 @@ object NativeIndex {
     private fun fingerprint(document: JSONObject, stableId: String): String =
         sha256(
             stableId + "|" + document.optString("name") + "|" + document.optString("size") + "|" +
-                document.optString("modifiedAt") + "|" + document.optString("mimeType") + "|" +
+                document.optString("modifiedAt") + "|" + document.optString("mediaId") + "|" + document.optString("mimeType") + "|" +
                 document.optString("relativePath")
         )
 

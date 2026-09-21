@@ -2,7 +2,6 @@ package com.reiflix.reiflix_local
 
 import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -30,12 +29,14 @@ object BroadStorageScanner {
         val emulated: Boolean,
         val state: String,
     )
+    /**
+     * Broad traversal is available only when Android itself reports the special
+     * MANAGE_EXTERNAL_STORAGE grant. Settings callbacks, intents and Python
+     * state are deliberately not used as evidence of authorization.
+     */
     fun accessLevel(context: Context): BroadStorageAccessLevel {
-        val granted = when {
-            Build.VERSION.SDK_INT >= 30 -> Environment.isExternalStorageManager()
-            Build.VERSION.SDK_INT >= 23 -> context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-            else -> true
-        }
+        val granted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            Environment.isExternalStorageManager()
         return StorageAuthorization.broadAccess(granted)
     }
 
@@ -47,6 +48,9 @@ object BroadStorageScanner {
         val result = JSONObject()
             .put("api", Build.VERSION.SDK_INT)
             .put("hasAccess", hasAccess(context))
+            .put("permissionAuthority", "Environment.isExternalStorageManager")
+            .put("permissionAuthoritative", Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            .put("permissionCheckedAt", System.currentTimeMillis())
         val rootsJson = JSONArray()
         roots(context).forEach { root ->
             val check = JSONObject().put("path", root.file.path)
@@ -249,8 +253,13 @@ object BroadStorageScanner {
             )
             if (!isReadableState(root.state)) {
                 val message = "Volume não disponível: " + root.volumeId + " (" + root.state + ")."
-                errors.put(message)
-                errorsByVolume[root.volumeId]?.put(message)
+                val classified = JSONObject()
+                    .put("type", volumeErrorType(root.state))
+                    .put("message", message)
+                    .put("volumeId", root.volumeId)
+                    .put("state", root.state)
+                errors.put(classified)
+                errorsByVolume[root.volumeId]?.put(classified)
             }
         }
         if (rootFiles.isEmpty()) errors.put("Nenhuma raiz de armazenamento compartilhado foi encontrada.")
@@ -285,8 +294,13 @@ object BroadStorageScanner {
             }
             if (children == null) {
                 val label = if (rootFiles.any { it.file.path == canonical.path }) "raiz" else "diretório"
-                errors.put("Não foi possível acessar $label: ${canonical.path}")
-                errorsByVolume[root.volumeId]?.put("Não foi possível acessar $label: ${canonical.path}")
+                val error = JSONObject()
+                    .put("type", "ACCESS_DENIED")
+                    .put("message", "Não foi possível acessar $label: ${canonical.path}")
+                    .put("path", canonical.path)
+                    .put("volumeId", root.volumeId)
+                errors.put(error)
+                errorsByVolume[root.volumeId]?.put(error)
                 continue
             }
             if (children.any { it.isFile && it.name.equals(".nomedia", ignoreCase = true) }) {
@@ -397,7 +411,7 @@ object BroadStorageScanner {
                 .put("stats", scopeStats))
         }
 
-        val partial = errors.length()>0 || cancelled
+        val partial = errors.length() > 0 || cancelled
         Log.i(TAG, "SCAN_COMPLETED: directories=" + directories + ", files=" + files + ", videos=" + videos + ", nomedia=" + excludedNoMedia + ", errors=" + errors.length() + ", partial=" + partial)
         onProgress?.invoke(JSONObject().put("phase", "finished").put("source", SOURCE)
             .put("directories", directories).put("files", files).put("videos", videos)
@@ -418,7 +432,9 @@ object BroadStorageScanner {
                 .put("duplicates", totalDuplicates).put("removed", totalRemoved)
                 .put("status", when { cancelled -> "cancelled"; partial -> "partial"; else -> "completed" })
                 .put("generationStatus", when { cancelled -> NativeIndex.STATUS_CANCELLED; partial -> NativeIndex.STATUS_PARTIAL; else -> NativeIndex.STATUS_COMPLETED }))
-            .put("partial",errors.length()>0 || cancelled)
+            .put("partial", errors.length() > 0 || cancelled)
+            .put("permissionAuthority", "Environment.isExternalStorageManager")
+            .put("permissionAuthoritative", Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
             .put("cancelled", cancelled)
     }
 private fun mimeFor(ext:String):String = when(ext.lowercase()) {
@@ -428,4 +444,16 @@ private fun mimeFor(ext:String):String = when(ext.lowercase()) {
 
     private fun isReadableState(state: String?): Boolean =
         state == Environment.MEDIA_MOUNTED || state == Environment.MEDIA_MOUNTED_READ_ONLY
+
+    private fun volumeErrorType(state: String?): String = when (state) {
+        Environment.MEDIA_UNMOUNTED,
+        Environment.MEDIA_UNMOUNTABLE,
+        Environment.MEDIA_REMOVED,
+        Environment.MEDIA_BAD_REMOVAL,
+        Environment.MEDIA_NOFS -> "VOLUME_UNMOUNTED"
+        Environment.MEDIA_SHARED,
+        Environment.MEDIA_CHECKING -> "UNAVAILABLE"
+        Environment.MEDIA_MOUNTED_READ_ONLY -> "READ_ONLY"
+        else -> "ACCESS_DENIED"
+    }
 }

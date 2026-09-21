@@ -52,7 +52,7 @@ class SettingsView:
             async def run_action(_event):
                 page.pop_dialog()
                 result = action()
-                if hasattr(result, "__await__"):
+                if inspect.isawaitable(result):
                     await result
             dialog = ft.AlertDialog(
                 modal=True, title=ft.Text(title), content=ft.Text(body),

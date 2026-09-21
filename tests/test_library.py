@@ -451,10 +451,13 @@ class SettingsPersistenceTests(unittest.TestCase):
 
     def test_reopening_database_does_not_repeat_personal_tags_migration(self):
         with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
             LibraryStore(d)
-            LibraryStore(d)
-            with LibraryStore(d)._conn() as con:
-                self.assertEqual(con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=?').fetchone()[0], 1)
+            with store._conn() as con:
+                self.assertEqual(
+                    con.execute('SELECT COUNT(*) FROM schema_migrations WHERE version=?', (store.SCHEMA_VERSION,)).fetchone()[0],
+                    1,
+                )
 
     def test_invalid_progress_is_rejected_and_overflow_is_normalized(self):
         with tempfile.TemporaryDirectory() as d:

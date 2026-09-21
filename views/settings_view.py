@@ -125,9 +125,15 @@ class SettingsView:
         for folder in folders:
             name = folder.get("name") or "Pasta configurada"
             granted = folder.get("authorization") == "granted"
-            description = "Pasta SAF autorizada" if folder.get("kind") == "saf" and granted else (
-                "Pasta local configurada" if folder.get("kind") != "saf" and granted else "Acesso precisa ser verificado"
-            )
+            authorization = str(folder.get("authorization") or "").casefold()
+            if folder.get("kind") == "saf" and granted:
+                description = "Pasta SAF autorizada"
+            elif folder.get("kind") == "saf" and authorization == "unavailable":
+                description = "Pasta SAF salva, mas o provedor está indisponível"
+            elif folder.get("kind") != "saf" and granted:
+                description = "Pasta local configurada"
+            else:
+                description = "Acesso precisa ser verificado"
             error = str(folder.get("last_error") or "").strip()
 
             def ask_remove(reference, display_name):

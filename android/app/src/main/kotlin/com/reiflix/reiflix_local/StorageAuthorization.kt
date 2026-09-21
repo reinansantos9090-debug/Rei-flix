@@ -54,7 +54,7 @@ object StorageAuthorization {
     fun broadAccess(hasAllFilesAccess: Boolean): BroadStorageAccessLevel =
         if (hasAllFilesAccess) BroadStorageAccessLevel.AVAILABLE else BroadStorageAccessLevel.UNAVAILABLE
 
-    fun lifecycleState(
+    fun deriveLifecycleState(
         mediaAccess: MediaAccessLevel,
         broadAccess: BroadStorageAccessLevel,
         safRoots: Collection<String>,
@@ -89,7 +89,7 @@ object StorageAuthorization {
             safRoots = normalizedSaf,
             removableVolumes = normalizedVolumes,
             scannerCapabilities = scanners,
-            lifecycleState = lifecycleState ?: lifecycleState(mediaAccess, broadAccess, normalizedSaf),
+            lifecycleState = lifecycleState ?: deriveLifecycleState(mediaAccess, broadAccess, normalizedSaf),
         )
     }
 

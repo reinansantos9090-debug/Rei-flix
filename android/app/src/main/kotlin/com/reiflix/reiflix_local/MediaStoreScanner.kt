@@ -22,7 +22,7 @@ object MediaStoreScanner {
         Build.VERSION.SDK_INT >= 23 -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
         else -> emptyArray()
     }
-    private fun has(context: Context,p:String)=context.checkSelfPermission(android.content.pm.PackageManager.PERMISSION_GRANTED)
+    private fun has(context: Context,p:String)=context.checkSelfPermission(p)==android.content.pm.PackageManager.PERMISSION_GRANTED
 
     fun accessLevelValue(context: Context): MediaAccessLevel =
         StorageAuthorization.mediaAccess(

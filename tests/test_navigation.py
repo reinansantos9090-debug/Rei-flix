@@ -8,7 +8,7 @@ class NavigationControllerTests(unittest.TestCase):
         self.now = [100.0]
         self.navigation = NavigationController(clock=lambda: self.now[0])
 
-    def test_home_is_root_and_first_back_only_prompts(self):
+    def test_home_is_root_and_first_back_requests_exit_confirmation(self):
         self.assertEqual(self.navigation.current, "home")
         self.assertEqual(self.navigation.back(), "prompt_exit")
         self.assertEqual(self.navigation.current, "home")
@@ -18,7 +18,7 @@ class NavigationControllerTests(unittest.TestCase):
         self.now[0] += 1.9
         self.assertEqual(self.navigation.back(), "exit")
 
-    def test_home_back_after_window_prompts_again(self):
+    def test_home_back_after_window_requests_exit_confirmation(self):
         self.navigation.back()
         self.now[0] += 2.1
         self.assertEqual(self.navigation.back(), "prompt_exit")

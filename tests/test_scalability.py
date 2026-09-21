@@ -91,7 +91,7 @@ class TestScalability(unittest.TestCase):
         self.assertEqual(second["duplicates"], 1)
 
     def test_failed_finalization_does_not_reconcile(self):
-        service = Prompt11BatchService()
+        service = BatchServiceProbe()
         service.ingest_documents_batch(
             "broad-storage", list(documents(10)),
             source_kind="broad_storage", scan_id="failed-scan",
@@ -109,7 +109,7 @@ class TestScalability(unittest.TestCase):
         self.assertEqual(service.store.reconcile_calls, 0)
 
     def test_completed_finalization_reconciles_once(self):
-        service = Prompt11BatchService()
+        service = BatchServiceProbe()
         service.ingest_documents_batch(
             "broad-storage", list(documents(10)),
             source_kind="broad_storage", scan_id="complete-scan",
@@ -176,7 +176,7 @@ class TestScalability(unittest.TestCase):
             self.assertEqual(row["processed"], 250)
             self.assertEqual(row["inserted_files"], 200)
     def run_load(self, total):
-        service = Prompt11BatchService()
+        service = BatchServiceProbe()
         peak_batch = 0
         processed = 0
         for start in range(0, total, BATCH_SIZE):

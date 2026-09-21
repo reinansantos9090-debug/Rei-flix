@@ -18,7 +18,13 @@ object MediaStoreScanner {
     const val SOURCE = "mediastore:external:video"
     const val DISPLAY_NAME = "Vídeos do dispositivo"
     private const val TAG = "[REIFLIX][MEDIASTORE]"
-    private val videoExtensions = setOf("mp4","mkv","webm","avi","mov","m4v","ts","m2ts","flv","wmv")
+    // Match Nova's broad local video extension surface; provider MIME values
+    // remain authoritative when available.
+    private val videoExtensions = setOf(
+        "3g2","3gp","3gp2","3gpp","asf","avi","divx","flv","f4v","qt","m4v",
+        "mtv","mkv","mp4","mpeg","mpe","mpg","mov","ogm","ogv","ogx","vob","wtv",
+        "webm","ts","m2ts","wmv"
+    )
     private val mediaStoreChanged = AtomicBoolean(false)
     @Volatile private var changeObserver: ContentObserver? = null
 

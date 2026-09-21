@@ -17,29 +17,21 @@ class OrganizeView:
         catalog = []
         view_state = view_state if view_state is not None else {}
 
-        def handle_request_storage(_=None):
+        async def handle_request_storage(_=None):
             if on_request_storage_access:
-                res = on_request_storage_access()
-                if hasattr(res, "__await__"):
-                    page.run_task(lambda: res)
+                await on_request_storage_access()
 
-        def handle_scan_storage(_=None):
+        async def handle_scan_storage(_=None):
             if on_scan_storage:
-                res = on_scan_storage()
-                if hasattr(res, "__await__"):
-                    page.run_task(lambda: res)
+                await on_scan_storage()
 
-        def handle_request_video_access(_=None):
+        async def handle_request_video_access(_=None):
             if on_request_video_access:
-                res = on_request_video_access()
-                if hasattr(res, "__await__"):
-                    page.run_task(lambda: res)
+                await on_request_video_access()
 
-        def handle_add_folder(_=None):
+        async def handle_add_folder(_=None):
             if on_add_folder:
-                res = on_add_folder()
-                if hasattr(res, "__await__"):
-                    page.run_task(lambda: res)
+                await on_add_folder()
         selected_genre = [view_state.get("genre", "Todos")]
         selected_state = [view_state.get("state", "Todos")]
         selected_sort = [view_state.get("sort", "Mais recentes")]

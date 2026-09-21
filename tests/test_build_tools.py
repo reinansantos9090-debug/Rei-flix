@@ -261,7 +261,8 @@ E: manifest
         self.assertIn("WindowCompat.getInsetsController(window, window.decorView)", controller)
         self.assertIn("setDecorFitsSystemWindows(window, true)", controller)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", controller)
-        self.assertNotIn('<item name="android:windowFullscreen">true</item>', styles)
+        main_style = styles.split('<style name="ReiFlixPlayerTheme"', 1)[0]
+        self.assertNotIn('<item name="android:windowFullscreen">true</item>', main_style)
 
     def test_native_host_uses_normal_system_bars_and_player_uses_immersive_mode(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

@@ -395,10 +395,10 @@ class NativePlayerActivity : ComponentActivity() {
                     File(localUri.path ?: "").canonicalFile
                 }.getOrNull() ?: return "Arquivo local inválido."
                 when {
-                    !BroadStorageScanner.isAuthorizedFile(this, localUri) ->
-                        "Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."
                     !file.exists() -> "Arquivo local removido ou indisponível."
                     !file.isFile -> "A referência local não aponta para um arquivo."
+                    !BroadStorageScanner.isAuthorizedFile(this, localUri) ->
+                        "Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."
                     !file.canRead() -> "O arquivo local não pode ser lido neste momento."
                     else -> null
                 }

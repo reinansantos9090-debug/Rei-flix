@@ -1029,7 +1029,6 @@ async def main(page: ft.Page):
                                 else:
                                     store.update_folder_status(tree_uri, 'revoked', 'A permissão desta pasta foi removida.')
                                     store.mark_source_unavailable(tree_uri, 'saf_permission_revoked')
-                                    store.mark_source_unavailable(tree_uri, 'saf_permission_revoked')
                                 refresh_settings_if_active()
                         elif event_type == 'saf_released':
                             tree_uri = payload.get('treeUri')

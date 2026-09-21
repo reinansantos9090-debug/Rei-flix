@@ -67,9 +67,9 @@ object MediaStoreScanner {
         check(StorageAuthorization.canScanMediaStore(accessState)) { "Permissão de vídeos não concedida." }
         var files=0;var videos=0;var cancelled=false
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE).put("files",0).put("videos",0))
-        try{
-            for(volumeName in volumeNames){
-                if(shouldCancel()){cancelled=true;break}
+        for(volumeName in volumeNames){
+            if(shouldCancel()){cancelled=true;break}
+            try{
                 val version=if(Build.VERSION.SDK_INT>=29)runCatching{MediaStore.getVersion(context,volumeName)}.getOrDefault("") else ""
                 val generation=if(Build.VERSION.SDK_INT>=30)runCatching{MediaStore.getGeneration(context,volumeName)}.getOrDefault(0L) else 0L
                 val scopeKey="mediastore:"+volumeName
@@ -117,9 +117,14 @@ object MediaStoreScanner {
                     .put("unchanged",prepared.unchangedItems).put("duplicates",prepared.duplicates).put("removed",prepared.removedItems)
                     .put("errors",localErrors))
                 if(cancelled)break
+            }catch(security:SecurityException){
+                Log.w(TAG,"MediaStore permission/query denied for volume $volumeName",security)
+                errors.put("O acesso ao volume $volumeName foi negado.")
+            }catch(exception:Exception){
+                Log.w(TAG,"MediaStore query failed for volume $volumeName",exception)
+                errors.put("Não foi possível consultar o volume $volumeName.")
             }
-        }catch(security:SecurityException){Log.w(TAG,"MediaStore permission/query denied",security);errors.put("O acesso aos vídeos do dispositivo foi negado.")}
-        catch(exception:Exception){Log.w(TAG,"MediaStore query failed",exception);errors.put("Não foi possível consultar os vídeos do dispositivo.")}
+        }
         onProgress?.invoke(JSONObject().put("phase","finished").put("source",SOURCE).put("files",files).put("videos",videos))
         return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("documents",documents).put("volumeScopes",volumeScopes)
             .put("stats",JSONObject().put("files",files).put("videos",videos).put("errors",errors).put("access",access)

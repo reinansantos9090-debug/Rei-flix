@@ -571,12 +571,12 @@ class TestFletAsyncCallbacks(unittest.TestCase):
         source = (ROOT / "views" / "organize_view.py").read_text(encoding="utf-8")
         self.assertNotIn("page.run_task(lambda:", source)
         self.assertIn("async def handle_request_video_access", source)
-        self.assertIn("await on_request_video_access()", source)
+        self.assertIn("await _invoke_callback(on_request_video_access)", source)
         self.assertIn("async def handle_add_folder", source)
-        self.assertIn("await on_add_folder()", source)
+        self.assertIn("await _invoke_callback(on_add_folder)", source)
 
     def test_settings_confirm_uses_an_async_event_handler(self):
         source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
         self.assertNotIn("page.run_task(lambda:", source)
         self.assertIn("async def run_action(_event):", source)
-        self.assertIn("await result", source)
+        self.assertIn("inspect.isawaitable(result)", source)

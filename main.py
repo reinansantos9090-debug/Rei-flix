@@ -482,12 +482,15 @@ async def main(page: ft.Page):
                 else payload.get("source")
                 or ("broad-storage" if source_kind == "broad_storage" else "mediastore:external:video")
             )
+            scope_scan_id = str(payload.get("scopeScanId") or payload.get("scanId") or "").strip()
+            if scope_kind == "volume" and scope_ref and scope_scan_id and ":" not in scope_scan_id:
+                scope_scan_id = f"{scope_scan_id}:{scope_ref}"
             result = await asyncio.to_thread(
                 library.ingest_documents_batch,
                 source_reference or source_kind,
                 documents,
                 source_kind=source_kind,
-                scan_id=payload.get("scanId"),
+                scan_id=scope_scan_id or payload.get("scanId"),
                 scope_kind=scope_kind,
                 scope_ref=scope_ref,
                 scan_generation=payload.get("scanGeneration"),
@@ -501,7 +504,7 @@ async def main(page: ft.Page):
             diagnostics.record(
                 "SCAN_BATCH",
                 request_id=event_request_id,
-                scan_id=payload.get("scanId"),
+                scan_id=scope_scan_id or payload.get("scanId"),
                 source=source_kind,
                 result="INGESTED" if not result.get("ignored") else "IGNORED",
                 counts={
@@ -727,7 +730,7 @@ async def main(page: ft.Page):
                                         if not isinstance(scope, dict) or not scope.get('volumeId'):
                                             continue
                                         volume = str(scope.get('volumeId'))
-                                        scan_id = (payload.get('scanId') or 'broad-storage') + ':' + volume
+                                        scan_id = str(scope.get('scanId') or ((payload.get('scanId') or 'broad-storage') + ':' + volume))
                                         scope_stats = dict(stats)
                                         scope_errors = scope.get('errors') or []
                                         if scope_errors:
@@ -857,7 +860,7 @@ async def main(page: ft.Page):
                                         if not isinstance(scope, dict) or not scope.get('volumeId'):
                                             continue
                                         volume = str(scope.get('volumeId'))
-                                        scan_id = (payload.get('scanId') or 'mediastore') + ':' + volume
+                                        scan_id = str(scope.get('scanId') or ((payload.get('scanId') or 'mediastore') + ':' + volume))
                                         scope_stats = dict(stats)
                                         scope_errors = scope.get('errors') or []
                                         if scope_errors:

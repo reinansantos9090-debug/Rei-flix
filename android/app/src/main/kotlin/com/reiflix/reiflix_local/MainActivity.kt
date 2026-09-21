@@ -477,12 +477,16 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", SafScanner.identityPayload(treeUri).put("scanId", scanId).put("status", SafScanner.STATUS_REVOKED)))
             return
         }
-        if (persistedStatus == SafScanner.STATUS_UNAVAILABLE) {
+        if (persistedStatus != SafScanner.STATUS_COMPLETED) {
             NativeMailbox.write(this, JSONObject().put("type", "saf_error")
                 .put("requestId", requestId ?: "")
-                .put("message", "O provedor desta pasta está indisponível no momento.")
+                .put("message", if (persistedStatus == SafScanner.STATUS_UNAVAILABLE) {
+                    "O provedor desta pasta está indisponível no momento."
+                } else {
+                    "A árvore SAF não pôde ser validada."
+                })
                 .put("payload", SafScanner.identityPayload(treeUri).put("scanId", scanId)
-                    .put("status", SafScanner.STATUS_UNAVAILABLE)
+                    .put("status", if (persistedStatus == SafScanner.STATUS_UNAVAILABLE) SafScanner.STATUS_UNAVAILABLE else SafScanner.STATUS_FAILED)
                     .put("error", persistedInspection.optString("error", "provider_unavailable"))))
             return
         }

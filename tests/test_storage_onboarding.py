@@ -300,4 +300,11 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("self._retained.add(consumed)", source)
         self.assertIn("if consumed in self._retained:", source)
 
+    def test_native_bridge_does_not_delete_claimed_events_on_drain_io_failure(self):
+        source = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
+        block = source[source.index("except OSError as exc:", source.index("def drain")):source.index("    def requeue_event_ids", source.index("def drain"))]
+        self.assertIn("Never discard a claimed event", block)
+        self.assertIn('path.replace(path.with_suffix(".json"))', block)
+        self.assertNotIn("path.unlink(missing_ok=True)", block)
+
 if __name__ == "__main__": unittest.main()

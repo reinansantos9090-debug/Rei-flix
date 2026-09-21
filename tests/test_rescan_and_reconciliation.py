@@ -261,10 +261,13 @@ class TestNativeVolumeStateIntegration(unittest.TestCase):
                 "removable": False,
                 "emulated": True,
                 "primary": True,
+                "available": False,
             }],
             "removed": [],
             "added": [],
             "changedVolumes": [],
         })
         self.assertEqual("unmounted", state["external_primary"]["state"])
-        self.assertEqual(before, self.store.catalog())
+        self.assertEqual(before[0]["id"], self.store.catalog()[0]["id"])
+        self.assertTrue(self.store.physical_row(document["uri"])["missing"])
+        self.assertEqual("volume_unavailable", self.store.physical_row(document["uri"])["availability_state"])

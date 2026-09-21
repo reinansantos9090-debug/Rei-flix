@@ -24,6 +24,40 @@ class StorageAccessState(str, Enum):
     DECLINED = "declined"
 
 
+class ScanUiState(str, Enum):
+    IDLE = "IDLE"
+    CHECKING = "CHECKING"
+    SCANNING = "SCANNING"
+    COMPLETED = "COMPLETED"
+    PARTIAL = "PARTIAL"
+    CANCELLED = "CANCELLED"
+    FAILED = "FAILED"
+    WAITING_FOR_MEDIASTORE = "WAITING_FOR_MEDIASTORE"
+    VOLUME_UNAVAILABLE = "VOLUME_UNAVAILABLE"
+
+
+def scan_ui_state_from_native(status: str | None, *, errors: bool = False, cancelled: bool = False,
+                              waiting_for_mediastore: bool = False, volume_available: bool = True) -> ScanUiState:
+    if waiting_for_mediastore:
+        return ScanUiState.WAITING_FOR_MEDIASTORE
+    if not volume_available:
+        return ScanUiState.VOLUME_UNAVAILABLE
+    value = str(status or "").strip().upper()
+    if cancelled or value in {"CANCELLED", "CANCELED"}:
+        return ScanUiState.CANCELLED
+    if value in {"FAILED", "ERROR"}:
+        return ScanUiState.FAILED
+    if value in {"PARTIAL", "UNAVAILABLE"} or errors:
+        return ScanUiState.PARTIAL
+    if value in {"COMPLETED", "EMPTY_COMPLETE"}:
+        return ScanUiState.COMPLETED
+    if value in {"CHECKING"}:
+        return ScanUiState.CHECKING
+    if value in {"SCANNING", "RUNNING", "STARTED"}:
+        return ScanUiState.SCANNING
+    return ScanUiState.IDLE
+
+
 @dataclass(frozen=True)
 class StorageCapabilities:
     media_read_state: str = "denied"

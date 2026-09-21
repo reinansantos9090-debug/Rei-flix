@@ -103,13 +103,13 @@ object SafScanner {
 
     fun displayName(context:Context,treeUri:Uri):String = runCatching{DocumentFile.fromTreeUri(context,treeUri)?.name}.getOrNull()?.takeIf{it.isNotBlank()} ?: treeUri.toString()
 
-    fun scan(context:Context,treeUri:Uri,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false}):JSONObject {
+    fun scan(context:Context,treeUri:Uri,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false},scanId:String?=null):JSONObject {
         val identity=treeIdentity(treeUri)
         check(hasPersistedReadPermission(context,treeUri)){"A permissão desta pasta foi removida."}
         val root=DocumentFile.fromTreeUri(context,treeUri) ?: throw IllegalArgumentException("Árvore SAF indisponível")
         val resolver=context.contentResolver
         val documents=JSONArray(); val errors=JSONArray()
-        val stats=JSONObject().put("files",0).put("videos",0).put("directories",0).put("excludedNoMedia",0)
+        val stats=JSONObject().put("scanId",scanId ?: "").put("files",0).put("videos",0).put("directories",0).put("excludedNoMedia",0)
             .put("nomediaDirectories",0).put("nomediaFiles",0).put("metadataMissingSize",0).put("metadataMissingModified",0)
             .put("mimeFallbacks",0).put("successfulQueries",0).put("failedQueries",0).put("emptyDirectories",0).put("errors",errors)
         val pending=ArrayDeque<Pair<String,String>>(); val visited=HashSet<String>(); pending.addLast(identity.documentId to "")

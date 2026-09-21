@@ -446,7 +446,7 @@ E: manifest
         self.assertIn('reportError("Arquivo local inválido.")', player)
         self.assertIn("finish()", player)
 
-    def test_native_player_accepts_saf_or_media_store_and_rejects_paths(self):
+    def test_native_player_accepts_saf_media_store_and_broad_paths(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         bridge = (ROOT / "core" / "android_bridge.py").read_text(encoding="utf-8")

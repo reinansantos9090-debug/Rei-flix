@@ -540,9 +540,13 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as d:
             bridge = AndroidBridge(d, Page())
             self.assertTrue(bridge.is_local_media_reference('content://provider/document/1'))
-            self.assertFalse(bridge.is_local_media_reference('/local/video.mkv'))
+            self.assertTrue(bridge.is_local_media_reference('/local/video.mkv'))
             self.assertTrue(bridge.is_local_media_reference('file:///local/video.mkv'))
             self.assertFalse(bridge.is_local_media_reference('https://example.invalid/video.m3u8'))
+            self.assertEqual(
+                bridge.normalize_local_media_reference('/local/video.mkv'),
+                __import__('pathlib').Path('/local/video.mkv').resolve().as_uri(),
+            )
             with self.assertRaisesRegex(ValueError, 'somente arquivos locais'):
                 await bridge.play('https://example.invalid/video.m3u8', 'Remote')
             self.assertEqual(bridge.page.urls, [])

@@ -31,6 +31,54 @@ class ProfessionalIndexerTests(unittest.TestCase):
             self.assertEqual(rows[0]["path"], doc["uri"])
             self.assertGreaterEqual(store.last_scan()["unchanged_files"], 1)
 
+    def test_same_physical_file_from_media_saf_and_broad_is_one_catalog_entity(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, service = self._service(d)
+            media = {"uri":"content://media/external_primary/video/1","name":"Show S01E01.mkv","relativePath":"Movies/Show/Show S01E01.mkv","volumeId":"external_primary","size":100,"modifiedAt":10}
+            broad = {"uri":"file:///storage/emulated/0/Movies/Show/Show S01E01.mkv","name":"Show S01E01.mkv","relativePath":"Movies/Show/Show S01E01.mkv","volumeId":"external_primary","size":100,"modifiedAt":10}
+            saf = {"uri":"content://com.android.externalstorage.documents/tree/primary%3AMovies/document/primary%3AMovies%2FShow%2FShow%20S01E01.mkv","treeUri":"content://com.android.externalstorage.documents/tree/primary%3AMovies","documentId":"primary:Movies/Show/Show S01E01.mkv","name":"Show S01E01.mkv","relativePath":"Show/Show S01E01.mkv","volumeId":"primary","size":100,"modifiedAt":10}
+            service.ingest_documents("mediastore:external:video",[media],source_kind="mediastore",scope_kind="volume",scope_ref="external_primary")
+            service.ingest_documents("broad-storage",[broad],source_kind="broad_storage",scope_kind="volume",scope_ref="external_primary")
+            service.ingest_documents(saf["treeUri"],[saf],source_kind="saf",scope_kind="root",scope_ref=saf["treeUri"])
+            rows=[e for a in store.catalog() for s in a["seasons"] for e in s["episodes"]]
+            self.assertEqual(len(rows),1)
+            with store._conn() as con:
+                observations=con.execute("SELECT source_kind FROM episode_observations WHERE episode_id=?",(rows[0]["id"],)).fetchall()
+            self.assertEqual({row["source_kind"] for row in observations},{"mediastore","broad_storage","saf"})
+            self.assertEqual(len(observations),3)
+
+    def test_empty_complete_reconciles_only_that_scope(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, service = self._service(d)
+            doc={"uri":"content://media/1","name":"Show S01E01.mkv","relativePath":"Shows/Show S01E01.mkv","volumeId":"external_primary","size":100,"modifiedAt":10}
+            service.ingest_documents("mediastore:external:video",[doc],source_kind="mediastore",scope_kind="volume",scope_ref="external_primary")
+            service.ingest_documents("mediastore:external:video",[],source_kind="mediastore",scope_kind="volume",scope_ref="external_primary",scan_stats={"status":"empty_complete"})
+            row=[e for a in store.catalog() for s in a["seasons"] for e in s["episodes"]][0]
+            self.assertTrue(row["missing"])
+            self.assertEqual(row["availability_state"],"missing")
+            self.assertEqual(store.last_scan()["generation_status"],"EMPTY_COMPLETE")
+
+    def test_partial_cancelled_failed_and_unavailable_never_reconcile_absence(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, service = self._service(d)
+            doc={"uri":"content://media/1","name":"Show S01E01.mkv","relativePath":"Shows/Show S01E01.mkv","volumeId":"external_primary","size":100,"modifiedAt":10}
+            service.ingest_documents("mediastore:external:video",[doc],source_kind="mediastore",scope_kind="volume",scope_ref="external_primary")
+            for scan_stats,scan_errors in [({"status":"partial"},["permission"]),({"status":"cancelled","cancelled":True},[]),({"status":"failed"},[]),({"status":"unavailable"},[])]:
+                service.ingest_documents("mediastore:external:video",[],source_kind="mediastore",scope_kind="volume",scope_ref="external_primary",scan_stats=scan_stats,scan_errors=scan_errors)
+            row=[e for a in store.catalog() for s in a["seasons"] for e in s["episodes"]][0]
+            self.assertFalse(row["missing"])
+
+    def test_older_native_generation_cannot_override_newer_completed_scope(self):
+        with tempfile.TemporaryDirectory() as d:
+            store, service = self._service(d)
+            newer={"uri":"content://media/2","name":"Show S01E01.mkv","relativePath":"Shows/Show S01E01.mkv","volumeId":"external_primary","size":200,"modifiedAt":20}
+            older=dict(newer,uri="content://media/1",size=100,modifiedAt=10)
+            service.ingest_documents("mediastore:external:video",[newer],source_kind="mediastore",scope_kind="volume",scope_ref="external_primary",scan_generation=2)
+            service.ingest_documents("mediastore:external:video",[older],source_kind="mediastore",scope_kind="volume",scope_ref="external_primary",scan_generation=1)
+            rows=[e for a in store.catalog() for s in a["seasons"] for e in s["episodes"]]
+            self.assertEqual(len(rows),1)
+            self.assertEqual(rows[0]["file_size"],200)
+
     def test_same_name_on_different_volumes_is_not_merged(self):
         with tempfile.TemporaryDirectory() as d:
             store, service = self._service(d)

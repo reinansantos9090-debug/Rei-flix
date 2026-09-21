@@ -1163,13 +1163,29 @@ class LibraryStore:
         volume_id = str(volume_id or "").strip()
         if not volume_id:
             return 0
+        reason = str(reason or "volume_unavailable")
         with self._conn() as c:
-            return c.execute(
+            obs = c.execute(
+                "SELECT DISTINCT episode_id FROM episode_observations WHERE volume_id=?",
+                (volume_id,),
+            ).fetchall()
+            changed = 0
+            for row in obs:
+                changed += c.execute(
+                    "UPDATE episode_observations SET state='volume_unavailable',error=?,last_checked_at=? WHERE volume_id=? AND episode_id=? AND state != 'missing'",
+                    (reason, time.time(), volume_id, row["episode_id"]),
+                ).rowcount
+                self._recompute_episode_availability_locked(c, row["episode_id"])
+            # Legacy rows without observations still need a durable unavailable
+            # state until a complete source observation is recorded again.
+            changed += c.execute(
                 """UPDATE episodes
                    SET missing=1,availability_state='volume_unavailable'
-                   WHERE volume_id=? AND availability_state != 'scope_removed'""",
-                (volume_id,),
+                   WHERE volume_id=? AND availability_state != 'scope_removed'
+                     AND id NOT IN (SELECT episode_id FROM episode_observations WHERE volume_id=?)""",
+                (volume_id, volume_id),
             ).rowcount
+            return changed
 
     def restore_volume(self, volume_id):
         volume_id = str(volume_id or "").strip()
@@ -1187,13 +1203,37 @@ class LibraryStore:
         source_folder = str(source_folder or "").strip()
         if not source_folder:
             return 0
+        source_kind = self._infer_source_kind(source_folder)
+        reason = str(reason or "scope_unavailable")
         with self._conn() as c:
-            return c.execute(
+            if source_kind == "saf":
+                scope_filter = "source_kind='saf' AND scope_ref=?"
+                params = (source_folder,)
+            elif source_kind == "broad_storage":
+                scope_filter = "source_kind='broad_storage'"
+                params = ()
+            else:
+                scope_filter = "source_kind=? AND scope_ref=?"
+                params = (source_kind, source_folder)
+            obs = c.execute(
+                "SELECT DISTINCT episode_id FROM episode_observations WHERE " + scope_filter,
+                params,
+            ).fetchall()
+            changed = 0
+            for row in obs:
+                changed += c.execute(
+                    "UPDATE episode_observations SET state='scope_unavailable',error=?,last_checked_at=? WHERE episode_id=? AND " + scope_filter,
+                    (reason, time.time(), row["episode_id"], *params),
+                ).rowcount
+                self._recompute_episode_availability_locked(c, row["episode_id"])
+            changed += c.execute(
                 """UPDATE episodes
                    SET missing=1,availability_state='scope_unavailable'
-                   WHERE source_folder=? AND availability_state != 'scope_removed'""",
+                   WHERE source_folder=? AND availability_state != 'scope_removed'
+                     AND id NOT IN (SELECT episode_id FROM episode_observations)""",
                 (source_folder,),
             ).rowcount
+            return changed
 
     def restore_source(self, source_folder):
         source_folder = str(source_folder or "").strip()

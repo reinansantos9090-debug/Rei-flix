@@ -607,16 +607,20 @@ class LibraryStore:
             row = c.execute("SELECT * FROM scan_runs WHERE scan_id=? LIMIT 1", (str(scan_id),)).fetchone()
             return dict(row) if row else None
 
-    def latest_completed_native_generation(self, source_kind, scope_kind, scope_ref):
+    def latest_native_generation(self, source_kind, scope_kind, scope_ref):
+        """Return the newest observed native generation, regardless of outcome."""
         with self._conn() as c:
             row = c.execute(
                 """SELECT native_generation FROM scan_runs
                    WHERE source_kind=? AND scope_kind=? AND scope_ref=?
-                     AND status IN ('completed','empty_complete') AND native_generation IS NOT NULL
-                   ORDER BY native_generation DESC LIMIT 1""",
+                     AND native_generation IS NOT NULL
+                   ORDER BY native_generation DESC, id DESC LIMIT 1""",
                 (source_kind, scope_kind, scope_ref),
             ).fetchone()
             return int(row["native_generation"]) if row and row["native_generation"] is not None else None
+
+    def latest_completed_native_generation(self, source_kind, scope_kind, scope_ref):
+        return self.latest_native_generation(source_kind, scope_kind, scope_ref)
 
     def has_native_event(self, event_id):
         event_id = str(event_id or "").strip()
@@ -1357,7 +1361,15 @@ class LibraryStore:
             return changed
 
     def mark_missing(self, source_folder, seen):
-        self.reconcile_missing(source_folder, seen, scope_kind="source")
+        """Compatibility facade for an explicit complete source observation."""
+        self.reconcile_missing(
+            source_folder,
+            seen,
+            source_kind=self._infer_source_kind(source_folder),
+            scope_kind="source",
+            scope_ref=source_folder,
+            complete=True,
+        )
 
     def catalog(self, favorites_only=False):
         """Project the local library once into the visual hierarchy used by Home/Details."""

@@ -289,18 +289,60 @@ object BroadStorageScanner {
             volumeStats.put("directories", volumeStats.optInt("directories", 0) + 1)
             val children = try {
                 canonical.listFiles()
-            } catch (exception: Exception) {
-                null
-            }
-            if (children == null) {
-                val label = if (rootFiles.any { it.file.path == canonical.path }) "raiz" else "diretório"
+            } catch (security: SecurityException) {
                 val error = JSONObject()
-                    .put("type", "ACCESS_DENIED")
-                    .put("message", "Não foi possível acessar $label: ${canonical.path}")
+                    .put("type", "SECURITY_EXCEPTION")
+                    .put("message", security.message ?: "Acesso negado pelo Android.")
                     .put("path", canonical.path)
                     .put("volumeId", root.volumeId)
                 errors.put(error)
                 errorsByVolume[root.volumeId]?.put(error)
+                null
+            } catch (io: java.io.IOException) {
+                val error = JSONObject()
+                    .put("type", "IO_ERROR")
+                    .put("message", io.message ?: "Erro de I/O.")
+                    .put("path", canonical.path)
+                    .put("volumeId", root.volumeId)
+                errors.put(error)
+                errorsByVolume[root.volumeId]?.put(error)
+                null
+            } catch (exception: Exception) {
+                val error = JSONObject()
+                    .put("type", "OS_ERROR")
+                    .put("message", exception.message ?: exception::class.java.simpleName)
+                    .put("path", canonical.path)
+                    .put("volumeId", root.volumeId)
+                errors.put(error)
+                errorsByVolume[root.volumeId]?.put(error)
+                null
+            }
+            if (children == null) {
+                if (!canonical.exists()) {
+                    val error = JSONObject()
+                        .put("type", "DIRECTORY_NOT_FOUND")
+                        .put("message", "Diretório inexistente: ${canonical.path}")
+                        .put("path", canonical.path)
+                        .put("volumeId", root.volumeId)
+                    errors.put(error)
+                    errorsByVolume[root.volumeId]?.put(error)
+                } else if (!canonical.isDirectory) {
+                    val error = JSONObject()
+                        .put("type", "DIRECTORY_INVALID")
+                        .put("message", "Entrada não é um diretório: ${canonical.path}")
+                        .put("path", canonical.path)
+                        .put("volumeId", root.volumeId)
+                    errors.put(error)
+                    errorsByVolume[root.volumeId]?.put(error)
+                } else if (!canonical.canRead()) {
+                    val error = JSONObject()
+                        .put("type", "ACCESS_DENIED")
+                        .put("message", "Diretório sem leitura: ${canonical.path}")
+                        .put("path", canonical.path)
+                        .put("volumeId", root.volumeId)
+                    errors.put(error)
+                    errorsByVolume[root.volumeId]?.put(error)
+                }
                 continue
             }
             if (children.any { it.isFile && it.name.equals(".nomedia", ignoreCase = true) }) {

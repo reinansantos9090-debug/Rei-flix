@@ -11,261 +11,164 @@ import org.json.JSONObject
 
 object SafScanner {
     private const val TAG = "[REIFLIX][SAF]"
-    private val videoExtensions = setOf("mp4", "mkv", "webm", "avi", "mov", "m4v", "ts", "m2ts", "flv", "wmv")
+    const val STATUS_EMPTY_COMPLETE = "EMPTY_COMPLETE"
+    const val STATUS_PARTIAL = "PARTIAL"
+    const val STATUS_CANCELLED = "CANCELLED"
+    const val STATUS_FAILED = "FAILED"
+    const val STATUS_REVOKED = "REVOKED"
+    const val STATUS_UNAVAILABLE = "UNAVAILABLE"
+    const val STATUS_COMPLETED = "COMPLETED"
+    private val videoExtensions = setOf("mp4","mkv","webm","avi","mov","m4v","ts","m2ts","flv","wmv")
 
-    fun persistPermission(context: Context, uri: Uri, flags: Int) {
-        val granted = flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        require(granted and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0) { "A pasta não concedeu permissão de leitura." }
-        context.contentResolver.takePersistableUriPermission(uri, granted)
-        check(hasPersistedReadPermission(context, uri)) { "A autorização da pasta não foi persistida." }
-        Log.i(TAG, "SAF permission persisted")
+    data class TreeIdentity(val treeUri:String,val authority:String,val documentId:String,val volumeId:String,val identity:String)
+
+    fun treeIdentity(treeUri:Uri):TreeIdentity {
+        require(treeUri.scheme=="content") { "A árvore SAF precisa usar content://." }
+        require(DocumentsContract.isTreeUri(treeUri)) { "A URI SAF não representa uma árvore." }
+        val authority=treeUri.authority?.trim().orEmpty()
+        require(authority.isNotBlank()) { "A URI SAF não possui autoridade." }
+        val documentId=DocumentsContract.getTreeDocumentId(treeUri).trim()
+        require(documentId.isNotBlank()) { "A árvore SAF não possui Document ID." }
+        val volumeId=if(documentId.contains(":")) documentId.substringBefore(":") else ""
+        return TreeIdentity(treeUri.toString(),authority,documentId,volumeId,"saf:"+authority+":"+documentId)
     }
 
-    fun accessLevel(context: Context, treeUri: Uri): SafAccessLevel =
-        if (hasPersistedReadPermission(context, treeUri)) SafAccessLevel.AVAILABLE else SafAccessLevel.REVOKED
+    fun identityPayload(treeUri:Uri):JSONObject {
+        val i=treeIdentity(treeUri)
+        return JSONObject().put("treeUri",i.treeUri).put("authority",i.authority).put("documentId",i.documentId)
+            .put("volumeId",i.volumeId).put("identity",i.identity)
+    }
 
-    fun hasPersistedReadPermission(context: Context, treeUri: Uri): Boolean {
-        if (treeUri.scheme != "content" || !DocumentsContract.isTreeUri(treeUri)) return false
-        val treeDocumentId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()
-            ?: return false
-        return context.contentResolver.persistedUriPermissions.any { permission ->
-            if (!permission.isReadPermission) return@any false
-            val permissionUri = permission.uri
-            if (permissionUri.scheme != "content" || permissionUri.authority != treeUri.authority) return@any false
-            runCatching {
-                DocumentsContract.isTreeUri(permissionUri) &&
-                    DocumentsContract.getTreeDocumentId(permissionUri) == treeDocumentId
-            }.getOrDefault(false)
+    fun persistPermission(context:Context,uri:Uri,flags:Int) {
+        treeIdentity(uri)
+        val granted=flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        require(granted and Intent.FLAG_GRANT_READ_URI_PERMISSION!=0) { "A pasta não concedeu permissão persistente de leitura." }
+        try { context.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        catch(e:SecurityException) { Log.w(TAG,"Persistable SAF grant rejected",e); throw IllegalStateException("O provedor não permitiu persistir o acesso desta pasta.",e) }
+        check(hasPersistedReadPermission(context,uri)) { "A autorização da pasta não foi persistida." }
+    }
+
+    fun hasPersistedReadPermission(context:Context,treeUri:Uri):Boolean {
+        val expected=runCatching{treeIdentity(treeUri)}.getOrNull() ?: return false
+        return context.contentResolver.persistedUriPermissions.any { p ->
+            if(!p.isReadPermission) return@any false
+            val got=runCatching{treeIdentity(p.uri)}.getOrNull() ?: return@any false
+            got.authority==expected.authority && got.documentId==expected.documentId
         }
     }
 
-    fun isAuthorizedDocument(context: Context, documentUri: Uri): Boolean {
-        if (documentUri.scheme != "content") return false
-        val documentId = runCatching { DocumentsContract.getDocumentId(documentUri) }.getOrNull() ?: return false
-        return context.contentResolver.persistedUriPermissions.any { permission ->
-            if (!permission.isReadPermission || permission.uri.authority != documentUri.authority) return@any false
-            val treeDocumentId = runCatching { DocumentsContract.getTreeDocumentId(permission.uri) }.getOrNull()
-                ?: return@any false
-            val scopedUri = runCatching {
-                DocumentsContract.buildDocumentUriUsingTree(permission.uri, documentId)
-            }.getOrNull() ?: return@any false
-            runCatching {
-                // Keep the persisted tree identity explicit before rebuilding
-                // the document URI; the provider query remains the final
-                // authority/access check for cloud and local providers.
-                if (treeDocumentId.isBlank()) return@runCatching false
-                context.contentResolver.query(
-                    scopedUri,
-                    arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
-                    null,
-                    null,
-                    null,
-                )?.use { cursor -> cursor.moveToFirst() } == true
-            }.getOrDefault(false)
+    fun inspectTree(context:Context,treeUri:Uri,requirePersisted:Boolean):JSONObject {
+        val identity=runCatching{treeIdentity(treeUri)}.getOrElse{return JSONObject().put("status",STATUS_FAILED).put("error",it.message?:"invalid_saf_tree")}
+        val base=identityPayload(treeUri)
+        if(requirePersisted && !hasPersistedReadPermission(context,treeUri)) return base.put("status",STATUS_REVOKED).put("error","persisted_permission_missing")
+        return try {
+            val rootUri=DocumentsContract.buildDocumentUriUsingTree(treeUri,identity.documentId)
+            val cursor=context.contentResolver.query(rootUri,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE),null,null,null)
+            if(cursor==null) return base.put("status",STATUS_UNAVAILABLE).put("error","provider_query_null")
+            val valid=cursor.use { c ->
+                if(!c.moveToFirst()) return@use false
+                val idCol=c.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val mimeCol=c.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                val nameCol=c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                if(idCol<0 || mimeCol<0) return@use false
+                base.put("name",if(nameCol>=0)c.getString(nameCol).orEmpty() else "").put("mimeType",c.getString(mimeCol).orEmpty())
+                c.getString(idCol).orEmpty()==identity.documentId && c.getString(mimeCol).orEmpty()==DocumentsContract.Document.MIME_TYPE_DIR
+            }
+            if(valid) base.put("status",STATUS_COMPLETED) else base.put("status",STATUS_UNAVAILABLE).put("error","provider_root_not_readable")
+        } catch(e:SecurityException) {
+            base.put("status",if(hasPersistedReadPermission(context,treeUri))STATUS_UNAVAILABLE else STATUS_REVOKED).put("error",e.message?:"provider_denied")
+        } catch(e:Exception) {
+            Log.w(TAG,"SAF tree inspection failed",e); base.put("status",STATUS_UNAVAILABLE).put("error",e.message?:"provider_unavailable")
         }
     }
 
-    fun displayName(context: Context, treeUri: Uri): String {
-        return runCatching {
-            DocumentFile.fromTreeUri(context, treeUri)?.name
-        }.getOrNull()?.takeIf { it.isNotBlank() } ?: treeUri.toString()
+    fun isAuthorizedDocument(context:Context,documentUri:Uri):Boolean {
+        if(documentUri.scheme!="content" || !DocumentsContract.isDocumentUri(context,documentUri)) return false
+        val documentId=runCatching{DocumentsContract.getDocumentId(documentUri)}.getOrNull() ?: return false
+        return context.contentResolver.persistedUriPermissions.any { p ->
+            if(!p.isReadPermission) return@any false
+            val tree=runCatching{treeIdentity(p.uri)}.getOrNull() ?: return@any false
+            if(tree.authority!=documentUri.authority) return@any false
+            runCatching{DocumentsContract.buildDocumentUriUsingTree(p.uri,documentId)}.getOrNull()?.let { u ->
+                context.contentResolver.query(u,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),null,null,null)?.use{it.moveToFirst()}==true
+            } ?: false
+        }
     }
 
-    private fun directoryHasNoMedia(resolver: android.content.ContentResolver, treeUri: Uri, parentDocumentId: String): Boolean {
-        val childrenUri = runCatching {
-            DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
-        }.getOrNull() ?: return false
-        return runCatching {
-            resolver.query(
-                childrenUri,
-                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
-                null,
-                null,
-                null,
-            )?.use { cursor ->
-                val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                if (nameColumn < 0) return@use false
-                while (cursor.moveToNext()) {
-                    if (cursor.getString(nameColumn)?.equals(".nomedia", ignoreCase = true) == true) {
-                        return@use true
+    fun displayName(context:Context,treeUri:Uri):String = runCatching{DocumentFile.fromTreeUri(context,treeUri)?.name}.getOrNull()?.takeIf{it.isNotBlank()} ?: treeUri.toString()
+
+    fun scan(context:Context,treeUri:Uri,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false}):JSONObject {
+        val identity=treeIdentity(treeUri)
+        check(hasPersistedReadPermission(context,treeUri)){"A permissão desta pasta foi removida."}
+        val root=DocumentFile.fromTreeUri(context,treeUri) ?: throw IllegalArgumentException("Árvore SAF indisponível")
+        val resolver=context.contentResolver
+        val documents=JSONArray(); val errors=JSONArray()
+        val stats=JSONObject().put("files",0).put("videos",0).put("directories",0).put("excludedNoMedia",0)
+            .put("nomediaDirectories",0).put("nomediaFiles",0).put("metadataMissingSize",0).put("metadataMissingModified",0)
+            .put("mimeFallbacks",0).put("successfulQueries",0).put("failedQueries",0).put("emptyDirectories",0).put("errors",errors)
+        val pending=ArrayDeque<Pair<String,String>>(); val visited=HashSet<String>(); pending.addLast(identity.documentId to "")
+        var cancelled=false; var lastFiles=0; var lastDirs=0
+        onProgress?.invoke(identityPayload(treeUri).put("phase","started").put("source","saf"))
+        while(pending.isNotEmpty()){
+            if(shouldCancel()){cancelled=true;break}
+            val pair=pending.removeLast(); val parentId=pair.first; val currentPath=pair.second
+            if(!visited.add(parentId))continue
+            stats.put("directories",stats.getInt("directories")+1)
+            val childrenUri=runCatching{DocumentsContract.buildChildDocumentsUriUsingTree(treeUri,parentId)}.getOrElse{
+                stats.put("failedQueries",stats.getInt("failedQueries")+1); errors.put("Não foi possível abrir a subpasta: "+currentPath); continue
+            }
+            try{
+                val cursor=resolver.query(childrenUri,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE,DocumentsContract.Document.COLUMN_SIZE,DocumentsContract.Document.COLUMN_LAST_MODIFIED),null,null,null)
+                if(cursor==null){stats.put("failedQueries",stats.getInt("failedQueries")+1);errors.put("O provedor SAF não conseguiu listar: "+currentPath);continue}
+                cursor.use{c->
+                    val idCol=c.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID); val nameCol=c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME); val mimeCol=c.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                    val sizeCol=c.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE); val modCol=c.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                    if(idCol<0||nameCol<0||mimeCol<0){stats.put("failedQueries",stats.getInt("failedQueries")+1);errors.put("O provedor SAF não retornou os dados mínimos em: "+currentPath);return@use}
+                    stats.put("successfulQueries",stats.getInt("successfulQueries")+1)
+                    if(c.count==0){stats.put("emptyDirectories",stats.getInt("emptyDirectories")+1);return@use}
+                    data class Child(val id:String,val name:String,val mime:String,val size:Long?,val modified:Long?)
+                    val children=mutableListOf<Child>(); var hasNoMedia=false
+                    while(c.moveToNext()){
+                        val id=c.getString(idCol)?.trim().orEmpty()
+                        if(id.isBlank()){stats.put("failedQueries",stats.getInt("failedQueries")+1);errors.put("O provedor SAF retornou um documento sem ID em: "+currentPath);continue}
+                        val name=c.getString(nameCol)?.trim().takeUnless{it.isNullOrBlank()} ?: id
+                        if(name.equals(".nomedia",ignoreCase=true)){hasNoMedia=true;stats.put("nomediaFiles",stats.getInt("nomediaFiles")+1);continue}
+                        val mime=c.getString(mimeCol)?.trim().takeUnless{it.isNullOrBlank()} ?: "application/octet-stream"
+                        val size=if(sizeCol>=0&&!c.isNull(sizeCol))c.getLong(sizeCol)else null
+                        val modified=if(modCol>=0&&!c.isNull(modCol))c.getLong(modCol)else null
+                        children.add(Child(id,name,mime,size,modified))
+                    }
+                    if(hasNoMedia){stats.put("excludedNoMedia",stats.getInt("excludedNoMedia")+1).put("nomediaDirectories",stats.getInt("nomediaDirectories")+1);return@use}
+                    for(child in children){
+                        if(shouldCancel()){cancelled=true;break}
+                        val relative=if(currentPath.isEmpty())child.name else currentPath+"/"+child.name
+                        val childUri=runCatching{DocumentsContract.buildDocumentUriUsingTree(treeUri,child.id)}.getOrElse{stats.put("failedQueries",stats.getInt("failedQueries")+1);errors.put("Não foi possível acessar: "+relative);continue}
+                        if(child.mime==DocumentsContract.Document.MIME_TYPE_DIR){pending.addLast(child.id to relative);continue}
+                        stats.put("files",stats.getInt("files")+1)
+                        val extension=child.name.substringAfterLast(".", "").lowercase(); val mimeVideo=child.mime.startsWith("video/"); val extensionVideo=extension in videoExtensions
+                        if(!mimeVideo&&!extensionVideo)continue
+                        if(!mimeVideo)stats.put("mimeFallbacks",stats.getInt("mimeFallbacks")+1)
+                        if(child.size==null)stats.put("metadataMissingSize",stats.getInt("metadataMissingSize")+1)
+                        if(child.modified==null)stats.put("metadataMissingModified",stats.getInt("metadataMissingModified")+1)
+                        documents.put(JSONObject().put("uri",childUri.toString()).put("treeUri",treeUri.toString()).put("documentId",child.id)
+                            .put("name",child.name).put("relativePath",relative).put("volumeId",identity.volumeId).put("volumeUuid",identity.volumeId)
+                            .put("mimeType",child.mime).put("size",child.size?:JSONObject.NULL).put("modifiedAt",child.modified?:JSONObject.NULL)
+                            .put("source","saf").put("scope",identity.identity))
+                        stats.put("videos",stats.getInt("videos")+1)
+                        if(stats.getInt("files")-lastFiles>=100){lastFiles=stats.getInt("files");onProgress?.invoke(identityPayload(treeUri).put("phase","scanning").put("source","saf").put("directories",stats.getInt("directories")).put("files",lastFiles).put("videos",stats.getInt("videos")).put("currentPath",currentPath))}
                     }
                 }
-                false
-            } ?: false
-        }.getOrDefault(false)
-    }
-
-    fun scan(context: Context, treeUri: Uri, onProgress: ((JSONObject) -> Unit)? = null, shouldCancel: () -> Boolean = { false }): JSONObject {
-        check(hasPersistedReadPermission(context, treeUri)) { "A permissão desta pasta foi removida." }
-        val resolver = context.contentResolver
-        val root = DocumentFile.fromTreeUri(context, treeUri)
-            ?: throw IllegalArgumentException("Árvore SAF inválida")
-        val rootDocumentId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }
-            .getOrElse { throw IllegalArgumentException("ID da árvore SAF inválido", it) }
-        val providerVolumeId = if (treeUri.authority == "com.android.externalstorage.documents" && rootDocumentId.contains(":")) {
-            val rawVolume = rootDocumentId.substringBefore(":")
-            if (rawVolume == "primary") "external_primary" else rawVolume
-        } else ""
-
-        val files = JSONArray()
-        val errors = JSONArray()
-        val stats = JSONObject().put("files", 0).put("videos", 0).put("directories", 0).put("excludedNoMedia", 0).put("errors", errors)
-
-        // Query the provider directly instead of relying on DocumentFile.listFiles().
-        // This preserves provider-native document IDs and works for local as well
-        // as cloud-backed DocumentsProviders without converting URIs into paths.
-        val pending = ArrayDeque<Pair<String, String>>()
-        val visited = HashSet<String>()
-        pending.addLast(rootDocumentId to "")
-        var lastProgressFiles = 0
-        var lastProgressDirectories = 0
-
-        var cancelled = false
-        while (pending.isNotEmpty()) {
-            if (shouldCancel()) { cancelled = true; break }
-            val (parentDocumentId, currentPath) = pending.removeLast()
-            if (!visited.add(parentDocumentId)) {
-                continue
-            }
-            if (directoryHasNoMedia(resolver, treeUri, parentDocumentId)) {
-                stats.put("excludedNoMedia", stats.getInt("excludedNoMedia") + 1)
-                continue
-            }
-            stats.put("directories", stats.getInt("directories") + 1)
-            if (stats.getInt("directories") - lastProgressDirectories >= 25) {
-                lastProgressDirectories = stats.getInt("directories")
-                onProgress?.invoke(JSONObject()
-                    .put("directories", lastProgressDirectories)
-                    .put("files", stats.getInt("files"))
-                    .put("videos", stats.getInt("videos"))
-                    .put("pending", pending.size)
-                    .put("currentPath", currentPath))
-            }
-
-            val childrenUri = runCatching {
-                DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
-            }.getOrElse {
-                errors.put("Não foi possível abrir a subpasta: $currentPath")
-                continue
-            }
-
-            try {
-                resolver.query(
-                    childrenUri,
-                    arrayOf(
-                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                        DocumentsContract.Document.COLUMN_MIME_TYPE,
-                        DocumentsContract.Document.COLUMN_SIZE,
-                        DocumentsContract.Document.COLUMN_LAST_MODIFIED,
-                    ),
-                    null,
-                    null,
-                    null,
-                )?.use { cursor ->
-                    val idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-                    val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                    val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
-                    val sizeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
-                    val modifiedColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
-
-                    if (idColumn < 0 || nameColumn < 0 || mimeColumn < 0) {
-                        errors.put("O provedor SAF não retornou os dados necessários em: $currentPath")
-                        return@use
-                    }
-
-                    data class ChildDoc(
-                        val documentId: String,
-                        val name: String,
-                        val mimeType: String,
-                        val size: Long,
-                        val modifiedAt: Long,
-                    )
-                    val children = mutableListOf<ChildDoc>()
-                    var hasNoMedia = false
-
-                    while (cursor.moveToNext()) {
-                        val documentId = cursor.getString(idColumn) ?: continue
-                        val name = cursor.getString(nameColumn) ?: documentId
-                        if (name.equals(".nomedia", ignoreCase = true)) {
-                            hasNoMedia = true
-                            break
-                        }
-                        val mimeType = cursor.getString(mimeColumn) ?: "application/octet-stream"
-                        val size = if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) cursor.getLong(sizeColumn) else 0L
-                        val modifiedAt = if (modifiedColumn >= 0 && !cursor.isNull(modifiedColumn)) cursor.getLong(modifiedColumn) else 0L
-                        children.add(ChildDoc(documentId, name, mimeType, size, modifiedAt))
-                    }
-
-                    if (hasNoMedia) {
-                        stats.put("nomediaDirectories", stats.optInt("nomediaDirectories", 0) + 1)
-                        return@use
-                    }
-
-                    for (child in children) {
-                        val relativePath = if (currentPath.isEmpty()) child.name else "$currentPath/${child.name}"
-                        val childUri = runCatching {
-                            DocumentsContract.buildDocumentUriUsingTree(treeUri, child.documentId)
-                        }.getOrElse {
-                            errors.put("Não foi possível acessar: $relativePath")
-                            continue
-                        }
-
-                        if (child.mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
-                            pending.addLast(child.documentId to relativePath)
-                            continue
-                        }
-
-                        stats.put("files", stats.getInt("files") + 1)
-                        if (stats.getInt("files") - lastProgressFiles >= 100) {
-                            lastProgressFiles = stats.getInt("files")
-                            onProgress?.invoke(JSONObject()
-                                .put("directories", stats.getInt("directories"))
-                                .put("files", lastProgressFiles)
-                                .put("videos", stats.getInt("videos"))
-                                .put("pending", pending.size)
-                                .put("currentPath", currentPath))
-                        }
-                        val extension = child.name.substringAfterLast('.', "").lowercase()
-                        val isVideo = extension in videoExtensions || child.mimeType.startsWith("video/")
-                        if (!isVideo) continue
-
-                        files.put(JSONObject()
-                            .put("uri", childUri.toString())
-                            .put("treeUri", treeUri.toString())
-                            .put("documentId", child.documentId)
-                            .put("name", child.name)
-                            .put("relativePath", relativePath)
-                            .put("volumeId", providerVolumeId)
-                            .put("mimeType", child.mimeType)
-                            .put("size", child.size)
-                            .put("modifiedAt", child.modifiedAt))
-                        stats.put("videos", stats.getInt("videos") + 1)
-                    }
-                } ?: errors.put("O provedor SAF não conseguiu listar: $currentPath")
-            } catch (exception: Exception) {
-                Log.w(TAG, "SAF provider query failed for $currentPath", exception)
-                errors.put("Não foi possível ler: $currentPath")
-            }
+            }catch(e:SecurityException){stats.put("failedQueries",stats.getInt("failedQueries")+1);errors.put("A autorização do provedor SAF foi negada ao ler: "+currentPath);Log.w(TAG,"SAF SecurityException",e)
+            }catch(e:Exception){stats.put("failedQueries",stats.getInt("failedQueries")+1);errors.put("Não foi possível ler: "+currentPath);Log.w(TAG,"SAF provider query failed",e)}
+            if(stats.getInt("directories")-lastDirs>=25){lastDirs=stats.getInt("directories");onProgress?.invoke(identityPayload(treeUri).put("phase","scanning").put("source","saf").put("directories",lastDirs).put("files",stats.getInt("files")).put("videos",stats.getInt("videos")).put("currentPath",currentPath))}
         }
-
-        onProgress?.invoke(JSONObject()
-            .put("directories", stats.getInt("directories"))
-            .put("files", stats.getInt("files"))
-            .put("videos", stats.getInt("videos"))
-            .put("pending", 0)
-            .put("currentPath", "").put("cancelled", cancelled))
-        val partial = errors.length() > 0 || cancelled
-        Log.i(
-            TAG,
-            "SAF scan finished: directories=${stats.getInt("directories")}, files=${stats.getInt("files")}, videos=${stats.getInt("videos")}, partial=$partial"
-        )
-        return JSONObject()
-            .put("treeUri", treeUri.toString())
-            .put("name", root.name ?: treeUri.toString())
-            .put("documents", files)
-            .put("stats", stats)
-            .put("partial", partial)
-            .put("cancelled", cancelled)
+        if(shouldCancel())cancelled=true
+        val failed=stats.getInt("failedQueries"); val successful=stats.getInt("successfulQueries"); val fileCount=stats.getInt("files")
+        val status=when{cancelled->STATUS_CANCELLED;successful==0&&failed>0->STATUS_UNAVAILABLE;failed>0->STATUS_PARTIAL;fileCount==0->STATUS_EMPTY_COMPLETE;else->STATUS_COMPLETED}
+        val partial=status==STATUS_PARTIAL||status==STATUS_UNAVAILABLE
+        stats.put("status",status).put("emptyComplete",status==STATUS_EMPTY_COMPLETE)
+        onProgress?.invoke(identityPayload(treeUri).put("phase","finished").put("source","saf").put("status",status).put("directories",stats.getInt("directories")).put("files",fileCount).put("videos",stats.getInt("videos")).put("cancelled",cancelled))
+        return identityPayload(treeUri).put("name",root.name?:treeUri.toString()).put("scope",identity.identity).put("documents",documents)
+            .put("stats",stats).put("status",status).put("partial",partial).put("cancelled",cancelled)
     }
 }

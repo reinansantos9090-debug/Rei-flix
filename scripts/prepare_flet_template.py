@@ -78,12 +78,14 @@ for permission, max_sdk in permission_specs:
         if node.get(permission_attr) == permission
     ]
     if existing_nodes:
+        # Keep exactly one declaration for each ReiFlix storage permission.
+        # Templates can already contain the permission, and duplicate nodes
+        # make the generated contract harder to reason about.
+        keep = existing_nodes[0]
+        for duplicate in existing_nodes[1:]:
+            manifest.remove(duplicate)
         if permission == "android.permission.READ_EXTERNAL_STORAGE" and max_sdk is not None:
-            # A Flet template may already declare the legacy permission.
-            # Normalize it instead of leaving an unbounded READ_EXTERNAL_STORAGE
-            # entry in the effective manifest.
-            for node in existing_nodes:
-                node.set("{" + ANDROID + "}maxSdkVersion", max_sdk)
+            keep.set("{" + ANDROID + "}maxSdkVersion", max_sdk)
         continue
     attrs = {permission_attr: permission}
     if max_sdk is not None:

@@ -758,34 +758,69 @@ async def main(page: ft.Page):
                             refresh_settings_if_active()
                         elif event_type == 'saf_inventory':
                             trees = payload.get('trees') or []
-                            current_uris = {
-                                str(item.get('treeUri'))
-                                for item in trees
-                                if isinstance(item, dict) and item.get('treeUri')
+                            inventory_complete = bool(payload.get('inventoryComplete'))
+                            status_by_uri = {}
+                            for item in trees:
+                                if not isinstance(item, dict) or not item.get('treeUri'):
+                                    continue
+                                status_by_uri[str(item.get('treeUri'))] = item
+                            available_uris = {
+                                uri for uri, item in status_by_uri.items()
+                                if str(item.get('status') or '').upper() in {'COMPLETED', 'EMPTY_COMPLETE'}
                             }
-                            update_saf_capabilities(current_uris)
+                            update_saf_capabilities(available_uris)
                             logger.info(
                                 "[STORAGE] action=saf_inventory native_result=received "
-                                "count=%s lifecycle=%s",
-                                len(current_uris),
+                                "persisted=%s available=%s lifecycle=%s complete=%s",
+                                len(status_by_uri),
+                                len(available_uris),
                                 payload.get('lifecycle', '-'),
+                                inventory_complete,
                             )
-                            for folder in store.folders():
-                                if folder.get('kind') != 'saf':
-                                    continue
-                                reference = str(folder.get('path') or '')
-                                if not reference:
-                                    continue
-                                if reference in current_uris:
-                                    if folder.get('authorization') != 'granted':
-                                        store.update_folder_status(reference, 'granted')
+                            for reference, item in status_by_uri.items():
+                                status = str(item.get('status') or 'UNAVAILABLE').upper()
+                                folder = next((f for f in store.folders() if f.get('path') == reference), None)
+                                if folder is None and status in {'COMPLETED', 'EMPTY_COMPLETE'}:
+                                    store.add_folder(
+                                        reference,
+                                        name=item.get('name') or reference.rsplit('/', 1)[-1],
+                                        kind='saf',
+                                        authorization='granted',
+                                        account_id=store.account().get('id'),
+                                        saf_authority=item.get('authority') or None,
+                                        saf_document_id=item.get('documentId') or None,
+                                        saf_volume_id=item.get('volumeId') or None,
+                                        saf_identity=item.get('identity') or None,
+                                    )
+                                elif folder is not None:
+                                    store.update_saf_identity(
+                                        reference,
+                                        item.get('authority') or '',
+                                        item.get('documentId') or '',
+                                        item.get('volumeId') or None,
+                                        item.get('identity') or None,
+                                    )
+                                if status in {'COMPLETED', 'EMPTY_COMPLETE'}:
+                                    store.update_folder_status(reference, 'granted')
                                     store.restore_source(reference)
-                                else:
+                                elif status == 'REVOKED':
+                                    store.update_folder_status(reference, 'revoked', item.get('error') or 'A autorização SAF desta pasta foi removida.')
+                                    store.mark_source_unavailable(reference, 'saf_permission_revoked')
+                                elif status in {'UNAVAILABLE', 'PARTIAL', 'FAILED'}:
+                                    store.update_folder_status(reference, 'unavailable', item.get('error') or 'O provedor SAF está indisponível.')
+                                    store.mark_source_unavailable(reference, 'saf_provider_unavailable')
+                            if inventory_complete:
+                                known_saf = {
+                                    str(f.get('path') or '') for f in store.folders()
+                                    if f.get('kind') == 'saf' and f.get('path')
+                                }
+                                for reference in known_saf - set(status_by_uri):
                                     store.update_folder_status(
                                         reference,
                                         'revoked',
                                         'A autorização SAF desta pasta não está mais presente no Android.',
                                     )
+                                    store.mark_source_unavailable(reference, 'saf_permission_revoked')
                             refresh_settings_if_active()
                             maybe_show_storage_onboarding()
                         elif event_type == 'saf_cancelled':
@@ -800,9 +835,6 @@ async def main(page: ft.Page):
                             tree_uri = payload.get('treeUri')
                             if tree_uri:
                                 if payload.get('granted'):
-                                    # A freshly selected tree must be registered before
-                                    # scanning so a provider failure does not make the
-                                    # user's persisted permission disappear from Settings.
                                     if payload.get('selected'):
                                         store.add_folder(
                                             tree_uri,
@@ -810,9 +842,20 @@ async def main(page: ft.Page):
                                             kind='saf',
                                             authorization='granted',
                                             account_id=store.account().get('id'),
+                                            saf_authority=payload.get('authority') or None,
+                                            saf_document_id=payload.get('documentId') or None,
+                                            saf_volume_id=payload.get('volumeId') or None,
+                                            saf_identity=payload.get('identity') or None,
                                         )
                                     else:
                                         store.update_folder_status(tree_uri, 'granted')
+                                        store.update_saf_identity(
+                                            tree_uri,
+                                            payload.get('authority') or '',
+                                            payload.get('documentId') or '',
+                                            payload.get('volumeId') or None,
+                                            payload.get('identity') or None,
+                                        )
                                 else:
                                     store.update_folder_status(tree_uri, 'revoked', 'A permissão desta pasta foi removida.')
                                     store.mark_source_unavailable(tree_uri, 'saf_permission_revoked')
@@ -840,7 +883,16 @@ async def main(page: ft.Page):
                                     refresh_settings_if_active()
                                     continue
                                 if tree_uri:
-                                    store.update_folder_status(tree_uri, 'revoked', event.get('message', 'Não foi possível acessar a pasta.'))
+                                    status = str(payload.get('status') or '').upper()
+                                    if status == 'REVOKED':
+                                        store.update_folder_status(tree_uri, 'revoked', event.get('message', 'A autorização SAF foi removida.'))
+                                        store.mark_source_unavailable(tree_uri, 'saf_permission_revoked')
+                                    elif status in {'UNAVAILABLE', 'FAILED', 'PARTIAL'}:
+                                        store.update_folder_status(tree_uri, 'unavailable', event.get('message', 'O provedor SAF está indisponível.'))
+                                        store.mark_source_unavailable(tree_uri, 'saf_provider_unavailable')
+                                    else:
+                                        store.update_folder_status(tree_uri, 'unavailable', event.get('message', 'Não foi possível acessar a pasta.'))
+                                        store.mark_source_unavailable(tree_uri, 'saf_scan_error')
                                 # A re-scan has no successful result event to clear
                                 # its lock.  Without this, Settings can remain on its
                                 # disabled loading button after one revoked grant.

@@ -15,6 +15,7 @@ from pathlib import Path
 REQUIRED_CLASSES = (
     b"Lcom/reiflix/reiflix_local/MainActivity;",
     b"Lcom/reiflix/reiflix_local/NativeMailbox;",
+    b"Lcom/reiflix/reiflix_local/NativeRequestState;",
     b"Lcom/reiflix/reiflix_local/SafScanner;",
     b"Lcom/reiflix/reiflix_local/MediaStoreScanner;",
     b"Lcom/reiflix/reiflix_local/BroadStorageScanner;",

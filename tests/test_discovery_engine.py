@@ -6,7 +6,7 @@ from core.library_service import LibraryService
 from core.library_store import LibraryStore
 
 
-class Prompt3DiscoveryEngineTests(unittest.TestCase):
+class DiscoveryEngineTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = LibraryStore(self.tmp.name)
@@ -36,7 +36,7 @@ class Prompt3DiscoveryEngineTests(unittest.TestCase):
         return self.service.ingest_documents(
             source,
             docs,
-            folder_name="Prompt3",
+            folder_name="DiscoverySample",
             source_kind=source_kind,
             scan_id=scan_id,
             scope_kind=scope_kind,

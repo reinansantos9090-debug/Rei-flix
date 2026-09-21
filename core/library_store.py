@@ -97,7 +97,11 @@ class LibraryStore:
             CREATE TABLE IF NOT EXISTS scan_runs (
               id INTEGER PRIMARY KEY, started_at REAL NOT NULL, finished_at REAL, status TEXT NOT NULL DEFAULT 'running', folders INTEGER DEFAULT 0,
               files INTEGER DEFAULT 0, videos INTEGER DEFAULT 0, animes INTEGER DEFAULT 0,
-              episodes INTEGER DEFAULT 0, new_files INTEGER DEFAULT 0, updated_files INTEGER DEFAULT 0, unchanged_files INTEGER DEFAULT 0, ignored_files INTEGER DEFAULT 0, duplicate_files INTEGER DEFAULT 0, unknown_files INTEGER DEFAULT 0, reconciled_files INTEGER DEFAULT 0, scan_id TEXT, source_kind TEXT, scope_kind TEXT, scope_ref TEXT, native_generation INTEGER, generation_id TEXT, generation_status TEXT, cancelled INTEGER NOT NULL DEFAULT 0, errors TEXT NOT NULL DEFAULT '[]');
+              episodes INTEGER DEFAULT 0, new_files INTEGER DEFAULT 0, updated_files INTEGER DEFAULT 0, unchanged_files INTEGER DEFAULT 0, ignored_files INTEGER DEFAULT 0, duplicate_files INTEGER DEFAULT 0, unknown_files INTEGER DEFAULT 0, reconciled_files INTEGER DEFAULT 0,
+              scan_id TEXT, request_id TEXT, source TEXT, volume_id TEXT, scope TEXT, source_kind TEXT, scope_kind TEXT, scope_ref TEXT,
+              native_generation INTEGER, generation_id TEXT, generation_status TEXT, cancelled INTEGER NOT NULL DEFAULT 0,
+              batch_id TEXT, batch_number INTEGER DEFAULT 0, batch_size INTEGER DEFAULT 0, discovered INTEGER DEFAULT 0, processed INTEGER DEFAULT 0, inserted_files INTEGER DEFAULT 0, removed_files INTEGER DEFAULT 0, elapsed_ms INTEGER DEFAULT 0,
+              errors TEXT NOT NULL DEFAULT '[]');
             ''')
             # Migration for databases made by earlier versions.
             existing = {r[1] for r in c.execute("PRAGMA table_info(folders)")}
@@ -126,7 +130,15 @@ class LibraryStore:
             c.execute("CREATE INDEX IF NOT EXISTS idx_folders_account ON folders(account_id)")
             c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_saf_identity ON folders(saf_identity) WHERE saf_identity IS NOT NULL")
             scan_columns = {r[1] for r in c.execute("PRAGMA table_info(scan_runs)")}
-            for column, definition in {
+            for column, definition in {            for column, definition in {
+                "request_id": "TEXT", "source": "TEXT", "volume_id": "TEXT", "scope": "TEXT",
+                "batch_id": "TEXT", "batch_number": "INTEGER DEFAULT 0", "batch_size": "INTEGER DEFAULT 0",
+                "discovered": "INTEGER DEFAULT 0", "processed": "INTEGER DEFAULT 0",
+                "inserted_files": "INTEGER DEFAULT 0", "removed_files": "INTEGER DEFAULT 0", "elapsed_ms": "INTEGER DEFAULT 0",
+            }.items():
+                if column not in scan_columns:
+                    c.execute(f"ALTER TABLE scan_runs ADD COLUMN {column} {definition}")
+
                 "status": "TEXT NOT NULL DEFAULT 'running'", "new_files": "INTEGER DEFAULT 0", "updated_files": "INTEGER DEFAULT 0",
                 "unchanged_files": "INTEGER DEFAULT 0", "ignored_files": "INTEGER DEFAULT 0", "duplicate_files": "INTEGER DEFAULT 0",
                 "unknown_files": "INTEGER DEFAULT 0", "reconciled_files": "INTEGER DEFAULT 0", "scan_id": "TEXT",
@@ -582,6 +594,63 @@ class LibraryStore:
             )
             return cur.lastrowid
 
+    def has_observation_for_generation(self, uri, *, source_kind, scope_kind, scope_ref=None, native_generation=None):
+        uri = str(uri or "").strip()
+        if not uri or native_generation is None:
+            return False
+        with self._conn() as c:
+            row = c.execute(
+                """SELECT 1 FROM episode_observations
+                   WHERE uri=? AND source_kind=? AND scope_kind=? AND scope_ref=?
+                     AND native_generation=? LIMIT 1""",
+                (uri, str(source_kind or "unknown").casefold(), str(scope_kind or "source").casefold(),
+                 self._scope_ref(scope_ref), int(native_generation)),
+            ).fetchone()
+            return row is not None
+
+    def update_scan_progress(self, run_id, summary, *, request_id=None, source=None, volume_id=None, scope=None,
+                             batch_id=None, batch_number=None, batch_size=None, discovered=None, processed=None,
+                             inserted=None, removed=None, elapsed_ms=None, errors=None):
+        """Update one running scan atomically without replacing its counters."""
+        if not run_id:
+            return False
+        with self._conn() as c:
+            row = c.execute("SELECT errors FROM scan_runs WHERE id=?", (run_id,)).fetchone()
+            existing_errors = []
+            if row:
+                try:
+                    existing_errors = json.loads(row["errors"] or "[]")
+                except (TypeError, json.JSONDecodeError):
+                    existing_errors = []
+            if not isinstance(existing_errors, list):
+                existing_errors = []
+            for item in (errors or []):
+                if str(item) not in existing_errors:
+                    existing_errors.append(str(item))
+            c.execute(
+                """UPDATE scan_runs SET
+                    files=files+?, videos=videos+?, new_files=new_files+?, updated_files=updated_files+?,
+                    unchanged_files=unchanged_files+?, ignored_files=ignored_files+?,
+                    duplicate_files=duplicate_files+?, unknown_files=unknown_files+?, reconciled_files=reconciled_files+?,
+                    request_id=COALESCE(?,request_id), source=COALESCE(?,source), volume_id=COALESCE(?,volume_id),
+                    scope=COALESCE(?,scope), batch_id=COALESCE(?,batch_id),
+                    batch_number=COALESCE(?,batch_number), batch_size=COALESCE(?,batch_size),
+                    discovered=COALESCE(?,discovered), processed=COALESCE(?,processed),
+                    inserted_files=COALESCE(?,inserted_files), removed_files=COALESCE(?,removed_files),
+                    elapsed_ms=COALESCE(?,elapsed_ms), errors=?
+                   WHERE id=?""",
+                (
+                    int(summary.get("files", 0)), int(summary.get("videos", 0)),
+                    int(summary.get("new", 0)), int(summary.get("updated", 0)),
+                    int(summary.get("unchanged", 0)), int(summary.get("ignored", 0)),
+                    int(summary.get("duplicates", 0)), int(summary.get("unknown", 0)),
+                    int(summary.get("reconciled", 0)), request_id, source, volume_id, scope,
+                    batch_id, batch_number, batch_size, discovered, processed, inserted, removed,
+                    elapsed_ms, json.dumps(existing_errors, ensure_ascii=False), run_id,
+                ),
+            )
+            return True
+
     def finish_scan(self, run_id, summary):
         status = str(summary.get("status", "completed") or "completed").casefold()
         cancelled = bool(summary.get("cancelled")) or status in {"cancelled", "canceled"}
@@ -590,11 +659,17 @@ class LibraryStore:
         with self._conn() as c:
             c.execute("""UPDATE scan_runs SET finished_at=?,status=?,folders=?,files=?,videos=?,animes=?,episodes=?,
                          new_files=?,updated_files=?,unchanged_files=?,ignored_files=?,duplicate_files=?,unknown_files=?,reconciled_files=?,
-                         generation_status=?,cancelled=?,errors=? WHERE id=?""",
+                         generation_status=?,cancelled=?,discovered=?,processed=?,inserted_files=?,removed_files=?,
+                         elapsed_ms=?,errors=? WHERE id=?""",
                       (time.time(), final_status, summary.get("folders", 0), summary.get("files", 0), summary.get("videos", 0),
                        summary.get("animes", 0), summary.get("episodes", 0), summary.get("new", 0), summary.get("updated", 0),
                        summary.get("unchanged", 0), summary.get("ignored", 0), summary.get("duplicates", 0),
                        summary.get("unknown", 0), summary.get("reconciled", 0), generation_status, int(cancelled),
+                       int(summary.get("discovered", summary.get("files", 0)) or 0),
+                       int(summary.get("processed", summary.get("files", 0)) or 0),
+                       int(summary.get("inserted", summary.get("new", 0)) or 0),
+                       int(summary.get("removed", summary.get("reconciled", 0)) or 0),
+                       int(summary.get("elapsed_ms", 0) or 0),
                        json.dumps(summary.get("errors", []), ensure_ascii=False), run_id))
 
     def last_scan(self):
@@ -1214,6 +1289,48 @@ class LibraryStore:
                  None, row["media_identity"], now, now, now,
                  "missing" if row["missing"] else "available"),
             )
+
+    def reconcile_scope_generation(self, source_folder, *, source_kind, scope_kind, scope_ref=None, native_generation=None, complete=False):
+        """Reconcile only after a trusted complete generation, without a document-sized seen set."""
+        if not complete or native_generation is None:
+            return 0
+        source_kind = self._infer_source_kind(source_folder, source_kind)
+        scope_kind = str(scope_kind or "source").strip().casefold()
+        scope_ref = self._scope_ref(scope_ref)
+        generation = int(native_generation)
+        now = time.time()
+        with self._conn() as c:
+            self._seed_legacy_scope_observations_locked(c, source_folder, source_kind, scope_kind, scope_ref)
+            rows = c.execute(
+                """SELECT id,episode_id,native_generation FROM episode_observations
+                   WHERE source_kind=? AND scope_kind=? AND scope_ref=?""",
+                (source_kind, scope_kind, scope_ref),
+            ).fetchall()
+            affected = set()
+            for row in rows:
+                state = "available" if row["native_generation"] == generation else "missing"
+                c.execute(
+                    "UPDATE episode_observations SET state=?,last_checked_at=? WHERE id=?",
+                    (state, now, row["id"]),
+                )
+                affected.add(int(row["episode_id"]))
+            for episode_id in affected:
+                self._recompute_episode_availability_locked(c, episode_id)
+            return len(affected)
+
+    def generation_anime_ids(self, *, source_kind, scope_kind, scope_ref=None, native_generation=None):
+        if native_generation is None:
+            return set()
+        with self._conn() as c:
+            rows = c.execute(
+                """SELECT DISTINCT e.anime_id
+                   FROM episodes e
+                   JOIN episode_observations o ON o.episode_id=e.id
+                   WHERE o.source_kind=? AND o.scope_kind=? AND o.scope_ref=? AND o.native_generation=?""",
+                (str(source_kind or "unknown").casefold(), str(scope_kind or "source").casefold(),
+                 self._scope_ref(scope_ref), int(native_generation)),
+            ).fetchall()
+            return {int(row["anime_id"]) for row in rows}
 
     def reconcile_scope(self, source_folder, seen, *, source_kind=None, scope_kind="source", scope_ref=None, complete=False):
         if not complete:

@@ -263,8 +263,7 @@ class LibraryStore:
         self.set_native_volume_states(list(merged.values()))
         if event_at:
             self.set_preference("native_volume_event_at", max(event_at, last_event_at))
-        merged["__ignored__"] = False
-        return merged
+        return {"ignored": False, "volumes": merged}
 
     def native_volume_states(self):
         raw = self.get_preference("native_volume_states", "{}")

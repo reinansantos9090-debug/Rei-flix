@@ -52,9 +52,14 @@ object StorageAuthorization {
 
     private fun safIdentity(value: String): String? = runCatching {
         val uri = Uri.parse(value.trim())
-        if (uri.scheme != "content" || !DocumentsContract.isTreeUri(uri)) return@runCatching null
+        if (uri.scheme != "content") return@runCatching null
         val authority = uri.authority?.trim().orEmpty()
-        val documentId = DocumentsContract.getTreeDocumentId(uri).trim()
+        val segments = uri.pathSegments
+        val treeIndex = segments.indexOfFirst { it == "tree" }
+        val documentId = if (treeIndex >= 0) {
+            runCatching { DocumentsContract.getTreeDocumentId(uri) }
+                .getOrElse { segments.getOrNull(treeIndex + 1).orEmpty() }
+        } else ""
         if (authority.isBlank() || documentId.isBlank()) null else "$authority:$documentId"
     }.getOrNull()
 

@@ -466,6 +466,54 @@ async def main(page: ft.Page):
             if pending_native_scans[0] == 0:
                 scan_in_progress[0] = False
 
+        async def ingest_native_batch(event_type, payload, event_request_id):
+            source_map = {
+                "saf_scan_batch": ("saf", "root"),
+                "broad_storage_scan_batch": ("broad_storage", "volume"),
+                "mediastore_scan_batch": ("mediastore", "volume"),
+            }
+            source_kind, default_scope_kind = source_map[event_type]
+            documents = payload.get("documents") or []
+            scope_kind = payload.get("scopeKind") or default_scope_kind
+            scope_ref = payload.get("scopeRef") or payload.get("scope") or payload.get("volumeId") or event_type
+            result = await asyncio.to_thread(
+                library.ingest_documents_batch,
+                payload.get("scope") or payload.get("treeUri") or source_kind,
+                documents,
+                source_kind=source_kind,
+                scan_id=payload.get("scanId"),
+                scope_kind=scope_kind,
+                scope_ref=scope_ref,
+                scan_generation=payload.get("scanGeneration"),
+                generation_id=payload.get("generationId"),
+                request_id=event_request_id,
+                batch_id=payload.get("batchId"),
+                batch_number=payload.get("batchNumber") or 0,
+                batch_size=payload.get("batchSize"),
+                folder_name=payload.get("name") or None,
+            )
+            diagnostics.record(
+                "SCAN_BATCH",
+                request_id=event_request_id,
+                scan_id=payload.get("scanId"),
+                source=source_kind,
+                result="INGESTED" if not result.get("ignored") else "IGNORED",
+                counts={
+                    "batchId": payload.get("batchId"),
+                    "batchNumber": payload.get("batchNumber") or 0,
+                    "batchSize": payload.get("batchSize") or len(documents),
+                    "processed": result.get("files", 0),
+                    "discovered": len(documents),
+                    "inserted": result.get("new", 0),
+                    "updated": result.get("updated", 0),
+                    "unchanged": result.get("unchanged", 0),
+                    "duplicates": result.get("duplicates", 0),
+                    "errors": len(result.get("errors") or []),
+                    "elapsedMs": result.get("elapsed_ms", 0),
+                },
+            )
+            return result
+
         poll_interval = 0.1
         while True:
             try:
@@ -503,6 +551,9 @@ async def main(page: ft.Page):
                                 'saf_scan_progress': 'SCAN_PROGRESS',
                                 'broad_storage_scan_progress': 'SCAN_PROGRESS',
                                 'mediastore_scan_progress': 'SCAN_PROGRESS',
+                                'saf_scan_batch': 'SCAN_BATCH',
+                                'broad_storage_scan_batch': 'SCAN_BATCH',
+                                'mediastore_scan_batch': 'SCAN_BATCH',
                                 'saf_scan': 'SCAN_COMPLETED',
                                 'broad_storage_scan': 'SCAN_COMPLETED',
                                 'mediastore_scan': 'SCAN_COMPLETED',
@@ -518,6 +569,22 @@ async def main(page: ft.Page):
                                                    error=event.get('message'))
                         # Every native event updates one compact UI state projection.
                         # The projection is diagnostic only; Android remains authoritative.
+                        if event_type in {'saf_scan_batch', 'broad_storage_scan_batch', 'mediastore_scan_batch'}:
+                            try:
+                                await ingest_native_batch(event_type, payload, event_request_id)
+                                set_scan_state(
+                                    ScanUiState.SCANNING,
+                                    source=payload.get('source') or event_type.replace('_scan_batch',''),
+                                    volume=payload.get('volumeId'),
+                                    scan_id=payload.get('scanId'),
+                                    found=payload.get('processed') or payload.get('batchSize') or 0,
+                                    files=payload.get('processed') or payload.get('batchSize') or 0,
+                                    timestamp=event.get('createdAt'),
+                                )
+                                safe_update()
+                            except Exception as exc:
+                                logger.exception("[STORAGE] batch ingest failed: %s", exc)
+                                page.snack_bar=ft.SnackBar(ft.Text('Não foi possível processar um lote da biblioteca.')); page.snack_bar.open=True; safe_update()
                         if event_type in {'saf_scan_progress', 'broad_storage_scan_progress', 'mediastore_scan_progress'}:
                             phase = str(payload.get('phase') or 'scanning').upper()
                             native_state = ScanUiState.SCANNING if phase not in {'STARTED', 'CHECKING'} else ScanUiState.CHECKING
@@ -579,8 +646,25 @@ async def main(page: ft.Page):
                                 tree_uri = payload.get('treeUri', '')
                                 if not tree_uri:
                                     raise ValueError('Resultado SAF sem pasta de origem.')
-                                diagnostics.record("PYTHON_INGEST", request_id=request_id, scan_id=payload.get('scanId'), source="saf")
-                                catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats, scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'root', scope_ref=payload.get('scopeRef') or None, scan_generation=payload.get('scanGeneration'))
+                                diagnostics.record("PYTHON_INGEST_FINAL", request_id=request_id, scan_id=payload.get('scanId'), source="saf")
+                                if payload.get('documents'):
+                                    catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats, scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'root', scope_ref=payload.get('scopeRef') or None, scan_generation=payload.get('scanGeneration'))
+                                else:
+                                    final_result=await asyncio.to_thread(
+                                        library.finish_ingest_documents,
+                                        tree_uri,
+                                        source_kind="saf",
+                                        scan_id=payload.get('scanId'),
+                                        scope_kind=payload.get('scopeKind') or 'root',
+                                        scope_ref=payload.get('scopeRef') or tree_uri,
+                                        scan_generation=payload.get('scanGeneration'),
+                                        generation_id=payload.get('generationId'),
+                                        status=payload.get('status') or stats.get('status') or 'completed',
+                                        folder_name=payload.get('name'),
+                                        scan_errors=stats.get('errors', []),
+                                        scan_stats=stats,
+                                    )
+                                    catalog=final_result.catalog
                                 videos = int(stats.get('videos') or 0)
                                 status = str(payload.get('status') or stats.get('status') or '').upper()
                                 partial = bool(payload.get('partial') or stats.get('errors') or status in {'PARTIAL', 'UNAVAILABLE'})
@@ -650,13 +734,21 @@ async def main(page: ft.Page):
                                         if not scope.get('complete'):
                                             scope_stats['partial'] = True
                                         diagnostics.record("PYTHON_INGEST", request_id=request_id, scan_id=scan_id, source=source)
-                                        catalog = await asyncio.to_thread(
-                                            library.ingest_documents, source, scope.get('documents') or [],
-                                            folder_name=payload.get('name') or 'Armazenamento local',
-                                            scan_errors=scope_errors, scan_stats=scope_stats, source_kind='broad_storage',
-                                            scan_id=scan_id, scope_kind='volume', scope_ref=volume,
+                                        final_result = await asyncio.to_thread(
+                                            library.finish_ingest_documents,
+                                            source,
+                                            source_kind='broad_storage',
+                                            scan_id=scan_id,
+                                            scope_kind='volume',
+                                            scope_ref=volume,
                                             scan_generation=scope.get('scanGeneration'),
+                                            generation_id=scope.get('generationId'),
+                                            status=scope.get('status') or ('completed' if scope.get('complete') else 'partial'),
+                                            folder_name=payload.get('name') or 'Armazenamento local',
+                                            scan_errors=scope_errors,
+                                            scan_stats=scope_stats,
                                         )
+                                        catalog = final_result.catalog
                                 else:
                                     diagnostics.record("PYTHON_INGEST", request_id=request_id, scan_id=payload.get('scanId'), source=source)
                                     catalog = await asyncio.to_thread(
@@ -766,13 +858,21 @@ async def main(page: ft.Page):
                                             scope_stats['errors'] = scope_errors
                                         if not scope.get('complete'):
                                             scope_stats['partial'] = True
-                                        catalog = await asyncio.to_thread(
-                                            library.ingest_documents, source, scope.get('documents') or [],
-                                            folder_name=payload.get('name') or 'Vídeos do dispositivo',
-                                            scan_errors=scope_errors, scan_stats=scope_stats, source_kind='mediastore',
-                                            scan_id=scan_id, scope_kind='volume', scope_ref=volume,
+                                        final_result = await asyncio.to_thread(
+                                            library.finish_ingest_documents,
+                                            source,
+                                            source_kind='mediastore',
+                                            scan_id=scan_id,
+                                            scope_kind='volume',
+                                            scope_ref=volume,
                                             scan_generation=scope.get('scanGeneration'),
+                                            generation_id=scope.get('generationId'),
+                                            status=scope.get('status') or ('completed' if scope.get('complete') else 'partial'),
+                                            folder_name=payload.get('name') or 'Vídeos do dispositivo',
+                                            scan_errors=scope_errors,
+                                            scan_stats=scope_stats,
                                         )
+                                        catalog = final_result.catalog
                                 else:
                                     catalog = await asyncio.to_thread(
                                         library.ingest_documents, source, payload.get('documents') or [],

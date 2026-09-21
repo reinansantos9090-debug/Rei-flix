@@ -279,4 +279,25 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn('"saf_scan_progress"', source)
         self.assertIn('"broad_storage_scan_progress"', source)
         self.assertIn('"mediastore_scan_progress"', source)
+    def test_long_native_scan_uses_application_context_for_mailbox_callbacks(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        scan_block = source[source.index("private fun scanTree"):source.index("    private fun requestMediaAccess", source.index("private fun scanTree"))]
+        broad_block = source[source.index("private fun scanAllStorage"):source.index("    private fun scanMediaStore", source.index("private fun scanAllStorage"))]
+        media_block = source[source.index("private fun scanMediaStore"):source.index("    private fun cancelNativeScans", source.index("private fun scanMediaStore"))]
+        for block in (scan_block, broad_block, media_block):
+            self.assertIn("val appContext = applicationContext", block)
+            self.assertNotIn("NativeMailbox.write(this@MainActivity", block)
+
+    def test_native_bridge_orders_events_by_creation_time(self):
+        source = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
+        self.assertIn("def _event_time(event: dict)", source)
+        self.assertIn("indexed.sort(key=lambda item: (self._event_time(item[1]), item[0]))", source)
+        self.assertIn('"createdAt"', source)
+
+    def test_native_bridge_retains_failed_requeue_events(self):
+        source = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
+        self.assertIn("self._retained: set[Path]", source)
+        self.assertIn("self._retained.add(consumed)", source)
+        self.assertIn("if consumed in self._retained:", source)
+
 if __name__ == "__main__": unittest.main()

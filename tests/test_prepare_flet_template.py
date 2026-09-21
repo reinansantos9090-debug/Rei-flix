@@ -21,6 +21,9 @@ class FletTemplateManifestTests(unittest.TestCase):
                 'android { compileSdk = 36 }\n',
                 encoding="utf-8",
             )
+            gradlew = project / "android/gradlew"
+            gradlew.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            gradlew.chmod(0o755)
             (project / "android/app/src/main/AndroidManifest.xml").write_text(
                 '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
                 '<application><activity android:name=".MainActivity" '

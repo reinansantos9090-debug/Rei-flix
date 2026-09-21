@@ -437,3 +437,31 @@ class StorageOnboardingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAuthorizedStorageDiscovery(unittest.TestCase):
+    def test_main_activity_auto_discovers_authorized_sources_after_resume(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        resume = source[source.index("override fun onResume()"):source.index("override fun onPause()", source.index("override fun onResume()"))]
+        self.assertIn("startupDiscoveryTriggered", resume)
+        self.assertIn("scanMediaStore(null)", resume)
+        self.assertIn("scanAllStorage(null)", resume)
+        self.assertIn("persistedSafTreeUris().forEach", resume)
+        self.assertIn("NativeScanController.isRunning", resume)
+
+    def test_media_permission_transition_and_existing_access_converge_to_scan(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("mediaAccessChangedToUsable", source)
+        request = source[source.index("private fun requestMediaAccess()"):source.index("private fun publishStorageStatus()", source.index("private fun requestMediaAccess()"))]
+        self.assertIn("if (currentAccess != \"denied\")", request)
+        self.assertIn("scanMediaStore(requestId)", request)
+        callback = source[source.index("private val mediaPermissionRequester"):source.index("private val treePicker", source.index("private val mediaPermissionRequester"))]
+        self.assertIn("val requestId = pendingMediaRequestId", callback)
+        self.assertIn("scanMediaStore(requestId)", callback)
+
+    def test_existing_broad_access_converges_to_scan(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        block = source[source.index("private fun openBroadStorageSettings()"):source.index("private fun openSettingsIntent", source.index("private fun openBroadStorageSettings()"))]
+        self.assertIn("if (BroadStorageScanner.hasAccess(this))", block)
+        self.assertIn("scanAllStorage(requestId)", block)
+        self.assertIn("revalidatedAfterSettings", block)

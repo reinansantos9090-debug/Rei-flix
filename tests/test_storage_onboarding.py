@@ -312,4 +312,8 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertNotIn("tryBeginNativeScan", source)
         self.assertIn('NativeScanController.begin(scanId, scanKey)', source)
 
+    def test_main_has_single_os_import_for_storage_configuration(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("import os"), 1)
+
 if __name__ == "__main__": unittest.main()

@@ -281,6 +281,7 @@ def main() -> int:
         source / "src/main/kotlin/com/reiflix/reiflix_local/SystemUiController.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt",
+        source / "src/main/kotlin/com/reiflix/reiflix_local/NativeBatch.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/SafScanner.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/MediaStoreScanner.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt",

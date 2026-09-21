@@ -910,7 +910,7 @@ async def main(page: ft.Page):
                                         str(stats.get('status') or payload.get('status') or 'COMPLETED'),
                                         errors=bool(stats.get('errors')),
                                         cancelled=bool(stats.get('cancelled')),
-                                        waiting_for_mediastore=False,
+                                        waiting_for_mediastore=str(stats.get('status') or payload.get('status') or '').upper() == ScanUiState.WAITING_FOR_MEDIASTORE.value,
                                     ),
                                     source="mediastore",
                                     volume=payload.get('volumeId'),

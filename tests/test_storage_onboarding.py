@@ -235,4 +235,25 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertGreaterEqual(broad_call, 0)
         self.assertGreater(guard, -1)
 
+    def test_native_scan_controller_is_process_wide_and_source_scoped(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeScanController.kt").read_text(encoding="utf-8")
+        main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("private val sourceOwners", source)
+        self.assertIn("sourceOwners.containsKey(sourceKey)", source)
+        self.assertIn("NativeScanController.begin(scanId, scanKey)", main)
+        self.assertIn("NativeScanController.begin(scanId, BroadStorageScanner.SOURCE)", main)
+        self.assertIn("NativeScanController.begin(scanId, MediaStoreScanner.SOURCE)", main)
+        self.assertNotIn("activeNativeScans", main)
+
+    def test_activity_finishing_cancels_native_scans_but_recreation_does_not(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        destroy = source[source.index("override fun onDestroy()"):source.index("override fun onSaveInstanceState", source.index("override fun onDestroy()"))]
+        self.assertIn("if (isFinishing) NativeScanController.cancelAll()", destroy)
+        self.assertIn("applicationContext", source)
+
+    def test_mediastore_scan_isolates_volume_failures(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MediaStoreScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("MediaStore query failed for volume $volumeName", source)
+        self.assertIn("for(volumeName in volumeNames)", source)
+        self.assertIn("catch(exception:Exception)", source)
 if __name__ == "__main__": unittest.main()

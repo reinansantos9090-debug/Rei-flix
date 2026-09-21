@@ -471,6 +471,7 @@ class LibraryService:
         """Index one native source without destructive reconciliation on partial scans."""
         with self._scan_lock:
             scan_id = scan_id or str(uuid.uuid4())
+            scope_ref = scope_ref or tree_uri
             previous = self.store.scan_by_id(scan_id)
             if previous and previous.get("status") in {"completed", "partial", "cancelled", "error", "failed"}:
                 return self.store.catalog()

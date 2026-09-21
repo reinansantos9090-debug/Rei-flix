@@ -19,14 +19,23 @@ object NativeIndex {
     const val SOURCE_MEDIASTORE = "mediastore"
     const val SOURCE_SAF = "saf"
     const val SOURCE_BROAD = "broad_storage"
-    private const val VERSION = 1
+    private const val VERSION = 2
     private const val FILE_NAME = "reiflix-native-index.json"
     private const val DATA_DIR = "data"
 
     data class NativePrepared(
         val documents: JSONArray, val generation: Long, val newItems: Int,
         val changedItems: Int, val unchangedItems: Int, val duplicates: Int, val removedItems: Int,
+        val status: String = STATUS_COMPLETED,
+        val scopeKey: String = "",
     )
+
+    const val STATUS_STARTED = "STARTED"
+    const val STATUS_RUNNING = "RUNNING"
+    const val STATUS_COMPLETED = "COMPLETED"
+    const val STATUS_PARTIAL = "PARTIAL"
+    const val STATUS_CANCELLED = "CANCELLED"
+    const val STATUS_FAILED = "FAILED"
 
     private fun file(context: Context) = File(File(context.filesDir, DATA_DIR), FILE_NAME)
 
@@ -36,7 +45,10 @@ object NativeIndex {
         return runCatching { JSONObject(target.readText(Charsets.UTF_8)) }.getOrElse {
             JSONObject().put("version", VERSION)
         }.also {
-            if (it.optInt("version", VERSION) != VERSION) {
+            val storedVersion = it.optInt("version", 1)
+            if (storedVersion < VERSION) {
+                it.put("version", VERSION)
+            } else if (storedVersion > VERSION) {
                 it.remove("scopes"); it.remove("generationCounters"); it.remove("volumes"); it.put("version", VERSION)
             }
         }
@@ -98,13 +110,40 @@ object NativeIndex {
         return next
     }
 
+    fun startGeneration(context: Context, source: String, scopeKey: String, metadata: JSONObject = JSONObject()): Long = synchronized(this) {
+        val state = read(context)
+        val scopeMap = scopes(state)
+        val scope = scopeMap.optJSONObject(scopeKey) ?: JSONObject().also { scopeMap.put(scopeKey, it) }
+        val generation = nextGeneration(state, scopeKey)
+        val now = System.currentTimeMillis()
+        scope.put("generation", generation)
+            .put("status", STATUS_STARTED)
+            .put("source", source)
+            .put("scopeKey", scopeKey)
+            .put("startedAt", now)
+            .put("finishedAt", JSONObject.NULL)
+            .put("metadata", JSONObject(metadata.toString()))
+        write(context, state)
+        generation
+    }
+
+    fun markGenerationRunning(context: Context, source: String, scopeKey: String, generation: Long) = synchronized(this) {
+        val state = read(context)
+        val scopeMap = scopes(state)
+        val scope = scopeMap.optJSONObject(scopeKey) ?: JSONObject().also { scopeMap.put(scopeKey, it) }
+        if (scope.optLong("generation", 0L) == generation) {
+            scope.put("status", STATUS_RUNNING).put("source", source).put("scopeKey", scopeKey)
+            write(context, state)
+        }
+    }
+
     fun prepare(context: Context, source: String, scopeKey: String, input: JSONArray, complete: Boolean,
-                metadata: JSONObject = JSONObject()): NativePrepared = synchronized(this) {
+                metadata: JSONObject = JSONObject(), generation: Long = 0L, status: String = ""): NativePrepared = synchronized(this) {
         val state = read(context)
         val scopeMap = scopes(state)
         val scope = scopeMap.optJSONObject(scopeKey) ?: JSONObject().also { scopeMap.put(scopeKey, it) }
         val previous = scope.optJSONObject("items") ?: JSONObject()
-        val generation = nextGeneration(state, scopeKey)
+        val effectiveGeneration = if (generation > 0L) generation else nextGeneration(state, scopeKey)
         val output = JSONArray()
         val seen = HashSet<String>()
         var newItems = 0; var changedItems = 0; var unchangedItems = 0; var duplicates = 0
@@ -123,27 +162,57 @@ object NativeIndex {
             }
             when (change) { "NEW" -> newItems++; "CHANGED" -> changedItems++; else -> unchangedItems++ }
             document.put("stableId", stableId).put("nativeFingerprint", fp)
-                .put("nativeChange", change).put("scanGeneration", generation)
+                .put("nativeChange", change).put("scanGeneration", effectiveGeneration)
                 .put("source", source).put("scopeKey", scopeKey)
             output.put(document)
         }
 
         val oldKeys = previous.keys().asSequence().toSet()
         val removedItems = oldKeys.count { !seen.contains(it) }
+        val normalizedStatus = when {
+            complete -> STATUS_COMPLETED
+            status.equals(STATUS_CANCELLED, ignoreCase = true) || status.equals("cancelled", ignoreCase = true) -> STATUS_CANCELLED
+            status.equals(STATUS_FAILED, ignoreCase = true) || status.equals("failed", ignoreCase = true) -> STATUS_FAILED
+            else -> STATUS_PARTIAL
+        }
+        val now = System.currentTimeMillis()
+        scope.put("generation", effectiveGeneration)
+            .put("status", normalizedStatus)
+            .put("source", source)
+            .put("scopeKey", scopeKey)
+            .put("finishedAt", now)
+            .put("metadata", JSONObject(metadata.toString()))
+            .put("counts", JSONObject()
+                .put("new", newItems)
+                .put("changed", changedItems)
+                .put("unchanged", unchangedItems)
+                .put("duplicates", duplicates)
+                .put("removed", removedItems)
+                .put("observed", output.length()))
         if (complete) {
             val items = JSONObject()
             for (i in 0 until output.length()) {
                 val doc = output.getJSONObject(i)
                 items.put(doc.getString("stableId"), JSONObject(doc.toString()).put("fingerprint", doc.getString("nativeFingerprint")))
             }
-            scope.put("generation", generation).put("status", "completed").put("source", source)
-                .put("updatedAt", System.currentTimeMillis()).put("items", items)
-                .put("metadata", JSONObject(metadata.toString()))
-            write(context, state)
-        } else {
-            Log.w("ReiFlix.NativeIndex", "Partial/failed native scan not committed: " + scopeKey)
+            scope.put("updatedAt", now).put("items", items)
         }
-        NativePrepared(output, generation, newItems, changedItems, unchangedItems, duplicates, removedItems)
+        write(context, state)
+        NativePrepared(output, effectiveGeneration, newItems, changedItems, unchangedItems, duplicates, removedItems, normalizedStatus, scopeKey)
+    }
+
+    fun failGeneration(context: Context, source: String, scopeKey: String, generation: Long, error: String, metadata: JSONObject = JSONObject()) = synchronized(this) {
+        val state = read(context)
+        val scopeMap = scopes(state)
+        val scope = scopeMap.optJSONObject(scopeKey) ?: JSONObject().also { scopeMap.put(scopeKey, it) }
+        scope.put("generation", generation)
+            .put("status", STATUS_FAILED)
+            .put("source", source)
+            .put("scopeKey", scopeKey)
+            .put("finishedAt", System.currentTimeMillis())
+            .put("error", error)
+            .put("metadata", JSONObject(metadata.toString()))
+        write(context, state)
     }
 
     fun cachedDocuments(context: Context, scopeKey: String): JSONArray = synchronized(this) {
@@ -172,7 +241,7 @@ object NativeIndex {
         val meta = scope.optJSONObject("metadata") ?: return@synchronized false
         meta.optString("mediaStoreVersion") == currentVersion &&
             meta.optLong("mediaStoreGeneration", -1L) == currentGeneration &&
-            meta.optString("accessLevel") == "full"
+            meta.optString("accessLevel") == "full" && scope.optString("status") == STATUS_COMPLETED
     }
 
     fun volumeSnapshot(context: Context): JSONArray {
@@ -189,10 +258,14 @@ object NativeIndex {
                 else -> ""
             }
             if (id.isBlank()) return@forEach
+            val volumeState = volume.state ?: "unknown"
+            val available = volumeState == "mounted" || volumeState == "mounted_ro"
             val item = JSONObject().put("volumeId", id).put("uuid", uuid ?: "")
                 .put("mediaStoreVolumeName", mediaStoreName ?: "")
                 .put("primary", volume.isPrimary).put("removable", volume.isRemovable)
-                .put("emulated", volume.isEmulated).put("state", volume.state ?: "unknown")
+                .put("emulated", volume.isEmulated).put("state", volumeState)
+                .put("available", available)
+                .put("observedAt", System.currentTimeMillis())
             runCatching { volume.directory?.canonicalPath }.getOrNull()?.let { item.put("directory", it) }
             runCatching { item.put("description", volume.getDescription(context)) }
             output.put(item)
@@ -216,14 +289,27 @@ object NativeIndex {
                 before.toString() != item.toString() -> changed.put(JSONObject().put("before", JSONObject(before.toString())).put("after", item))
             }
         }
+        val now = System.currentTimeMillis()
         val oldKeys = previous.keys()
         while (oldKeys.hasNext()) {
             val id = oldKeys.next()
-            if (!seen.contains(id)) removed.put(previous.optJSONObject(id) ?: JSONObject().put("volumeId", id))
+            if (!seen.contains(id)) {
+                val before = previous.optJSONObject(id)
+                val unavailable = if (before != null) JSONObject(before.toString()) else JSONObject().put("volumeId", id)
+                unavailable.put("state", "unavailable")
+                    .put("available", false)
+                    .put("unavailableAt", now)
+                    .put("lastObservedAt", now)
+                    .put("reason", "volume_removed_from_observation")
+                next.put(id, unavailable)
+                removed.put(unavailable)
+            }
         }
         state.put("volumes", next)
+        state.put("volumeSnapshotAt", now)
         write(context, state)
         JSONObject().put("changed", added.length() + removed.length() + changed.length() > 0)
             .put("added", added).put("removed", removed).put("changedVolumes", changed).put("current", current)
+            .put("observedAt", now)
     }
 }

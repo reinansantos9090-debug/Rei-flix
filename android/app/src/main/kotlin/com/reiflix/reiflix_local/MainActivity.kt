@@ -512,9 +512,12 @@ class MainActivity : FlutterFragmentActivity() {
                     NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan_progress")
                         .put("payload", progress .put("treeUri", reference).put("scanId", scanId).put("requestId", requestId ?: "").put("phase", "scanning"))) }, { NativeScanController.isCancelled(scanId) })
                 val partial = result.optBoolean("partial")
-                val status = when {
-                    result.optBoolean("cancelled") -> NativeIndex.STATUS_CANCELLED
-                    partial -> NativeIndex.STATUS_PARTIAL
+                val scanStatus = result.optString("status").uppercase()
+                val status = when (scanStatus) {
+                    SafScanner.STATUS_REVOKED -> SafScanner.STATUS_REVOKED
+                    SafScanner.STATUS_UNAVAILABLE -> SafScanner.STATUS_UNAVAILABLE
+                    SafScanner.STATUS_CANCELLED -> SafScanner.STATUS_CANCELLED
+                    SafScanner.STATUS_PARTIAL -> SafScanner.STATUS_PARTIAL
                     else -> NativeIndex.STATUS_COMPLETED
                 }
                 val prepared = NativeIndex.prepare(
@@ -528,8 +531,8 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("nativeUnchanged", prepared.unchangedItems).put("nativeDuplicates", prepared.duplicates).put("nativeRemoved", prepared.removedItems)
                     .put("requestId", requestId ?: "").put("scanId", scanId).put("scopeKind", "root").put("scopeRef", reference)
                     .put("source", "saf").put("scope", SafScanner.treeIdentity(treeUri).identity)
-                    .put("volumeId", result.optJSONObject("volumeId")?.optString("volumeId") ?: result.optString("volumeId"))
-                    .put("status", result.optString("status"))
+                    .put("volumeId", result.optString("volumeId"))
+                    .put("status", scanStatus.ifBlank { SafScanner.STATUS_COMPLETED })
                     .put("generationId", "native:" + prepared.generation)
                 NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan").put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {

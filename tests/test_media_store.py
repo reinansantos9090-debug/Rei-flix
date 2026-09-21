@@ -135,14 +135,3 @@ class TestMediaStorePersistence(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
-    def test_prompt_2_android_35_36_states(self):
-        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/StorageAuthorization.kt").read_text(encoding="utf-8")
-        self.assertIn("enum class StorageLifecycleState", source)
-        self.assertIn("MediaAccessLevel.PARTIAL", source)
-        self.assertIn("fun capabilities(", source)

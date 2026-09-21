@@ -102,3 +102,17 @@ class TestBroadStorageArchitecture(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBroadStorageVolumeHardening(unittest.TestCase):
+    def test_broad_scanner_checks_per_volume_all_files_access(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("Environment.isExternalStorageManager(root.file)", source)
+        self.assertIn("allFilesAccessForPath", source)
+        self.assertIn("val volumeStillAuthorized", source)
+        self.assertIn("volumeStillAuthorized", source)
+
+    def test_broad_scanner_matches_nova_local_extension_surface(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/BroadStorageScanner.kt").read_text(encoding="utf-8")
+        for extension in ("3g2","3gp","asf","divx","f4v","mpeg","mpg","ogm","ogv","ogx","vob","wtv","webm"):
+            self.assertIn('"' + extension + '"', source)

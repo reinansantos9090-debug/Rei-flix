@@ -1023,21 +1023,142 @@ class LibraryStore:
                 return None
             return dict(rows[0])
 
-    def reconcile_missing(self, source_folder, seen, *, scope_kind="source", scope_ref=None):
-        """Mark absence only inside a scope that the caller proved complete."""
+
+    def _infer_source_kind(self, source_folder, source_kind=None):
+        if source_kind:
+            return str(source_kind).strip().casefold()
         with self._conn() as c:
-            params = [source_folder]
-            where = "source_folder=?"
-            if scope_kind in {"directory", "root"} and scope_ref:
-                prefix = str(scope_ref).strip("/").replace("\\", "/")
-                where += " AND (relative_path=? OR relative_path LIKE ?)"
-                params.extend([prefix, prefix + "/%"])
-            elif scope_kind == "volume" and scope_ref:
-                where += " AND volume_id=?"
-                params.append(scope_ref)
-            c.execute(f"UPDATE episodes SET missing=1,availability_state='missing' WHERE {where} AND availability_state != 'scope_removed'", tuple(params))
-            if seen:
-                c.executemany("UPDATE episodes SET missing=0,availability_state='available' WHERE path=?", ((p,) for p in seen))
+            row = c.execute("SELECT kind FROM folders WHERE path=? LIMIT 1", (str(source_folder),)).fetchone()
+        return str(row["kind"]).strip().casefold() if row and row["kind"] else "unknown"
+
+    @staticmethod
+    def _scope_ref(scope_ref):
+        return str(scope_ref or "").strip()
+
+    @staticmethod
+    def _recompute_episode_availability_locked(c, episode_id):
+        states = {
+            str(row["state"] or "").casefold()
+            for row in c.execute("SELECT state FROM episode_observations WHERE episode_id=?", (episode_id,))
+        }
+        if not states:
+            return
+        if "available" in states:
+            missing, availability = 0, "available"
+        elif "volume_unavailable" in states:
+            missing, availability = 1, "volume_unavailable"
+        elif "scope_unavailable" in states:
+            missing, availability = 1, "scope_unavailable"
+        elif "unavailable" in states:
+            missing, availability = 1, "unavailable"
+        else:
+            missing, availability = 1, "missing"
+        c.execute(
+            "UPDATE episodes SET missing=?,availability_state=? WHERE id=? AND availability_state != 'scope_removed'",
+            (missing, availability, episode_id),
+        )
+
+    def record_observation(
+        self, episode_id, *, source_kind, scope_kind, scope_ref=None, uri,
+        volume_id=None, native_generation=None, fingerprint=None, state="available", error=None
+    ):
+        source_kind = str(source_kind or "unknown").strip().casefold()
+        scope_kind = str(scope_kind or "source").strip().casefold()
+        scope_ref = self._scope_ref(scope_ref)
+        uri = str(uri or "").strip()
+        if not episode_id or not uri:
+            return False
+        state = str(state or "available").strip().casefold()
+        now = time.time()
+        with self._conn() as c:
+            row = c.execute(
+                """SELECT first_seen FROM episode_observations
+                   WHERE episode_id=? AND source_kind=? AND scope_kind=? AND scope_ref=? AND uri=?""",
+                (episode_id, source_kind, scope_kind, scope_ref, uri),
+            ).fetchone()
+            first_seen = float(row["first_seen"]) if row else now
+            c.execute(
+                """INSERT INTO episode_observations(
+                     episode_id,source_kind,scope_kind,scope_ref,uri,volume_id,
+                     native_generation,fingerprint,first_seen,last_seen,last_checked_at,state,error)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(episode_id,source_kind,scope_kind,scope_ref,uri)
+                   DO UPDATE SET volume_id=excluded.volume_id,
+                     native_generation=excluded.native_generation,
+                     fingerprint=excluded.fingerprint,
+                     last_seen=excluded.last_seen,
+                     last_checked_at=excluded.last_checked_at,
+                     state=excluded.state,error=excluded.error""",
+                (episode_id, source_kind, scope_kind, scope_ref, uri, str(volume_id or "") or None,
+                 native_generation, fingerprint, first_seen, now, now, state, error),
+            )
+            self._recompute_episode_availability_locked(c, episode_id)
+        return True
+
+    def _seed_legacy_scope_observations_locked(self, c, source_folder, source_kind, scope_kind, scope_ref):
+        where = "source_folder=?"
+        params = [str(source_folder)]
+        if scope_kind == "volume" and scope_ref:
+            where += " AND volume_id=?"
+            params.append(scope_ref)
+        elif scope_kind in {"root", "directory"} and scope_ref:
+            prefix = str(scope_ref).strip("/").replace("\\", "/")
+            where += " AND (relative_path=? OR relative_path LIKE ?)"
+            params.extend([prefix, prefix + "/%"])
+        rows = c.execute("SELECT id,path,volume_id,missing,media_identity FROM episodes WHERE " + where, tuple(params)).fetchall()
+        now = time.time()
+        for row in rows:
+            exists = c.execute(
+                """SELECT 1 FROM episode_observations
+                   WHERE episode_id=? AND source_kind=? AND scope_kind=? AND scope_ref=? LIMIT 1""",
+                (row["id"], source_kind, scope_kind, scope_ref),
+            ).fetchone()
+            if exists:
+                continue
+            c.execute(
+                """INSERT OR IGNORE INTO episode_observations(
+                     episode_id,source_kind,scope_kind,scope_ref,uri,volume_id,
+                     native_generation,fingerprint,first_seen,last_seen,last_checked_at,state)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (row["id"], source_kind, scope_kind, scope_ref, row["path"], row["volume_id"],
+                 None, row["media_identity"], now, now, now,
+                 "missing" if row["missing"] else "available"),
+            )
+
+    def reconcile_scope(self, source_folder, seen, *, source_kind=None, scope_kind="source", scope_ref=None):
+        source_kind = self._infer_source_kind(source_folder, source_kind)
+        scope_kind = str(scope_kind or "source").strip().casefold()
+        scope_ref = self._scope_ref(scope_ref)
+        seen = {str(path).strip() for path in (seen or []) if str(path).strip()}
+        now = time.time()
+        with self._conn() as c:
+            self._seed_legacy_scope_observations_locked(c, source_folder, source_kind, scope_kind, scope_ref)
+            rows = c.execute(
+                """SELECT id,episode_id,uri FROM episode_observations
+                   WHERE source_kind=? AND scope_kind=? AND scope_ref=?""",
+                (source_kind, scope_kind, scope_ref),
+            ).fetchall()
+            affected = set()
+            for row in rows:
+                state = "available" if row["uri"] in seen else "missing"
+                c.execute(
+                    "UPDATE episode_observations SET state=?,last_checked_at=? WHERE id=?",
+                    (state, now, row["id"]),
+                )
+                affected.add(int(row["episode_id"]))
+            for episode_id in affected:
+                self._recompute_episode_availability_locked(c, episode_id)
+        return len(affected)
+
+    def reconcile_missing(self, source_folder, seen, *, scope_kind="source", scope_ref=None, source_kind=None):
+        """Compatibility facade for the single scoped reconciliation engine."""
+        return self.reconcile_scope(
+            source_folder,
+            seen,
+            source_kind=source_kind,
+            scope_kind=scope_kind,
+            scope_ref=scope_ref,
+        )
 
     def mark_volume_unavailable(self, volume_id, reason=None):
         volume_id = str(volume_id or "").strip()

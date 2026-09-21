@@ -32,7 +32,6 @@ class MainActivity : FlutterFragmentActivity() {
     private val tag = "[REIFLIX][ANDROID]"
     private lateinit var systemUiController: SystemUiController
     private var broadStoragePermissionPending = false
-    private var legacyBroadPermissionRequestPending = false
     private var mediaPermissionRequestPending = false
     private var safPickerPending = false
     private var activityResumed = false
@@ -129,19 +128,6 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("message", "A permissão para acessar os vídeos do dispositivo foi negada.")
                 .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE)))
         }
-    }
-    private val legacyBroadPermissionRequester = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
-        legacyBroadPermissionRequestPending = false
-        val requestId = pendingBroadRequestId
-        pendingBroadRequestId = null
-        val granted = BroadStorageScanner.hasAccess(this)
-        NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
-            .put("requestId", requestId ?: "")
-            .put("payload", JSONObject()
-                .put("granted", granted)
-                .put("source", BroadStorageScanner.SOURCE)
-                .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REVALIDATED))))
-        if (granted) scanAllStorage(requestId) else publishStorageStatus()
     }
     private val treePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
         handleTreePickerResult(result)

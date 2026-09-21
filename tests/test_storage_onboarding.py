@@ -124,6 +124,33 @@ class StorageOnboardingTests(unittest.TestCase):
             StorageAccessState.READY,
         )
 
+    def test_saf_onboarding_clears_waiting_when_picker_request_cannot_start(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        onboarding = source[source.index("async def choose_folder(_event):"):source.index("def cancel(_event):")]
+        self.assertIn("started = await add_folder()", onboarding)
+        self.assertIn('if not started:', onboarding)
+        self.assertIn('storage_onboarding["waiting_for_result"] = False', onboarding)
+
+    def test_native_scan_publication_uses_failing_mailbox_contract(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        publish = source[source.index("private fun publishNativeScanBatch"):source.index("private fun scanTree", source.index("private fun publishNativeScanBatch"))]
+        self.assertIn("NativeMailbox.writeOrThrow(", publish)
+        self.assertNotIn('NativeMailbox.write(\n                appContext,\n                JSONObject().put("type", eventType)', publish)
+        for event_name, marker in (
+            ("saf_scan", 'JSONObject().put("type", "saf_scan")'),
+            ("broad_storage_scan", 'JSONObject().put("type", "broad_storage_scan")'),
+            ("mediastore_scan", 'JSONObject().put("type", "mediastore_scan")'),
+        ):
+            idx = source.find(marker)
+            self.assertGreaterEqual(idx, 0, event_name)
+            self.assertIn("NativeMailbox.writeOrThrow", source[max(0, idx - 120):idx + 260], event_name)
+
+    def test_native_mailbox_drain_does_not_silently_hide_io_or_json_failures(self):
+        source = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
+        self.assertIn('logger.error("[ANDROID] Invalid legacy native mailbox batch discarded:', source)
+        self.assertIn('logger.error("[ANDROID] Invalid native mailbox event discarded:', source)
+        self.assertIn('logger.error("[ANDROID] Native mailbox drain failed;', source)
+
     def test_storage_onboarding_offers_saf_alternative(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         onboarding = source[source.index("def maybe_show_storage_onboarding"):source.index("async def refresh_library")]

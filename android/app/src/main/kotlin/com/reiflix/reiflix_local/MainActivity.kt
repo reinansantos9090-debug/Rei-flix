@@ -256,7 +256,7 @@ class MainActivity : FlutterFragmentActivity() {
         contentResolver.persistedUriPermissions
             .asSequence()
             .filter { it.isReadPermission && it.uri.scheme == "content" && DocumentsContract.isTreeUri(it.uri) }
-            .map(Uri::toString)
+            .map { it.uri.toString() }
             .distinct()
             .sorted()
             .toList()
@@ -556,7 +556,7 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject()
                     .put("source", BroadStorageScanner.SOURCE)
                     .put("state", "requesting")
-                    .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REQUESTING)))
+                    .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REQUESTING))))
             val packageIntent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
                 .setData(Uri.parse("package:$packageName"))
             val globalIntent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
@@ -607,7 +607,7 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject()
                     .put("source", BroadStorageScanner.SOURCE)
                     .put("state", "requesting")
-                    .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REQUESTING))))
+                    .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REQUESTING)))))
             legacyBroadPermissionRequester.launch(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE))
         }
     }

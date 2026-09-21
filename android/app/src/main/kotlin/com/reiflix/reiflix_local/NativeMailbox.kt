@@ -31,7 +31,7 @@ object NativeMailbox {
             type in setOf("saf_scan","mediastore_scan","broad_storage_scan") -> "scan_finished"
             type == "scan_cancelled" -> "scan_cancelled"
             type in setOf("saf_error","mediastore_error","broad_storage_error") ->
-                if (payload?.has("scanId")) "scan_failed" else "permission_failed"
+                if (payload?.has("scanId") == true) "scan_failed" else "permission_failed"
             else -> type.ifBlank { "unknown" }
         }
     }

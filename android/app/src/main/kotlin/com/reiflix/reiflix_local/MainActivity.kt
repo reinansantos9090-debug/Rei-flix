@@ -483,7 +483,8 @@ class MainActivity : FlutterFragmentActivity() {
             val effectiveGenerationId = prepared?.generationId
                 ?: NativeIndex.generationId(source, scopeKey, effectiveGeneration)
             val payload = JSONObject()
-                .put("scanId", scanId)
+                .put("scanId", if (scopeKind == "volume" && scopeRef.isNotBlank()) "$scanId:$scopeRef" else scanId)
+                .put("scopeScanId", if (scopeKind == "volume" && scopeRef.isNotBlank()) "$scanId:$scopeRef" else scanId)
                 .put("requestId", requestId ?: "")
                 .put("source", source)
                 .put("scope", scopeRef)

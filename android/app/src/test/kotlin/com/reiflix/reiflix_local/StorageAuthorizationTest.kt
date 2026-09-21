@@ -43,6 +43,9 @@ class StorageAuthorizationTest {
         assertFalse(StorageAuthorization.mediaAccess(34, readSelectedVisualMedia = true) == MediaAccessLevel.FULL)
         assertTrue(StorageAuthorization.canScanMediaStore(MediaAccessLevel.PARTIAL))
         assertFalse(StorageAuthorization.canScanMediaStore(MediaAccessLevel.DENIED))
+        assertTrue(StorageAuthorization.canReconcileMediaStore(MediaAccessLevel.FULL))
+        assertFalse(StorageAuthorization.canReconcileMediaStore(MediaAccessLevel.PARTIAL))
+        assertFalse(StorageAuthorization.canReconcileMediaStore(MediaAccessLevel.DENIED))
     }
 
     @Test

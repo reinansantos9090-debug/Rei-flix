@@ -28,10 +28,27 @@ object NativeMailbox {
             type == "mediastore_permission" || type == "broad_storage_status" -> "permission_changed"
             type in setOf("saf_scan_progress","mediastore_scan_progress","broad_storage_scan_progress") &&
                 payload?.optString("phase") == "started" -> "scan_started"
-            type in setOf("saf_scan","mediastore_scan","broad_storage_scan") -> "scan_finished"
+            type == "saf_scan" -> when (payload?.optString("status")) {
+                "CANCELLED" -> "scan_cancelled"
+                "PARTIAL" -> "scan_partial"
+                "FAILED" -> "scan_failed"
+                else -> "scan_completed"
+            }
+            type in setOf("mediastore_scan","broad_storage_scan") -> when (payload?.optString("status") ?: payload?.optString("generationStatus")) {
+                "cancelled","CANCELLED" -> "scan_cancelled"
+                "partial","PARTIAL" -> "scan_partial"
+                "failed","FAILED" -> "scan_failed"
+                else -> "scan_completed"
+            }
             type == "scan_cancelled" -> "scan_cancelled"
             type in setOf("saf_error","mediastore_error","broad_storage_error") ->
-                if (payload?.has("scanId") == true) "scan_failed" else "permission_failed"
+                if (payload?.has("scanId") == true) {
+                    when (payload?.optString("status")) {
+                        "PARTIAL" -> "scan_partial"
+                        "CANCELLED" -> "scan_cancelled"
+                        else -> "scan_failed"
+                    }
+                } else "permission_failed"
             else -> type.ifBlank { "unknown" }
         }
     }

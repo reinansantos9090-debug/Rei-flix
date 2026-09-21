@@ -162,6 +162,16 @@ jobs:
       - name: Build APK
         run: flet build apk --template build/flet-build-template --yes -v
 
+      - name: Run Android unit tests on rendered project
+        shell: bash
+        run: |
+          test -f build/flutter/android/gradlew
+          chmod +x build/flutter/android/gradlew
+          (
+            cd build/flutter/android
+            ./gradlew :app:testDebugUnitTest --no-daemon
+          )
+
       - name: Locate APK
         id: apk
         shell: bash

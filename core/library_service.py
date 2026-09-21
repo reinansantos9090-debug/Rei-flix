@@ -430,7 +430,7 @@ class LibraryService:
                                 result.videos += 1
                         seen_by_source[reference] = set(seen)
                         if not walk_errors:
-                            self.store.reconcile_missing(reference, seen, scope_kind="source")
+                            self.store.reconcile_missing(reference, seen, source_kind="filesystem", scope_kind="source", scope_ref=reference)
                         else:
                             self.store.update_folder_status(reference, "granted", "Scan parcial; reconciliação de ausência não aplicada.")
                     except OSError as exc:

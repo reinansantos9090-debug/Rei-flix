@@ -164,8 +164,37 @@ jobs:
                   json.dump(data, handle, indent=2)
           PY
 
+      - name: Configure Android release signing
+        shell: bash
+        env:
+          REIFLIX_ANDROID_KEYSTORE_B64: ${{ secrets.REIFLIX_ANDROID_KEYSTORE_B64 }}
+          REIFLIX_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.REIFLIX_ANDROID_KEYSTORE_PASSWORD }}
+          REIFLIX_ANDROID_KEY_PASSWORD: ${{ secrets.REIFLIX_ANDROID_KEY_PASSWORD }}
+          REIFLIX_ANDROID_KEY_ALIAS: ${{ secrets.REIFLIX_ANDROID_KEY_ALIAS }}
+        run: |
+          if [[ -n "${REIFLIX_ANDROID_KEYSTORE_B64:-}" && -n "${REIFLIX_ANDROID_KEYSTORE_PASSWORD:-}" && -n "${REIFLIX_ANDROID_KEY_PASSWORD:-}" && -n "${REIFLIX_ANDROID_KEY_ALIAS:-}" ]]; then
+            printf "%s" "$REIFLIX_ANDROID_KEYSTORE_B64" | base64 --decode > "$GITHUB_WORKSPACE/build/reiflix-release.jks"
+            test -s "$GITHUB_WORKSPACE/build/reiflix-release.jks"
+            {
+              echo "FLET_ANDROID_SIGNING_KEY_STORE=$GITHUB_WORKSPACE/build/reiflix-release.jks"
+              echo "FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD=$REIFLIX_ANDROID_KEYSTORE_PASSWORD"
+              echo "FLET_ANDROID_SIGNING_KEY_PASSWORD=$REIFLIX_ANDROID_KEY_PASSWORD"
+              echo "FLET_ANDROID_SIGNING_KEY_ALIAS=$REIFLIX_ANDROID_KEY_ALIAS"
+              echo "REIFLIX_SIGNING_MODE=stable"
+            } >> "$GITHUB_ENV"
+            echo "Stable Android release signing configured."
+          else
+            echo "REIFLIX_SIGNING_MODE=ephemeral-debug" >> "$GITHUB_ENV"
+            echo "::warning::Stable Android signing secrets are not configured; this APK is not update-compatible with previous CI-signed installs."
+          fi
+
       - name: Build APK
-        run: flet build apk --template build/flet-build-template --yes -v
+        run: |
+          flet build apk \
+            --template build/flet-build-template \
+            --build-number "$GITHUB_RUN_NUMBER" \
+            --build-version "0.2.1" \
+            --yes -v
 
       - name: Restore source configuration after build
         shell: bash
@@ -219,6 +248,17 @@ jobs:
             mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
             ./gradlew :app:connectedDebugAndroidTest --no-daemon
 
+      - name: Install release APK on clean API 36 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          arch: x86_64
+          profile: pixel_7
+          script: |
+            adb install "$GITHUB_WORKSPACE/build/apk/reiflix-local.apk"
+            adb shell pm path com.reiflix.reiflix_local
+            adb shell dumpsys package com.reiflix.reiflix_local | grep -E "versionCode=|versionName="
+
       - name: Locate APK
         id: apk
         shell: bash
@@ -236,8 +276,8 @@ jobs:
           aapt2="$ANDROID_HOME/build-tools/36.0.0/aapt2"
           badging="$("$aapt2" dump badging "$apk")"
           echo "$badging" | grep -q "package: name='com.reiflix.reiflix_local'"
-          echo "$badging" | grep -q "versionCode='1'"
-          echo "$badging" | grep -q "versionName='0.2.0'"
+          echo "$badging" | grep -q "versionCode='$GITHUB_RUN_NUMBER'"
+          echo "$badging" | grep -q "versionName='0.2.1'"
           echo "$badging" | grep -q "targetSdkVersion:'36'"
           "$aapt2" dump permissions "$apk" | grep -q "android.permission.MANAGE_EXTERNAL_STORAGE"
           "$aapt2" dump permissions "$apk" | grep -q "android.permission.READ_MEDIA_VIDEO"
@@ -252,7 +292,10 @@ jobs:
         shell: bash
         run: |
           apk="${{ steps.apk.outputs.path }}"
-          python scripts/verify_apk_manifest.py "$apk" --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2"
+          python scripts/verify_apk_manifest.py "$apk" \
+            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
+            --expected-version-code "$GITHUB_RUN_NUMBER" \
+            --expected-version-name "0.2.1"
 
       - name: Print and publish APK SHA-256
         shell: bash
@@ -265,6 +308,7 @@ jobs:
             echo "commit_sha=${GITHUB_SHA}"
             echo "apk_path=${apk}"
             echo "apk_sha256=${sha256}"
+            echo "signing_mode=${REIFLIX_SIGNING_MODE:-unknown}"
             echo "$badging" | grep -E "package: name=|versionCode=|versionName=|targetSdkVersion"
           } | tee build/reiflix-release-metadata.txt
           test -s build/reiflix-release-metadata.txt

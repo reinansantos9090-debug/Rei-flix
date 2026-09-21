@@ -118,7 +118,7 @@ exported_attr = "{" + ANDROID + "}exported"
 scheme_attr = "{" + ANDROID + "}scheme"
 host_attr = "{" + ANDROID + "}host"
 
-# Use the ReiFlix immersive host theme. The native player declares its own
+# Use the ReiFlix normal system-bar host policy. The native player declares its own
 # immersive theme below.
 application.set(theme_attr, "@style/ReiFlixTheme")
 activities = application.findall("activity")

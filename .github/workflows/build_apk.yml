@@ -87,9 +87,12 @@ jobs:
 
       - name: Validate Python application
         run: |
-          python -m compileall -q main.py app_config.py core views
+          python -m compileall -q main.py app_config.py core views scripts
           python -m unittest discover -s tests -v
+          python scripts/audit_release.py --root .
           git diff --check
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git status --short
 
       - name: Prepare Flet build template with Android host
         run: |
@@ -212,8 +215,15 @@ jobs:
         run: |
           apk="${{ steps.apk.outputs.path }}"
           sha256sum "$apk" | tee "${apk}.sha256"
-          echo "commit_sha=${GITHUB_SHA}"
-          "$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$apk" | grep -E "package: name=|versionCode=|versionName="
+          sha256="$(sha256sum "$apk" | awk '{print $1}')"
+          badging="$("$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$apk")"
+          {
+            echo "commit_sha=${GITHUB_SHA}"
+            echo "apk_path=${apk}"
+            echo "apk_sha256=${sha256}"
+            echo "$badging" | grep -E "package: name=|versionCode=|versionName=|targetSdkVersion"
+          } | tee build/reiflix-release-metadata.txt
+          test -s build/reiflix-release-metadata.txt
 
       - name: Print APK signing certificate fingerprints
         shell: bash
@@ -222,6 +232,14 @@ jobs:
           apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           "$apksigner" verify --verbose --print-certs "$apk"
 
+      - name: Final Git integrity check
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --check
+          test -z "$(git status --porcelain)"
+          test -s build/reiflix-release-metadata.txt
+
       - name: Upload APK and SHA-256 artifact
         uses: actions/upload-artifact@v4
         with:
@@ -229,4 +247,5 @@ jobs:
           path: |
             ${{ steps.apk.outputs.path }}
             ${{ steps.apk.outputs.path }}.sha256
+            build/reiflix-release-metadata.txt
           if-no-files-found: error

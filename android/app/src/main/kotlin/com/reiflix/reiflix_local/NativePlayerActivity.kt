@@ -160,7 +160,34 @@ class NativePlayerActivity : ComponentActivity() {
                 finish()
             }
         })
-        player.setMediaItem(MediaItem.Builder().setUri(uri).setMediaId(uri.toString()).build())
+        val subtitleTracks = LocalSubtitleResolver.resolve(this, uri)
+        if (subtitleTracks.isNotEmpty()) {
+            NativeMailbox.write(
+                this,
+                JSONObject().put("type", "player_sidecar_subtitles").put(
+                    "payload",
+                    JSONObject()
+                        .put("uri", uri.toString())
+                        .put("count", subtitleTracks.size)
+                        .put("names", subtitleTracks.map { it.displayName }),
+                ),
+            )
+        }
+        val mediaItemBuilder = MediaItem.Builder()
+            .setUri(uri)
+            .setMediaId(uri.toString())
+        if (subtitleTracks.isNotEmpty()) {
+            mediaItemBuilder.setSubtitleConfigurations(
+                subtitleTracks.map { track ->
+                    MediaItem.SubtitleConfiguration.Builder(track.uri)
+                        .setMimeType(track.mimeType)
+                        .setLanguage(track.language)
+                        .setSelectionFlags(if (track.isDefault) C.SELECTION_FLAG_DEFAULT else 0)
+                        .build()
+                }
+            )
+        }
+        player.setMediaItem(mediaItemBuilder.build())
         player.prepare()
         player.playWhenReady = savedInstanceState?.takeIf { it.containsKey("play_when_ready") }?.getBoolean("play_when_ready") ?: true
     }

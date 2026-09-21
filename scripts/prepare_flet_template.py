@@ -260,9 +260,10 @@ if sdk_marker not in existing:
 # assembles the APK. This runs JVM Kotlin tests only; instrumentation tests
 # remain separate because they require a connected Android device/emulator.
 gradlew = android_root / ("gradlew.bat" if os.name == "nt" else "gradlew")
-if gradlew.is_file():
-    command = [str(gradlew), ":app:testDebugUnitTest", "--no-daemon"]
-    subprocess.run(command, cwd=android_root, check=True)
+if not gradlew.is_file():
+    raise RuntimeError(f"Rendered Android project has no Gradle wrapper: {gradlew}")
+command = [str(gradlew), ":app:testDebugUnitTest", "--no-daemon"]
+subprocess.run(command, cwd=android_root, check=True)
 '''
 
 

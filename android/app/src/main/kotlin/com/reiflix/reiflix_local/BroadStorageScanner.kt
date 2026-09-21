@@ -282,7 +282,8 @@ object BroadStorageScanner {
                 null
             }
             if (children == null) {
-                val message = "Não foi possível acessar diretório: " + canonical.path
+                val label = if (rootFiles.any { it.file.path == canonical.path }) "raiz" else "diretório"
+                val message = "Não foi possível acessar " + label + ": " + canonical.path
                 errors.put(message)
                 errorsByVolume[root.volumeId]?.put(message)
                 continue
@@ -411,7 +412,7 @@ object BroadStorageScanner {
                 .put("duplicates", totalDuplicates).put("removed", totalRemoved)
                 .put("status", when { cancelled -> "cancelled"; partial -> "partial"; else -> "completed" })
                 .put("generationStatus", when { cancelled -> NativeIndex.STATUS_CANCELLED; partial -> NativeIndex.STATUS_PARTIAL; else -> NativeIndex.STATUS_COMPLETED }))
-            .put("partial", partial)
+            .put("partial", errors.length() > 0 || cancelled)
             .put("cancelled", cancelled)
     }
 private fun mimeFor(ext:String):String = when(ext.lowercase()) {

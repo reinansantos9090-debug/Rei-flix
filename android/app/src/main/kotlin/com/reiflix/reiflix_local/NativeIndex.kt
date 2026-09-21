@@ -534,6 +534,22 @@ object NativeIndex {
         total
     }
 
+    fun stagedDocumentCount(context: Context, source: String, scopeKey: String, generation: Long): Int = synchronized(this) {
+        val scope = scopes(read(context)).optJSONObject(scopeKey) ?: return@synchronized 0
+        val staging = stagingFile(context, source, scopeKey, generation)
+        var count = 0
+        if (staging.isFile) {
+            java.io.BufferedReader(java.io.InputStreamReader(java.io.FileInputStream(staging), Charsets.UTF_8)).use { reader ->
+                while (reader.readLine() != null) count++
+            }
+        }
+        count
+    }
+
+    fun batchCount(context: Context, source: String, scopeKey: String, generation: Long): Int = synchronized(this) {
+        scopes(read(context)).optJSONObject(scopeKey)?.optJSONObject("counts")?.optInt("batches", 0) ?: 0
+    }
+
     fun cachedGeneration(context: Context, scopeKey: String): Long = synchronized(this) {
         scopes(read(context)).optJSONObject(scopeKey)?.optLong("generation", 0L) ?: 0L
     }

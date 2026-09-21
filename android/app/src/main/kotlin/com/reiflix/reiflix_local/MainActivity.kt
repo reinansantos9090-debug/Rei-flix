@@ -501,7 +501,7 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("duplicates", prepared?.duplicates ?: 0)
                 .put("reused", reused)
                 .put("documents", documents)
-            NativeMailbox.write(
+            NativeMailbox.writeOrThrow(
                 appContext,
                 JSONObject().put("type", eventType).put("requestId", requestId ?: "").put("payload", payload)
             )
@@ -655,7 +655,7 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("scope", SafScanner.treeIdentity(treeUri).identity)
                     .put("volumeId", result.optString("volumeId"))
                     .put("status", scanStatus.ifBlank { SafScanner.STATUS_COMPLETED })
-                NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan").put("requestId", requestId ?: "").put("payload", result))
+                NativeMailbox.writeOrThrow(appContext, JSONObject().put("type", "saf_scan").put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
                 Log.e(tag, "SAF scan failed", exception)
                 NativeIndex.failGeneration(appContext, NativeIndex.SOURCE_SAF, scanKey, generationId,
@@ -955,7 +955,7 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("scanId", scanId).put("scopeKind", "global").put("scopeRef", "broad-storage")
                     .put("generationId", "native-scoped")
                     .put("generationStatus", if (result.optBoolean("cancelled")) NativeIndex.STATUS_CANCELLED else if (partial) NativeIndex.STATUS_PARTIAL else NativeIndex.STATUS_COMPLETED)
-                NativeMailbox.write(appContext, JSONObject().put("type", "broad_storage_scan")
+                NativeMailbox.writeOrThrow(appContext, JSONObject().put("type", "broad_storage_scan")
                     .put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
                 Log.e(tag, "Broad storage scan failed", exception)
@@ -1029,7 +1029,7 @@ class MainActivity : FlutterFragmentActivity() {
                 }
                 result.put("requestId", requestId ?: "").put("scanId", scanId)
                     .put("scopeKind", "global").put("scopeRef", MediaStoreScanner.SOURCE)
-                NativeMailbox.write(appContext, JSONObject().put("type", "mediastore_scan")
+                NativeMailbox.writeOrThrow(appContext, JSONObject().put("type", "mediastore_scan")
                     .put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
                 Log.e(tag, "MediaStore scan failed", exception)

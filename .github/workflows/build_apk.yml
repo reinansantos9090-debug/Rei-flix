@@ -170,6 +170,9 @@ jobs:
         run: |
           test -f build/flutter/android/gradlew
           chmod +x build/flutter/android/gradlew
+          mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
+          export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
+          test -d "$SERIOUS_PYTHON_SITE_PACKAGES"
           (
             cd build/flutter/android
             ./gradlew :app:testDebugUnitTest --no-daemon

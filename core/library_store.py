@@ -703,7 +703,7 @@ class LibraryStore:
                 """SELECT native_generation FROM scan_runs
                    WHERE source_kind=? AND scope_kind=? AND scope_ref=?
                      AND native_generation IS NOT NULL
-                     AND generation_status IN ('COMPLETE','EMPTY_COMPLETE')
+                     AND generation_status IN ('COMPLETED','EMPTY_COMPLETE')
                    ORDER BY native_generation DESC, id DESC LIMIT 1""",
                 (source_kind, scope_kind, scope_ref),
             ).fetchone()

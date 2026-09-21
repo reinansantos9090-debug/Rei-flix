@@ -446,6 +446,7 @@ object BroadStorageScanner {
                 .put("scopeRef", volumeId)
                 .put("scanGeneration", generation)
                 .put("generationId", NativeIndex.generationId(SOURCE, scopeKey, generation))
+                .put("scanId", (scanId ?: "") + ":" + volumeId)
                 .put("status", status)
                 .put("complete", complete)
                 .put("reused", false)

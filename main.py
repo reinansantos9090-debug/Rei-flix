@@ -605,6 +605,16 @@ async def main(page: ft.Page):
                                 'saf_error': 'SCAN_FAILED',
                                 'broad_storage_error': 'SCAN_FAILED',
                                 'mediastore_error': 'SCAN_FAILED',
+                                'player_opened': 'PLAYER_OPENED',
+                                'player_error': 'PLAYER_ERROR',
+                                'player_exited': 'PLAYER_EXITED',
+                                'player_progress': 'PLAYER_PROGRESS',
+                                'player_paused': 'PLAYER_PAUSED',
+                                'player_completed': 'PLAYER_COMPLETED',
+                                'player_mark_watched': 'PLAYER_MARK_WATCHED',
+                                'player_autoplay_changed': 'PLAYER_AUTOPLAY_CHANGED',
+                                'player_next_request': 'PLAYER_NEXT',
+                                'player_previous_request': 'PLAYER_PREVIOUS',
                                 'volume_changed': 'VOLUME_CHANGED',
                             }.get(event_type)
                             if timeline_name:
@@ -1243,6 +1253,130 @@ async def main(page: ft.Page):
                                 on_catalog_changed()
                                 refresh_settings_if_active()
                                 page.snack_bar=ft.SnackBar(ft.Text('Pasta removida da biblioteca.')); page.snack_bar.open=True; safe_update()
+                        elif event_type == 'player_opened':
+                            diagnostics.record(
+                                "PLAYER_OPENED",
+                                request_id=request_id,
+                                source=payload.get('source') or "native_player",
+                                result=payload.get('state') or "READY",
+                            )
+                        elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
+                            path = str(payload.get('uri') or "").strip()
+                            if path:
+                                position_ms = max(0.0, float(payload.get('positionMs') or 0.0))
+                                duration_ms = max(0.0, float(payload.get('durationMs') or 0.0))
+                                updated = await asyncio.to_thread(
+                                    store.save_progress,
+                                    path,
+                                    position_ms / 1000.0,
+                                    duration_ms / 1000.0,
+                                    event_created_at=event.get('createdAt') or event.get('timestamp'),
+                                )
+                                if updated:
+                                    on_catalog_changed()
+                                diagnostics.record(
+                                    str(event_type).upper(),
+                                    request_id=request_id,
+                                    source="native_player",
+                                    result="updated" if updated else "ignored",
+                                )
+                        elif event_type == 'player_mark_watched':
+                            path = str(payload.get('uri') or "").strip()
+                            updated = False
+                            if path:
+                                updated = await asyncio.to_thread(store.set_watched, path, True)
+                                if updated:
+                                    on_catalog_changed()
+                            diagnostics.record(
+                                "PLAYER_MARK_WATCHED",
+                                request_id=request_id,
+                                source="native_player",
+                                result="updated" if updated else "ignored",
+                            )
+                        elif event_type == 'player_autoplay_changed':
+                            enabled = bool(payload.get('enabled'))
+                            store.set_preference("autoplay_next", "true" if enabled else "false")
+                            diagnostics.record(
+                                "PLAYER_AUTOPLAY_CHANGED",
+                                request_id=request_id,
+                                source="native_player",
+                                result="enabled" if enabled else "disabled",
+                            )
+                        elif event_type in {'player_next_request', 'player_previous_request'}:
+                            current_path = str(payload.get('uri') or "").strip()
+                            direction = 1 if event_type == 'player_next_request' else -1
+                            target = (
+                                library.next_episode(current_path)
+                                if direction > 0
+                                else library.previous_episode(current_path)
+                            )
+                            if not target:
+                                page.snack_bar = ft.SnackBar(ft.Text(
+                                    "Não existe outro episódio local disponível nesta direção."
+                                ))
+                                page.snack_bar.open = True
+                                safe_update()
+                                continue
+                            target_path = str(target.get('path') or "").strip()
+                            target_title = (
+                                target.get('episode_title')
+                                or target.get('file_name')
+                                or target.get('title')
+                                or "Episódio local"
+                            )
+                            resume_enabled = store.get_preference("resume_playback", "true") == "true"
+                            target_position_ms = (
+                                max(0.0, float(target.get('progress') or 0.0)) * 1000.0
+                                if resume_enabled else 0.0
+                            )
+                            player_context[0] = (
+                                target_path,
+                                target_title,
+                                target_position_ms / 1000.0,
+                            )
+                            diagnostics.record(
+                                "PLAYER_NEXT" if direction > 0 else "PLAYER_PREVIOUS",
+                                request_id=request_id,
+                                source="native_player",
+                                result=target_path,
+                            )
+                            try:
+                                await start_native_player(
+                                    target_path,
+                                    target_title,
+                                    int(target_position_ms),
+                                )
+                            except Exception:
+                                logger.exception("[PLAYER] adjacent episode launch failed")
+                                page.snack_bar = ft.SnackBar(ft.Text(
+                                    "Não foi possível abrir o próximo episódio local."
+                                    if direction > 0
+                                    else "Não foi possível abrir o episódio anterior local."
+                                ))
+                                page.snack_bar.open = True
+                                safe_update()
+                        elif event_type == 'player_error':
+                            diagnostics.record(
+                                "PLAYER_ERROR",
+                                request_id=request_id,
+                                source="native_player",
+                                result=payload.get('reason') or event.get('message'),
+                                error=event.get('message') or payload.get('detail'),
+                            )
+                            page.snack_bar = ft.SnackBar(ft.Text(
+                                event.get('message') or "O player local encontrou um erro."
+                            ))
+                            page.snack_bar.open = True
+                            safe_update()
+                        elif event_type == 'player_exited':
+                            diagnostics.record(
+                                "PLAYER_EXITED",
+                                request_id=request_id,
+                                source="native_player",
+                                result=payload.get('reason') or "exit",
+                            )
+                            if navigation.current == "player":
+                                navigate_back()
                         elif event_type == 'google_cancelled':
                             account_state[0] = 'disconnected'
                             page.snack_bar=ft.SnackBar(ft.Text('Entrada com Google cancelada.')); page.snack_bar.open=True; safe_update(); refresh_settings_if_active()

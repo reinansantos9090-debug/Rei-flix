@@ -531,6 +531,7 @@ class MainActivity : FlutterFragmentActivity() {
             }
             "check_storage_access" -> publishStorageStatus()
             "scan_all_storage" -> scanAllStorage(requestId)
+            "extract_thumbnail" -> requestThumbnail(intent.data, requestId)
             "cancel_scan" -> cancelNativeScans(requestId)
             "google_sign_in" -> signInWithGoogle(intent.data?.getQueryParameter("server_client_id"))
             "play" -> openPlayer(intent.data)
@@ -1179,6 +1180,53 @@ class MainActivity : FlutterFragmentActivity() {
             .put("payload", JSONObject().put("scanIds", JSONArray(ids)).put("count", ids.size)
                 .put("status", NativeIndex.STATUS_CANCELLED)))
     }
+    private fun requestThumbnail(data: Uri?, requestId: String?) {
+        val raw = data?.getQueryParameter("uri")?.trim().orEmpty()
+        if (raw.isBlank()) return
+        val localUri = runCatching { Uri.parse(raw) }.getOrNull()
+        if (localUri == null || !(
+            (localUri.scheme == "content" &&
+                (SafScanner.isAuthorizedDocument(this, localUri) || MediaStoreScanner.isAuthorizedDocument(this, localUri))) ||
+            (localUri.scheme == "file" && BroadStorageScanner.isAuthorizedFile(this, localUri))
+        )) {
+            NativeMailbox.write(this, JSONObject().put("type", "thumbnail_error")
+                .put("requestId", requestId ?: "")
+                .put("message", "A mídia local não está autorizada para extração de capa.")
+                .put("payload", JSONObject().put("uri", raw).put("status", "UNAUTHORIZED")))
+            return
+        }
+
+        val size = data.getQueryParameter("size")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        val modifiedAt = data.getQueryParameter("modified_at")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        val appContext = applicationContext
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val thumbnailPath = VideoThumbnailExtractor.extract(appContext, localUri, size, modifiedAt)
+                if (thumbnailPath.isNullOrBlank()) {
+                    NativeMailbox.write(appContext, JSONObject().put("type", "thumbnail_error")
+                        .put("requestId", requestId ?: "")
+                        .put("message", "Não foi possível extrair uma miniatura deste vídeo.")
+                        .put("payload", JSONObject().put("uri", raw).put("size", size).put("modifiedAt", modifiedAt).put("status", "EXTRACTION_FAILED")))
+                    return@launch
+                }
+                NativeMailbox.write(appContext, JSONObject().put("type", "thumbnail_ready")
+                    .put("requestId", requestId ?: "")
+                    .put("payload", JSONObject()
+                        .put("uri", raw)
+                        .put("thumbnailPath", thumbnailPath)
+                        .put("size", size)
+                        .put("modifiedAt", modifiedAt)
+                        .put("source", "media_metadata_retriever")))
+            } catch (exception: Exception) {
+                Log.e(tag, "Thumbnail extraction failed", exception)
+                NativeMailbox.write(appContext, JSONObject().put("type", "thumbnail_error")
+                    .put("requestId", requestId ?: "")
+                    .put("message", "Não foi possível gerar a miniatura do vídeo.")
+                    .put("payload", JSONObject().put("uri", raw).put("status", "EXTRACTION_FAILED").put("error", exception.message ?: "")))
+            }
+        }
+    }
+
     private fun releaseTree(reference: String?) {
         if (reference.isNullOrBlank()) return
         val treeUri = Uri.parse(reference)

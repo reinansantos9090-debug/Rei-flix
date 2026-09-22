@@ -1,7 +1,7 @@
 """Settings UI for the local Rei-flix library.
 
 The view receives service callbacks from ``main`` and keeps SQL/business rules
-out of Flet controls.  It intentionally reads only compact store projections.
+out of Flet controls. It intentionally reads only compact store projections.
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import inspect
 import flet as ft
 
 logger = logging.getLogger("reiflix.settings")
+from core.storage_access import normalize_storage_snapshot
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title
 
 
@@ -67,12 +68,12 @@ class SettingsView:
         folders = store.folders()
         summary = store.library_summary()
         statistics = library.library_statistics()
-        snapshot = storage_snapshot or {}
+        snapshot = normalize_storage_snapshot(storage_snapshot)
         scan = scan_snapshot or {}
-        media_state = str(getattr(storage_snapshot, "media_read_state", snapshot.get("mediaReadState", "denied"))).casefold()
-        broad_state = str(getattr(storage_snapshot, "broad_storage_state", snapshot.get("broadStorageState", "unavailable"))).casefold()
-        saf_roots = tuple(getattr(storage_snapshot, "saf_roots", snapshot.get("safRoots", ())) or ())
-        volumes = tuple(getattr(storage_snapshot, "removable_volumes", snapshot.get("removableVolumes", ())) or ())
+        media_state = str(snapshot.media_read_state).casefold()
+        broad_state = str(snapshot.broad_storage_state).casefold()
+        saf_roots = tuple(snapshot.saf_roots)
+        volumes = tuple(snapshot.removable_volumes)
         broad_granted = broad_state == "available"
         media_granted = media_state in {"partial", "full"}
         media_partial = media_state == "partial"
@@ -433,7 +434,7 @@ class SettingsView:
             logout_button if connected else account_button,
         ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
         content = ft.Column([
-            ft.Row([ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=ft.Colors.WHITE, tooltip="Voltar", on_click=lambda _: on_back()), ft.Text("Configurações", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)]),
+            ft.Row([ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=ft.Colors.WHITE, tooltip="Voltar", on_click=lambda _: on_back()), ft.Text("Configurações", size=20, weight=ft.FontWeight.BOLD, color="#F7F5FA")], vertical_alignment=ft.CrossAxisAlignment.CENTER),
             section("CONTA", ft.Icons.PERSON_OUTLINE, account_content),
             section("BIBLIOTECA", ft.Icons.VIDEO_LIBRARY_OUTLINED, ft.Column(folder_lines + [
                 ft.Text(f"{summary['animes']} animes • {summary['episodes']} episódios locais", color="#C7C5D0", size=12),
@@ -463,7 +464,7 @@ class SettingsView:
                 ft.Text("Limpar cache não remove associações AniList confirmadas nem arquivos da biblioteca.", color="#AAA7B6", size=11),
             ], spacing=8)),
             section("SOBRE", ft.Icons.INFO_OUTLINE, ft.Column([
-                ft.Text("Rei-flix Local 0.2.0", color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD),
+                ft.Text("Rei-Flix Local 0.2.0", color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD),
                 ft.Text("Biblioteca local com SQLite, Android SAF e player nativo. Vídeos nunca são enviados.", color="#AAA7B6", size=11),
             ], spacing=4)),
             status,

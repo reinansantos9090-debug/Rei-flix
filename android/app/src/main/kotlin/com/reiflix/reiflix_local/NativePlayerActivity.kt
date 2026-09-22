@@ -1061,6 +1061,21 @@ class NativePlayerActivity : ComponentActivity() {
         if (hasFocus) enterImmersiveMode()
     }
 
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        logPlayer("onPictureInPictureModeChanged inPip=" + isInPictureInPictureMode)
+        if (isInPictureInPictureMode) {
+            handler.removeCallbacks(controlsHider)
+            setControlsVisible(false)
+        } else {
+            enterImmersiveMode()
+            if (::player.isInitialized && player.isPlaying && !errorVisible) {
+                touchControls()
+            }
+            ViewCompat.requestApplyInsets(root)
+        }
+    }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         logPlayer("onConfigurationChanged orientation=" + newConfig.orientation)

@@ -143,7 +143,7 @@ class NativePlayerPlaybackInstrumentedTest {
         }
         await("Gesture seek precondition must be reachable") { player.currentPosition >= 2_500L }
 
-        val controls = awaitView<View>("reiflix_play_pause")
+        val controls = awaitView<View>("reiflix_controls_root")
         val controlsBefore = onMain { controls.visibility }
         val gestureSize = onMain { gestureLayer.width to gestureLayer.height }
         tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)

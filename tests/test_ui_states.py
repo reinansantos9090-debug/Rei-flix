@@ -68,7 +68,6 @@ class UiStateTests(unittest.TestCase):
                     lambda: None, lambda: None,
                     lambda: None, lambda _ref: None,
                     lambda: None, lambda: None,
-                    lambda: None, lambda: None,
                     lambda: None,
                     account={},
                     storage_snapshot=snapshot,

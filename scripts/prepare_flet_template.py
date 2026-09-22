@@ -155,7 +155,7 @@ if player is None:
         name: player_name,
         theme_attr: "@style/ReiFlixPlayerTheme",
         config_attr: "orientation|screenSize|keyboardHidden",
-        screen_attr = "fullSensor",
+        screen_attr: "fullSensor",
         pip_attr: "true",
         exported_attr: "false",
     })

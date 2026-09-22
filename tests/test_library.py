@@ -13,6 +13,7 @@ from core.google_account import normalize_google_profile
 from core.library_parser import parse_video_path
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
+from core.ui import count_label
 from core.organizer_ai import AnimeOrganizer, normalize
 from views.home_view import HomeView
 from views.organize_view import OrganizeView
@@ -94,6 +95,15 @@ class ParserTests(unittest.TestCase):
         selected, confident, _ = AnimeOrganizer.choose('Shingeki no Kyojin', [candidate])
         self.assertEqual(selected['id'], 16498)
         self.assertTrue(confident)
+
+class UiTextTests(unittest.TestCase):
+    def test_portuguese_count_label_handles_zero_one_and_many(self):
+        self.assertEqual(count_label(0, "episódio"), "0 episódios")
+        self.assertEqual(count_label(1, "episódio"), "1 episódio")
+        self.assertEqual(count_label(2, "episódio"), "2 episódios")
+        self.assertEqual(count_label(1, "vídeo"), "1 vídeo")
+        self.assertEqual(count_label(2, "vídeo"), "2 vídeos")
+
 
 class StoreTests(unittest.TestCase):
     def test_personal_tags_persist_normalize_and_are_searchable_offline(self):

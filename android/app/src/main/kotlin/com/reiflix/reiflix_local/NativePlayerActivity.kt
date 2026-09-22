@@ -84,6 +84,8 @@ class NativePlayerActivity : ComponentActivity() {
     private var errorVisible = false
     private var openedReported = false
     private var restoredPositionMs: Long? = null
+    internal var firstFrameRenderedForTesting = false
+        private set
     private enum class GestureMode { NONE, HORIZONTAL_SEEK, VERTICAL_BRIGHTNESS, VERTICAL_VOLUME }
     private var brightnessLevel = 0.5f
     private var feedbackHideAt = 0L
@@ -186,6 +188,14 @@ class NativePlayerActivity : ComponentActivity() {
         try {
             logPlayer("EXOPLAYER_CREATE requestId=" + requestId.ifEmpty { "-" })
             player = ExoPlayer.Builder(this).build()
+            // PlayerView owns the video surface/subtitle rendering. Attach the
+            // real ExoPlayer before assigning media or preparing it.
+            playerView.player = player
+            check(playerView.player === player) {
+                "PlayerView failed to attach the ExoPlayer instance"
+            }
+            logPlayer("PLAYER_VIEW_ATTACHED requestId=" + requestId.ifEmpty { "-" } +
+                " sameInstance=" + (playerView.player === player))
             savedInstanceState?.getBundle("track_selection_parameters")?.let { bundle ->
                 runCatching { TrackSelectionParameters.fromBundle(bundle) }
                     .onSuccess { player.trackSelectionParameters = it }
@@ -238,6 +248,14 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private val playerListener = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (events.contains(Player.EVENT_RENDERED_FIRST_FRAME)) {
+                firstFrameRenderedForTesting = true
+                logPlayer("FIRST_FRAME_RENDERED requestId=" + requestId.ifEmpty { "-" } +
+                    " positionMs=" + player.currentPosition)
+            }
+        }
+
         override fun onPlaybackStateChanged(state: Int) {
             val label = when (state) {
                 Player.STATE_IDLE -> "STATE_IDLE"
@@ -347,6 +365,10 @@ class NativePlayerActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= 29) {
+            window.isStatusBarContrastEnforced = false
+            window.isNavigationBarContrastEnforced = false
+        }
     }
 
     private fun canEnterPictureInPicture(): Boolean {
@@ -696,9 +718,9 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun applyRootInsets(insets: WindowInsetsCompat) {
-        val safe = insets.getInsets(
-            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
-        )
+        // System bars remain hidden. Reserve only physical display-cutout
+        // safe insets so immersive mode never creates artificial gaps.
+        val safe = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
         val topParams = topBar.layoutParams as? FrameLayout.LayoutParams
         if (topParams != null) {
             topParams.topMargin = max(dp(4), safe.top)
@@ -974,6 +996,12 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun finishPlayer(reason: String) {
         reportPlayerExit(reason)
+        setResult(
+            RESULT_OK,
+            Intent()
+                .putExtra("requestId", requestId)
+                .putExtra("reason", reason),
+        )
         finish()
     }
 
@@ -991,6 +1019,12 @@ class NativePlayerActivity : ComponentActivity() {
                 .put("payload", payload)
         )
         logPlayer(eventType + " requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri)
+        setResult(
+            RESULT_OK,
+            Intent()
+                .putExtra("requestId", requestId)
+                .putExtra("reason", eventType),
+        )
         finish()
     }
 
@@ -1107,6 +1141,10 @@ class NativePlayerActivity : ComponentActivity() {
             if (isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations) {
                 reportPlayerExit("activity_finish")
             }
+            if (::playerView.isInitialized && playerView.player === player) {
+                playerView.player = null
+                logPlayer("PLAYER_VIEW_DETACHED requestId=" + requestId.ifEmpty { "-" })
+            }
             player.release()
             logPlayer("player.release requestId=" + requestId.ifEmpty { "-" })
         } else if (isFinishing && !exitReported && !isChangingConfigurations) {
@@ -1129,8 +1167,15 @@ class NativePlayerActivity : ComponentActivity() {
         window.decorView.post {
             enterImmersiveMode()
             if (::root.isInitialized) {
-                applyRootInsets(WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView))
-                root.requestLayout()
+                val rootInsets = ViewCompat.getRootWindowInsets(window.decorView)
+                if (rootInsets != null) {
+                    applyRootInsets(rootInsets)
+                    root.requestLayout()
+                    logPlayer("ROOT_INSETS_APPLIED requestId=" + requestId.ifEmpty { "-" })
+                } else {
+                    logPlayer("ROOT_INSETS_UNAVAILABLE requestId=" + requestId.ifEmpty { "-" } +
+                        " lifecycle=post_layout")
+                }
             }
         }
     }

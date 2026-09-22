@@ -96,6 +96,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git status --short
 
+      - name: Generate deterministic local player fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python scripts/create_player_fixture.py
+
       - name: Prepare Flet build template with Android host
         run: |
           mkdir -p build

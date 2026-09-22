@@ -19,10 +19,13 @@ _TECHNICAL_PATTERNS = (
     re.compile(r"(?<![A-Za-z0-9])(?:aac|ac3|eac3|flac|dts|dual[ ._-]*audio|multi[ ._-]*audio)(?![A-Za-z0-9])", re.I),
     re.compile(r"(?<![A-Za-z0-9])(?:pt[-_ ]?br|pt|portugu[eê]s|eng|english|jpn|japanese|dub|dublado|sub|legendado)(?![A-Za-z0-9])", re.I),
 )
-_SEASON = re.compile(r"(?:\bS|\bseason[ ._-]*|\btemporada[ ._-]*|\btemp[ ._-]*)(\d{1,2})(?=\b|[ ._-]*E)", re.I)
+_SEASON = re.compile(r"(?:\bS|\bseason[ ._-]*|\btemporada[ ._-]*|\btemp[ ._-]*)(\d{1,3})(?=\b|[ ._-]*E)", re.I)
+_TEMP_EPISODE = re.compile(r"\b(?:temp|temporada)[ ._-]*(\d{1,3})[ ._-]*E(?:P(?:ISODE)?)?[ ._-]*(\d{1,4})(?:v\d+)?\b", re.I)
 _SXXEXX = re.compile(r"\bS(\d{1,3})[ ._-]*E(?:P(?:ISODE)?)?[ ._-]*(\d{1,4})(?:v\d+)?(?=\b|E\d)", re.I)
 _X_EPISODE = re.compile(r"\b(\d{1,2})\s*[xX]\s*(\d{1,4})(?:v\d+)?\b")
-_WORD_EPISODE = re.compile(r"\b(?:E(?:P(?:ISODE)?)?|EPISODE)[ ._-]*(\d{1,4})(?:v\d+)?\b", re.I)
+_WORD_EPISODE = re.compile(r"\b(?:E(?:P(?:ISODE)?)?|EPISODE|Epis[oó]dio)[ ._-]*(\d{1,4})(?:v\d+)?\b", re.I)
+_RECORDING_TIMESTAMP = re.compile(r"\b(?:recording|recorded)[ ._-]*(?:19\d{2}|20\d{2})\d{4}\s+(?:[01]?\d|2[0-3])\d{4}\b", re.I)
+_STANDALONE_TIMESTAMP = re.compile(r"\b(?:19\d{2}|20\d{2})\d{4}\s+(?:[01]?\d|2[0-3])\d{4}\b")
 _SPECIAL = re.compile(r"\b(OVA|OAD|ONA|SPECIALS?|SP|EXTRA)(?:\b|(?=\d))[ ._-]*(\d{1,4})?", re.I)
 _SPECIAL_SEASON_ZERO = re.compile(r"\bS00(?:[ ._-]*E(?:P(?:ISODE)?)?[ ._-]*(\d{1,4}))?\b", re.I)
 _MOVIE = re.compile(r"\b(?:MOVIE|FILM)\b", re.I)
@@ -81,6 +84,8 @@ def _clean_title(value: str) -> str:
     value = re.sub(r"\[[^\]]{0,120}\]", " ", value)
     for pattern in _TECHNICAL_PATTERNS:
         value = pattern.sub(" ", value)
+    value = _RECORDING_TIMESTAMP.sub(" ", value)
+    value = _STANDALONE_TIMESTAMP.sub(" ", value)
     value = re.sub(r"\b(?:complete|batch|season[ ._-]*pack)\b", " ", value, flags=re.I)
     value = re.sub(r"\s+", " ", value)
     return value.strip(" -_[](){}")
@@ -146,6 +151,7 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
     movie = _MOVIE.search(stem)
     absolute = _ABSOLUTE.search(stem)
     explicit = _SXXEXX.search(stem)
+    temp_episode = _TEMP_EPISODE.search(stem)
     cross = _X_EPISODE.search(stem)
     word = _WORD_EPISODE.search(stem)
 
@@ -179,6 +185,17 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
             episode = float(explicit.group(2))
             kind, source, confidence = "regular", "sxxexx", "high"
             evidence.append(f"EXPLICIT_SEASON_EPISODE:{explicit.group(0)}")
+            if folder_season is not None and folder_season != file_season:
+                confidence = "medium"
+                unresolved.append(f"season_conflict:file={file_season},folder={folder_season}")
+                evidence.append("CONFLICT_FILE_SEASON_VS_FOLDER")
+        elif temp_episode:
+            marker = temp_episode
+            file_season = int(temp_episode.group(1))
+            season = file_season
+            episode = float(temp_episode.group(2))
+            kind, source, confidence = "regular", "temp_episode", "high"
+            evidence.append(f"EXPLICIT_SEASON_EPISODE:{temp_episode.group(0)}")
             if folder_season is not None and folder_season != file_season:
                 confidence = "medium"
                 unresolved.append(f"season_conflict:file={file_season},folder={folder_season}")
@@ -250,6 +267,11 @@ def parse_video_path(path: str, library_root: str | None = None) -> ParsedEpisod
 
     title_source = stem[:marker.start()] if marker else stem
     title = _clean_title(title_source)
+    if not marker:
+        cleaned_stem = _RECORDING_TIMESTAMP.sub(" ", stem)
+        cleaned_stem = _STANDALONE_TIMESTAMP.sub(" ", cleaned_stem)
+        if cleaned_stem.strip() != stem.strip():
+            title = _clean_title(cleaned_stem)
     if not title or re.fullmatch(r"(?:e|ep|episode)?\s*\d+", title, re.I):
         title = _clean_title(parent)
     if not title or _SEASON.fullmatch(title):

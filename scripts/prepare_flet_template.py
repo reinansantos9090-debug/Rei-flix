@@ -155,7 +155,7 @@ if player is None:
         name: player_name,
         theme_attr: "@style/ReiFlixPlayerTheme",
         config_attr: "orientation|screenSize|keyboardHidden",
-        screen_attr: "sensorLandscape",
+        screen_attr = "fullSensor",
         pip_attr: "true",
         exported_attr: "false",
     })
@@ -164,7 +164,7 @@ else:
     # PiP-capable rather than silently retaining stale manifest attributes.
     player.set(theme_attr, "@style/ReiFlixPlayerTheme")
     player.set(config_attr, "orientation|screenSize|keyboardHidden")
-    player.set(screen_attr, "sensorLandscape")
+    player.set(screen_attr, "fullSensor")
     player.set(pip_attr, "true")
     player.set(exported_attr, "false")
 tree.write(manifest_path, encoding="utf-8", xml_declaration=True)

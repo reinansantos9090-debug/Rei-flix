@@ -19,8 +19,8 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.GestureDetector
 import android.view.ScaleGestureDetector
+import android.animation.ValueAnimator
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.Button
@@ -823,6 +823,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun cycleAspect(button: TextView) {
         if (!::playerView.isInitialized) return
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.resetZoomToFit()
         val next = if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) {
             AspectRatioFrameLayout.RESIZE_MODE_FIT
         } else {
@@ -1318,59 +1319,63 @@ class NativePlayerActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Single owner for player touch arbitration. The order is:
+     * tap/double-tap -> single-finger swipe -> two-finger zoom/pan.
+     * A pending single tap is delayed so a second tap can cancel it, matching
+     * the interaction model used by CloudStream's PlayerGestureHelper.
+     */
     private inner class GestureLayer(context: Context) : View(context) {
-        private val gestureDetector = GestureDetector(
-            context,
-            object : GestureDetector.SimpleOnGestureListener() {
-                override fun onDown(e: MotionEvent): Boolean = true
-
-                override fun onDoubleTap(e: MotionEvent): Boolean {
-                    if (errorVisible || gestureMode != GestureMode.NONE || !::player.isInitialized) return true
-                    val leftZone = width * 0.32f
-                    val rightZone = width * 0.68f
-                    when {
-                        e.x < leftZone -> seekBy(-10_000L, "−10s")
-                        e.x > rightZone -> seekBy(10_000L, "+10s")
-                        else -> togglePlayPause()
-                    }
-                    gestureConsumed = true
-                    suppressTapUntil = android.os.SystemClock.uptimeMillis() +
-                        ViewConfiguration.getDoubleTapTimeout() + 80L
-                    touchControls()
-                    return true
-                }
-
-                override fun onSingleTapUp(e: MotionEvent): Boolean = true
-
-                override fun onSingleTapConfirmed(e: MotionEvent): Boolean = true
-            },
-        )
+        private enum class GestureMode {
+            NONE,
+            HORIZONTAL_SEEK,
+            VERTICAL_BRIGHTNESS,
+            VERTICAL_VOLUME,
+        }
 
         private val scaleDetector = ScaleGestureDetector(
             context,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                    if (errorVisible || !::playerView.isInitialized || !::player.isInitialized) {
+                        return false
+                    }
+                    pinchActive = true
                     gestureConsumed = true
                     gestureMode = GestureMode.NONE
+                    cancelPendingTap()
                     touchControls()
+                    lastPanX = (detector.focusX)
+                    lastPanY = detector.focusY
                     return true
                 }
 
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
-                    if (errorVisible) return true
-                    if (detector.scaleFactor > 1.02f) {
-                        playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        showFeedback("ZOOM")
-                    } else if (detector.scaleFactor < 0.98f) {
-                        playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        showFeedback("FIT")
-                    }
-                    touchControls()
+                    if (!pinchActive || errorVisible) return true
+                    val rawFactor = detector.scaleFactor
+                    if (!rawFactor.isFinite() || rawFactor <= 0f) return true
+
+                    val previousScale = zoomScale
+                    val nextScale = (previousScale * rawFactor).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                    val effectiveFactor = if (previousScale <= 0f) 1f else nextScale / previousScale
+                    val pivotX = detector.focusX - width * 0.5f
+                    val pivotY = detector.focusY - height * 0.5f
+
+                    zoomTranslationX += (1f - effectiveFactor) * (pivotX - zoomTranslationX)
+                    zoomTranslationY += (1f - effectiveFactor) * (pivotY - zoomTranslationY)
+                    zoomScale = nextScale
+                    playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    applyZoomTransform()
+
+                    val label = if (zoomScale <= 1.02f) "FIT" else "ZOOM " +
+                        String.format(java.util.Locale.US, "%.1fx", zoomScale)
+                    showFeedback(label, 250L)
                     return true
                 }
 
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
-                    showFeedback(if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) "ZOOM" else "FIT")
+                    if (!pinchActive) return
+                    finishPinchGesture()
                 }
             },
         )
@@ -1379,18 +1384,58 @@ class NativePlayerActivity : ComponentActivity() {
         private var downY = 0f
         private var lastX = 0f
         private var lastY = 0f
-        private var downAt = 0L
         private var seekStartPosition = 0L
         private var gestureMode = GestureMode.NONE
         private var gestureConsumed = false
-        private var suppressTapUntil = 0L
-        private var scaled = false
+        private var pinchActive = false
+        private var lastPanX: Float? = null
+        private var lastPanY: Float? = null
+
+        private var lastTapAt = 0L
+        private var tapToken = 0L
+        private var pendingSingleTap: Runnable? = null
+
+        private var zoomScale = 1f
+        private var zoomTranslationX = 0f
+        private var zoomTranslationY = 0f
+        private var zoomAnimator: ValueAnimator? = null
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             scaleDetector.onTouchEvent(event)
-            if (event.pointerCount > 1) {
-                scaled = true
-                gestureConsumed = true
+
+            if (pinchActive || event.pointerCount > 1) {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_POINTER_DOWN -> {
+                        lastPanX = pointerCenterX(event)
+                        lastPanY = pointerCenterY(event)
+                        cancelPendingTap()
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (event.pointerCount >= 2) {
+                            val centerX = pointerCenterX(event)
+                            val centerY = pointerCenterY(event)
+                            val previousX = lastPanX
+                            val previousY = lastPanY
+                            if (previousX != null && previousY != null && zoomScale > 1.01f) {
+                                zoomTranslationX += centerX - previousX
+                                zoomTranslationY += centerY - previousY
+                                applyZoomTransform()
+                            }
+                            lastPanX = centerX
+                            lastPanY = centerY
+                        }
+                    }
+                    MotionEvent.ACTION_POINTER_UP -> {
+                        if (event.pointerCount <= 2) {
+                            lastPanX = null
+                            lastPanY = null
+                        }
+                    }
+                    MotionEvent.ACTION_CANCEL,
+                    MotionEvent.ACTION_UP -> {
+                        finishPinchGesture()
+                    }
+                }
                 return true
             }
 
@@ -1400,119 +1445,308 @@ class NativePlayerActivity : ComponentActivity() {
                     downY = event.y
                     lastX = event.x
                     lastY = event.y
-                    downAt = System.currentTimeMillis()
-                    seekStartPosition = if (::player.isInitialized) player.currentPosition else 0L
+                    seekStartPosition = if (::player.isInitialized) {
+                        player.currentPosition.coerceAtLeast(0L)
+                    } else 0L
                     gestureMode = GestureMode.NONE
-                    if (android.os.SystemClock.uptimeMillis() >= suppressTapUntil) {
-                        gestureConsumed = false
-                    }
-                    scaled = false
+                    gestureConsumed = false
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    if (scaled || errorVisible) return true
+                    if (errorVisible) return true
+
                     val dx = event.x - downX
                     val dy = event.y - downY
                     val absX = abs(dx)
                     val absY = abs(dy)
+
                     if (gestureMode == GestureMode.NONE &&
-                        (absX > dp(28) || absY > dp(28))) {
+                        (absX > dp(18) || absY > dp(18))
+                    ) {
+                        cancelPendingTap()
                         gestureConsumed = true
                         gestureMode = when {
-                            absX > absY * 1.15f && absX > dp(44) -> GestureMode.HORIZONTAL_SEEK
-                            absY > absX * 1.15f && absY > dp(44) ->
-                                if (downX < width / 2f) GestureMode.VERTICAL_BRIGHTNESS
-                                else GestureMode.VERTICAL_VOLUME
+                            absX > dp(24) && absX > absY * 1.15f -> GestureMode.HORIZONTAL_SEEK
+                            absY > dp(24) && absY > absX * 1.15f ->
+                                if (downX < width / 2f) {
+                                    GestureMode.VERTICAL_BRIGHTNESS
+                                } else {
+                                    GestureMode.VERTICAL_VOLUME
+                                }
                             else -> GestureMode.NONE
                         }
-                        if (gestureMode != GestureMode.NONE) touchControls()
+                        if (gestureMode != GestureMode.NONE) {
+                            touchControls()
+                        }
                     }
 
                     when (gestureMode) {
                         GestureMode.HORIZONTAL_SEEK -> {
                             if (!::player.isInitialized || player.duration <= 0L) return true
-                            val previewDelta = (dx / resources.displayMetrics.density * 40L)
-                                .roundToInt().toLong()
-                            val target = (seekStartPosition + previewDelta)
-                                .coerceIn(0L, player.duration)
+                            val target = calculateCloudStreamSeekTarget(
+                                seekStartPosition,
+                                dx,
+                                player.duration,
+                            )
+                            val delta = target - seekStartPosition
                             pendingSeekPosition = target
                             showFeedback(
-                                if (previewDelta < 0) "−" + formatTime(abs(previewDelta))
-                                else "+" + formatTime(abs(previewDelta)),
-                                700L,
+                                formatSeekPreview(target, delta),
+                                250L,
                             )
                         }
                         GestureMode.VERTICAL_BRIGHTNESS -> {
                             val deltaY = event.y - lastY
-                            adjustBrightness((-deltaY / height.coerceAtLeast(1).toFloat()) * 1.25f)
+                            adjustBrightness(
+                                (-deltaY / height.coerceAtLeast(1).toFloat()) * 2.0f,
+                            )
                         }
                         GestureMode.VERTICAL_VOLUME -> {
                             val deltaY = event.y - lastY
-                            adjustVolumeByFraction(-deltaY / height.coerceAtLeast(1).toFloat())
+                            adjustVolumeByFraction(
+                                -deltaY / height.coerceAtLeast(1).toFloat() * 2.0f,
+                            )
                         }
                         GestureMode.NONE -> Unit
                     }
+
                     lastX = event.x
                     lastY = event.y
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (!scaled && gestureMode != GestureMode.NONE) {
-                        if (gestureMode == GestureMode.HORIZONTAL_SEEK) {
-                            pendingSeekPosition?.let { target ->
-                                if (::player.isInitialized && player.duration > 0L) {
-                                    player.seekTo(target.coerceIn(0L, player.duration))
-                                    saveProgress("player_progress", force = true)
-                                }
-                            }
-                        }
-                        showFeedback(
-                            when (gestureMode) {
-                                GestureMode.VERTICAL_BRIGHTNESS -> adjustmentSummary("BRILHO", brightnessLevel)
-                                GestureMode.VERTICAL_VOLUME -> currentVolumeSummary()
-                                GestureMode.HORIZONTAL_SEEK -> pendingSeekPosition?.let(::formatTime)
-                                    ?: if (::player.isInitialized) formatTime(player.currentPosition) else ""
-                                else -> if (::player.isInitialized) formatTime(player.currentPosition) else ""
-                            },
-                            900L,
-                        )
-                        touchControls()
-                    }
-                    val wasGesture = gestureConsumed || scaled || gestureMode != GestureMode.NONE
-                    if (!wasGesture && !errorVisible &&
-                        android.os.SystemClock.uptimeMillis() >= suppressTapUntil
+                    val hadSwipe = gestureMode != GestureMode.NONE || gestureConsumed
+                    if (gestureMode == GestureMode.HORIZONTAL_SEEK &&
+                        pendingSeekPosition != null &&
+                        ::player.isInitialized &&
+                        player.duration > 0L
                     ) {
-                        setControlsVisible(!controlsVisible)
+                        val target = pendingSeekPosition!!.coerceIn(0L, player.duration)
+                        val delta = target - seekStartPosition
+                        if (abs(delta) >= MIN_SEEK_COMMIT_MS) {
+                            player.seekTo(target)
+                            saveProgress("player_progress", force = true)
+                            showFeedback(formatSeekPreview(target, delta), 900L)
+                        } else {
+                            showFeedback(formatTime(seekStartPosition), 700L)
+                        }
+                        touchControls()
+                    } else if (gestureMode == GestureMode.VERTICAL_BRIGHTNESS) {
+                        showFeedback(adjustmentSummary("BRILHO", brightnessLevel), 900L)
+                        touchControls()
+                    } else if (gestureMode == GestureMode.VERTICAL_VOLUME) {
+                        showFeedback(currentVolumeSummary(), 900L)
+                        touchControls()
+                    } else if (!hadSwipe && !errorVisible) {
+                        handleTap(event.x)
                     }
-                    gestureMode = GestureMode.NONE
-                    scaled = false
-                    pendingSeekPosition = null
-                    if (wasGesture) {
-                        gestureConsumed = true
-                        suppressTapUntil =
-                            android.os.SystemClock.uptimeMillis() + ViewConfiguration.getDoubleTapTimeout() + 80L
-                    }
+
+                    resetSingleFingerState()
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
-                    gestureMode = GestureMode.NONE
-                    scaled = false
-                    pendingSeekPosition = null
-                    gestureConsumed = true
-                    suppressTapUntil =
-                        android.os.SystemClock.uptimeMillis() + ViewConfiguration.getDoubleTapTimeout()
+                    cancelPendingTap()
+                    resetSingleFingerState()
                 }
             }
-
-            gestureDetector.onTouchEvent(event)
             return true
         }
+
+        fun resetZoomToFit() {
+            zoomAnimator?.cancel()
+            zoomAnimator = null
+            zoomScale = 1f
+            zoomTranslationX = 0f
+            zoomTranslationY = 0f
+            pendingSeekPosition = null
+            if (::playerView.isInitialized) {
+                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                playerView.videoSurfaceView?.apply {
+                    scaleX = 1f
+                    scaleY = 1f
+                    translationX = 0f
+                    translationY = 0f
+                }
+            }
+        }
+
+        private fun finishPinchGesture() {
+            if (!pinchActive) return
+            pinchActive = false
+            lastPanX = null
+            lastPanY = null
+            pendingSeekPosition = null
+            gestureMode = GestureMode.NONE
+            gestureConsumed = true
+
+            if (zoomScale <= ZOOM_SNAP_THRESHOLD) {
+                animateZoomToFit()
+            } else {
+                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                applyZoomTransform()
+                showFeedback(
+                    "ZOOM " + String.format(java.util.Locale.US, "%.1fx", zoomScale),
+                    900L,
+                )
+            }
+            touchControls()
+        }
+
+        private fun animateZoomToFit() {
+            zoomAnimator?.cancel()
+            val startScale = zoomScale
+            val startX = zoomTranslationX
+            val startY = zoomTranslationY
+            zoomAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 160L
+                addUpdateListener { animator ->
+                    val progress = animator.animatedValue as Float
+                    zoomScale = startScale + (1f - startScale) * progress
+                    zoomTranslationX = startX * (1f - progress)
+                    zoomTranslationY = startY * (1f - progress)
+                    applyZoomTransform()
+                }
+                doOnEndCompat {
+                    zoomScale = 1f
+                    zoomTranslationX = 0f
+                    zoomTranslationY = 0f
+                    playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    applyZoomTransform()
+                    showFeedback("FIT", 900L)
+                    zoomAnimator = null
+                }
+                start()
+            }
+        }
+
+        private fun calculateCloudStreamSeekTarget(start: Long, dx: Float, duration: Long): Long {
+            if (width <= 1) return start.coerceIn(0L, duration)
+            val normalized = (dx / width.toFloat()) * 2f
+            val magnitude = normalized * normalized
+            val signedDelta = (duration.toDouble() * magnitude.toDouble()).toLong() *
+                if (dx < 0f) -1 else 1
+            return (start + signedDelta).coerceIn(0L, duration)
+        }
+
+        private fun formatSeekPreview(target: Long, delta: Long): String {
+            val sign = when {
+                delta > 0L -> "+"
+                delta < 0L -> "−"
+                else -> ""
+            }
+            val deltaText = if (abs(delta) < 1000L) "" else sign + formatTime(abs(delta))
+            return if (deltaText.isBlank()) formatTime(target) else formatTime(target) + " [" + deltaText + "]"
+        }
+
+        private fun handleTap(x: Float) {
+            val now = android.os.SystemClock.uptimeMillis()
+            val elapsed = now - lastTapAt
+            if (lastTapAt > 0L && elapsed <= DOUBLE_TAP_WINDOW_MS) {
+                cancelPendingTap()
+                lastTapAt = 0L
+                handleDoubleTap(x)
+                return
+            }
+
+            cancelPendingTap()
+            lastTapAt = now
+            val token = ++tapToken
+            val runnable = Runnable {
+                if (token != tapToken || errorVisible) return@Runnable
+                lastTapAt = 0L
+                pendingSingleTap = null
+                setControlsVisible(!controlsVisible)
+            }
+            pendingSingleTap = runnable
+            handler.postDelayed(runnable, DOUBLE_TAP_WINDOW_MS)
+        }
+
+        private fun handleDoubleTap(x: Float) {
+            if (errorVisible || !::player.isInitialized) return
+            val leftZone = width * 0.30f
+            val rightZone = width * 0.70f
+            when {
+                x < leftZone -> seekBy(-10_000L, "−10s")
+                x > rightZone -> seekBy(10_000L, "+10s")
+                else -> {
+                    if (player.playbackState == Player.STATE_ENDED) {
+                        player.seekTo(0L)
+                        player.play()
+                    } else if (player.isPlaying) {
+                        player.pause()
+                    } else {
+                        player.play()
+                    }
+                    updatePlayPauseButton()
+                    showFeedback(if (player.isPlaying) "▶" else "❚❚", 700L)
+                }
+            }
+        }
+
+        private fun cancelPendingTap() {
+            tapToken++
+            pendingSingleTap?.let(handler::removeCallbacks)
+            pendingSingleTap = null
+            lastTapAt = 0L
+        }
+
+        private fun resetSingleFingerState() {
+            gestureMode = GestureMode.NONE
+            gestureConsumed = false
+            pendingSeekPosition = null
+            lastX = 0f
+            lastY = 0f
+        }
+
+        private fun pointerCenterX(event: MotionEvent): Float =
+            if (event.pointerCount >= 2) (event.getX(0) + event.getX(1)) * 0.5f else event.x
+
+        private fun pointerCenterY(event: MotionEvent): Float =
+            if (event.pointerCount >= 2) (event.getY(0) + event.getY(1)) * 0.5f else event.y
+
+        private fun applyZoomTransform() {
+            val video = playerView.videoSurfaceView ?: return
+            if (video.width <= 1 || video.height <= 1 || width <= 1 || height <= 1) return
+
+            video.pivotX = video.width * 0.5f
+            video.pivotY = video.height * 0.5f
+
+            val maxTx = ((video.width * zoomScale) - width).coerceAtLeast(0f) * 0.5f
+            val maxTy = ((video.height * zoomScale) - height).coerceAtLeast(0f) * 0.5f
+            zoomTranslationX = zoomTranslationX.coerceIn(-maxTx, maxTx)
+            zoomTranslationY = zoomTranslationY.coerceIn(-maxTy, maxTy)
+
+            video.scaleX = zoomScale
+            video.scaleY = zoomScale
+            video.translationX = zoomTranslationX
+            video.translationY = zoomTranslationY
+            video.invalidate()
+            video.requestLayout()
+        }
+
+        private fun doOnEndCompat(action: () -> Unit): ValueAnimator {
+            return object : ValueAnimator() {
+                init {
+                    addListener(object : android.animation.AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: android.animation.Animator) {
+                            action()
+                        }
+                    })
+                }
+            }
+        }
     }
+
 
     companion object {
         private const val TAG = "[REIFLIX][PLAYER]"
         private const val PROGRESS_INTERVAL_MS = 15_000L
         private const val CONTROL_TIMEOUT_MS = 3_500L
         private const val SEEK_PROGRESS_MAX = 1000
+        private const val DOUBLE_TAP_WINDOW_MS = 200L
+        private const val MIN_SEEK_COMMIT_MS = 7_000L
+        private const val MIN_ZOOM = 1f
+        private const val MAX_ZOOM = 4f
+        private const val ZOOM_SNAP_THRESHOLD = 1.07f
     }
 }

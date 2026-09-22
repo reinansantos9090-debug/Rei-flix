@@ -1821,7 +1821,7 @@ class OrganizeTests(unittest.TestCase):
             genre.on_click(None)
             card = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
                          item.on_click and item.content is not None and item.content.__class__.__name__ == 'Column' and
-                         any(getattr(child, 'text', None) == 'Action' for child in getattr(item.content, 'controls', []) or []))
+                         any(getattr(child, 'value', None) == 'Action' for child in getattr(item.content, 'controls', []) or []))
             card.on_click(None)
             self.assertEqual(selected[0]['id'], action)
 
@@ -1842,7 +1842,6 @@ class OrganizeTests(unittest.TestCase):
                          any(getattr(child, 'text', None) == 'Action' for child in getattr(item.content, 'controls', []) or []))
             sort = next(item for item in walk(view) if item.__class__.__name__ == 'Dropdown')
             self.assertTrue(card.on_click)
-            self.assertEqual(sort.value, 'Nome A-Z')
             self.assertEqual(sort.value, 'Nome A-Z')
 
     def test_organize_view_action_triggers(self):

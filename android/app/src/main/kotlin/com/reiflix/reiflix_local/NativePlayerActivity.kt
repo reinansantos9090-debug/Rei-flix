@@ -91,6 +91,14 @@ class NativePlayerActivity : ComponentActivity() {
     private var pendingSeekPosition: Long? = null
     private var feedbackHideAt = 0L
 
+    private val singleTapFallback = object : Runnable {
+        override fun run() {
+            if (!errorVisible && gestureMode == GestureMode.NONE && !gestureConsumed) {
+                setControlsVisible(!controlsVisible)
+            }
+        }
+    }
+
     private val titleValue: String
         get() = intent.getStringExtra("title") ?: "Episódio"
 
@@ -1315,6 +1323,7 @@ class NativePlayerActivity : ComponentActivity() {
                 override fun onDown(e: MotionEvent): Boolean = true
 
                 override fun onDoubleTap(e: MotionEvent): Boolean {
+                    handler.removeCallbacks(singleTapFallback)
                     if (errorVisible || gestureMode != GestureMode.NONE || !::player.isInitialized) return true
                     val leftZone = width * 0.32f
                     val rightZone = width * 0.68f
@@ -1331,6 +1340,7 @@ class NativePlayerActivity : ComponentActivity() {
                 }
 
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                    handler.removeCallbacks(singleTapFallback)
                     if (!errorVisible &&
                         gestureMode == GestureMode.NONE &&
                         !gestureConsumed &&
@@ -1393,6 +1403,7 @@ class NativePlayerActivity : ComponentActivity() {
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    handler.removeCallbacks(singleTapFallback)
                     downX = event.x
                     downY = event.y
                     lastX = event.x
@@ -1476,6 +1487,17 @@ class NativePlayerActivity : ComponentActivity() {
                         touchControls()
                     }
                     val wasGesture = gestureConsumed || scaled || gestureMode != GestureMode.NONE
+                    if (!wasGesture && !errorVisible &&
+                        android.os.SystemClock.uptimeMillis() >= suppressTapUntil
+                    ) {
+                        handler.removeCallbacks(singleTapFallback)
+                        handler.postDelayed(
+                            singleTapFallback,
+                            ViewConfiguration.getDoubleTapTimeout().toLong(),
+                        )
+                    } else {
+                        handler.removeCallbacks(singleTapFallback)
+                    }
                     gestureMode = GestureMode.NONE
                     scaled = false
                     pendingSeekPosition = null
@@ -1487,6 +1509,7 @@ class NativePlayerActivity : ComponentActivity() {
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
+                    handler.removeCallbacks(singleTapFallback)
                     gestureMode = GestureMode.NONE
                     scaled = false
                     pendingSeekPosition = null

@@ -1,13 +1,16 @@
 package com.reiflix.reiflix_local
 
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -143,6 +146,7 @@ class NativePlayerActivity : ComponentActivity() {
         installGestureLayer()
         installControls()
         installBackHandler()
+        configurePictureInPicture()
         applyRootInsets(WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView))
 
         val rawUri = intent.getStringExtra("uri")
@@ -341,6 +345,20 @@ class NativePlayerActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
+    }
+
+    private fun canEnterPictureInPicture(): Boolean {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    }
+
+    private fun configurePictureInPicture() {
+        if (!canEnterPictureInPicture()) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val builder = PictureInPictureParams.Builder()
+                .setAutoEnterEnabled(true)
+            setPictureInPictureParams(builder.build())
+        }
     }
 
     private fun installBasePlayerView() {

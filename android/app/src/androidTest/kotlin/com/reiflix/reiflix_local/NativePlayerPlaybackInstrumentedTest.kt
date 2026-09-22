@@ -430,6 +430,7 @@ class NativePlayerPlaybackInstrumentedTest {
                 @Suppress("UNCHECKED_CAST")
                 return result as T
             }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             SystemClock.sleep(50L)
         }
         assertTrue("view with tag $tag", false)
@@ -449,7 +450,6 @@ class NativePlayerPlaybackInstrumentedTest {
         while (SystemClock.uptimeMillis() < deadline) {
             val passed = onMain { condition() }
             if (passed) return
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             SystemClock.sleep(50L)
         }
         assertTrue(description, false)

@@ -128,6 +128,10 @@ class NativePlayerActivity : ComponentActivity() {
 
         enterImmersiveMode()
         configureWindow()
+        brightnessLevel = window.attributes.screenBrightness
+            .takeIf { it.isFinite() && it >= 0f }
+            ?.coerceIn(0f, 1f)
+            ?: 0.5f
 
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -795,11 +799,18 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun adjustBrightness(deltaPercent: Float) {
-        brightnessLevel = (brightnessLevel + deltaPercent).coerceIn(0.05f, 1f)
-        val attributes = window.attributes
-        attributes.screenBrightness = brightnessLevel
-        window.attributes = attributes
-        showAdjustment("BRILHO", brightnessLevel)
+        val target = (brightnessLevel + deltaPercent).coerceIn(0.05f, 1f)
+        runCatching {
+            val attributes = window.attributes
+            attributes.screenBrightness = target
+            window.attributes = attributes
+            brightnessLevel = target
+        }.onSuccess {
+            showAdjustment("BRILHO", brightnessLevel)
+        }.onFailure { error ->
+            logPlayer("BRIGHTNESS_CHANGE_FAILED", error)
+            showFeedback("BRILHO\nIndisponível neste dispositivo", 1100L)
+        }
     }
 
     private fun adjustVolume(deltaSteps: Int) {
@@ -807,8 +818,14 @@ class NativePlayerActivity : ComponentActivity() {
         val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         val current = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
         val next = (current + deltaSteps).coerceIn(0, maxVolume)
-        if (next != current) {
-            manager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+        runCatching {
+            if (next != current) {
+                manager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+            }
+        }.onFailure { error ->
+            logPlayer("VOLUME_CHANGE_FAILED", error)
+            showFeedback("VOLUME\nIndisponível neste dispositivo", 1100L)
+            return
         }
         showAdjustment("VOLUME", next.toFloat() / maxVolume.toFloat())
     }

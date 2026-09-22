@@ -1331,13 +1331,6 @@ class NativePlayerActivity : ComponentActivity() {
      * the interaction model used by CloudStream's PlayerGestureHelper.
      */
     private inner class GestureLayer(context: Context) : View(context) {
-        private enum class GestureMode {
-            NONE,
-            HORIZONTAL_SEEK,
-            VERTICAL_BRIGHTNESS,
-            VERTICAL_VOLUME,
-        }
-
         private val scaleDetector = ScaleGestureDetector(
             context,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {

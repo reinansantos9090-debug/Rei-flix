@@ -18,6 +18,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.GestureDetector
 import android.view.ScaleGestureDetector
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
@@ -1212,7 +1213,11 @@ class NativePlayerActivity : ComponentActivity() {
                 }
 
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                    if (!errorVisible && gestureMode == GestureMode.NONE && !gestureConsumed) {
+                    if (!errorVisible &&
+                        gestureMode == GestureMode.NONE &&
+                        !gestureConsumed &&
+                        android.os.SystemClock.uptimeMillis() >= suppressTapUntil
+                    ) {
                         setControlsVisible(!controlsVisible)
                     }
                     return true
@@ -1256,6 +1261,7 @@ class NativePlayerActivity : ComponentActivity() {
         private var downAt = 0L
         private var gestureMode = GestureMode.NONE
         private var gestureConsumed = false
+        private var suppressTapUntil = 0L
         private var scaled = false
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -1274,7 +1280,9 @@ class NativePlayerActivity : ComponentActivity() {
                     lastY = event.y
                     downAt = System.currentTimeMillis()
                     gestureMode = GestureMode.NONE
-                    gestureConsumed = false
+                    if (android.os.SystemClock.uptimeMillis() >= suppressTapUntil) {
+                        gestureConsumed = false
+                    }
                     scaled = false
                 }
 
@@ -1343,20 +1351,23 @@ class NativePlayerActivity : ComponentActivity() {
                     val wasGesture = gestureConsumed || scaled || gestureMode != GestureMode.NONE
                     gestureMode = GestureMode.NONE
                     scaled = false
-                    gestureConsumed = wasGesture
+                    if (wasGesture) {
+                        gestureConsumed = true
+                        suppressTapUntil =
+                            android.os.SystemClock.uptimeMillis() + ViewConfiguration.getDoubleTapTimeout() + 80L
+                    }
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
                     gestureMode = GestureMode.NONE
                     scaled = false
                     gestureConsumed = true
+                    suppressTapUntil =
+                        android.os.SystemClock.uptimeMillis() + ViewConfiguration.getDoubleTapTimeout()
                 }
             }
 
             gestureDetector.onTouchEvent(event)
-            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                gestureConsumed = false
-            }
             return true
         }
     }

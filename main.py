@@ -88,7 +88,7 @@ async def main(page: ft.Page):
     def render_current():
         if navigation.current == "home":
             show(HomeView.build(page, library, navigate_details, navigate_settings, play_episode, navigate_organize,
-                                view_state=home_state))
+                                view_state=home_state, on_request_thumbnail=request_missing_thumbnail))
         elif navigation.current == "organize":
             show(OrganizeView.build(page, library, navigate_details, navigate_back, navigate_settings,
                                     on_request_storage_access=open_broad_storage_access,

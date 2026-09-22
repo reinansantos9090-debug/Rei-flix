@@ -51,7 +51,7 @@ class NativePlayerPlaybackInstrumentedTest {
             .putExtra("autoplay", false)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-        activity = InstrumentationRegistry.getInstrumentation().startActivitySync(intent)
+        activity = InstrumentationRegistry.getInstrumentation().startActivitySync(intent) as NativePlayerActivity
 
         val playerView = awaitView<PlayerView>("reiflix_player_view")
         val player = requireNotNull(playerView.player) { "Media3 PlayerView did not receive a player" }

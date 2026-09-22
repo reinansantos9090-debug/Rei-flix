@@ -1,16 +1,16 @@
 <resources>
-  <!-- MainActivity keeps normal system bars; the player owns immersive mode. -->
+  <!-- Rei-Flix keeps the host immersive; the native player reinforces it locally. -->
   <style name="ReiFlixTheme" parent="android:style/Theme.Material.NoActionBar">
     <item name="android:fontFamily">sans</item>
     <item name="android:windowActionModeOverlay">true</item>
     <item name="android:windowNoTitle">true</item>
-    <item name="android:statusBarColor">#16151F</item>
-    <item name="android:navigationBarColor">#16151F</item>
+    <item name="android:statusBarColor">@android:color/transparent</item>
+    <item name="android:navigationBarColor">@android:color/transparent</item>
     <item name="android:windowLightStatusBar">false</item>
     <item name="android:windowLightNavigationBar">false</item>
   </style>
 
-  <!-- The native Media3 activity owns the only immersive/fullscreen state. -->
+  <!-- The native Media3 activity is also immersive/fullscreen. -->
   <style name="ReiFlixPlayerTheme" parent="android:style/Theme.Material.NoActionBar">
     <item name="android:fontFamily">sans</item>
     <item name="android:windowActionModeOverlay">true</item>

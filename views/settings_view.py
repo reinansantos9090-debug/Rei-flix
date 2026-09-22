@@ -12,7 +12,7 @@ import inspect
 import flet as ft
 
 from core.storage_access import normalize_storage_snapshot
-from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title
+from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title, count_label
 
 logger = logging.getLogger("reiflix.settings")
 
@@ -419,14 +419,14 @@ class SettingsView:
                 errors = json.loads(last["errors"] or "[]")
             except (TypeError, json.JSONDecodeError):
                 errors = ["diagnóstico inválido"]
-            diagnostic = f"Última varredura: {last['videos']} vídeos, {last['animes']} animes, {last['episodes']} episódios."
+            diagnostic = f"Última varredura: {count_label(last['videos'], \"vídeo\")}, {count_label(last['animes'], \"anime\")}, {count_label(last['episodes'], \"episódio\")}."
             if errors:
                 diagnostic += " Há itens que precisam de atenção."
             if last.get("status"):
                 diagnostic += f" Status: {last['status']}."
 
         stats_text = (
-            f"{statistics['animes']} animes • {statistics['episodes_available']}/{statistics['episodes']} episódios disponíveis\n"
+            f"{count_label(statistics['animes'], \"anime\")} • {statistics['episodes_available']}/{statistics['episodes']} {(\"episódio\" if statistics['episodes'] == 1 else \"episódios\")} disponíveis\n"
             f"{statistics['animes_completed']} concluídos • {statistics['animes_in_progress']} em andamento • {statistics['animes_not_started']} não iniciados\n"
             f"{statistics['episodes_watched']} episódios concluídos • {statistics['favorites']} favoritos • {statistics['pinned']} fixados\n"
             f"{statistics['tags']} etiquetas distintas • {statistics['notes']} notas pessoais\n"

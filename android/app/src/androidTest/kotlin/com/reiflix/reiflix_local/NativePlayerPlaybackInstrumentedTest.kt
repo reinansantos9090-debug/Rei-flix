@@ -430,7 +430,6 @@ class NativePlayerPlaybackInstrumentedTest {
                 @Suppress("UNCHECKED_CAST")
                 return result as T
             }
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             SystemClock.sleep(50L)
         }
         assertTrue("view with tag $tag", false)

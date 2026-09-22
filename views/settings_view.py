@@ -74,7 +74,7 @@ class SettingsView:
         statistics = library.library_statistics()
         normalized_snapshot = normalize_storage_snapshot(storage_snapshot)
         snapshot = normalized_snapshot.as_mapping()
-        scan = scan_snapshot or {}
+        scan_snapshot_data = scan_snapshot or {}
         media_state = str(snapshot.get("mediaReadState", "denied")).casefold()
         broad_state = str(snapshot.get("broadStorageState", "unavailable")).casefold()
         saf_roots = tuple(snapshot.get("safRoots", ()) or ())
@@ -255,7 +255,7 @@ class SettingsView:
         }.get(media_state, "DESCONHECIDO")
         broad_label = "DISPONÍVEL — acesso amplo confirmado pelo Android" if broad_granted else "INDISPONÍVEL — acesso amplo não concedido"
         saf_label = f"PASTAS AUTORIZADAS — {len(saf_roots)}" if saf_roots else "SEM PASTA SAF AUTORIZADA"
-        scan_state_label = str(scan.get("state") or "IDLE")
+        scan_state_label = str(scan_snapshot_data.get("state") or "IDLE")
         scan_source = str(scan.get("source") or "—")
         scan_volume = str(scan.get("volume") or "—")
         scan_found = int(scan.get("found") or 0)

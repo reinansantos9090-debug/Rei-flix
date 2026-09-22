@@ -181,6 +181,7 @@ class DetailView:
                     value = on_set_personal_note(anime_group["id"], field.value) if on_set_personal_note else field.value
                     note_text[0] = value or ""; anime_group["personal_note"] = note_text[0]
                     render_note(); dismiss_dialog(page, dialog)
+                    page.snack_bar = ft.SnackBar(ft.Text("Nota salva.")); page.snack_bar.open = True; safe_update()
                 except ValueError as exc:
                     field.error_text = str(exc); page.update()
             dialog.actions = [ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)),
@@ -199,6 +200,7 @@ class DetailView:
                 personal_tags = on_set_user_tags(anime_group["id"], tags) if on_set_user_tags else tags
                 anime_group["user_tags"] = personal_tags
                 render_tags()
+                page.snack_bar = ft.SnackBar(ft.Text("Etiqueta salva.")); page.snack_bar.open = True
                 page.update()
             except Exception:
                 page.snack_bar = ft.SnackBar(ft.Text("Não foi possível salvar suas etiquetas."))

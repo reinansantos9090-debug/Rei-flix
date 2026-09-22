@@ -84,19 +84,22 @@ class HomeView:
         def home_card(item, action=None, wide=False, episode=False):
             meta = item.get("meta") or {}
             cover = item.get("cover") or meta.get("cover_cache") or meta.get("cover_url")
+            remote_cover = bool(isinstance(cover, str) and cover.startswith(("http://", "https://")))
             local_cover_missing = bool(
                 cover and isinstance(cover, str) and
-                not cover.startswith(("http://", "https://", "content://")) and
+                not remote_cover and not cover.startswith("content://") and
                 not os.path.isfile(cover)
             )
-            if (not cover or local_cover_missing) and library is not None and item.get("id") is not None:
+            if (not cover or local_cover_missing or remote_cover) and library is not None and item.get("id") is not None:
                 try:
                     entity = "movie" if item.get("media_kind") == "movie" else "anime"
-                    resolved = library.resolve_artwork(entity, item.get("id"), "poster", allow_network=True)
-                    cover = (resolved or {}).get("local_path") or (resolved or {}).get("external_url") or cover
+                    resolved = library.resolve_artwork(entity, item.get("id"), "poster", allow_network=False)
+                    cover = (resolved or {}).get("local_path")
                 except Exception:
                     resolved = None
-            if (not cover or local_cover_missing) and on_request_thumbnail:
+                if not cover:
+                    cover = None
+            if not cover and on_request_thumbnail:
                 candidate = item.get("episode") or item.get("current_episode")
                 if not candidate and item.get("seasons"):
                     candidate = next((ep for season in item.get("seasons", []) for ep in season.get("episodes", []) if ep.get("path") and not ep.get("missing")), None)

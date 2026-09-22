@@ -91,14 +91,6 @@ class NativePlayerActivity : ComponentActivity() {
     private var pendingSeekPosition: Long? = null
     private var feedbackHideAt = 0L
 
-    private val singleTapFallback = object : Runnable {
-        override fun run() {
-            if (!errorVisible && gestureMode == GestureMode.NONE && !gestureConsumed) {
-                setControlsVisible(!controlsVisible)
-            }
-        }
-    }
-
     private val titleValue: String
         get() = intent.getStringExtra("title") ?: "Episódio"
 
@@ -1317,6 +1309,14 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private inner class GestureLayer(context: Context) : View(context) {
+        private val singleTapFallback = object : Runnable {
+            override fun run() {
+                if (!errorVisible && gestureMode == GestureMode.NONE && !gestureConsumed) {
+                    setControlsVisible(!controlsVisible)
+                }
+            }
+        }
+
         private val gestureDetector = GestureDetector(
             context,
             object : GestureDetector.SimpleOnGestureListener() {

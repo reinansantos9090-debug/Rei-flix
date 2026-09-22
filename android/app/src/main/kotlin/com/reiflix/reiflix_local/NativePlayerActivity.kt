@@ -236,12 +236,16 @@ class NativePlayerActivity : ComponentActivity() {
 
             val mediaItem = mediaItemBuilder.build()
             logPlayer("MEDIA_ITEM requestId=" + requestId.ifEmpty { "-" } + " uri=" + mediaItem.localConfiguration?.uri)
+            val shouldPlayWhenReady = savedInstanceState?.takeIf { it.containsKey("play_when_ready") }
+                ?.getBoolean("play_when_ready")
+                ?: intent.getBooleanExtra("autoplay", true)
             player.setMediaItem(mediaItem)
+            // Set the desired playWhenReady state before prepare(). This prevents a
+            // transient autoplay race when callers explicitly request autoplay=false.
+            player.playWhenReady = shouldPlayWhenReady
+            logPlayer("PLAY_WHEN_READY=" + player.playWhenReady + " requestId=" + requestId.ifEmpty { "-" })
             logPlayer("PREPARE requestId=" + requestId.ifEmpty { "-" })
             player.prepare()
-            player.playWhenReady = savedInstanceState?.takeIf { it.containsKey("play_when_ready") }
-                ?.getBoolean("play_when_ready") ?: true
-            logPlayer("PLAY_WHEN_READY=" + player.playWhenReady + " requestId=" + requestId.ifEmpty { "-" })
         } catch (exception: Exception) {
             logPlayer("EXOPLAYER_INIT_FAILED requestId=" + requestId.ifEmpty { "-" }, exception)
             showPlayerError("Não foi possível iniciar o player local.", "player_initialization")

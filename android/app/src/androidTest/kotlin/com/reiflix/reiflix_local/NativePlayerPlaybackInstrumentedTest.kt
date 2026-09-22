@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.View
+import android.widget.TextView
 import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.Player
 import androidx.media3.ui.PlayerView
@@ -60,12 +61,15 @@ class NativePlayerPlaybackInstrumentedTest {
             player.playbackState == Player.STATE_READY
         }
         assertTrue("Player should initially remain paused for deterministic interaction", player.isPlaying == false)
+        assertTrue("Native player Activity must remain alive after READY", !activity!!.isFinishing)
 
         val playPause = awaitView<View>("reiflix_play_pause")
         assertTrue("Play control must be present", playPause.performClick())
-        await("Play button must start playback") { player?.isPlaying == true }
+        await("Play button must start playback") { player.isPlaying }
+        await("The real video must render its first frame") { activity!!.firstFrameRenderedForTesting }
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         assertTrue("Native player must actually be playing the local fixture", player.isPlaying)
+        assertTrue("Native player Activity must remain alive after first frame", !activity!!.isFinishing && !activity!!.isDestroyed)
 
         val seekBar = awaitView<android.widget.SeekBar>("reiflix_seekbar")
         val initialDuration = player.duration
@@ -128,9 +132,80 @@ class NativePlayerPlaybackInstrumentedTest {
         await("Media3 seek must reach the beginning") { player.currentPosition <= 200L }
         assertTrue("Seek position should move from the pre-seek position", beforeSeek >= 0L)
 
-        // Gesture coordinates and visual scroll/immersive inspection remain manual
-        // acceptance cases; this test deliberately validates the real Activity,
-        // real MediaStore URI, and real Media3 decoder/playback path.
+        val gestureLayer = awaitView<View>("reiflix_gesture_layer")
+
+        player.pause()
+        player.seekTo(3_000L)
+        await("Gesture seek precondition must be reachable") { player.currentPosition >= 2_500L }
+
+        val controls = awaitView<View>("reiflix_play_pause")
+        val controlsBefore = controls.visibility
+        tap(gestureLayer, gestureLayer.width * 0.5f, gestureLayer.height * 0.5f)
+        await("Single tap must toggle the custom controls") { controls.visibility != controlsBefore }
+        tap(gestureLayer, gestureLayer.width * 0.5f, gestureLayer.height * 0.5f)
+        await("Second tap must restore the custom controls") { controls.visibility == View.VISIBLE }
+
+        player.seekTo(3_000L)
+        await("Seek position must be restored for left double tap") { player.currentPosition >= 2_500L }
+        doubleTap(gestureLayer, gestureLayer.width * 0.12f, gestureLayer.height * 0.5f)
+        await("Left double tap must seek backward") { player.currentPosition <= 1_000L }
+
+        doubleTap(gestureLayer, gestureLayer.width * 0.88f, gestureLayer.height * 0.5f)
+        await("Right double tap must seek forward") { player.currentPosition >= 2_000L }
+
+        player.seekTo(0L)
+        await("Horizontal gesture precondition") { player.currentPosition <= 500L }
+        swipe(
+            gestureLayer,
+            gestureLayer.width * 0.25f,
+            gestureLayer.height * 0.5f,
+            gestureLayer.width * 0.65f,
+            gestureLayer.height * 0.5f,
+        )
+        await("Horizontal swipe must commit one coherent seek on ACTION_UP") {
+            player.currentPosition > 500L
+        }
+
+        swipe(
+            gestureLayer,
+            gestureLayer.width * 0.12f,
+            gestureLayer.height * 0.72f,
+            gestureLayer.width * 0.12f,
+            gestureLayer.height * 0.30f,
+        )
+        await("Left vertical gesture must expose brightness feedback") {
+            awaitView<TextView>("reiflix_feedback").text?.contains("BRILHO") == true
+        }
+
+        swipe(
+            gestureLayer,
+            gestureLayer.width * 0.88f,
+            gestureLayer.height * 0.72f,
+            gestureLayer.width * 0.88f,
+            gestureLayer.height * 0.30f,
+        )
+        await("Right vertical gesture must expose volume feedback") {
+            awaitView<TextView>("reiflix_feedback").text?.contains("VOLUME") == true
+        }
+
+        pinch(gestureLayer, zoom = true)
+        await("Pinch out must select ZOOM") {
+            playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        }
+        pinch(gestureLayer, zoom = false)
+        await("Pinch in must select FIT") {
+            playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+
+        cancelGesture(gestureLayer, gestureLayer.width * 0.8f, gestureLayer.height * 0.5f)
+        tap(gestureLayer, gestureLayer.width * 0.5f, gestureLayer.height * 0.5f)
+        await("Touch state must recover after ACTION_CANCEL") {
+            controls.visibility == View.VISIBLE
+        }
+        assertTrue(
+            "Play control must remain accessible after gesture sequences",
+            controls.isShown,
+        )
     }
 
     private fun grantMediaReadPermission() {
@@ -181,6 +256,161 @@ class NativePlayerPlaybackInstrumentedTest {
             runCatching { target.contentResolver.delete(uri, null, null) }
             throw error
         }
+    }
+
+
+    private fun dispatchEvent(view: View, event: MotionEvent) {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            view.dispatchTouchEvent(event)
+        }
+        event.recycle()
+    }
+
+    private fun tap(view: View, x: Float, y: Float) {
+        val down = SystemClock.uptimeMillis()
+        dispatchEvent(view, MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, x, y, 0))
+        dispatchEvent(view, MotionEvent.obtain(down, down + 70L, MotionEvent.ACTION_UP, x, y, 0))
+    }
+
+    private fun doubleTap(view: View, x: Float, y: Float) {
+        val first = SystemClock.uptimeMillis()
+        dispatchEvent(view, MotionEvent.obtain(first, first, MotionEvent.ACTION_DOWN, x, y, 0))
+        dispatchEvent(view, MotionEvent.obtain(first, first + 60L, MotionEvent.ACTION_UP, x, y, 0))
+        val second = first + 120L
+        dispatchEvent(view, MotionEvent.obtain(first, second, MotionEvent.ACTION_DOWN, x, y, 0))
+        dispatchEvent(view, MotionEvent.obtain(first, second + 60L, MotionEvent.ACTION_UP, x, y, 0))
+    }
+
+    private fun swipe(view: View, startX: Float, startY: Float, endX: Float, endY: Float) {
+        val down = SystemClock.uptimeMillis()
+        dispatchEvent(view, MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, startX, startY, 0))
+        dispatchEvent(
+            view,
+            MotionEvent.obtain(
+                down,
+                down + 80L,
+                MotionEvent.ACTION_MOVE,
+                startX + (endX - startX) * 0.35f,
+                startY + (endY - startY) * 0.35f,
+                0,
+            ),
+        )
+        dispatchEvent(
+            view,
+            MotionEvent.obtain(
+                down,
+                down + 140L,
+                MotionEvent.ACTION_MOVE,
+                startX + (endX - startX) * 0.75f,
+                startY + (endY - startY) * 0.75f,
+                0,
+            ),
+        )
+        dispatchEvent(view, MotionEvent.obtain(down, down + 200L, MotionEvent.ACTION_UP, endX, endY, 0))
+    }
+
+    private fun cancelGesture(view: View, x: Float, y: Float) {
+        val down = SystemClock.uptimeMillis()
+        dispatchEvent(view, MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, x, y, 0))
+        dispatchEvent(view, MotionEvent.obtain(down, down + 80L, MotionEvent.ACTION_MOVE, x, y - 90f, 0))
+        dispatchEvent(view, MotionEvent.obtain(down, down + 100L, MotionEvent.ACTION_CANCEL, x, y - 90f, 0))
+    }
+
+    private fun pinch(view: View, zoom: Boolean) {
+        val centerX = view.width * 0.5f
+        val centerY = view.height * 0.5f
+        val startSpan = 120f
+        val endSpan = if (zoom) 280f else 70f
+        val down = SystemClock.uptimeMillis()
+
+        val first = MotionEvent.PointerProperties().apply {
+            id = 0
+            toolType = MotionEvent.TOOL_TYPE_FINGER
+        }
+        val second = MotionEvent.PointerProperties().apply {
+            id = 1
+            toolType = MotionEvent.TOOL_TYPE_FINGER
+        }
+
+        fun onePointer(action: Int, eventTime: Long): MotionEvent {
+            val props = MotionEvent.PointerProperties().apply {
+                id = 0
+                toolType = MotionEvent.TOOL_TYPE_FINGER
+            }
+            val coords = MotionEvent.PointerCoords().apply {
+                x = centerX - startSpan / 2f
+                y = centerY
+                pressure = 1f
+                size = 1f
+            }
+            return MotionEvent.obtain(
+                down,
+                eventTime,
+                action,
+                1,
+                arrayOf(props),
+                arrayOf(coords),
+                0,
+                0,
+                1f,
+                1f,
+                0,
+                0,
+                0,
+                0,
+            )
+        }
+
+        fun twoPointers(action: Int, eventTime: Long, span: Float): MotionEvent {
+            val left = MotionEvent.PointerCoords().apply {
+                x = centerX - span / 2f
+                y = centerY
+                pressure = 1f
+                size = 1f
+            }
+            val right = MotionEvent.PointerCoords().apply {
+                x = centerX + span / 2f
+                y = centerY
+                pressure = 1f
+                size = 1f
+            }
+            return MotionEvent.obtain(
+                down,
+                eventTime,
+                action,
+                2,
+                arrayOf(first, second),
+                arrayOf(left, right),
+                0,
+                0,
+                1f,
+                1f,
+                0,
+                0,
+                0,
+                0,
+            )
+        }
+
+        dispatchEvent(view, onePointer(MotionEvent.ACTION_DOWN, down))
+        dispatchEvent(
+            view,
+            twoPointers(
+                MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                down + 50L,
+                startSpan,
+            ),
+        )
+        dispatchEvent(view, twoPointers(MotionEvent.ACTION_MOVE, down + 100L, endSpan))
+        dispatchEvent(
+            view,
+            twoPointers(
+                MotionEvent.ACTION_POINTER_UP or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                down + 160L,
+                endSpan,
+            ),
+        )
+        dispatchEvent(view, MotionEvent.obtain(down, down + 220L, MotionEvent.ACTION_UP, centerX - endSpan / 2f, centerY, 0))
     }
 
     private fun <T : View> awaitView(tag: String): T {

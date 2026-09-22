@@ -1,3 +1,8 @@
+"""Deterministic storage authorization states.
+
+Android is authoritative for current grants. Python consumes the native
+capability snapshot for UI, onboarding, Settings and scan orchestration.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -144,10 +149,10 @@ class StorageCapabilities:
     def known(self) -> bool:
         return self.api is not None or self.lifecycle_state != "unknown"
 
-    def can_scan(self, capability: str) -> bool:
-        if not isinstance(capability, str):
+    def can_scan(self, source: str) -> bool:
+        if not isinstance(source, str):
             return False
-        value = capability.strip().casefold()
+        value = source.strip().casefold()
         if value == "mediastore":
             return self.media_read_state in {"partial", "full"}
         if value == "broad-storage":
@@ -156,10 +161,10 @@ class StorageCapabilities:
             return bool(self.saf_roots)
         return value in {str(item).strip().casefold() for item in self.scanner_capabilities}
 
-    def can_reconcile(self, capability: str) -> bool:
-        if not isinstance(capability, str):
+    def can_reconcile(self, source: str) -> bool:
+        if not isinstance(source, str):
             return False
-        value = capability.strip().casefold()
+        value = source.strip().casefold()
         if value == "mediastore":
             return self.media_read_state == "full"
         if value == "broad-storage":
@@ -196,13 +201,13 @@ def normalize_storage_snapshot(snapshot: Any) -> StorageCapabilities:
     return StorageCapabilities.from_native(payload)
 
 
-def storage_access_state(media_state: str | None, broad_granted: bool, saf_available: bool, *, dismissed: bool = False) -> StorageAccessState:
-    state = str(media_state or "denied").casefold()
+def storage_access_state(media_access: str | None, broad_granted: bool, saf_available: bool = False, *, dismissed: bool = False) -> StorageAccessState:
+    access = str(media_access or "denied").casefold()
     if dismissed:
         return StorageAccessState.DECLINED
-    if state == "full":
+    if access == "full":
         return StorageAccessState.READY
-    if state == "partial":
+    if access == "partial":
         return StorageAccessState.MEDIA_PARTIAL
     if broad_granted and saf_available:
         return StorageAccessState.READY

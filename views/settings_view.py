@@ -11,9 +11,10 @@ import logging
 import inspect
 import flet as ft
 
-logger = logging.getLogger("reiflix.settings")
 from core.storage_access import normalize_storage_snapshot
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title
+
+logger = logging.getLogger("reiflix.settings")
 
 
 class SettingsView:
@@ -24,6 +25,7 @@ class SettingsView:
               on_create_backup=None, on_restore_backup=None, storage_snapshot=None, scan_snapshot=None):
         status = ft.Text("", color="#9DA3B4", size=12)
         ui_alive = [True]
+
         def safe_update():
             if not ui_alive[0]:
                 return
@@ -31,10 +33,12 @@ class SettingsView:
                 page.update()
             except Exception as exc:
                 logger.warning("[FLET] Settings update failed: %s", exc)
+
         try:
             page.on_disconnect = lambda _e: ui_alive.__setitem__(0, False)
         except Exception as exc:
             logger.warning("[FLET] Settings on_disconnect hook unavailable: %s", exc)
+
         busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False, "permission": False, "backup": False, "restore": False}
 
         def notice(message, error=False):
@@ -68,12 +72,13 @@ class SettingsView:
         folders = store.folders()
         summary = store.library_summary()
         statistics = library.library_statistics()
-        snapshot = normalize_storage_snapshot(storage_snapshot)
+        normalized_snapshot = normalize_storage_snapshot(storage_snapshot)
+        snapshot = normalized_snapshot.as_mapping()
         scan = scan_snapshot or {}
-        media_state = str(snapshot.media_read_state).casefold()
-        broad_state = str(snapshot.broad_storage_state).casefold()
-        saf_roots = tuple(snapshot.saf_roots)
-        volumes = tuple(snapshot.removable_volumes)
+        media_state = str(snapshot.get("mediaReadState", "denied")).casefold()
+        broad_state = str(snapshot.get("broadStorageState", "unavailable")).casefold()
+        saf_roots = tuple(snapshot.get("safRoots", ()) or ())
+        volumes = tuple(snapshot.get("removableVolumes", ()) or ())
         broad_granted = broad_state == "available"
         media_granted = media_state in {"partial", "full"}
         media_partial = media_state == "partial"
@@ -430,7 +435,7 @@ class SettingsView:
 
         account_content = ft.Row([
             ft.Image(src=account.get("picture"), width=42, height=42, border_radius=21) if account.get("picture") else ft.Icon(ft.Icons.ACCOUNT_CIRCLE_OUTLINED, size=42, color="#C7C5D0"),
-            ft.Column([ft.Text(account_text, color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD), ft.Text(f"{account_status}{' • ' + account_details if account_details else ''}", color="#AAA7B6", size=11)], spacing=2, expand=True),
+            ft.Column([ft.Text(account_text, color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD), ft.Text(f"{account_status}{' • ' + account_details if account_details else ''}", color="#AAA7B6", size=11)], spacing=2),
             logout_button if connected else account_button,
         ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
         content = ft.Column([
@@ -464,7 +469,7 @@ class SettingsView:
                 ft.Text("Limpar cache não remove associações AniList confirmadas nem arquivos da biblioteca.", color="#AAA7B6", size=11),
             ], spacing=8)),
             section("SOBRE", ft.Icons.INFO_OUTLINE, ft.Column([
-                ft.Text("Rei-Flix Local 0.2.0", color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD),
+                ft.Text("Rei-flix Local 0.2.0", color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD),
                 ft.Text("Biblioteca local com SQLite, Android SAF e player nativo. Vídeos nunca são enviados.", color="#AAA7B6", size=11),
             ], spacing=4)),
             status,

@@ -424,6 +424,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun installControls() {
         controls = FrameLayout(this).apply {
+            tag = "reiflix_controls_root"
             setBackgroundColor(Color.TRANSPARENT)
             isClickable = false
         }

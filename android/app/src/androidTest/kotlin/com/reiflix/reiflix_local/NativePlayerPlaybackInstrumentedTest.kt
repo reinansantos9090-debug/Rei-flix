@@ -13,7 +13,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -55,8 +54,7 @@ class NativePlayerPlaybackInstrumentedTest {
         activity = InstrumentationRegistry.getInstrumentation().startActivitySync(intent)
 
         val playerView = awaitView<PlayerView>("reiflix_player_view")
-        val player = playerView.player
-        assertNotNull("Media3 PlayerView did not receive a player", player)
+        val player = requireNotNull(playerView.player) { "Media3 PlayerView did not receive a player" }
 
         await("Media3 must reach READY before interaction") {
             player?.playbackState == Player.STATE_READY
@@ -73,7 +71,7 @@ class NativePlayerPlaybackInstrumentedTest {
         val initialDuration = player.duration
         assertTrue("Fixture must expose a positive duration", initialDuration > 0L)
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            seekBar.progress = seekBar.max / 2
+            seekBar.setProgress(seekBar.max / 2, true)
         }
         await("Seek bar interaction must move player position") {
             player.currentPosition > 500L && player.currentPosition < player.duration
@@ -84,14 +82,13 @@ class NativePlayerPlaybackInstrumentedTest {
         assertTrue("Play button must resume playback", playPause.performClick())
         await("Second click must resume playback") { player?.isPlaying == true }
 
-        val insets = WindowInsetsCompat.toWindowInsetsCompat(
-            activity!!.window.decorView.rootWindowInsets,
-            activity!!.window.decorView,
-        )
-        assertFalse(
-            "Native player should keep system bars hidden",
-            insets.isVisible(WindowInsetsCompat.Type.systemBars()),
-        )
+        await("Native player should keep system bars hidden") {
+            val insets = WindowInsetsCompat.toWindowInsetsCompat(
+                activity!!.window.decorView.rootWindowInsets,
+                activity!!.window.decorView,
+            )
+            !insets.isVisible(WindowInsetsCompat.Type.systemBars())
+        }
         assertTrue(
             "Player must remain sensor-orientation capable",
             activity!!.requestedOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR,

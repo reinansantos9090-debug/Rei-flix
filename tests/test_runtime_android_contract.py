@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt"
 PLAYER_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt"
 SYSTEM_UI = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SystemUiController.kt"
+PLAYER_LAYOUT = ROOT / "android/app/src/main/res/layout/native_player_view.xml"
 
 
 class RuntimeAndroidContractTests(unittest.TestCase):
@@ -82,6 +83,13 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertIn("ViewCompat.getRootWindowInsets(window.decorView)", source)
         self.assertNotIn("Gravity.CENTER + fixed", source)
         self.assertNotIn("sleep(", source)
+
+    def test_native_player_uses_transformable_media3_texture_surface(self):
+        layout = PLAYER_LAYOUT.read_text(encoding="utf-8")
+        source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        self.assertIn('app:surface_type="texture_view"', layout)
+        self.assertIn('R.layout.native_player_view', source)
+        self.assertIn('video.setTransform(matrix)', source)
 
     def test_native_player_supports_all_local_source_families(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")

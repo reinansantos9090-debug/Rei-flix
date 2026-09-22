@@ -117,9 +117,9 @@ class NativePlayerPlaybackInstrumentedTest {
         }
 
         assertTrue("Pause control must be clickable", onMain { playPause.performClick() })
-        await("Pause button must pause playback") { !player.isPlaying }
+        await("Pause button must pause playback") { onMain { !player.isPlaying } }
         assertTrue("Play button must resume playback", onMain { playPause.performClick() })
-        await("Second click must resume playback") { player.isPlaying }
+        await("Second click must resume playback") { onMain { player.isPlaying } }
 
         await("Native player should keep system bars hidden") {
             val insets = androidx.core.view.ViewCompat.getRootWindowInsets(activity!!.window.decorView)

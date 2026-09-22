@@ -155,6 +155,40 @@ class StorageCapabilities:
         return source in self.reconciliation_capabilities
 
 
+def normalize_storage_snapshot(snapshot: object) -> StorageCapabilities:
+    """Normalize either a legacy dict payload or a typed StorageCapabilities object."""
+    if snapshot is None:
+        return StorageCapabilities.unknown()
+    if isinstance(snapshot, StorageCapabilities):
+        return snapshot
+    if isinstance(snapshot, dict):
+        return StorageCapabilities.from_native(snapshot)
+
+    mapping: dict[str, object] = {}
+    for dict_key, attr_names in {
+        "mediaReadState": ("media_read_state", "mediaReadState"),
+        "broadStorageState": ("broad_storage_state", "broadStorageState"),
+        "safRoots": ("saf_roots", "safRoots"),
+        "removableVolumes": ("removable_volumes", "removableVolumes"),
+        "scannerCapabilities": ("scanner_capabilities", "scannerCapabilities"),
+        "reconciliationCapabilities": ("reconciliation_capabilities", "reconciliationCapabilities"),
+        "lifecycleState": ("lifecycle_state", "lifecycleState"),
+        "api": ("api",),
+    }.items():
+        for name in attr_names:
+            if hasattr(snapshot, name):
+                value = getattr(snapshot, name)
+                if value is not None:
+                    mapping[dict_key] = value
+                break
+        else:
+            if hasattr(snapshot, "get") and callable(snapshot.get):
+                value = snapshot.get(dict_key)
+                if value is not None:
+                    mapping[dict_key] = value
+    return StorageCapabilities.from_native(mapping)
+
+
 def storage_access_state(
     media_access: str | None,
     broad_granted: bool,

@@ -100,7 +100,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
-          python scripts/create_player_fixture.py
+          python scripts/create_player_fixture.py --output build/player_fixture.mp4
+          test -s build/player_fixture.mp4
 
       - name: Prepare Flet build template with Android host
         run: |
@@ -114,6 +115,13 @@ jobs:
           python scripts/prepare_flet_template.py \
             --template "$GITHUB_WORKSPACE/build/flet-build-template" \
             --overlay "$GITHUB_WORKSPACE/android"
+
+      - name: Install generated player fixture into rendered Android test assets
+        run: |
+          test -s build/player_fixture.mp4
+          mkdir -p build/flutter/android/app/src/androidTest/assets
+          cp build/player_fixture.mp4 build/flutter/android/app/src/androidTest/assets/player_fixture.mp4
+          test -s build/flutter/android/app/src/androidTest/assets/player_fixture.mp4
 
       - name: Fix generated JSON files
         shell: bash

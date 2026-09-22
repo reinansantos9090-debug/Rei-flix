@@ -172,6 +172,7 @@ class NativePlayerPlaybackInstrumentedTest {
             player.currentPosition > 500L
         }
 
+        val feedback = awaitView<TextView>("reiflix_feedback")
         swipe(
             gestureLayer,
             gestureSize.first * 0.12f,
@@ -180,7 +181,7 @@ class NativePlayerPlaybackInstrumentedTest {
             gestureSize.second * 0.30f,
         )
         await("Left vertical gesture must expose brightness feedback") {
-            awaitView<TextView>("reiflix_feedback").text?.contains("BRILHO") == true
+            feedback.text?.contains("BRILHO") == true
         }
 
         swipe(
@@ -191,7 +192,7 @@ class NativePlayerPlaybackInstrumentedTest {
             gestureSize.second * 0.30f,
         )
         await("Right vertical gesture must expose volume feedback") {
-            awaitView<TextView>("reiflix_feedback").text?.contains("VOLUME") == true
+            feedback.text?.contains("VOLUME") == true
         }
 
         pinch(gestureLayer, zoom = true)

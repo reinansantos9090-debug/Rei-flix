@@ -1,6 +1,6 @@
 import flet as ft
 from core.consumption import consumption_state, progress_ratio
-from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title
+from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title, count_label
 
 
 class HomeView:
@@ -212,7 +212,7 @@ class HomeView:
             content_count = int(anime.get("content_count") or 0)
             missing_count = int(anime.get("missing_count") or 0)
             subtitle = "Filme" if anime.get("media_kind") == "movie" else (
-                f"{available_count} episódios" if missing_count == 0 else f"{available_count}/{content_count} disponíveis"
+                count_label(available_count, "episódio") if missing_count == 0 else f"{available_count}/{content_count} disponíveis"
             )
             status = "Concluído" if available_count > 0 and missing_count == 0 and completed == available_count else (f"{completed} concluídos" if completed else subtitle)
             indicators = []

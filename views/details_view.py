@@ -6,6 +6,7 @@ never contacts AniList and delegates playback selection to LibraryService.
 from __future__ import annotations
 
 import html
+import logging
 import math
 import re
 
@@ -16,6 +17,8 @@ from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, 
 
 
 class DetailView:
+    _logger = logging.getLogger("reiflix.details")
+
     @staticmethod
     def build(page: ft.Page, anime_group: dict, on_play_episode, on_back,
               on_toggle_favorite, get_playback_target=None, on_set_user_tags=None,
@@ -185,8 +188,7 @@ class DetailView:
                 except ValueError as exc:
                     field.error_text = str(exc); page.update()
                 except Exception as exc:
-                    logger = getattr(__import__("logging"), "getLogger")("reiflix.details")
-                    logger.exception("Failed to save personal note")
+                    DetailView._logger.exception("Failed to save personal note")
                     field.error_text = "Não foi possível salvar a nota."
                     page.update()
             dialog.actions = [ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)),

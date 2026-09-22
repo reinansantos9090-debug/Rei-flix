@@ -1181,7 +1181,8 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("status", NativeIndex.STATUS_CANCELLED)))
     }
     private fun requestThumbnail(data: Uri?, requestId: String?) {
-        val raw = data?.getQueryParameter("uri")?.trim().orEmpty()
+        val source = data ?: return
+        val raw = source.getQueryParameter("uri")?.trim().orEmpty()
         if (raw.isBlank()) return
         val localUri = runCatching { Uri.parse(raw) }.getOrNull()
         if (localUri == null || !(
@@ -1196,8 +1197,8 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
 
-        val size = data.getQueryParameter("size")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
-        val modifiedAt = data.getQueryParameter("modified_at")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        val size = source.getQueryParameter("size")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        val modifiedAt = source.getQueryParameter("modified_at")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
         val appContext = applicationContext
         CoroutineScope(Dispatchers.IO).launch {
             try {

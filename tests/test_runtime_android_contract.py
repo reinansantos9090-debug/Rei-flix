@@ -77,7 +77,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
 
     def test_native_player_supports_all_local_source_families(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
-        self.assertIn('sourceFor(localUri)', source)
+        self.assertIn('sourceFor(uri)', source)
         self.assertIn('MediaStore.AUTHORITY -> "mediastore"', source)
         self.assertIn('-> "broad_storage"', source)
         self.assertIn("SafScanner.isAuthorizedDocument", source)

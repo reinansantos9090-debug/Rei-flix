@@ -319,6 +319,7 @@ class NativePlayerActivity : ComponentActivity() {
 
         override fun onPlayerError(error: PlaybackException) {
             val code = error.errorCodeName.orEmpty()
+            val technicalCode = "media3:" + code
             val detail = error.message?.trim().orEmpty()
             logPlayer(
                 "PlaybackException requestId=" + requestId.ifEmpty { "-" } +
@@ -330,10 +331,10 @@ class NativePlayerActivity : ComponentActivity() {
             player.pause()
             showPlayerError(
                 "Não foi possível reproduzir este arquivo neste dispositivo.",
-                "media3:" + code,
+                technicalCode,
                 JSONObject()
                     .put("uri", uri.toString())
-                    .put("errorCode", code)
+                    .put("errorCode", technicalCode)
                     .put("detail", detail)
                     .put("cause", error.cause?.javaClass?.simpleName ?: ""),
             )

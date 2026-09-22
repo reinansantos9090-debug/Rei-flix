@@ -447,7 +447,7 @@ class SettingsView:
                 ft.Row([add_folder_button, scan_button], wrap=True),
                 ft.Text(diagnostic, color="#AAA7B6", size=11),
             ], spacing=8)),
-            section("DIAGNÓSTICOS DE ARMAZENAMENTO", ft.Icons.DIAGNOSTICS_OUTLINED, diagnostics_content),
+            section("DIAGNÓSTICOS DE ARMAZENAMENTO", ft.Icons.STORAGE_OUTLINED, diagnostics_content),
             section("ESTATÍSTICAS OFFLINE", ft.Icons.INSIGHTS_OUTLINED, ft.Column([
                 ft.Text(stats_text, color="#C7C5D0", size=12),
                 ft.Text("“Registrado” representa a posição atual salva nos episódios disponíveis; não é tempo histórico assistido.", color=TEXT_MUTED, size=10),

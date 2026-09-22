@@ -71,7 +71,13 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         for token in required:
             self.assertIn(token, source)
         self.assertIn("WindowInsetsCompat.Type.systemBars()", source)
+        self.assertIn("WindowInsetsCompat.Type.displayCutout()", source)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", source)
+        self.assertIn("playerView.player = player", source)
+        self.assertIn("playerView.player === player", source)
+        self.assertIn("PLAYER_VIEW_ATTACHED", source)
+        self.assertIn("FIRST_FRAME_RENDERED", source)
+        self.assertIn("ViewCompat.getRootWindowInsets(window.decorView)", source)
         self.assertNotIn("Gravity.CENTER + fixed", source)
         self.assertNotIn("sleep(", source)
 
@@ -99,6 +105,8 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "showFeedback",
             "setControlsVisible",
             "CONTROL_TIMEOUT_MS",
+            "pendingSeekPosition",
+            "ViewConfiguration.getDoubleTapTimeout()",
         ):
             self.assertIn(token, source)
         self.assertNotIn("RESIZE_MODE_FILL", source)
@@ -119,6 +127,10 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         organize = (ROOT / "views/organize_view.py").read_text(encoding="utf-8")
         self.assertIn('grid = ft.Row(', home)
         self.assertIn('content = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO', organize)
+        self.assertIn('content=ft.Column([layout], expand=True', home)
+        self.assertIn('content=ft.Column([content], expand=True', organize)
+        self.assertIn('content=ft.Column([layout], expand=True', (ROOT / "views/details_view.py").read_text(encoding="utf-8"))
+        self.assertIn('content=ft.Column([content], expand=True', (ROOT / "views/settings_view.py").read_text(encoding="utf-8"))
 
     def test_python_handles_native_player_state_and_navigation_events(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
@@ -134,7 +146,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "library.previous_episode(current_path)",
             "await start_native_player(",
             "event_type == 'player_exited'",
-            "navigate_back()",
+            "on_catalog_changed()",
         ):
             self.assertIn(token, source)
 

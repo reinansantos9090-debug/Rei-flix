@@ -518,18 +518,19 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
         class Page:
             platform = 'android'
             def __init__(self): self.urls = []
-            async def launch_url(self, value, **kwargs): self.urls.append((value, kwargs))
+            async def launch_url(self, value): self.urls.append(value)
 
         with tempfile.TemporaryDirectory() as d:
             page = Page(); bridge = AndroidBridge(d, page)
             tree = 'content://com.android.providers.media.documents/tree/video%3AAnime'
             await bridge.select_tree(); await bridge.verify_tree(tree); await bridge.rescan_tree(tree)
-            self.assertTrue(page.urls[0][0].startswith('reiflix://native?action=select_tree&request_id='))
-            self.assertEqual(page.urls[0][1]['mode'], __import__('flet').LaunchMode.EXTERNAL_NON_BROWSER_APPLICATION)
-            self.assertIn('action=verify_tree', page.urls[1][0])
-            self.assertIn('request_id=', page.urls[1][0])
-            self.assertIn('tree_uri=content%3A%2F%2F', page.urls[1][0])
-            self.assertIn('action=scan_tree', page.urls[2][0])
+            self.assertTrue(page.urls[0].startswith('reiflix://native?action=select_tree&request_id='))
+            self.assertIn('action=verify_tree', page.urls[1])
+            self.assertIn('request_id=', page.urls[1])
+            self.assertIn('tree_uri=content%3A%2F%2F', page.urls[1])
+            self.assertIn('action=scan_tree', page.urls[2])
+            self.assertNotIn('mode=', page.urls[0])
+
 
     async def test_player_bridge_rejects_remote_urls_but_keeps_local_references(self):
         class Page:

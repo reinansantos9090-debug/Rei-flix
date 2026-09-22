@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import flet as ft
 
 from core.consumption import consumption_state, progress_ratio
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, empty_state, media_artwork, count_label
+
+logger = logging.getLogger(__name__)
 
 
 class HomeView:
@@ -125,7 +128,7 @@ class HomeView:
                                 holder.content = ft.Image(src=path, width=width, height=height, fit=ft.ImageFit.COVER, border_radius=RADIUS)
                                 page.update()
                         except Exception:
-                            pass
+                            logger.exception("Artwork hydration failed")
                         finally:
                             artwork_tasks.discard(key)
                     page.run_task(hydrate)
@@ -319,7 +322,7 @@ class HomeView:
                     ft.Row([season, episode_type], wrap=True),
                     ft.Row([availability, metadata_filter], wrap=True),
                     artwork_filter,
-                ], scroll=ft.ScrollMode.AUTO, tight=True, width=470),
+                ], tight=True, width=470),
                 actions=[ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()), ft.FilledButton("Aplicar", on_click=apply_filters)],
                 actions_alignment=ft.MainAxisAlignment.END,
             )

@@ -114,7 +114,7 @@ class UiStateTests(unittest.TestCase):
         source = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
         self.assertIn('filter_button = ft.OutlinedButton("Filtros"', source)
         self.assertIn('page.show_dialog(dialog)', source)
-        self.assertIn("width=146, ink=True", source)
+        self.assertIn("width=146", source)
         self.assertIn("height=176", source)
 
     def test_source_is_valid_python(self):

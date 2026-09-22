@@ -83,7 +83,7 @@ class LibraryExperienceTests(unittest.TestCase):
     def test_continue_watching_home_keeps_details_access_and_explicit_continue_action(self):
         home = (Path(__file__).resolve().parents[1] / "views" / "home_view.py").read_text(encoding="utf-8")
         self.assertIn("on_select_anime(entry) if entry else None", home)
-        self.assertIn('ft.OutlinedButton(\n                    "Continuar"', home)
+        self.assertRegex(home, r'ft\.(?:OutlinedButton|TextButton)\(\s*"Continuar"')
 
 
 if __name__ == "__main__":

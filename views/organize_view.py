@@ -255,6 +255,7 @@ class OrganizeView:
                 ]
             await render()
 
+        render_overview()
         page.run_task(load_catalog)
         return ft.Container(
             content=content,

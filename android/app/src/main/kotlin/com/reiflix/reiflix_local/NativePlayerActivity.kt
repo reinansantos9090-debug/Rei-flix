@@ -811,11 +811,36 @@ class NativePlayerActivity : ComponentActivity() {
         showAdjustment("VOLUME", next.toFloat() / maxVolume.toFloat())
     }
 
-    private fun showAdjustment(label: String, ratio: Float) {
+    private fun adjustVolumeByFraction(fraction: Float) {
+        val manager = audioManager ?: return
+        val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val current = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val deltaSteps = (fraction * maxVolume).roundToInt()
+        if (deltaSteps != 0) {
+            manager.setStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                (current + deltaSteps).coerceIn(0, maxVolume),
+                0,
+            )
+        }
+        showAdjustment("VOLUME", manager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume)
+    }
+
+    private fun currentVolumeSummary(): String {
+        val manager = audioManager ?: return "VOLUME"
+        val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        return adjustmentSummary("VOLUME", manager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume)
+    }
+
+    private fun adjustmentSummary(label: String, ratio: Float): String {
         val percent = (ratio.coerceIn(0f, 1f) * 100f).roundToInt()
         val bars = 10
         val filled = ((percent / 100f) * bars).roundToInt().coerceIn(0, bars)
-        showFeedback(label + "\n" + "█".repeat(filled) + "░".repeat(bars - filled) + "\n" + percent + "%", 1100L)
+        return label + "\n" + "█".repeat(filled) + "░".repeat(bars - filled) + "\n" + percent + "%"
+    }
+
+    private fun showAdjustment(label: String, ratio: Float) {
+        showFeedback(adjustmentSummary(label, ratio), 1100L)
     }
 
     private fun showFeedback(message: String, durationMs: Long = 900L) {
@@ -1171,20 +1196,22 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private inner class GestureLayer(context: Context) : View(context) {
+        private enum class GestureMode { NONE, HORIZONTAL_SEEK, VERTICAL_BRIGHTNESS, VERTICAL_VOLUME }
+
         private val gestureDetector = GestureDetector(
             context,
             object : GestureDetector.SimpleOnGestureListener() {
                 override fun onDown(e: MotionEvent): Boolean = true
 
                 override fun onDoubleTap(e: MotionEvent): Boolean {
-                    if (errorVisible) return true
+                    if (errorVisible || gestureMode != GestureMode.NONE) return true
                     val delta = if (e.x < width / 2f) -10_000L else 10_000L
                     seekBy(delta, if (delta < 0) "−10s" else "+10s")
                     return true
                 }
 
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                    if (!errorVisible) {
+                    if (!errorVisible && gestureMode == GestureMode.NONE && !gestureConsumed) {
                         setControlsVisible(!controlsVisible)
                     }
                     return true
@@ -1195,60 +1222,139 @@ class NativePlayerActivity : ComponentActivity() {
         private val scaleDetector = ScaleGestureDetector(
             context,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                    gestureConsumed = true
+                    gestureMode = GestureMode.NONE
+                    touchControls()
+                    return true
+                }
+
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
                     if (errorVisible) return true
-                    if (detector.scaleFactor > 1.04f) {
+                    if (detector.scaleFactor > 1.02f) {
                         playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         showFeedback("ZOOM")
-                    } else if (detector.scaleFactor < 0.96f) {
+                    } else if (detector.scaleFactor < 0.98f) {
                         playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                         showFeedback("FIT")
                     }
                     touchControls()
                     return true
                 }
+
+                override fun onScaleEnd(detector: ScaleGestureDetector) {
+                    showFeedback(if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) "ZOOM" else "FIT")
+                }
             },
         )
 
         private var downX = 0f
         private var downY = 0f
+        private var lastX = 0f
+        private var lastY = 0f
         private var downAt = 0L
+        private var gestureMode = GestureMode.NONE
+        private var gestureConsumed = false
         private var scaled = false
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             scaleDetector.onTouchEvent(event)
             if (event.pointerCount > 1) {
                 scaled = true
+                gestureConsumed = true
                 return true
             }
-            gestureDetector.onTouchEvent(event)
+
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.x
                     downY = event.y
+                    lastX = event.x
+                    lastY = event.y
                     downAt = System.currentTimeMillis()
+                    gestureMode = GestureMode.NONE
+                    gestureConsumed = false
                     scaled = false
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (!scaled && event.actionMasked == MotionEvent.ACTION_UP) {
-                        val dx = event.x - downX
-                        val dy = event.y - downY
-                        val duration = System.currentTimeMillis() - downAt
-                        if (duration < 900L && abs(dx) > dp(44) && abs(dx) > abs(dy) * 1.2f) {
-                            val seekMs = (dx / resources.displayMetrics.density * 40L).roundToInt().toLong()
-                            seekBy(seekMs, if (seekMs < 0) "−" + formatTime(abs(seekMs)) else "+" + formatTime(abs(seekMs)))
-                        } else if (duration < 900L && abs(dy) > dp(44) && abs(dy) > abs(dx) * 1.2f) {
-                            val normalized = (-dy / dp(100).toFloat())
-                            if (downX < width / 2f) {
-                                adjustBrightness(normalized * 0.15f)
-                            } else {
-                                val steps = (normalized * 2f).roundToInt()
-                                adjustVolume(if (steps == 0) if (dy < 0) 1 else -1 else steps)
-                            }
+
+                MotionEvent.ACTION_MOVE -> {
+                    if (scaled || errorVisible) return true
+                    val dx = event.x - downX
+                    val dy = event.y - downY
+                    val absX = abs(dx)
+                    val absY = abs(dy)
+                    if (gestureMode == GestureMode.NONE &&
+                        (absX > dp(28) || absY > dp(28))) {
+                        gestureConsumed = true
+                        gestureMode = when {
+                            absX > absY * 1.15f && absX > dp(44) -> GestureMode.HORIZONTAL_SEEK
+                            absY > absX * 1.15f && absY > dp(44) ->
+                                if (downX < width / 2f) GestureMode.VERTICAL_BRIGHTNESS
+                                else GestureMode.VERTICAL_VOLUME
+                            else -> GestureMode.NONE
                         }
-                        scaled = false
+                        if (gestureMode != GestureMode.NONE) touchControls()
                     }
+
+                    when (gestureMode) {
+                        GestureMode.HORIZONTAL_SEEK -> {
+                            if (!::player.isInitialized || player.duration <= 0L) return true
+                            val previewDelta = (dx / resources.displayMetrics.density * 40L)
+                                .roundToInt().toLong()
+                            val target = (player.currentPosition + previewDelta)
+                                .coerceIn(0L, player.duration)
+                            player.seekTo(target)
+                            showFeedback(
+                                if (previewDelta < 0) "−" + formatTime(abs(previewDelta))
+                                else "+" + formatTime(abs(previewDelta)),
+                                700L,
+                            )
+                        }
+                        GestureMode.VERTICAL_BRIGHTNESS -> {
+                            val deltaY = event.y - lastY
+                            adjustBrightness((-deltaY / height.coerceAtLeast(1).toFloat()) * 1.25f)
+                        }
+                        GestureMode.VERTICAL_VOLUME -> {
+                            val deltaY = event.y - lastY
+                            adjustVolumeByFraction(-deltaY / height.coerceAtLeast(1).toFloat())
+                        }
+                        GestureMode.NONE -> Unit
+                    }
+                    lastX = event.x
+                    lastY = event.y
                 }
+
+                MotionEvent.ACTION_UP -> {
+                    if (!scaled && gestureMode != GestureMode.NONE) {
+                        if (gestureMode == GestureMode.HORIZONTAL_SEEK) {
+                            saveProgress("player_progress", force = true)
+                        }
+                        showFeedback(
+                            when (gestureMode) {
+                                GestureMode.VERTICAL_BRIGHTNESS -> adjustmentSummary("BRILHO", brightnessLevel)
+                                GestureMode.VERTICAL_VOLUME -> currentVolumeSummary()
+                                else -> if (::player.isInitialized) formatTime(player.currentPosition) else ""
+                            },
+                            900L,
+                        )
+                        touchControls()
+                    }
+                    val wasGesture = gestureConsumed || scaled || gestureMode != GestureMode.NONE
+                    gestureMode = GestureMode.NONE
+                    scaled = false
+                    gestureConsumed = wasGesture
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    gestureMode = GestureMode.NONE
+                    scaled = false
+                    gestureConsumed = true
+                }
+            }
+
+            gestureDetector.onTouchEvent(event)
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                gestureConsumed = false
             }
             return true
         }

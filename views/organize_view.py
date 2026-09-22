@@ -203,7 +203,7 @@ class OrganizeView:
             title = selected_genre[0].upper() if selected_genre[0] != "Todos" else selected_state[0]
             content.controls.extend([
                 header(title, back_to_overview),
-                ft.Text(f"{count_label(len(filtered), \"anime\")} na sua biblioteca", color="#AAA7B6", size=12),
+                ft.Text(f"{count_label(len(filtered), 'anime')} na sua biblioteca", color="#AAA7B6", size=12),
                 ft.Row([filter_chip(label) for label in ("Todos", "Favoritos", "Em andamento", "Concluídos")], scroll=ft.ScrollMode.AUTO, spacing=8),
             ])
             sort = ft.Dropdown(value=selected_sort[0], width=190, dense=True, text_size=12, color="#F5F5F7",

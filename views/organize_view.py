@@ -246,4 +246,9 @@ class OrganizeView:
             render()
 
         page.run_thread(load_catalog)
-        return ft.Container(content=content, padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=18, bottom=8), bgcolor=BACKGROUND)
+        return ft.Container(
+            content=ft.Column([content], expand=True, spacing=0),
+            padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=18, bottom=8),
+            bgcolor=BACKGROUND,
+            expand=True,
+        )

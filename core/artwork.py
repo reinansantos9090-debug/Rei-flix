@@ -10,7 +10,7 @@ from pathlib import Path
 ARTWORK_TYPES = {"poster", "backdrop", "thumbnail", "season_poster", "episode_thumbnail"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif"}
 
-_SOURCE_PRIORITY = {"manual": 400, "local": 300, "cache": 200, "anilist": 100, "generated": 50}
+_SOURCE_PRIORITY = {"manual": 500, "cache": 450, "anilist": 400, "local": 300, "generated": 50}
 _NAME_HINTS = {
     "poster": {"poster", "cover", "folder", "front"},
     "backdrop": {"backdrop", "fanart", "banner", "background"},
@@ -143,8 +143,9 @@ class ArtworkEngine:
 
         with self.store._conn() as con:
             rows = con.execute(
-                """SELECT DISTINCT e.id, e.anime_id
+                """SELECT DISTINCT e.id, e.anime_id, a.media_kind
                    FROM episodes e
+                   JOIN anime a ON a.id=e.anime_id
                    LEFT JOIN episode_observations o ON o.episode_id=e.id
                    WHERE e.path=? OR o.uri=?""",
                 (media_uri, media_uri),
@@ -156,6 +157,7 @@ class ArtworkEngine:
         for row in rows:
             episode_id = int(row["id"])
             anime_id = int(row["anime_id"])
+            entity_type = "movie" if str(row["media_kind"] or "series").casefold() == "movie" else "anime"
             with self.store._conn() as con:
                 con.execute(
                     "DELETE FROM artwork WHERE entity_type='episode' AND entity_id=? AND artwork_type='episode_thumbnail' AND source='generated'",
@@ -173,20 +175,20 @@ class ArtworkEngine:
             with self.store._conn() as con:
                 has_protected = con.execute(
                     """SELECT 1 FROM artwork
-                       WHERE entity_type IN ('anime','movie') AND entity_id=? AND artwork_type='poster'
-                         AND status='ready' AND (local_path IS NOT NULL OR external_url IS NOT NULL)
+                       WHERE entity_type=? AND entity_id=? AND artwork_type='poster'
+                         AND status='ready' AND local_path IS NOT NULL
                          AND source IN ('local','cache','anilist','manual')
                        LIMIT 1""",
-                    (str(anime_id),),
+                    (entity_type, str(anime_id)),
                 ).fetchone()
                 if has_protected:
                     continue
                 con.execute(
-                    "DELETE FROM artwork WHERE entity_type IN ('anime','movie') AND entity_id=? AND artwork_type='poster' AND source='generated'",
-                    (str(anime_id),),
+                    "DELETE FROM artwork WHERE entity_type=? AND entity_id=? AND artwork_type='poster' AND source='generated'",
+                    (entity_type, str(anime_id)),
                 )
             self._upsert(
-                entity_type="anime",
+                entity_type=entity_type,
                 entity_id=anime_id,
                 artwork_type="poster",
                 source="generated",

@@ -1051,7 +1051,10 @@ class LibraryBrowseTests(unittest.TestCase):
                 if getattr(control, 'content', None) is not None:
                     yield from walk(control.content)
             card = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
-                        item.on_click and getattr(item, 'width', None) == 270)
+                        item.on_click and getattr(item, 'content', None) is not None and any(
+                            getattr(child, 'value', None) == 'Continuar'
+                            for child in getattr(item.content, 'controls', []) or []
+                        ))
             card.on_click(None)
             self.assertEqual(played[0], (path, 'Attack on Titan • T1 E1', {'progress_seconds': 25}))
 
@@ -1641,6 +1644,7 @@ class OrganizeTests(unittest.TestCase):
     class FakePage:
         def update(self): pass
         def run_thread(self, work): work()
+        def run_task(self, task_fn): return None
 
     def _catalog(self, directory):
         store = LibraryStore(directory)

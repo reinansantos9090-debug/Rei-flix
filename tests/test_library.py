@@ -1050,11 +1050,16 @@ class LibraryBrowseTests(unittest.TestCase):
                     yield from walk(child)
                 if getattr(control, 'content', None) is not None:
                     yield from walk(control.content)
+            def contains_text(control, expected):
+                if getattr(control, 'value', None) == expected or getattr(control, 'text', None) == expected:
+                    return True
+                if any(contains_text(child, expected) for child in getattr(control, 'controls', []) or []):
+                    return True
+                child = getattr(control, 'content', None)
+                return child is not None and contains_text(child, expected)
+
             card = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
-                        item.on_click and getattr(item, 'content', None) is not None and any(
-                            getattr(child, 'value', None) == 'Continuar'
-                            for child in getattr(item.content, 'controls', []) or []
-                        ))
+                        item.on_click and contains_text(item, 'Continuar'))
             card.on_click(None)
             self.assertEqual(played[0], (path, 'Attack on Titan • T1 E1', {'progress_seconds': 25}))
 

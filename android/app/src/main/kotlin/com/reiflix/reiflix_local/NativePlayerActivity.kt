@@ -1276,6 +1276,7 @@ class NativePlayerActivity : ComponentActivity() {
         private var lastX = 0f
         private var lastY = 0f
         private var downAt = 0L
+        private var seekStartPosition = 0L
         private var gestureMode = GestureMode.NONE
         private var gestureConsumed = false
         private var suppressTapUntil = 0L
@@ -1296,6 +1297,7 @@ class NativePlayerActivity : ComponentActivity() {
                     lastX = event.x
                     lastY = event.y
                     downAt = System.currentTimeMillis()
+                    seekStartPosition = if (::player.isInitialized) player.currentPosition else 0L
                     gestureMode = GestureMode.NONE
                     if (android.os.SystemClock.uptimeMillis() >= suppressTapUntil) {
                         gestureConsumed = false
@@ -1327,7 +1329,7 @@ class NativePlayerActivity : ComponentActivity() {
                             if (!::player.isInitialized || player.duration <= 0L) return true
                             val previewDelta = (dx / resources.displayMetrics.density * 40L)
                                 .roundToInt().toLong()
-                            val target = (player.currentPosition + previewDelta)
+                            val target = (seekStartPosition + previewDelta)
                                 .coerceIn(0L, player.duration)
                             player.seekTo(target)
                             showFeedback(

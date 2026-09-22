@@ -3,6 +3,7 @@ package com.reiflix.reiflix_local
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.provider.MediaStore
 import android.os.Bundle
@@ -14,11 +15,13 @@ import android.view.Gravity
 import java.io.File
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.ViewCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -31,6 +34,7 @@ import androidx.media3.ui.TrackSelectionDialogBuilder
 import androidx.media3.ui.PlayerView
 import org.json.JSONObject
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Full-screen Media3 player for one persisted local, SAF, or MediaStore URI. */
 @OptIn(UnstableApi::class)
@@ -50,6 +54,7 @@ class NativePlayerActivity : ComponentActivity() {
     private lateinit var playerView: PlayerView
     private var audioButton: Button? = null
     private var subtitleButton: Button? = null
+    private var controlsBar: LinearLayout? = null
     private val title get() = intent.getStringExtra("title") ?: "Episódio"
     private val progressReporter = object : Runnable {
         override fun run() {
@@ -62,7 +67,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         enterImmersiveMode()
         val rawUri = intent.getStringExtra("uri")
         if (rawUri.isNullOrBlank()) { reportError("Arquivo local inválido."); finish(); return }
@@ -103,8 +108,8 @@ class NativePlayerActivity : ComponentActivity() {
         setContentView(FrameLayout(this).apply {
             setBackgroundColor(android.graphics.Color.BLACK)
             addView(playerView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-            addEpisodeButtons(this)
         })
+        installResponsiveOverlay()
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {

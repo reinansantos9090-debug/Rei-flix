@@ -1256,7 +1256,7 @@ async def main(page: ft.Page):
                         elif event_type == 'player_opened':
                             diagnostics.record(
                                 "PLAYER_OPENED",
-                                request_id=request_id,
+                                request_id=event_request_id,
                                 source=payload.get('source') or "native_player",
                                 result=payload.get('state') or "READY",
                             )
@@ -1298,7 +1298,7 @@ async def main(page: ft.Page):
                             store.set_preference("autoplay_next", "true" if enabled else "false")
                             diagnostics.record(
                                 "PLAYER_AUTOPLAY_CHANGED",
-                                request_id=request_id,
+                                request_id=event_request_id,
                                 source="native_player",
                                 result="enabled" if enabled else "disabled",
                             )
@@ -1336,7 +1336,7 @@ async def main(page: ft.Page):
                             )
                             diagnostics.record(
                                 "PLAYER_NEXT" if direction > 0 else "PLAYER_PREVIOUS",
-                                request_id=request_id,
+                                request_id=event_request_id,
                                 source="native_player",
                                 result=target_path,
                             )
@@ -1358,7 +1358,7 @@ async def main(page: ft.Page):
                         elif event_type == 'player_error':
                             diagnostics.record(
                                 "PLAYER_ERROR",
-                                request_id=request_id,
+                                request_id=event_request_id,
                                 source="native_player",
                                 result=payload.get('reason') or event.get('message'),
                                 error=event.get('message') or payload.get('detail'),
@@ -1371,7 +1371,7 @@ async def main(page: ft.Page):
                         elif event_type == 'player_exited':
                             diagnostics.record(
                                 "PLAYER_EXITED",
-                                request_id=request_id,
+                                request_id=event_request_id,
                                 source="native_player",
                                 result=payload.get('reason') or "exit",
                             )

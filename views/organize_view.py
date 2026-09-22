@@ -5,7 +5,7 @@ import math
 import inspect
 import flet as ft
 from core.consumption import consumption_state, progress_ratio
-from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title
+from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title, count_label
 
 
 class OrganizeView:
@@ -119,7 +119,7 @@ class OrganizeView:
                     ft.Icon(icons[label], color=ACCENT, size=23),
                     ft.Text(label, color=TEXT, size=12, weight=ft.FontWeight.BOLD, max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS),
-                    ft.Text(f"{count} anime{'s' if count != 1 else ''}", color=TEXT_MUTED, size=10),
+                    ft.Text(count_label(count, "anime"), color=TEXT_MUTED, size=10),
                 ], spacing=5),
             )
 

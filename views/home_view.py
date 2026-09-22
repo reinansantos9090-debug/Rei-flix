@@ -95,7 +95,7 @@ class HomeView:
                     resolved = library.resolve_artwork(entity, item.get("id"), "poster", allow_network=True)
                     cover = (resolved or {}).get("local_path") or (resolved or {}).get("external_url") or cover
                 except Exception:
-                    pass
+                    resolved = None
             if (not cover or local_cover_missing) and on_request_thumbnail:
                 candidate = item.get("episode") or item.get("current_episode")
                 if not candidate and item.get("seasons"):

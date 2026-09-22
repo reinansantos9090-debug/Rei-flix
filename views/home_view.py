@@ -8,7 +8,7 @@ class HomeView:
 
     @staticmethod
     def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode, on_open_organize=None,
-              view_state=None):
+              view_state=None, on_request_thumbnail=None):
         catalog, continuing, home_data = [], [], {}
         view_state = view_state if view_state is not None else {}
         selected_state = [view_state.get("state", "Todos")]
@@ -83,12 +83,18 @@ class HomeView:
         def home_card(item, action=None, wide=False, episode=False):
             meta = item.get("meta") or {}
             cover = item.get("cover") or meta.get("cover_cache") or meta.get("cover_url")
+            if not cover and on_request_thumbnail:
+                candidate = item.get("episode") or item.get("current_episode")
+                if not candidate and item.get("seasons"):
+                    candidate = next((ep for season in item.get("seasons", []) for ep in season.get("episodes", []) if ep.get("path") and not ep.get("missing")), None)
+                if candidate:
+                    on_request_thumbnail(candidate)
             if episode:
                 title = item.get("anime_title") or item.get("title") or "Mídia local"
                 subtitle = item.get("episode_title") or (f"T{item.get('season')} E{item.get('number')}" if item.get("season") is not None else "Episódio")
             else:
                 title = item.get("main_title") or item.get("anime_title") or meta.get("title") or "Mídia local"
-                subtitle = "Filme" if item.get("media_kind") == "movie" else (f"{item.get('available_count', 0)} episódios" if item.get("available_count") else "")
+                subtitle = "Filme" if item.get("media_kind") == "movie" else (count_label(item.get("available_count", 0), "episódio") if item.get("available_count") else "")
             return ft.Container(
                 width=170 if not wide else 220, ink=True, border_radius=RADIUS,
                 on_click=(lambda _, value=item: action(value)) if action else None,

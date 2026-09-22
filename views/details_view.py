@@ -5,7 +5,9 @@ never contacts AniList and delegates playback selection to LibraryService.
 """
 from __future__ import annotations
 
+import asyncio
 import html
+import inspect
 import logging
 import math
 import re
@@ -177,39 +179,94 @@ class DetailView:
             note_button.text = "Editar nota" if note_text[0] else "Adicionar nota"
             note_button.icon = ft.Icons.EDIT_NOTE if note_text[0] else ft.Icons.NOTE_ADD_OUTLINED
         def edit_note(_):
-            field = ft.TextField(label="Nota privada", value=note_text[0], multiline=True, min_lines=3, max_lines=8, max_length=2000, autofocus=True)
-            dialog = ft.AlertDialog(modal=True, title=ft.Text("Nota pessoal"), content=field)
-            def save(_event):
+            dialog = None
+            field = ft.TextField(
+                label="Nota privada",
+                value=note_text[0],
+                multiline=True,
+                min_lines=3,
+                max_lines=8,
+                max_length=2000,
+                autofocus=True,
+            )
+            saving = [False]
+            cancel_button = ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog))
+            delete_button = ft.FilledButton("Apagar", visible=bool(note_text[0]))
+            save_button = ft.FilledButton("Salvar")
+
+            async def save(_event):
+                if saving[0]:
+                    return
+                saving[0] = True
+                save_button.disabled = True
+                delete_button.disabled = True
+                page.update()
                 try:
-                    value = on_set_personal_note(anime_group["id"], field.value) if on_set_personal_note else field.value
-                    note_text[0] = value or ""; anime_group["personal_note"] = note_text[0]
-                    render_note(); dismiss_dialog(page, dialog)
-                    page.snack_bar = ft.SnackBar(ft.Text("Nota salva.")); page.snack_bar.open = True; safe_update()
+                    value = (
+                        await asyncio.to_thread(on_set_personal_note, anime_group["id"], field.value)
+                        if on_set_personal_note
+                        else field.value
+                    )
+                    note_text[0] = value or ""
+                    anime_group["personal_note"] = note_text[0]
+                    render_note()
+                    dismiss_dialog(page, dialog)
+                    page.snack_bar = ft.SnackBar(ft.Text("Nota salva."))
+                    page.snack_bar.open = True
+                    safe_update()
                 except ValueError as exc:
-                    field.error_text = str(exc); page.update()
-                except Exception as exc:
+                    field.error_text = str(exc)
+                    save_button.disabled = False
+                    delete_button.disabled = False
+                    saving[0] = False
+                    page.update()
+                except Exception:
                     DetailView._logger.exception("Failed to save personal note")
                     field.error_text = "Não foi possível salvar a nota."
+                    save_button.disabled = False
+                    delete_button.disabled = False
+                    saving[0] = False
                     page.update()
-            dialog.actions = [ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)),
-                              ft.TextButton("Apagar", visible=bool(note_text[0]), on_click=lambda _: (setattr(field, "value", ""), save(None))),
-                              ft.FilledButton("Salvar", on_click=save)]
-            page.overlay.append(dialog); dialog.open = True; page.update()
+
+            async def clear_and_save(_event):
+                field.value = ""
+                await save(_event)
+
+            delete_button.on_click = clear_and_save
+            save_button.on_click = save
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Nota pessoal"),
+                content=field,
+                actions=[cancel_button, delete_button, save_button],
+            )
+            page.show_dialog(dialog)
+            page.update()
         note_button.on_click = edit_note
         render_note()
 
         personal_tags = list(anime_group.get("user_tags") or [])
         tags_row = ft.Row(wrap=True, spacing=6, run_spacing=6)
 
-        def save_tags(tags):
+        async def save_tags(tags):
             nonlocal personal_tags
             try:
-                personal_tags = on_set_user_tags(anime_group["id"], tags) if on_set_user_tags else tags
+                personal_tags = (
+                    await asyncio.to_thread(on_set_user_tags, anime_group["id"], tags)
+                    if on_set_user_tags
+                    else tags
+                )
                 anime_group["user_tags"] = personal_tags
                 render_tags()
-                page.snack_bar = ft.SnackBar(ft.Text("Etiqueta salva.")); page.snack_bar.open = True
+                page.snack_bar = ft.SnackBar(ft.Text("Etiqueta salva."))
+                page.snack_bar.open = True
+                page.update()
+            except ValueError as exc:
+                page.snack_bar = ft.SnackBar(ft.Text(str(exc)))
+                page.snack_bar.open = True
                 page.update()
             except Exception:
+                DetailView._logger.exception("Failed to save personal tags")
                 page.snack_bar = ft.SnackBar(ft.Text("Não foi possível salvar suas etiquetas."))
                 page.snack_bar.open = True
                 page.update()
@@ -217,22 +274,45 @@ class DetailView:
         def render_tags():
             tags_row.controls.clear()
             for tag in personal_tags:
+                async def remove_tag(_, value=tag):
+                    await save_tags([item for item in personal_tags if item != value])
+
                 tags_row.controls.append(ft.OutlinedButton(
                     tag, icon=ft.Icons.CLOSE, tooltip=f"Remover etiqueta {tag}",
-                    on_click=lambda _, value=tag: save_tags([item for item in personal_tags if item != value]),
+                    on_click=remove_tag,
                     style=ft.ButtonStyle(color="#D8D4E3", side=ft.BorderSide(1, "#4A4659")),
                 ))
 
         def add_tag(_):
+            dialog = None
             field = ft.TextField(label="Etiqueta", hint_text="Ex.: Prioridade", autofocus=True, max_length=40)
+            adding = [False]
+
+            async def add_value(_event):
+                if adding[0]:
+                    return
+                value = (field.value or "").strip()
+                if not value:
+                    field.error_text = "Digite uma etiqueta."
+                    page.update()
+                    return
+                adding[0] = True
+                try:
+                    await save_tags([*personal_tags, value])
+                    dismiss_dialog(page, dialog)
+                finally:
+                    adding[0] = False
+
             dialog = ft.AlertDialog(
-                modal=True, title=ft.Text("Adicionar etiqueta pessoal"), content=field,
-                actions=[ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)),
-                         ft.FilledButton("Adicionar", on_click=lambda _: (
-                             dismiss_dialog(page, dialog), save_tags([*personal_tags, field.value or ""])))],
+                modal=True,
+                title=ft.Text("Adicionar etiqueta pessoal"),
+                content=field,
+                actions=[
+                    ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)),
+                    ft.FilledButton("Adicionar", on_click=add_value),
+                ],
             )
-            page.overlay.append(dialog)
-            dialog.open = True
+            page.show_dialog(dialog)
             page.update()
 
         render_tags()
@@ -296,28 +376,74 @@ class DetailView:
                                options=[ft.dropdown.Option(key=value, text=value) for value in ("regular", "special", "ova", "oad", "ona", "extra", "movie", "unknown")])
             title_field = ft.TextField(label="Título do episódio (opcional)", value=episode.get("episode_title") or "", width=330)
             dialog = ft.AlertDialog(modal=True, title=ft.Text("Corrigir identificação"), content=ft.Column([season, number, kind, title_field], tight=True))
-            def save(_):
+            dialog = None
+            saving = [False]
+            cancel_button = ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog))
+            save_button = ft.FilledButton("Salvar")
+
+            async def save(_event):
+                if saving[0]:
+                    return
                 try:
                     parsed_season = int(season.value) if (season.value or "").strip() else None
                     parsed_number = float(number.value) if (number.value or "").strip() else None
-                    on_set_episode_identification(episode["path"], season=parsed_season, number=parsed_number, episode_type=kind.value, title=title_field.value)
-                    # Keep the current Details projection coherent without a
-                    # physical rescan: SQLite owns the value, and this view
-                    # updates its already-rendered episode list to match it.
+                except (TypeError, ValueError) as exc:
+                    number.error_text = str(exc) or "Valores inválidos."
+                    page.update()
+                    return
+
+                saving[0] = True
+                save_button.disabled = True
+                page.update()
+                try:
+                    await asyncio.to_thread(
+                        on_set_episode_identification,
+                        episode["path"],
+                        season=parsed_season,
+                        number=parsed_number,
+                        episode_type=kind.value,
+                        title=title_field.value,
+                    )
                     dismiss_dialog(page, dialog)
                     if on_identification_saved:
-                        on_identification_saved()
+                        result = on_identification_saved()
+                        if inspect.isawaitable(result):
+                            await result
                     else:
-                        episode.update(season=parsed_season or 0, number=parsed_number,
-                                       episode_type=kind.value, episode_title=(title_field.value or "").strip() or None,
-                                       identification_source="manual", identification_confidence="high",
-                                       manual_override=True)
+                        episode.update(
+                            season=parsed_season or 0,
+                            number=parsed_number,
+                            episode_type=kind.value,
+                            episode_title=(title_field.value or "").strip() or None,
+                            identification_source="manual",
+                            identification_confidence="high",
+                            manual_override=True,
+                        )
                         render_episodes()
-                    page.snack_bar = ft.SnackBar(ft.Text("Identificação manual salva.")); page.snack_bar.open = True; page.update()
+                    page.snack_bar = ft.SnackBar(ft.Text("Identificação manual salva."))
+                    page.snack_bar.open = True
+                    page.update()
                 except (TypeError, ValueError) as exc:
-                    number.error_text = str(exc) or "Valores inválidos."; page.update()
-            dialog.actions = [ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)), ft.FilledButton("Salvar", on_click=save)]
-            page.overlay.append(dialog); dialog.open = True; page.update()
+                    number.error_text = str(exc) or "Valores inválidos."
+                    save_button.disabled = False
+                    saving[0] = False
+                    page.update()
+                except Exception:
+                    DetailView._logger.exception("Failed to save episode identification")
+                    number.error_text = "Não foi possível salvar a identificação."
+                    save_button.disabled = False
+                    saving[0] = False
+                    page.update()
+
+            save_button.on_click = save
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Corrigir identificação"),
+                content=ft.Column([season, number, kind, title_field], tight=True),
+                actions=[cancel_button, save_button],
+            )
+            page.show_dialog(dialog)
+            page.update()
 
         def episode_item(episode):
             episode_ratio = ratio(episode)

@@ -5,6 +5,7 @@ out of Flet controls. It intentionally reads only compact store projections.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -57,13 +58,23 @@ class SettingsView:
         def confirm(title, body, action_label, action):
             async def run_action(_event):
                 page.pop_dialog()
-                result = action()
-                if inspect.isawaitable(result):
-                    await result
+                safe_update()
+                try:
+                    result = action()
+                    if inspect.isawaitable(result):
+                        await result
+                except Exception:
+                    logger.exception("Settings confirmation action failed")
+                    notice("Não foi possível concluir a operação.", error=True)
+
             dialog = ft.AlertDialog(
-                modal=True, title=ft.Text(title), content=ft.Text(body),
-                actions=[ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
-                         ft.FilledButton(action_label, on_click=run_action)],
+                modal=True,
+                title=ft.Text(title),
+                content=ft.Text(body),
+                actions=[
+                    ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
+                    ft.FilledButton(action_label, on_click=run_action),
+                ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
             page.show_dialog(dialog)
@@ -293,16 +304,18 @@ class SettingsView:
 
         backup_button = ft.OutlinedButton("Criar backup local", icon=ft.Icons.BACKUP_OUTLINED)
         restore_button = ft.OutlinedButton("Restaurar backup", icon=ft.Icons.RESTORE_OUTLINED)
-        def create_backup():
+        async def create_backup():
             if busy["backup"] or not on_create_backup:
                 return
             busy["backup"] = True
             backup_button.disabled = True
             safe_update()
             try:
-                path = on_create_backup()
+                result = on_create_backup()
+                path = await result if inspect.isawaitable(result) else await asyncio.to_thread(lambda: result)
                 notice(f"Backup criado: {str(path).rsplit('/', 1)[-1]}")
             except Exception:
+                logger.exception("Create backup failed")
                 notice("Não foi possível criar o backup local.", error=True)
             finally:
                 busy["backup"] = False
@@ -312,17 +325,19 @@ class SettingsView:
             confirm("Criar backup local?", "Será salva uma cópia offline da biblioteca SQLite e do cache de artwork gerenciado pelo Rei-Flix.", "Criar", create_backup)
         backup_button.on_click = ask_create_backup
 
-        def restore_backup():
+        async def restore_backup():
             if busy["restore"] or not on_restore_backup:
                 return
             busy["restore"] = True
             restore_button.disabled = True
             safe_update()
             try:
-                path = on_restore_backup()
+                result = on_restore_backup()
+                path = await result if inspect.isawaitable(result) else await asyncio.to_thread(lambda: result)
                 on_catalog_changed()
                 notice(f"Backup restaurado: {str(path).rsplit('/', 1)[-1]}")
             except Exception:
+                logger.exception("Restore backup failed")
                 notice("Não foi possível restaurar o backup local.", error=True)
             finally:
                 busy["restore"] = False
@@ -335,17 +350,22 @@ class SettingsView:
                 return
             confirm("Restaurar backup local?", "A biblioteca atual será substituída pela cópia salva. O processo só substitui o banco depois da validação do backup.", "Restaurar", restore_backup)
         restore_button.on_click = ask_restore_backup
-        def clear_cache():
+        async def clear_cache():
             if busy["cache"]:
                 return
-            busy["cache"] = True; cache_button.disabled = True; safe_update()
+            busy["cache"] = True
+            cache_button.disabled = True
+            safe_update()
             try:
-                removed = library.clear_anilist_cache()
+                removed = await asyncio.to_thread(library.clear_anilist_cache)
                 notice(f"Cache AniList limpo ({removed} capa(s) removida(s)).")
             except Exception:
+                logger.exception("Clear AniList cache failed")
                 notice("Não foi possível limpar o cache AniList.", error=True)
             finally:
-                busy["cache"] = False; cache_button.disabled = False; safe_update()
+                busy["cache"] = False
+                cache_button.disabled = False
+                safe_update()
         def ask_clear_cache(_):
             confirm("Limpar cache AniList?", "Metadados e capas temporárias serão atualizados na próxima varredura. Sua biblioteca, favoritos e progresso serão preservados.", "Limpar", clear_cache)
         cache_button.on_click = ask_clear_cache

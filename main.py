@@ -141,13 +141,12 @@ async def main(page: ft.Page):
         # origin to which Android back returns.
         page.run_task(launch_native_player)
     def navigate_details(anime, on_back=None):
-        # Refresh once from SQLite so Details always presents the durable
-        # favorite/progress state without triggering a scan or network call.
-        anime_id = anime.get('id') if anime else None
-        current[0] = next((item for item in library.catalog() if item['id'] == anime_id), anime)
+        # The originating card already contains the durable SQLite projection.
+        # Avoid a synchronous catalog query just to enter Details.
+        current[0] = anime
         navigation.push("details")
         render_current()
-    def refresh_current_details():
+    async def refresh_current_details():
         """Reload the durable record after an in-place Details edit.
 
         A manual season correction can move an episode between groups, so a
@@ -155,7 +154,8 @@ async def main(page: ft.Page):
         pushing another navigation entry.
         """
         anime_id = current[0].get("id") if current[0] else None
-        current[0] = next((item for item in library.catalog() if item["id"] == anime_id), current[0])
+        catalog = await asyncio.to_thread(library.catalog)
+        current[0] = next((item for item in catalog if item["id"] == anime_id), current[0])
         render_current()
     async def refresh_current_metadata(e=None):
         """Refresh only editorial metadata; never rescans or mutates playback state."""
@@ -166,7 +166,7 @@ async def main(page: ft.Page):
             return
         try:
             await asyncio.to_thread(library.refresh_metadata, lookup, title, force=True)
-            refresh_current_details()
+            await refresh_current_details()
             page.snack_bar = ft.SnackBar(ft.Text("Metadata atualizada."))
             page.snack_bar.open = True
             safe_update()
@@ -214,11 +214,11 @@ async def main(page: ft.Page):
             page.snack_bar.open = True
             safe_update()
 
-    def create_backup():
-        return library.create_backup()
+    async def create_backup():
+        return await asyncio.to_thread(library.create_backup)
 
-    def restore_backup():
-        path = library.restore_backup()
+    async def restore_backup():
+        path = await asyncio.to_thread(library.restore_backup)
         on_catalog_changed()
         refresh_settings_if_active()
         return path
@@ -231,6 +231,14 @@ async def main(page: ft.Page):
             diagnostics.record("PERMISSION_CHECK", source="android")
             page.run_task(bridge.check_storage_access)
     def navigate_back():
+        # Dialogs always have first refusal of Back. Flet owns the dialog stack.
+        try:
+            dialog = page.pop_dialog()
+        except Exception:
+            dialog = None
+        if dialog is not None:
+            safe_update()
+            return
         action = navigation.back()
         if action == "previous":
             render_current()

@@ -1,12 +1,12 @@
-"""Flet 0.86-compatible modal dismissal helpers."""
+'''Flet-managed dialog lifecycle helpers.'''
 from __future__ import annotations
 
 
-def dismiss_dialog(page, dialog) -> None:
-    """Close and detach an AlertDialog without calling its nonexistent ``close`` API."""
-    dialog.open = False
-    try:
-        page.overlay.remove(dialog)
-    except (AttributeError, ValueError):
-        pass
-    page.update()
+def dismiss_dialog(page, dialog=None) -> None:
+    '''Dismiss the top-most dialog through Flet's managed dialog stack.
+
+    ``dialog`` is retained for call-site compatibility. Dialog creation and
+    teardown stay inside ``page.show_dialog()``/``page.pop_dialog()`` so views
+    never mutate ``page.overlay`` directly.
+    '''
+    page.pop_dialog()

@@ -43,24 +43,25 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertEqual(storage_access_state("full", True), StorageAccessState.READY)
         self.assertEqual(storage_access_state("full", True, dismissed=True), StorageAccessState.DECLINED)
 
-    def test_dismissal_detaches_overlay_without_alertdialog_close_api(self):
-        class Dialog: open = True
+    def test_dismissal_uses_flet_managed_dialog_stack(self):
         class Page:
-            def __init__(self): self.overlay = [dialog]; self.updated = 0
-            def update(self): self.updated += 1
-        dialog = Dialog(); page = Page()
-        dismiss_dialog(page, dialog)
-        self.assertFalse(dialog.open)
-        self.assertEqual([], page.overlay)
-        self.assertEqual(1, page.updated)
+            def __init__(self): self.pop_count = 0
+            def pop_dialog(self):
+                self.pop_count += 1
+                return object()
+
+        page = Page()
+        dismiss_dialog(page, object())
+        self.assertEqual(1, page.pop_count)
 
     def test_project_has_no_invalid_alertdialog_close_calls(self):
         sources = "\n".join(path.read_text(encoding="utf-8") for path in ROOT.rglob("*.py") if "tests" not in path.parts)
         self.assertNotIn("dialog.close(", sources)
-        settings = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
-        self.assertIn("page.show_dialog(dialog)", settings)
-        self.assertIn("page.pop_dialog()", settings)
-        self.assertNotIn("page.overlay.append(dialog)", settings)
+        self.assertIn("page.show_dialog(dialog)", sources)
+        self.assertIn("page.pop_dialog()", sources)
+        self.assertNotIn("page.overlay.append(dialog)", sources)
+        self.assertNotIn("dialog.open = True", sources)
+        self.assertNotIn("dialog.open = False", sources)
 
     def test_permission_intent_is_single_task_and_lifecycle_queued(self):
         manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")

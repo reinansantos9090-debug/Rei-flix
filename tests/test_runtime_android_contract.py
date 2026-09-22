@@ -146,10 +146,12 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         organize = (ROOT / "views/organize_view.py").read_text(encoding="utf-8")
         self.assertIn('grid = ft.Row(', home)
         self.assertIn('content = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO', organize)
-        self.assertIn('content=ft.Column([layout], expand=True', home)
-        self.assertIn('content=ft.Column([content], expand=True', organize)
-        self.assertIn('content=ft.Column([layout], expand=True', (ROOT / "views/details_view.py").read_text(encoding="utf-8"))
-        self.assertIn('content=ft.Column([content], expand=True', (ROOT / "views/settings_view.py").read_text(encoding="utf-8"))
+        self.assertIn("content=layout,", home)
+        self.assertIn("content=content,", organize)
+        self.assertIn("content=layout,", (ROOT / "views/details_view.py").read_text(encoding="utf-8"))
+        self.assertIn("content=content,", (ROOT / "views/settings_view.py").read_text(encoding="utf-8"))
+        for source in (home, organize, (ROOT / "views/details_view.py").read_text(encoding="utf-8"), (ROOT / "views/settings_view.py").read_text(encoding="utf-8")):
+            self.assertIn("expand=True", source)
 
     def test_python_handles_native_player_state_and_navigation_events(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")

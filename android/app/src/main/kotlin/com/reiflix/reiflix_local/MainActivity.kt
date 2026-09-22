@@ -1357,6 +1357,22 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         val authority = localUri.authority.orEmpty()
+        val authorized = when {
+            localUri.scheme.equals("content", true) -> {
+                localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri) ||
+                    MediaStoreScanner.isAuthorizedDocument(this, localUri)
+            }
+            localUri.scheme.equals("file", true) -> BroadStorageScanner.isAuthorizedFile(this, localUri)
+            else -> false
+        }
+        if (!authorized) {
+            Log.e(tag, "PLAY_HANDOFF_FAILED requestId=$requestId uri=$episodeUri reason=unauthorized")
+            NativeMailbox.write(this, JSONObject().put("type", "player_error")
+                .put("requestId", requestId)
+                .put("message", "Este arquivo local não está mais autorizado.")
+                .put("payload", JSONObject().put("uri", episodeUri).put("stage", "handoff").put("reason", "unauthorized")))
+            return
+        }
         val mediaSource = when {
             localUri.scheme.equals("content", true) && authority == MediaStore.AUTHORITY -> "mediastore"
             localUri.scheme.equals("content", true) -> "saf_or_local_provider"

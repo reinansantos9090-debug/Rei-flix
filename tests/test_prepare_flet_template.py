@@ -85,6 +85,8 @@ class FletTemplateManifestTests(unittest.TestCase):
             self.assertIsNotNone(main)
             self.assertEqual(main.get("{http://schemas.android.com/apk/res/android}launchMode"), "singleTask")
             self.assertEqual(main.get("{http://schemas.android.com/apk/res/android}documentLaunchMode"), "never")
+            generated_gradle = (project / "android/app/build.gradle.kts").read_text(encoding="utf-8")
+            self.assertIn('namespace = "com.reiflix.reiflix_local"', generated_gradle)
             self.assertIn(
                 "android.permission.READ_MEDIA_VIDEO",
                 [

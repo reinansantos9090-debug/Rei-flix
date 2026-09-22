@@ -413,7 +413,7 @@ E: manifest
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("val resolvedUri = normalizeLocalReference(rawUri)", player)
         self.assertIn("if (resolvedUri == null)", player)
-        self.assertIn("showPlayerError("Referência local inválida.", "invalid_uri")", player)
+        self.assertIn('showPlayerError("Referência local inválida.", "invalid_uri")', player)
         self.assertIn("A reprodução aceita somente referências locais content:// ou file://.", player)
 
     def test_native_player_rechecks_saf_authorization_before_media3_start(self):

@@ -229,8 +229,10 @@ E: manifest
         template = PREPARE_TEMPLATE.read_text(encoding="utf-8")
         self.assertIn('android:screenOrientation="fullSensor"', manifest)
         self.assertIn("SCREEN_ORIENTATION_FULL_SENSOR", player)
-        self.assertIn("playerView.overlayFrameLayout", player)
+        self.assertIn("FrameLayout.LayoutParams.MATCH_PARENT", player)
+        self.assertIn("applyRootInsets", player)
         self.assertIn("WindowInsetsCompat.Type.systemBars()", player)
+        self.assertIn("WindowInsetsCompat.Type.displayCutout()", player)
         self.assertNotIn("RESIZE_MODE_FILL", player)
         self.assertIn('button.text = if (next == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) "Preencher" else "Ajustar"', player)
         self.assertIn('screen_attr: "fullSensor"', template)
@@ -318,13 +320,14 @@ E: manifest
     def test_player_exit_is_not_suppressed_after_normal_completion(self):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("private var suppressExitEvent = false", player)
-        self.assertIn("suppressExitEvent = true", player)
-        self.assertIn("if (!suppressExitEvent && !isChangingConfigurations)", player)
+        self.assertIn("private fun reportPlayerExit", player)
+        self.assertIn("if (isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations)", player)
+        self.assertIn("reportPlayerExit("activity_finish")", player)
 
     def test_template_requires_the_system_ui_controller(self):
         source = PREPARE_TEMPLATE.read_text(encoding="utf-8")
         self.assertIn("SystemUiController.kt", source)
-        self.assertIn("normal system-bar host policy", source)
+        self.assertIn("immersive system-bar host policy", source)
 
     def test_native_mailbox_uses_the_flet_application_data_subdirectory(self):
         mailbox = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativeMailbox.kt").read_text(encoding="utf-8")
@@ -407,12 +410,11 @@ E: manifest
         self.assertIn("Log.w(", scanner)
 
     def test_native_player_entry_rejects_non_local_deep_link_uris(self):
-        main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
-        self.assertIn('localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri)', main)
-        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", main)
-        self.assertIn('"Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."', main)
+        player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("val resolvedUri = normalizeLocalReference(rawUri)", player)
+        self.assertIn("if (resolvedUri == null)", player)
+        self.assertIn("showPlayerError("Referência local inválida.", "invalid_uri")", player)
+        self.assertIn("A reprodução aceita somente referências locais content:// ou file://.", player)
 
     def test_native_player_rechecks_saf_authorization_before_media3_start(self):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
@@ -459,8 +461,10 @@ E: manifest
         self.assertIn('outState.putBundle("track_selection_parameters"', player)
         self.assertIn('outState.putBoolean("play_when_ready", player.playWhenReady)', player)
         self.assertIn('getBoolean("play_when_ready")', player)
-        self.assertIn("builder.setAutoEnterEnabled(true)", player)
-        self.assertIn("runCatching", player[player.index("override fun onUserLeaveHint"):player.index("private fun canEnterPictureInPicture")])
+        self.assertIn("PictureInPictureParams.Builder()", player)
+        self.assertIn(".setAutoEnterEnabled(true)", player)
+        self.assertIn("PackageManager.FEATURE_PICTURE_IN_PICTURE", player)
+        self.assertIn("canEnterPictureInPicture()", player)
         self.assertIn("android.software.picture_in_picture", manifest)
         self.assertIn('android:required="false"', manifest)
         self.assertIn("android.software.picture_in_picture", template)
@@ -489,12 +493,12 @@ E: manifest
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn('localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri)', main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("startActivity(Intent(this, NativePlayerActivity::class.java)", main)
+        self.assertIn("startActivity(intent)", main)
         self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", player)
-        self.assertIn('reportError("Arquivo local inválido.")', player)
-        self.assertIn("finish()", player)
+        self.assertIn('showPlayerError("Arquivo local inválido.", "missing_uri")', player)
+        self.assertNotIn('reportError("Arquivo local inválido.")', player)
 
     def test_native_player_accepts_saf_media_store_and_broad_paths(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
@@ -502,7 +506,7 @@ E: manifest
         bridge = (ROOT / "core" / "android_bridge.py").read_text(encoding="utf-8")
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
-        self.assertIn("MediaItem.Builder().setUri(uri)", player)
+        self.assertIn(".setUri(uri)", player)
         self.assertIn("normalize_local_media_reference", bridge)
         self.assertIn("os.path.isabs(value)", bridge)
         self.assertIn("Uri.fromFile", player)
@@ -513,10 +517,10 @@ E: manifest
         error = player.index("override fun onPlayerError")
         destroy = player.index("override fun onDestroy")
         block = player[error:destroy]
-        self.assertIn("suppressExitEvent = true", block)
         self.assertIn('put("errorCode", technicalCode)', block)
         self.assertIn('put("detail", detail)', block)
-        self.assertIn("finish()", block)
+        self.assertIn("showPlayerError(", block)
+        self.assertNotIn("finishPlayer(", block)
 
     def test_native_player_next_previous_suppress_normal_exit(self):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")

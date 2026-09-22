@@ -184,6 +184,11 @@ class DetailView:
                     page.snack_bar = ft.SnackBar(ft.Text("Nota salva.")); page.snack_bar.open = True; safe_update()
                 except ValueError as exc:
                     field.error_text = str(exc); page.update()
+                except Exception as exc:
+                    logger = getattr(__import__("logging"), "getLogger")("reiflix.details")
+                    logger.exception("Failed to save personal note")
+                    field.error_text = "Não foi possível salvar a nota."
+                    page.update()
             dialog.actions = [ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)),
                               ft.TextButton("Apagar", visible=bool(note_text[0]), on_click=lambda _: (setattr(field, "value", ""), save(None))),
                               ft.FilledButton("Salvar", on_click=save)]

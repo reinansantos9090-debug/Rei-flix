@@ -484,4 +484,9 @@ class SettingsView:
             ], spacing=4)),
             status,
         ], spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
-        return ft.Container(padding=PAGE_PADDING, bgcolor=BACKGROUND, content=content)
+        return ft.Container(
+            content=ft.Column([content], expand=True, spacing=0),
+            padding=PAGE_PADDING,
+            bgcolor=BACKGROUND,
+            expand=True,
+        )

@@ -171,6 +171,7 @@ class AndroidBridge:
             self._retained = set()
             return [event for _, event in indexed]
         except OSError as exc:
+            # Never discard a claimed event solely because draining encountered I/O failure.
             logger.error("[ANDROID] Native mailbox drain failed; claimed events will be restored/retried: %s", exc)
             for path in claimed:
                 try:

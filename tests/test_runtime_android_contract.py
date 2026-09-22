@@ -43,6 +43,8 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertNotIn("playerLaunchActive", source)
         self.assertNotIn("applyNormalSystemUi", source)
         self.assertIn("applyImmersiveSystemUi()", source)
+        self.assertIn("registerForActivityResult(ActivityResultContracts.StartActivityForResult())", source)
+        self.assertIn("playerActivityLauncher.launch(intent)", source)
 
     def test_native_player_has_structured_lifecycle_and_playback_diagnostics(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
@@ -123,6 +125,23 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             self.assertIn("scroll=ft.ScrollMode.AUTO", source, label)
             tree = ast.parse(source)
             self.assertTrue(tree.body, label)
+            vertical_columns = [
+                node for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "Column"
+                and any(
+                    kw.arg == "scroll"
+                    and isinstance(kw.value, ast.Attribute)
+                    and kw.value.attr == "AUTO"
+                    for kw in node.keywords
+                )
+            ]
+            self.assertEqual(
+                1,
+                len(vertical_columns),
+                f"{label} must have exactly one primary vertical scroll owner",
+            )
         home = (ROOT / "views/home_view.py").read_text(encoding="utf-8")
         organize = (ROOT / "views/organize_view.py").read_text(encoding="utf-8")
         self.assertIn('grid = ft.Row(', home)

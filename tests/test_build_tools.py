@@ -219,7 +219,7 @@ E: manifest
         self.assertNotIn("RESIZE_MODE_FILL", player)
         self.assertIn('button.text = if (next == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) "Preencher" else "Ajustar"', player)
         self.assertIn('screen_attr: "fullSensor"', template)
-        self.assertIn("VideoThumbnailExtractor.kt", template)
+        self.assertTrue((ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/VideoThumbnailExtractor.kt").is_file())
 
     def test_source_manifest_and_template_contract_cannot_revert_to_single_top(self):
         manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")

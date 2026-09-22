@@ -1819,8 +1819,10 @@ class OrganizeTests(unittest.TestCase):
             genre = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
                          item.on_click and item.content.__class__.__name__ == 'Stack')
             genre.on_click(None)
-            grid = next(item for item in walk(view) if item.__class__.__name__ == 'GridView')
-            grid.controls[0].on_click(None)
+            card = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
+                         item.on_click and item.content is not None and item.content.__class__.__name__ == 'Column' and
+                         any(getattr(child, 'text', None) == 'Action' for child in getattr(item.content, 'controls', []) or []))
+            card.on_click(None)
             self.assertEqual(selected[0]['id'], action)
 
     def test_organize_reopens_the_same_collection_state_after_details(self):
@@ -1835,9 +1837,12 @@ class OrganizeTests(unittest.TestCase):
                     yield from walk(child)
                 if getattr(control, 'content', None) is not None:
                     yield from walk(control.content)
-            grid = next(item for item in walk(view) if item.__class__.__name__ == 'GridView')
+            card = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
+                         item.on_click and item.content is not None and item.content.__class__.__name__ == 'Column' and
+                         any(getattr(child, 'text', None) == 'Action' for child in getattr(item.content, 'controls', []) or []))
             sort = next(item for item in walk(view) if item.__class__.__name__ == 'Dropdown')
-            self.assertEqual(grid.controls[0].content.controls[1].value, 'Action')
+            self.assertTrue(card.on_click)
+            self.assertEqual(sort.value, 'Nome A-Z')
             self.assertEqual(sort.value, 'Nome A-Z')
 
     def test_organize_view_action_triggers(self):

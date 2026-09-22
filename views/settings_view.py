@@ -413,17 +413,27 @@ class SettingsView:
             pending_content.append(ft.Text("Nenhum título aguarda confirmação AniList.", color=TEXT_MUTED, size=11))
 
         last = store.last_scan()
-        diagnostic = "Ainda não houve varredura."
-        if last:
-            try:
-                errors = json.loads(last["errors"] or "[]")
-            except (TypeError, json.JSONDecodeError):
-                errors = ["diagnóstico inválido"]
-            diagnostic = f"Última varredura: {count_label(last['videos'], 'vídeo')}, {count_label(last['animes'], 'anime')}, {count_label(last['episodes'], 'episódio')}."
-            if errors:
-                diagnostic += " Há itens que precisam de atenção."
-            if last.get("status"):
-                diagnostic += f" Status: {last['status']}."
+        runtime_status = str((scan_snapshot or {}).get("state") or "IDLE").upper()
+        runtime_found = int((scan_snapshot or {}).get("found") or 0)
+        runtime_files = int((scan_snapshot or {}).get("files") or 0)
+        if runtime_status in {"CHECKING", "SCANNING", "WAITING_FOR_MEDIASTORE"}:
+            diagnostic = (
+                f"Varredura em andamento: {runtime_status}. "
+                f"Snapshot atual: {count_label(runtime_files, 'arquivo')}, "
+                f"{count_label(runtime_found, 'vídeo')}."
+            )
+        else:
+            diagnostic = "Ainda não houve varredura."
+            if last:
+                try:
+                    errors = json.loads(last["errors"] or "[]")
+                except (TypeError, json.JSONDecodeError):
+                    errors = ["diagnóstico inválido"]
+                diagnostic = f"Última varredura: {count_label(last['videos'], 'vídeo')}, {count_label(last['animes'], 'anime')}, {count_label(last['episodes'], 'episódio')}."
+                if errors:
+                    diagnostic += " Há itens que precisam de atenção."
+                if last.get("status"):
+                    diagnostic += f" Status: {last['status']}."
 
         stats_text = (
             f"{count_label(statistics['animes'], 'anime')} • {statistics['episodes_available']}/{statistics['episodes']} {'episódio' if statistics['episodes'] == 1 else 'episódios'} disponíveis\n"

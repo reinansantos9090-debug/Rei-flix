@@ -34,9 +34,8 @@ class HomeView:
                 query=search.value or "",
             )
 
-        grid = ft.GridView(
-            expand=True, max_extent=168, child_aspect_ratio=.57, spacing=14,
-            run_spacing=20, padding=ft.Padding.only(bottom=24),
+        grid = ft.Row(
+            wrap=True, spacing=14, run_spacing=20,
         )
         status = ft.Row([ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT), ft.Text("Carregando biblioteca local…", color=TEXT_MUTED, size=12)], spacing=8)
         genres_row = ft.Row(scroll=ft.ScrollMode.AUTO, spacing=8)
@@ -383,8 +382,10 @@ class HomeView:
             ft.Row([library_label, sort], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Row([media_type, tag, season, episode_type], scroll=ft.ScrollMode.AUTO, spacing=8),
             ft.Row([availability, metadata_filter, artwork_filter], scroll=ft.ScrollMode.AUTO, spacing=8),
-            feedback, grid,
-        ], expand=True, spacing=14)
+            feedback,
+            grid,
+            ft.Container(height=24),
+        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=14)
 
         status.visible = True
         load_catalog()

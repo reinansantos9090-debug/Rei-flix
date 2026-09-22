@@ -217,10 +217,12 @@ class OrganizeView:
             sort.on_select = change_sort
             content.controls.append(sort)
             if filtered:
-                content.controls.append(ft.GridView(controls=[anime_card(anime) for anime in filtered],
-                                                    max_extent=168, child_aspect_ratio=.57, spacing=14,
-                                                    run_spacing=20, height=max(260, ((len(filtered) + 1) // 2) * 290),
-                                                    padding=ft.Padding.only(bottom=24)))
+                content.controls.append(ft.Row(
+                    wrap=True,
+                    spacing=14,
+                    run_spacing=20,
+                    controls=[anime_card(anime) for anime in filtered],
+                ))
             else:
                 content.controls.append(ft.Container(
                 content=empty_state(ft.Icons.FILTER_LIST_OFF, "Nenhum anime nesta categoria", "Altere o filtro ou volte para explorar a biblioteca."), alignment=ft.Alignment(0, 0), height=190,

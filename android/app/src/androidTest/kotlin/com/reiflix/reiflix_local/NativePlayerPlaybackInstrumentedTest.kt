@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import android.provider.MediaStore
+import android.view.MotionEvent
 import android.view.View
 import android.widget.TextView
 import androidx.core.view.WindowInsetsCompat

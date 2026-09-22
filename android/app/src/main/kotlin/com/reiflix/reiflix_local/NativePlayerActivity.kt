@@ -823,8 +823,9 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun cycleAspect(button: TextView) {
         if (!::playerView.isInitialized) return
+        val current = playerView.resizeMode
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.resetZoomToFit()
-        val next = if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) {
+        val next = if (current == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) {
             AspectRatioFrameLayout.RESIZE_MODE_FIT
         } else {
             AspectRatioFrameLayout.RESIZE_MODE_ZOOM

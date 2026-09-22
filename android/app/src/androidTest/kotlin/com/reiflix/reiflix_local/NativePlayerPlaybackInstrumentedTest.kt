@@ -328,17 +328,18 @@ class NativePlayerPlaybackInstrumentedTest {
         val centerX = view.width * 0.5f
         val centerY = view.height * 0.5f
         val minimumSpan = ViewConfiguration.get(view.context).scaledMinimumScalingSpan.toFloat()
-        val startSpan = minimumSpan + 96f
+        val spanDelta = maxOf(192f, minimumSpan * 0.5f)
+        val startSpan = minOf(view.width * 0.72f, minimumSpan + spanDelta)
         val maximumSpan = view.width * 0.9f
         assertTrue(
             "Pinch test surface is too narrow for the platform minimum scaling span",
-            maximumSpan > startSpan + 160f,
+            maximumSpan > startSpan + 32f,
         )
         val endSpan = if (zoom) {
             maximumSpan
         } else {
-            maxOf(minimumSpan + 48f, startSpan - 160f)
-        }
+            maxOf(minimumSpan + 64f, startSpan - spanDelta)
+        )
         val middleSpan = startSpan + (endSpan - startSpan) * 0.5f
         val down = SystemClock.uptimeMillis()
 

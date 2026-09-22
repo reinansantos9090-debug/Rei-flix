@@ -14,7 +14,6 @@ from core.google_account import normalize_google_profile
 from views.home_view import HomeView
 from views.details_view import DetailView
 from views.organize_view import OrganizeView
-from views.player_view import PlayerView
 from views.settings_view import SettingsView
 
 logger = logging.getLogger("reiflix")
@@ -106,11 +105,6 @@ async def main(page: ft.Page):
                                     folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match,
                                     on_create_backup=create_backup, on_restore_backup=restore_backup,
                                     storage_snapshot=storage_capabilities[0], scan_snapshot=scan_state[0]))
-        elif navigation.current == "player":
-            path, title, progress = player_context[0]
-            show(PlayerView.build(page, path, title, navigate_back, None, start_native_player, progress))
-
-    player_context=[("", "", 0)]
     def navigate_home():
         navigation.reset_to_root()
         render_current()
@@ -132,9 +126,20 @@ async def main(page: ft.Page):
     def play_episode(path, title, on_next=None, progress_seconds=0):
         if store.get_preference("resume_playback", "true") != "true":
             progress_seconds = 0
-        player_context[0] = (path, title, progress_seconds)
-        navigation.push("player")
-        render_current()
+
+        async def launch_native_player():
+            try:
+                await start_native_player(path, title, max(0, int(progress_seconds * 1000)))
+            except Exception:
+                logger.exception("[PLAYER] native handoff failed path=%s", path)
+                page.snack_bar = ft.SnackBar(ft.Text("Não foi possível abrir o player local."))
+                page.snack_bar.open = True
+                safe_update()
+
+        # NativePlayerActivity is the only player. Do not push a synthetic Flet
+        # route before launching it; the current Details/Home screen remains the
+        # origin to which Android back returns.
+        page.run_task(launch_native_player)
     def navigate_details(anime, on_back=None):
         # Refresh once from SQLite so Details always presents the durable
         # favorite/progress state without triggering a scan or network call.
@@ -1068,8 +1073,9 @@ async def main(page: ft.Page):
                                     )
                                 except (TypeError, ValueError):
                                     updated = False
-                                if updated and navigation.current != 'player':
-                                    render_current()
+                                # Playback progress is persisted while the native Activity is
+                                # on top. Refresh only after it exits to avoid rebuilding Flet UI
+                                # every 15 seconds and losing scroll position.
                                 diagnostics.record(
                                     str(event_type).upper(),
                                     request_id=event_request_id,
@@ -1134,11 +1140,6 @@ async def main(page: ft.Page):
                                 max(0.0, float(target.get('progress') or 0.0)) * 1000.0
                                 if resume_enabled else 0.0
                             )
-                            player_context[0] = (
-                                target_path,
-                                target_title,
-                                target_position_ms / 1000.0,
-                            )
                             diagnostics.record(
                                 "PLAYER_NEXT" if direction > 0 else "PLAYER_PREVIOUS",
                                 request_id=event_request_id,
@@ -1185,8 +1186,9 @@ async def main(page: ft.Page):
                                 source="native_player",
                                 result=payload.get('reason') or "exit",
                             )
-                            if navigation.current == 'player':
-                                navigate_back()
+                            # The native player sits over the current Flet screen;
+                            # there is no synthetic player route to pop.
+                            on_catalog_changed()
                         elif event_type == 'google_sign_in_started':
                             account_state[0] = 'awaiting_google'; refresh_settings_if_active()
                         elif event_type == 'google_account':

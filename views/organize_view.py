@@ -135,7 +135,7 @@ class OrganizeView:
                         content=ft.Column([
                             ft.Text(label.upper(), color="#FFFFFF", size=14, weight=ft.FontWeight.BOLD, max_lines=2,
                                     overflow=ft.TextOverflow.ELLIPSIS),
-                            ft.Text(f"{count} anime{'s' if count != 1 else ''}", color="#E2DEE9", size=11),
+                            ft.Text(count_label(count, "anime"), color="#E2DEE9", size=11),
                         ], spacing=3), left=12, right=10, bottom=10,
                     ),
                 ]),
@@ -203,7 +203,7 @@ class OrganizeView:
             title = selected_genre[0].upper() if selected_genre[0] != "Todos" else selected_state[0]
             content.controls.extend([
                 header(title, back_to_overview),
-                ft.Text(f"{len(filtered)} anime{'s' if len(filtered) != 1 else ''} na sua biblioteca", color="#AAA7B6", size=12),
+                ft.Text(f"{count_label(len(filtered), \"anime\")} na sua biblioteca", color="#AAA7B6", size=12),
                 ft.Row([filter_chip(label) for label in ("Todos", "Favoritos", "Em andamento", "Concluídos")], scroll=ft.ScrollMode.AUTO, spacing=8),
             ])
             sort = ft.Dropdown(value=selected_sort[0], width=190, dense=True, text_size=12, color="#F5F5F7",

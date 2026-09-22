@@ -749,11 +749,20 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun togglePlayPause() {
         if (!::player.isInitialized || errorVisible) return
-        if (player.isPlaying) {
-            player.pause()
-            saveProgress("player_paused", force = true)
-        } else {
-            player.play()
+        when {
+            player.playbackState == Player.STATE_ENDED -> {
+                // The UI already exposes the replay affordance (↻) for an ended
+                // item, so tapping it must explicitly rewind before playback.
+                player.seekTo(0L)
+                player.play()
+            }
+            player.isPlaying -> {
+                player.pause()
+                saveProgress("player_paused", force = true)
+            }
+            else -> {
+                player.play()
+            }
         }
         touchControls()
         updatePlayPauseButton()
@@ -859,7 +868,8 @@ class NativePlayerActivity : ComponentActivity() {
             showAdjustment("BRILHO", brightnessLevel)
         }.onFailure { error ->
             logPlayer("BRIGHTNESS_CHANGE_FAILED", error)
-            showFeedback("BRILHO\nIndisponível neste dispositivo", 1100L)
+            showFeedback("BRILHO
+Indisponível neste dispositivo", 1100L)
         }
     }
 
@@ -874,7 +884,8 @@ class NativePlayerActivity : ComponentActivity() {
             }
         }.onFailure { error ->
             logPlayer("VOLUME_CHANGE_FAILED", error)
-            showFeedback("VOLUME\nIndisponível neste dispositivo", 1100L)
+            showFeedback("VOLUME
+Indisponível neste dispositivo", 1100L)
             return
         }
         showAdjustment("VOLUME", next.toFloat() / maxVolume.toFloat())
@@ -895,7 +906,8 @@ class NativePlayerActivity : ComponentActivity() {
             }
         }.onFailure { error ->
             logPlayer("VOLUME_CHANGE_FAILED", error)
-            showFeedback("VOLUME\\nIndisponível neste dispositivo", 1100L)
+            showFeedback("VOLUME\
+Indisponível neste dispositivo", 1100L)
             return
         }
         val effective = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -912,7 +924,9 @@ class NativePlayerActivity : ComponentActivity() {
         val percent = (ratio.coerceIn(0f, 1f) * 100f).roundToInt()
         val bars = 10
         val filled = ((percent / 100f) * bars).roundToInt().coerceIn(0, bars)
-        return label + "\n" + "█".repeat(filled) + "░".repeat(bars - filled) + "\n" + percent + "%"
+        return label + "
+" + "█".repeat(filled) + "░".repeat(bars - filled) + "
+" + percent + "%"
     }
 
     private fun showAdjustment(label: String, ratio: Float) {

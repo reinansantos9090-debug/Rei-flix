@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 
 class StorageAccessState(str, Enum):
@@ -149,94 +150,79 @@ class StorageCapabilities:
         return self.api is not None or self.lifecycle_state != "unknown"
 
     def can_scan(self, source: str) -> bool:
-        return source in self.scanner_capabilities
+        if not isinstance(source, str):
+            return False
+        value = source.strip().casefold()
+        if value == "mediastore":
+            return self.media_read_state in {"partial", "full"}
+        if value == "broad-storage":
+            return self.broad_storage_state == "available"
+        if value == "saf":
+            return bool(self.saf_roots)
+        return value in {str(item).strip().casefold() for item in self.scanner_capabilities}
 
     def can_reconcile(self, source: str) -> bool:
-        return source in self.reconciliation_capabilities
+        if not isinstance(source, str):
+            return False
+        value = source.strip().casefold()
+        if value == "mediastore":
+            return self.media_read_state == "full"
+        if value == "broad-storage":
+            return self.broad_storage_state == "available"
+        if value == "saf":
+            return bool(self.saf_roots)
+        return value in {str(item).strip().casefold() for item in self.reconciliation_capabilities}
 
 
-def normalize_storage_snapshot(snapshot: object) -> StorageCapabilities:
-    """Normalize either a legacy dict payload or a typed StorageCapabilities object."""
+def _mapping_from_snapshot(snapshot: Any) -> dict[str, Any]:
+    if snapshot is None:
+        return {}
+    if isinstance(snapshot, dict):
+        return snapshot
+    if isinstance(snapshot, StorageCapabilities):
+        return snapshot.as_mapping()
+    candidate = getattr(snapshot, "as_mapping", None)
+    if callable(candidate):
+        mapped = candidate()
+        if isinstance(mapped, dict):
+            return mapped
+    candidate = getattr(snapshot, "__dict__", None)
+    if isinstance(candidate, dict):
+        return candidate
+    return {}
+
+
+def normalize_storage_snapshot(snapshot: Any) -> StorageCapabilities:
     if snapshot is None:
         return StorageCapabilities.unknown()
     if isinstance(snapshot, StorageCapabilities):
         return snapshot
-    if isinstance(snapshot, dict):
-        return StorageCapabilities.from_native(snapshot)
-
-    mapping: dict[str, object] = {}
-    for dict_key, attr_names in {
-        "mediaReadState": ("media_read_state", "mediaReadState"),
-        "broadStorageState": ("broad_storage_state", "broadStorageState"),
-        "safRoots": ("saf_roots", "safRoots"),
-        "removableVolumes": ("removable_volumes", "removableVolumes"),
-        "scannerCapabilities": ("scanner_capabilities", "scannerCapabilities"),
-        "reconciliationCapabilities": ("reconciliation_capabilities", "reconciliationCapabilities"),
-        "lifecycleState": ("lifecycle_state", "lifecycleState"),
-        "api": ("api",),
-    }.items():
-        for name in attr_names:
-            if hasattr(snapshot, name):
-                value = getattr(snapshot, name)
-                if value is not None:
-                    mapping[dict_key] = value
-                break
-        else:
-            if hasattr(snapshot, "get") and callable(snapshot.get):
-                value = snapshot.get(dict_key)
-                if value is not None:
-                    mapping[dict_key] = value
-    return StorageCapabilities.from_native(mapping)
+    payload = _mapping_from_snapshot(snapshot)
+    return StorageCapabilities.from_native(payload)
 
 
-def storage_access_state(
-    media_access: str | None,
-    broad_granted: bool,
-    saf_available: bool = False,
-    *,
-    dismissed: bool = False,
-    require_broad: bool = False,
-) -> StorageAccessState:
+def storage_access_state(media_access: str | None, broad_granted: bool, saf_available: bool = False, *, dismissed: bool = False) -> StorageAccessState:
+    access = str(media_access or "denied").casefold()
     if dismissed:
         return StorageAccessState.DECLINED
-    access = str(media_access or "denied").casefold()
-    if require_broad and not broad_granted:
-        return StorageAccessState.NEEDS_BROAD_STORAGE
-    if saf_available or broad_granted:
+    if access == "full":
         return StorageAccessState.READY
     if access == "partial":
         return StorageAccessState.MEDIA_PARTIAL
-    if access != "full":
-        return StorageAccessState.NEEDS_MEDIA_PERMISSION
-    return StorageAccessState.READY
+    if broad_granted and saf_available:
+        return StorageAccessState.READY
+    if broad_granted:
+        return StorageAccessState.BROAD_STORAGE_AVAILABLE
+    if saf_available:
+        return StorageAccessState.SAF_AVAILABLE
+    return StorageAccessState.NEEDS_MEDIA_PERMISSION
 
 
-def storage_source_states(
-    media_access: str | None,
-    broad_granted: bool,
-    saf_uris: list[str] | tuple[str, ...] | None = None,
-    *,
-    saf_revoked: bool = False,
-) -> dict[str, str]:
-    media = str(media_access or "denied").casefold()
-    media_state = {
-        "full": StorageAccessState.MEDIA_FULL.value,
-        "partial": StorageAccessState.MEDIA_PARTIAL.value,
-    }.get(media, StorageAccessState.MEDIA_DENIED.value)
-    broad_state = (
-        StorageAccessState.BROAD_STORAGE_AVAILABLE.value
-        if bool(broad_granted)
-        else StorageAccessState.BROAD_STORAGE_UNAVAILABLE.value
-    )
-    if saf_uris:
-        saf_state = StorageAccessState.SAF_AVAILABLE.value
-    elif saf_revoked:
-        saf_state = StorageAccessState.SAF_REVOKED.value
-    else:
-        saf_state = StorageAccessState.UNKNOWN.value
-    return {
-        "media": media_state,
-        "saf": saf_state,
-        "broad": broad_state,
-        "effective": storage_access_state(media_access, broad_granted, bool(saf_uris)).value,
-    }
+__all__ = [
+    "StorageAccessState",
+    "ScanUiState",
+    "scan_ui_state_from_native",
+    "StorageCapabilities",
+    "normalize_storage_snapshot",
+    "storage_access_state",
+]

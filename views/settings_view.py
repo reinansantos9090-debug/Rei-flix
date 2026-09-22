@@ -1,7 +1,7 @@
 """Settings UI for the local Rei-flix library.
 
 The view receives service callbacks from ``main`` and keeps SQL/business rules
-out of Flet controls.  It intentionally reads only compact store projections.
+out of Flet controls. It intentionally reads only compact store projections.
 """
 from __future__ import annotations
 
@@ -11,8 +11,10 @@ import logging
 import inspect
 import flet as ft
 
-logger = logging.getLogger("reiflix.settings")
+from core.storage_access import normalize_storage_snapshot
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title
+
+logger = logging.getLogger("reiflix.settings")
 
 
 class SettingsView:
@@ -23,6 +25,7 @@ class SettingsView:
               on_create_backup=None, on_restore_backup=None, storage_snapshot=None, scan_snapshot=None):
         status = ft.Text("", color="#9DA3B4", size=12)
         ui_alive = [True]
+
         def safe_update():
             if not ui_alive[0]:
                 return
@@ -30,10 +33,12 @@ class SettingsView:
                 page.update()
             except Exception as exc:
                 logger.warning("[FLET] Settings update failed: %s", exc)
+
         try:
             page.on_disconnect = lambda _e: ui_alive.__setitem__(0, False)
         except Exception as exc:
             logger.warning("[FLET] Settings on_disconnect hook unavailable: %s", exc)
+
         busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False, "permission": False, "backup": False, "restore": False}
 
         def notice(message, error=False):
@@ -67,12 +72,13 @@ class SettingsView:
         folders = store.folders()
         summary = store.library_summary()
         statistics = library.library_statistics()
-        snapshot = storage_snapshot or {}
+        normalized_snapshot = normalize_storage_snapshot(storage_snapshot)
+        snapshot = normalized_snapshot.as_mapping()
         scan = scan_snapshot or {}
-        media_state = str(getattr(storage_snapshot, "media_read_state", snapshot.get("mediaReadState", "denied"))).casefold()
-        broad_state = str(getattr(storage_snapshot, "broad_storage_state", snapshot.get("broadStorageState", "unavailable"))).casefold()
-        saf_roots = tuple(getattr(storage_snapshot, "saf_roots", snapshot.get("safRoots", ())) or ())
-        volumes = tuple(getattr(storage_snapshot, "removable_volumes", snapshot.get("removableVolumes", ())) or ())
+        media_state = str(snapshot.get("mediaReadState", "denied")).casefold()
+        broad_state = str(snapshot.get("broadStorageState", "unavailable")).casefold()
+        saf_roots = tuple(snapshot.get("safRoots", ()) or ())
+        volumes = tuple(snapshot.get("removableVolumes", ()) or ())
         broad_granted = broad_state == "available"
         media_granted = media_state in {"partial", "full"}
         media_partial = media_state == "partial"
@@ -429,11 +435,11 @@ class SettingsView:
 
         account_content = ft.Row([
             ft.Image(src=account.get("picture"), width=42, height=42, border_radius=21) if account.get("picture") else ft.Icon(ft.Icons.ACCOUNT_CIRCLE_OUTLINED, size=42, color="#C7C5D0"),
-            ft.Column([ft.Text(account_text, color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD), ft.Text(f"{account_status}{' • ' + account_details if account_details else ''}", color="#AAA7B6", size=11)], spacing=2, expand=True),
+            ft.Column([ft.Text(account_text, color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD), ft.Text(f"{account_status}{' • ' + account_details if account_details else ''}", color="#AAA7B6", size=11)], spacing=2),
             logout_button if connected else account_button,
         ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
         content = ft.Column([
-            ft.Row([ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=ft.Colors.WHITE, tooltip="Voltar", on_click=lambda _: on_back()), ft.Text("Configurações", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)]),
+            ft.Row([ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=ft.Colors.WHITE, tooltip="Voltar", on_click=lambda _: on_back()), ft.Text("Configurações", size=20, weight=ft.FontWeight.BOLD, color="#F7F5FA")], vertical_alignment=ft.CrossAxisAlignment.CENTER),
             section("CONTA", ft.Icons.PERSON_OUTLINE, account_content),
             section("BIBLIOTECA", ft.Icons.VIDEO_LIBRARY_OUTLINED, ft.Column(folder_lines + [
                 ft.Text(f"{summary['animes']} animes • {summary['episodes']} episódios locais", color="#C7C5D0", size=12),

@@ -18,6 +18,7 @@ import flet as ft
 logger = logging.getLogger("reiflix.android")
 MAILBOX = "reiflix-native-events.json"
 
+
 class AndroidBridge:
     def __init__(self, data_dir: str, page=None):
         self.data_dir = Path(data_dir); self.page = page
@@ -62,8 +63,10 @@ class AndroidBridge:
             request_id,
             action,
         )
-        # Flet 0.86.5 does not accept the removed launch_url(mode=...) argument.
-        # Keep the app-owned custom scheme and change only the incompatible call.
+        # Flet 0.86.5 exposes `Page.launch_url(url)` only. Passing `mode=` raises
+        # a runtime TypeError even though the Android intent still needs to open the
+        # custom scheme as an external app intent. Keep the URL launch compatible
+        # with the real API and let Android's resolver handle the native intent.
         await self.page.launch_url(url)
 
     async def select_tree(self): await self._launch("select_tree")
@@ -207,3 +210,7 @@ class AndroidBridge:
             except OSError as exc:
                 logger.warning("[ANDROID] Failed to acknowledge native event %s: %s", consumed.name, exc)
         self._claimed = []
+        self._retained = set()
+
+
+__all__ = ["AndroidBridge"]

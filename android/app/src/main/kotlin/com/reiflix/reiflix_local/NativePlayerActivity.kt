@@ -340,6 +340,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun installBasePlayerView() {
         playerView = PlayerView(this).apply {
+            tag = "reiflix_player_view"
             useController = false
             controllerAutoShow = false
             controllerHideOnTouch = false

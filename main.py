@@ -1067,12 +1067,19 @@ async def main(page: ft.Page):
                             if uri:
                                 store.set_watched(uri, event_type == 'player_mark_watched')
                         elif event_type == 'player_error':
-                            page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível reproduzir este arquivo.'))); page.snack_bar.open=True; safe_update()
-                            # Invalid/unreadable URIs can fail before Media3 creates a
-                            # player, so there may be no player_exited event to dismiss
-                            # the Flet transition screen.
-                            if navigation.current == 'player':
-                                navigate_back()
+                            message = event.get('message', 'Não foi possível reproduzir este arquivo.')
+                            logger.error(
+                                "[PLAYER] native_error request_id=%s uri=%s payload=%s",
+                                request_id or "-",
+                                payload.get('uri') or "",
+                                payload,
+                            )
+                            # NativePlayerActivity owns the visible error state. Do not
+                            # pop the Flet transition underneath it: doing so races the
+                            # native Activity lifecycle and can expose the Android launcher.
+                            page.snack_bar = ft.SnackBar(ft.Text(message))
+                            page.snack_bar.open = True
+                            safe_update()
                         elif event_type == 'google_sign_in_started':
                             account_state[0] = 'awaiting_google'; refresh_settings_if_active()
                         elif event_type == 'google_account':

@@ -49,7 +49,7 @@ class NativePlayerPlaybackInstrumentedTest {
             .putExtra("positionMs", 0L)
             .putExtra("canNext", false)
             .putExtra("canPrevious", false)
-            .putExtra("autoplay", true)
+            .putExtra("autoplay", false)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
         activity = InstrumentationRegistry.getInstrumentation().startActivitySync(intent)
@@ -58,14 +58,31 @@ class NativePlayerPlaybackInstrumentedTest {
         val player = playerView.player
         assertNotNull("Media3 PlayerView did not receive a player", player)
 
-        await("Media3 must reach READY and start playback") {
-            player?.playbackState == Player.STATE_READY && player.isPlaying
+        await("Media3 must reach READY before interaction") {
+            player?.playbackState == Player.STATE_READY
+        }
+        assertTrue("Player should initially remain paused for deterministic interaction", player?.isPlaying == false)
+
+        val playPause = awaitView<View>("reiflix_play_pause")
+        assertTrue("Play control must be present", playPause.performClick())
+        await("Play button must start playback") { player?.isPlaying == true }
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        assertTrue("Native player must actually be playing the local fixture", player.isPlaying)
+
+        val seekBar = awaitView<android.widget.SeekBar>("reiflix_seekbar")
+        val initialDuration = player.duration
+        assertTrue("Fixture must expose a positive duration", initialDuration > 0L)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            seekBar.progress = seekBar.max / 2
+        }
+        await("Seek bar interaction must move player position") {
+            player.currentPosition > 500L && player.currentPosition < player.duration
         }
 
-        assertTrue(
-            "Native player must actually be playing the local fixture",
-            player?.isPlaying == true,
-        )
+        assertTrue("Pause control must be clickable", playPause.performClick())
+        await("Pause button must pause playback") { player?.isPlaying == false }
+        assertTrue("Play button must resume playback", playPause.performClick())
+        await("Second click must resume playback") { player?.isPlaying == true }
 
         val insets = WindowInsetsCompat.toWindowInsetsCompat(
             activity!!.window.decorView.rootWindowInsets,
@@ -79,12 +96,6 @@ class NativePlayerPlaybackInstrumentedTest {
             "Player must remain sensor-orientation capable",
             activity!!.requestedOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR,
         )
-
-        val playPause = awaitView<View>("reiflix_play_pause")
-        assertTrue("Play/pause control must be present", playPause.performClick())
-        await("pause control click must pause playback") { player?.isPlaying == false }
-        assertTrue("Play/pause control must resume playback", playPause.performClick())
-        await("second click must resume playback") { player?.isPlaying == true }
 
         val beforeSeek = player!!.currentPosition
         player.seekTo(0L)

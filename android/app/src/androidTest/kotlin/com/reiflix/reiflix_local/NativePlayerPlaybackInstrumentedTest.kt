@@ -147,9 +147,9 @@ class NativePlayerPlaybackInstrumentedTest {
         val controlsBefore = onMain { controls.visibility }
         val gestureSize = onMain { gestureLayer.width to gestureLayer.height }
         tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
-        await("Single tap must toggle the custom controls") { controls.visibility != controlsBefore }
+        await("Single tap must toggle the custom controls") { onMain { controls.visibility != controlsBefore } }
         tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
-        await("Second tap must restore the custom controls") { controls.visibility == View.VISIBLE }
+        await("Second tap must restore the custom controls") { onMain { controls.visibility == View.VISIBLE } }
 
         onMain { player.seekTo(3_000L) }
         await("Seek position must be restored for left double tap") { player.currentPosition >= 2_500L }

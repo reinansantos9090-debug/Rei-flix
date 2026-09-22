@@ -536,7 +536,7 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
         class Page:
             platform = 'android'
             def __init__(self): self.urls = []
-            async def launch_url(self, value, **kwargs): self.urls.append((value, kwargs))
+            async def launch_url(self, value): self.urls.append(value)
 
         with tempfile.TemporaryDirectory() as d:
             bridge = AndroidBridge(d, Page())

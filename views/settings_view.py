@@ -74,7 +74,7 @@ class SettingsView:
         statistics = library.library_statistics()
         normalized_snapshot = normalize_storage_snapshot(storage_snapshot)
         snapshot = normalized_snapshot.as_mapping()
-        scan = scan_snapshot or {}
+        scan_snapshot_data = scan_snapshot or {}
         media_state = str(snapshot.get("mediaReadState", "denied")).casefold()
         broad_state = str(snapshot.get("broadStorageState", "unavailable")).casefold()
         saf_roots = tuple(snapshot.get("safRoots", ()) or ())
@@ -255,11 +255,11 @@ class SettingsView:
         }.get(media_state, "DESCONHECIDO")
         broad_label = "DISPONÍVEL — acesso amplo confirmado pelo Android" if broad_granted else "INDISPONÍVEL — acesso amplo não concedido"
         saf_label = f"PASTAS AUTORIZADAS — {len(saf_roots)}" if saf_roots else "SEM PASTA SAF AUTORIZADA"
-        scan_state_label = str(scan.get("state") or "IDLE")
-        scan_source = str(scan.get("source") or "—")
-        scan_volume = str(scan.get("volume") or "—")
-        scan_found = int(scan.get("found") or 0)
-        scan_error = str(scan.get("error") or "")
+        scan_state_label = str(scan_snapshot_data.get("state") or "IDLE")
+        scan_source = str(scan_snapshot_data.get("source") or "—")
+        scan_volume = str(scan_snapshot_data.get("volume") or "—")
+        scan_found = int(scan_snapshot_data.get("found") or 0)
+        scan_error = str(scan_snapshot_data.get("error") or "")
         permission_lines = [
             ft.Text(f"MEDIASTORE: {media_label}", color="#9FE3B1" if media_granted else "#FFB4AB", size=11),
             ft.Text(f"SAF: {saf_label}", color="#9FE3B1" if saf_roots else "#AAA7B6", size=11),
@@ -273,10 +273,10 @@ class SettingsView:
         diagnostics_content = ft.Column([
             ft.Text(f"SCAN: {scan_state_label}", color=TEXT, size=12, weight=ft.FontWeight.BOLD),
             ft.Text(f"Fonte: {scan_source} • Volume: {scan_volume}", color=TEXT_MUTED, size=11),
-            ft.Text(f"Encontrados: {scan_found} • Diretórios: {int(scan.get('directories') or 0)} • Arquivos: {int(scan.get('files') or 0)}", color=TEXT_MUTED, size=11),
+            ft.Text(f"Encontrados: {scan_found} • Diretórios: {int(scan_snapshot_data.get('directories') or 0)} • Arquivos: {int(scan_snapshot_data.get('files') or 0)}", color=TEXT_MUTED, size=11),
             ft.Text(f"Volumes removíveis: {len(volumes)}", color=TEXT_MUTED, size=11),
             ft.Text(f"Erro: {scan_error}" if scan_error else "Erro: nenhum", color="#FFB4AB" if scan_error else TEXT_MUTED, size=11),
-            ft.Text(f"Timestamp: {scan.get('timestamp') or '—'}", color=TEXT_MUTED, size=10),
+            ft.Text(f"Timestamp: {scan_snapshot_data.get('timestamp') or '—'}", color=TEXT_MUTED, size=10),
         ], spacing=4)
 
         resume_switch = ft.Switch(label="Continuar do progresso salvo", value=store.get_preference("resume_playback", "true") == "true")
@@ -447,7 +447,7 @@ class SettingsView:
                 ft.Row([add_folder_button, scan_button], wrap=True),
                 ft.Text(diagnostic, color="#AAA7B6", size=11),
             ], spacing=8)),
-            section("DIAGNÓSTICOS DE ARMAZENAMENTO", ft.Icons.DIAGNOSTICS_OUTLINED, diagnostics_content),
+            section("DIAGNÓSTICOS DE ARMAZENAMENTO", ft.Icons.STORAGE_OUTLINED, diagnostics_content),
             section("ESTATÍSTICAS OFFLINE", ft.Icons.INSIGHTS_OUTLINED, ft.Column([
                 ft.Text(stats_text, color="#C7C5D0", size=12),
                 ft.Text("“Registrado” representa a posição atual salva nos episódios disponíveis; não é tempo histórico assistido.", color=TEXT_MUTED, size=10),

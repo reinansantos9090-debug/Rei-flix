@@ -1309,12 +1309,23 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private inner class GestureLayer(context: Context) : View(context) {
+        private val singleTapRunnable = object : Runnable {
+            override fun run() {
+                if (!errorVisible && gestureMode == GestureMode.NONE && !gestureConsumed &&
+                    android.os.SystemClock.uptimeMillis() >= suppressTapUntil
+                ) {
+                    setControlsVisible(!controlsVisible)
+                }
+            }
+        }
+
         private val gestureDetector = GestureDetector(
             context,
             object : GestureDetector.SimpleOnGestureListener() {
                 override fun onDown(e: MotionEvent): Boolean = true
 
                 override fun onDoubleTap(e: MotionEvent): Boolean {
+                    handler.removeCallbacks(singleTapRunnable)
                     if (errorVisible || gestureMode != GestureMode.NONE || !::player.isInitialized) return true
                     val leftZone = width * 0.32f
                     val rightZone = width * 0.68f
@@ -1330,16 +1341,20 @@ class NativePlayerActivity : ComponentActivity() {
                     return true
                 }
 
-                override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                    if (!errorVisible &&
-                        gestureMode == GestureMode.NONE &&
-                        !gestureConsumed &&
+                override fun onSingleTapUp(e: MotionEvent): Boolean {
+                    if (!errorVisible && gestureMode == GestureMode.NONE && !gestureConsumed &&
                         android.os.SystemClock.uptimeMillis() >= suppressTapUntil
                     ) {
-                        setControlsVisible(!controlsVisible)
+                        handler.removeCallbacks(singleTapRunnable)
+                        handler.postDelayed(
+                            singleTapRunnable,
+                            ViewConfiguration.getDoubleTapTimeout().toLong(),
+                        )
                     }
                     return true
                 }
+
+                override fun onSingleTapConfirmed(e: MotionEvent): Boolean = true
             },
         )
 

@@ -77,7 +77,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
 
     def test_native_player_supports_all_local_source_families(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
-        self.assertIn('sourceFor(localUri)', source)
+        self.assertIn('sourceFor(uri)', source)
         self.assertIn('MediaStore.AUTHORITY -> "mediastore"', source)
         self.assertIn('-> "broad_storage"', source)
         self.assertIn("SafScanner.isAuthorizedDocument", source)
@@ -119,6 +119,24 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         organize = (ROOT / "views/organize_view.py").read_text(encoding="utf-8")
         self.assertIn('grid = ft.Row(', home)
         self.assertIn('content = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO', organize)
+
+    def test_python_handles_native_player_state_and_navigation_events(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        for token in (
+            "event_type in {'player_progress', 'player_paused', 'player_completed'}",
+            "store.save_progress",
+            "event_type == 'player_mark_watched'",
+            "store.set_watched",
+            "event_type == 'player_autoplay_changed'",
+            "store.set_preference",
+            "event_type in {'player_next_request', 'player_previous_request'}",
+            "library.next_episode(current_path)",
+            "library.previous_episode(current_path)",
+            "await start_native_player(",
+            "event_type == 'player_exited'",
+            "navigate_back()",
+        ):
+            self.assertIn(token, source)
 
     def test_scan_ui_only_calls_running_a_snapshot_not_final(self):
         settings = (ROOT / "views/settings_view.py").read_text(encoding="utf-8")

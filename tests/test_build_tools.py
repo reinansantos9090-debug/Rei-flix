@@ -322,7 +322,7 @@ E: manifest
         self.assertIn("private var suppressExitEvent = false", player)
         self.assertIn("private fun reportPlayerExit", player)
         self.assertIn("if (isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations)", player)
-        self.assertIn("reportPlayerExit("activity_finish")", player)
+        self.assertIn('reportPlayerExit("activity_finish")', player)
 
     def test_template_requires_the_system_ui_controller(self):
         source = PREPARE_TEMPLATE.read_text(encoding="utf-8")
@@ -413,7 +413,7 @@ E: manifest
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("val resolvedUri = normalizeLocalReference(rawUri)", player)
         self.assertIn("if (resolvedUri == null)", player)
-        self.assertIn("showPlayerError("Referência local inválida.", "invalid_uri")", player)
+        self.assertIn('showPlayerError("Referência local inválida.", "invalid_uri")', player)
         self.assertIn("A reprodução aceita somente referências locais content:// ou file://.", player)
 
     def test_native_player_rechecks_saf_authorization_before_media3_start(self):
@@ -515,8 +515,8 @@ E: manifest
     def test_native_player_error_does_not_emit_a_second_exit_event(self):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         error = player.index("override fun onPlayerError")
-        destroy = player.index("override fun onDestroy")
-        block = player[error:destroy]
+        end = player.index("private fun configureWindow", error)
+        block = player[error:end]
         self.assertIn('put("errorCode", technicalCode)', block)
         self.assertIn('put("detail", detail)', block)
         self.assertIn("showPlayerError(", block)

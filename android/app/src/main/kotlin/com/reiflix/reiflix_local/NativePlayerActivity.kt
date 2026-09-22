@@ -83,6 +83,8 @@ class NativePlayerActivity : ComponentActivity() {
     private var requestId = ""
     private var errorVisible = false
     private var openedReported = false
+    private var restoredPositionMs: Long? = null
+    private enum class GestureMode { NONE, HORIZONTAL_SEEK, VERTICAL_BRIGHTNESS, VERTICAL_VOLUME }
     private var brightnessLevel = 0.5f
     private var feedbackHideAt = 0L
 
@@ -131,6 +133,7 @@ class NativePlayerActivity : ComponentActivity() {
 
         enterImmersiveMode()
         configureWindow()
+        restoredPositionMs = savedInstanceState?.takeIf { it.containsKey("position_ms") }?.getLong("position_ms")
         brightnessLevel = window.attributes.screenBrightness
             .takeIf { it.isFinite() && it >= 0f }
             ?.coerceIn(0f, 1f)
@@ -147,7 +150,7 @@ class NativePlayerActivity : ComponentActivity() {
         installControls()
         installBackHandler()
         configurePictureInPicture()
-        applyRootInsets(WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView))
+        ViewCompat.getRootWindowInsets(window.decorView)?.let { applyRootInsets(it) }
 
         val rawUri = intent.getStringExtra("uri")
         logPlayer("URI_RECEIVED requestId=" + requestId.ifEmpty { "-" } +
@@ -265,9 +268,7 @@ class NativePlayerActivity : ComponentActivity() {
                     }
                     if (!initialSeekApplied) {
                         val savedPosition = intent.getLongExtra("positionMs", 0L)
-                        val restored = savedInstanceState?.takeIf { it.containsKey("position_ms") }
-                            ?.getLong("position_ms")
-                        seekToSavedPosition(restored ?: savedPosition)
+                        seekToSavedPosition(restoredPositionMs ?: savedPosition)
                         initialSeekApplied = true
                     }
                     completionReported = false
@@ -447,14 +448,14 @@ class NativePlayerActivity : ComponentActivity() {
         subtitleButton.tag = "reiflix_subtitle_button"
         topBar.addView(subtitleButton, weightParams(72))
 
-        val speedButton = actionButton("1.0x", 58) {
-            cycleSpeed(speedButton)
+        val speedButton = actionButton("1.0x", 58) { button ->
+            cycleSpeed(button)
         }
         speedButton.tag = "reiflix_speed_button"
         topBar.addView(speedButton, weightParams(58))
 
-        val aspectButton = actionButton("Ajustar", 68) {
-            cycleAspect(aspectButton)
+        val aspectButton = actionButton("Ajustar", 68) { button ->
+            cycleAspect(button)
         }
         aspectButton.tag = "reiflix_aspect_button"
         topBar.addView(aspectButton, weightParams(68))
@@ -854,14 +855,21 @@ class NativePlayerActivity : ComponentActivity() {
         val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         val current = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
         val deltaSteps = (fraction * maxVolume).roundToInt()
-        if (deltaSteps != 0) {
-            manager.setStreamVolume(
-                AudioManager.STREAM_MUSIC,
-                (current + deltaSteps).coerceIn(0, maxVolume),
-                0,
-            )
+        runCatching {
+            if (deltaSteps != 0) {
+                manager.setStreamVolume(
+                    AudioManager.STREAM_MUSIC,
+                    (current + deltaSteps).coerceIn(0, maxVolume),
+                    0,
+                )
+            }
+        }.onFailure { error ->
+            logPlayer("VOLUME_CHANGE_FAILED", error)
+            showFeedback("VOLUME\\nIndisponível neste dispositivo", 1100L)
+            return
         }
-        showAdjustment("VOLUME", manager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume)
+        val effective = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        showAdjustment("VOLUME", effective.toFloat() / maxVolume)
     }
 
     private fun currentVolumeSummary(): String {
@@ -897,7 +905,7 @@ class NativePlayerActivity : ComponentActivity() {
             touchControls()
         } else {
             moreVisible = false
-            findViewByTag("reiflix_more_panel")?.visibility = View.GONE
+            findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
         }
     }
 
@@ -1052,6 +1060,21 @@ class NativePlayerActivity : ComponentActivity() {
         logPlayer("onWindowFocusChanged hasFocus=" + hasFocus +
             " finishing=" + isFinishing + " resumed=" + !isFinishing)
         if (hasFocus) enterImmersiveMode()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        logPlayer("onPictureInPictureModeChanged inPip=" + isInPictureInPictureMode)
+        if (isInPictureInPictureMode) {
+            handler.removeCallbacks(controlsHider)
+            setControlsVisible(false)
+        } else {
+            enterImmersiveMode()
+            if (::player.isInitialized && player.isPlaying && !errorVisible) {
+                touchControls()
+            }
+            ViewCompat.requestApplyInsets(root)
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -1222,7 +1245,7 @@ class NativePlayerActivity : ComponentActivity() {
         return result
     }
 
-    private fun findViewByTag(tagValue: String): View? =
+    private fun <T : View> findViewByTag(tagValue: String): T? =
         root.findViewWithTag(tagValue)
 
     private fun logPlayer(message: String, error: Throwable? = null) {
@@ -1234,8 +1257,6 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private inner class GestureLayer(context: Context) : View(context) {
-        private enum class GestureMode { NONE, HORIZONTAL_SEEK, VERTICAL_BRIGHTNESS, VERTICAL_VOLUME }
-
         private val gestureDetector = GestureDetector(
             context,
             object : GestureDetector.SimpleOnGestureListener() {

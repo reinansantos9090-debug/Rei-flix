@@ -91,7 +91,7 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         self.assertIn('android.software.picture_in_picture', manifest)
         self.assertIn('android:required="false"', manifest)
         self.assertIn("PackageManager.FEATURE_PICTURE_IN_PICTURE", player)
-        self.assertIn("builder.setAutoEnterEnabled(true)", player)
+        self.assertIn(".setAutoEnterEnabled(true)", player)
         self.assertIn("android.software.picture_in_picture", template)
 
     def test_volume_identity(self):

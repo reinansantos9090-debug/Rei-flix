@@ -51,15 +51,15 @@ class NativePlayerPlaybackInstrumentedTest {
             .putExtra("autoplay", false)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-        activity = InstrumentationRegistry.getInstrumentation().startActivitySync(intent)
+        activity = InstrumentationRegistry.getInstrumentation().startActivitySync(intent) as NativePlayerActivity
 
         val playerView = awaitView<PlayerView>("reiflix_player_view")
         val player = requireNotNull(playerView.player) { "Media3 PlayerView did not receive a player" }
 
         await("Media3 must reach READY before interaction") {
-            player?.playbackState == Player.STATE_READY
+            player.playbackState == Player.STATE_READY
         }
-        assertTrue("Player should initially remain paused for deterministic interaction", player?.isPlaying == false)
+        assertTrue("Player should initially remain paused for deterministic interaction", player.isPlaying == false)
 
         val playPause = awaitView<View>("reiflix_play_pause")
         assertTrue("Play control must be present", playPause.performClick())
@@ -71,10 +71,42 @@ class NativePlayerPlaybackInstrumentedTest {
         val initialDuration = player.duration
         assertTrue("Fixture must expose a positive duration", initialDuration > 0L)
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            seekBar.setProgress(seekBar.max / 2, true)
+            val y = seekBar.height / 2f
+            val startX = (seekBar.paddingLeft + 4).toFloat()
+            val targetX = (seekBar.width - seekBar.paddingRight - 4).toFloat() * 0.5f
+            val down = android.view.MotionEvent.obtain(
+                android.os.SystemClock.uptimeMillis(),
+                android.os.SystemClock.uptimeMillis(),
+                android.view.MotionEvent.ACTION_DOWN,
+                startX,
+                y,
+                0,
+            )
+            seekBar.dispatchTouchEvent(down)
+            down.recycle()
+            val move = android.view.MotionEvent.obtain(
+                android.os.SystemClock.uptimeMillis(),
+                android.os.SystemClock.uptimeMillis(),
+                android.view.MotionEvent.ACTION_MOVE,
+                targetX,
+                y,
+                0,
+            )
+            seekBar.dispatchTouchEvent(move)
+            move.recycle()
+            val up = android.view.MotionEvent.obtain(
+                android.os.SystemClock.uptimeMillis(),
+                android.os.SystemClock.uptimeMillis(),
+                android.view.MotionEvent.ACTION_UP,
+                targetX,
+                y,
+                0,
+            )
+            seekBar.dispatchTouchEvent(up)
+            up.recycle()
         }
         await("Seek bar interaction must move player position") {
-            player.currentPosition > 500L && player.currentPosition < player.duration
+            player.currentPosition > 500L && player.currentPosition < player.duration - 100L
         }
 
         assertTrue("Pause control must be clickable", playPause.performClick())
@@ -83,11 +115,8 @@ class NativePlayerPlaybackInstrumentedTest {
         await("Second click must resume playback") { player?.isPlaying == true }
 
         await("Native player should keep system bars hidden") {
-            val insets = WindowInsetsCompat.toWindowInsetsCompat(
-                activity!!.window.decorView.rootWindowInsets,
-                activity!!.window.decorView,
-            )
-            !insets.isVisible(WindowInsetsCompat.Type.systemBars())
+            val insets = androidx.core.view.ViewCompat.getRootWindowInsets(activity!!.window.decorView)
+            insets != null && !insets.isVisible(WindowInsetsCompat.Type.systemBars())
         }
         assertTrue(
             "Player must remain sensor-orientation capable",

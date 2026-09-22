@@ -215,6 +215,38 @@ if gradle is None:
     raise RuntimeError("Rendered Flet app module has no Gradle build file")
 original = gradle.read_text(encoding="utf-8")
 existing = original
+
+# Keep the Android resource namespace aligned with the native package so Kotlin
+# resolves the generated R class for copied ReiFlix player resources.
+if gradle.suffix == ".kts":
+    if re.search(r'namespace\s*=\s*["\'][^"\']+["\']', existing):
+        existing = re.sub(
+            r'namespace\s*=\s*["\'][^"\']+["\']',
+            'namespace = "com.reiflix.reiflix_local"',
+            existing,
+            count=1,
+        )
+    else:
+        existing = existing.replace(
+            "android {",
+            'android {\n    namespace = "com.reiflix.reiflix_local"',
+            1,
+        )
+else:
+    if re.search(r'namespace\s+["\'][^"\']+["\']', existing):
+        existing = re.sub(
+            r'namespace\s+["\'][^"\']+["\']',
+            "namespace 'com.reiflix.reiflix_local'",
+            existing,
+            count=1,
+        )
+    else:
+        existing = existing.replace(
+            "android {",
+            "android {\n    namespace 'com.reiflix.reiflix_local'",
+            1,
+        )
+
 # Flet resolves targetSdk from pyproject.toml. Keep compileSdk explicit because
 # Android 16 APIs require SDK 36 even when Flutter's bundled default lags behind.
 existing = existing.replace("compileSdk = flutter.compileSdkVersion", "compileSdk = 36")

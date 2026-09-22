@@ -2,6 +2,9 @@ import ast
 import unittest
 from pathlib import Path
 
+from core.storage_access import StorageCapabilities
+from views.settings_view import SettingsView
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -11,14 +14,68 @@ class UiStateTests(unittest.TestCase):
         for state in ("IDLE", "CHECKING", "SCANNING", "COMPLETED", "PARTIAL", "CANCELLED", "FAILED", "WAITING_FOR_MEDIASTORE", "VOLUME_UNAVAILABLE"):
             self.assertIn(f'{state} = "{state}"', source)
 
-    def test_settings_uses_android_snapshot_not_sqlite_for_permission_state(self):
-        source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
-        self.assertIn("storage_snapshot=None", source)
-        self.assertIn('getattr(storage_snapshot, "media_read_state"', source)
-        self.assertIn('getattr(storage_snapshot, "broad_storage_state"', source)
-        self.assertIn("MEDIASTORE:", source)
-        self.assertIn("SAF:", source)
-        self.assertIn("BROAD STORAGE:", source)
+    def test_settings_normalizes_real_storage_capabilities_without_attribute_errors(self):
+        class Store:
+            def folders(self): return []
+            def library_summary(self): return {"animes": 0, "episodes": 0, "folders": 0, "history": 0}
+            def pending_matches(self): return []
+            def last_scan(self): return None
+            def latest_backup(self): return None
+            def get_preference(self, key, default): return default
+            def set_preference(self, key, value): return None
+
+        class Library:
+            def library_statistics(self):
+                return {
+                    "animes": 0, "episodes_available": 0, "episodes": 0,
+                    "animes_completed": 0, "animes_in_progress": 0,
+                    "animes_not_started": 0, "episodes_watched": 0,
+                    "favorites": 0, "pinned": 0, "tags": 0, "notes": 0,
+                    "without_metadata": 0, "without_cover": 0,
+                }
+            def clear_anilist_cache(self): return 0
+
+        class Page:
+            def update(self): return None
+            def show_dialog(self, dialog): return None
+            def pop_dialog(self): return None
+
+        cases = (
+            ("denied", "unavailable", (), ()),
+            ("denied", "unavailable", ("content://tree/denied",), ()),
+            ("denied", "available", (), ()),
+            ("partial", "unavailable", (), ()),
+            ("partial", "unavailable", ("content://tree/partial",), ()),
+            ("partial", "available", (), ("USB",)),
+            ("full", "unavailable", (), ()),
+            ("full", "unavailable", ("content://tree/full",), ()),
+            ("full", "available", (), ("USB",)),
+            ("full", "available", ("content://tree/full",), ("USB",)),
+        )
+
+        for media, broad, saf_roots, volumes in cases:
+            with self.subTest(media=media, broad=broad, saf_roots=saf_roots, volumes=volumes):
+                snapshot = StorageCapabilities(
+                    media_read_state=media,
+                    broad_storage_state=broad,
+                    saf_roots=saf_roots,
+                    removable_volumes=volumes,
+                    lifecycle_state="revalidated",
+                    api=36,
+                )
+                result = SettingsView.build(
+                    Page(), Store(), Library(),
+                    lambda: None, lambda: None,
+                    lambda: None, lambda _ref: None,
+                    lambda: None, lambda: None,
+                    lambda: None, lambda: None,
+                    lambda: None,
+                    account={},
+                    storage_snapshot=snapshot,
+                    scan_snapshot={"state": "IDLE"},
+                )
+                self.assertIsNotNone(result)
+
 
     def test_settings_has_scan_diagnostics(self):
         source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")

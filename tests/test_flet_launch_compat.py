@@ -1,43 +1,37 @@
 import asyncio
 import inspect
+import tempfile
 import unittest
 
+import flet as ft
 
-class FletLaunchCompatibilityTests(unittest.TestCase):
-    def test_page_launch_url_accepts_only_url_argument(self):
-        async def page_launch_url(value):
-            return value
+from core.android_bridge import AndroidBridge
 
-        sig = inspect.signature(page_launch_url)
-        self.assertEqual(["value"], list(sig.parameters.keys()))
-        with self.assertRaises(TypeError):
-            page_launch_url("https://example.com", mode="external")
 
-    def test_android_bridge_launch_uses_flet_compatible_signature(self):
-        class Page:
+class FletLaunchCompatibilityTests(unittest.IsolatedAsyncioTestCase):
+    def test_real_flet_page_launch_url_has_no_unsupported_mode_parameter(self):
+        self.assertEqual("0.86.5", getattr(ft, "__version__", None))
+        launch_url = inspect.signature(ft.Page.launch_url)
+        self.assertNotIn("mode", launch_url.parameters)
+
+    async def test_android_bridge_uses_real_compatible_page_launch_contract(self):
+        class StrictPage:
+            platform = "android"
+
             def __init__(self):
-                self.calls = []
+                self.urls = []
 
             async def launch_url(self, value):
-                self.calls.append(value)
+                self.urls.append(value)
 
-        class Bridge:
-            def __init__(self, page):
-                self.page = page
-                self.available = True
+        with tempfile.TemporaryDirectory() as data_dir:
+            page = StrictPage()
+            bridge = AndroidBridge(data_dir, page)
+            await bridge.select_tree()
 
-            async def launch(self, action, **params):
-                import uuid
-                from urllib.parse import urlencode
-                request_id = uuid.uuid4().hex
-                query = urlencode({"action": action, "request_id": request_id, **params})
-                await self.page.launch_url(f"reiflix://native?{query}")
-
-        page = Page()
-        bridge = Bridge(page)
-        asyncio.run(bridge.launch("select_tree", tree_uri="content://example"))
-        self.assertTrue(page.calls)
-        self.assertNotIn("mode=", page.calls[0])
+        self.assertEqual(1, len(page.urls))
+        self.assertIn("reiflix://native?action=select_tree&request_id=", page.urls[0])
+        self.assertNotIn("mode=", page.urls[0])
 
 
 if __name__ == "__main__":

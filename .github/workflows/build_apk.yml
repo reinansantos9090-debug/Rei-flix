@@ -331,7 +331,14 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git diff --check
-          test -z "$(git status --porcelain)"
+          status="$(git status --porcelain)"
+          if [ -n "$status" ]; then
+            echo "Unexpected working-tree changes:"
+            printf '%s\n' "$status"
+            echo "Diff summary:"
+            git diff --stat
+            exit 1
+          fi
           test -s build/reiflix-release-metadata.txt
 
       - name: Upload APK and SHA-256 artifact

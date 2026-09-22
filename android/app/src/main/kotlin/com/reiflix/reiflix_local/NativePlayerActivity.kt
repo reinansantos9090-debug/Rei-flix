@@ -749,11 +749,20 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun togglePlayPause() {
         if (!::player.isInitialized || errorVisible) return
-        if (player.isPlaying) {
-            player.pause()
-            saveProgress("player_paused", force = true)
-        } else {
-            player.play()
+        when {
+            player.playbackState == Player.STATE_ENDED -> {
+                // The UI already exposes the replay affordance (↻) for an ended
+                // item, so tapping it must explicitly rewind before playback.
+                player.seekTo(0L)
+                player.play()
+            }
+            player.isPlaying -> {
+                player.pause()
+                saveProgress("player_paused", force = true)
+            }
+            else -> {
+                player.play()
+            }
         }
         touchControls()
         updatePlayPauseButton()

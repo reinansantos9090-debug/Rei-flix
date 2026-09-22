@@ -23,7 +23,7 @@ def main() -> int:
     command = [
         ffmpeg, "-y",
         "-f", "lavfi", "-i", "color=c=black:s=64x64:r=8",
-        "-t", "4",
+        "-t", "30",
         "-an",
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",

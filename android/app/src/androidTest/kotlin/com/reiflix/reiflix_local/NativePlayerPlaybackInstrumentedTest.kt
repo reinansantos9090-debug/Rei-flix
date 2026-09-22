@@ -117,9 +117,9 @@ class NativePlayerPlaybackInstrumentedTest {
         }
 
         assertTrue("Pause control must be clickable", onMain { playPause.performClick() })
-        await("Pause button must pause playback") { onMain { !player.isPlaying } }
+        await("Pause button must pause playback") { !player.isPlaying }
         assertTrue("Play button must resume playback", onMain { playPause.performClick() })
-        await("Second click must resume playback") { onMain { player.isPlaying } }
+        await("Second click must resume playback") { player.isPlaying }
 
         await("Native player should keep system bars hidden") {
             val insets = androidx.core.view.ViewCompat.getRootWindowInsets(activity!!.window.decorView)
@@ -147,9 +147,9 @@ class NativePlayerPlaybackInstrumentedTest {
         val controlsBefore = onMain { controls.visibility }
         val gestureSize = onMain { gestureLayer.width to gestureLayer.height }
         tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
-        await("Single tap must toggle the custom controls") { onMain { controls.visibility != controlsBefore } }
+        await("Single tap must toggle the custom controls") { controls.visibility != controlsBefore }
         tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
-        await("Second tap must restore the custom controls") { onMain { controls.visibility == View.VISIBLE } }
+        await("Second tap must restore the custom controls") { controls.visibility == View.VISIBLE }
 
         onMain { player.seekTo(3_000L) }
         await("Seek position must be restored for left double tap") { player.currentPosition >= 2_500L }

@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import androidx.activity.OnBackPressedCallback
@@ -489,6 +490,12 @@ class MainActivity : FlutterFragmentActivity() {
             .distinct()
             .sorted()
             .toList()
+
+    private fun applyImmersiveSystemUi() {
+        if (::systemUiController.isInitialized) {
+            systemUiController.applyImmersive()
+        }
+    }
 
     private fun storageCapabilitiesPayload(
         lifecycleState: StorageLifecycleState = StorageLifecycleState.REVALIDATED

@@ -7,6 +7,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Typeface
 import android.media.AudioManager
 import android.net.Uri
@@ -20,6 +21,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ScaleGestureDetector
+import android.view.TextureView
 import android.animation.ValueAnimator
 import android.view.ViewConfiguration
 import android.view.WindowManager
@@ -391,7 +393,12 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun installBasePlayerView() {
-        playerView = PlayerView(this).apply {
+        playerView = layoutInflater.inflate(
+            R.layout.native_player_view,
+            root,
+            false,
+        ) as PlayerView
+        playerView.apply {
             tag = "reiflix_player_view"
             useController = false
             controllerAutoShow = false
@@ -400,13 +407,7 @@ class NativePlayerActivity : ComponentActivity() {
             setShutterBackgroundColor(Color.BLACK)
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
-        root.addView(
-            playerView,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
-            )
-        )
+        root.addView(playerView)
     }
 
     private fun installGestureLayer() {
@@ -1567,11 +1568,16 @@ class NativePlayerActivity : ComponentActivity() {
                 zoomScale = 1f
                 zoomTranslationX = 0f
                 zoomTranslationY = 0f
-                playerView.videoSurfaceView?.apply {
-                    scaleX = 1f
-                    scaleY = 1f
-                    translationX = 0f
-                    translationY = 0f
+                val video = playerView.videoSurfaceView
+                if (video is TextureView) {
+                    video.setTransform(Matrix())
+                } else {
+                    video?.apply {
+                        scaleX = 1f
+                        scaleY = 1f
+                        translationX = 0f
+                        translationY = 0f
+                    }
                 }
             }
         }
@@ -1595,11 +1601,16 @@ class NativePlayerActivity : ComponentActivity() {
             pendingSeekPosition = null
             if (::playerView.isInitialized) {
                 playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                playerView.videoSurfaceView?.apply {
-                    scaleX = 1f
-                    scaleY = 1f
-                    translationX = 0f
-                    translationY = 0f
+                val video = playerView.videoSurfaceView
+                if (video is TextureView) {
+                    video.setTransform(Matrix())
+                } else {
+                    video?.apply {
+                        scaleX = 1f
+                        scaleY = 1f
+                        translationX = 0f
+                        translationY = 0f
+                    }
                 }
             }
         }
@@ -1745,21 +1756,34 @@ class NativePlayerActivity : ComponentActivity() {
             val video = playerView.videoSurfaceView ?: return
             if (video.width <= 1 || video.height <= 1 || width <= 1 || height <= 1) return
 
-            video.pivotX = video.width * 0.5f
-            video.pivotY = video.height * 0.5f
-
             val maxTx = ((video.width * zoomScale) - width).coerceAtLeast(0f) * 0.5f
             val maxTy = ((video.height * zoomScale) - height).coerceAtLeast(0f) * 0.5f
             zoomTranslationX = zoomTranslationX.coerceIn(-maxTx, maxTx)
             zoomTranslationY = zoomTranslationY.coerceIn(-maxTy, maxTy)
 
-            video.scaleX = zoomScale
-            video.scaleY = zoomScale
-            video.translationX = zoomTranslationX
-            video.translationY = zoomTranslationY
+            if (video is TextureView) {
+                val matrix = Matrix().apply {
+                    setScale(
+                        zoomScale,
+                        zoomScale,
+                        video.width * 0.5f,
+                        video.height * 0.5f,
+                    )
+                    postTranslate(zoomTranslationX, zoomTranslationY)
+                }
+                video.isOpaque = false
+                video.setTransform(matrix)
+            } else {
+                video.pivotX = video.width * 0.5f
+                video.pivotY = video.height * 0.5f
+                video.scaleX = zoomScale
+                video.scaleY = zoomScale
+                video.translationX = zoomTranslationX
+                video.translationY = zoomTranslationY
+            }
             video.invalidate()
-            video.requestLayout()
         }
+
 
     }
 

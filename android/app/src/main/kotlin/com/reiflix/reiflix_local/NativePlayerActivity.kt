@@ -1129,9 +1129,9 @@ class NativePlayerActivity : ComponentActivity() {
         if (parsed.scheme.isNullOrBlank() && reference.startsWith(File.separator)) {
             return runCatching { Uri.fromFile(File(reference).canonicalFile) }.getOrNull()
         }
-        return parsed.takeIf {
-            it.scheme.equals("content", true) || it.scheme.equals("file", true)
-        }
+        val scheme = parsed.scheme?.lowercase()
+        if (scheme != "content" && scheme != "file") return null
+        return if (parsed.scheme == scheme) parsed else parsed.buildUpon().scheme(scheme).build()
     }
 
     private fun validateLocalSource(localUri: Uri): String? {

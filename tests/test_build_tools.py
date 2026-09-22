@@ -22,6 +22,7 @@ DESCRIPTORS = (
     b"Lcom/reiflix/reiflix_local/NativeIndex;",
     b"Lcom/reiflix/reiflix_local/NativeScanController;",
     b"Lcom/reiflix/reiflix_local/NativePlayerActivity;",
+    b"Lcom/reiflix/reiflix_local/VideoThumbnailExtractor;",
     b"Lcom/reiflix/reiflix_local/GoogleIdentity;",
 )
 
@@ -206,6 +207,19 @@ E: manifest
         self.assertIn('versionCode=', verifier)
         self.assertIn('versionName=', verifier)
         self.assertIn("targetSdkVersion", verifier)
+
+    def test_player_orientation_and_responsive_overlay_contract(self):
+        manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        player = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
+        template = PREPARE_TEMPLATE.read_text(encoding="utf-8")
+        self.assertIn('android:screenOrientation="fullSensor"', manifest)
+        self.assertIn("SCREEN_ORIENTATION_FULL_SENSOR", player)
+        self.assertIn("playerView.overlayFrameLayout", player)
+        self.assertIn("WindowInsetsCompat.Type.systemBars()", player)
+        self.assertNotIn("RESIZE_MODE_FILL", player)
+        self.assertIn('button.text = if (next == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) "Preencher" else "Ajustar"', player)
+        self.assertIn('screen_attr: "fullSensor"', template)
+        self.assertIn("VideoThumbnailExtractor.kt", template)
 
     def test_source_manifest_and_template_contract_cannot_revert_to_single_top(self):
         manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")

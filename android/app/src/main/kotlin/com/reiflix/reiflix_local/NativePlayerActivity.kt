@@ -83,6 +83,8 @@ class NativePlayerActivity : ComponentActivity() {
     private var requestId = ""
     private var errorVisible = false
     private var openedReported = false
+    private var restoredPositionMs: Long? = null
+    private enum class GestureMode { NONE, HORIZONTAL_SEEK, VERTICAL_BRIGHTNESS, VERTICAL_VOLUME }
     private var brightnessLevel = 0.5f
     private var feedbackHideAt = 0L
 
@@ -131,6 +133,7 @@ class NativePlayerActivity : ComponentActivity() {
 
         enterImmersiveMode()
         configureWindow()
+        restoredPositionMs = savedInstanceState?.takeIf { it.containsKey("position_ms") }?.getLong("position_ms")
         brightnessLevel = window.attributes.screenBrightness
             .takeIf { it.isFinite() && it >= 0f }
             ?.coerceIn(0f, 1f)
@@ -265,9 +268,7 @@ class NativePlayerActivity : ComponentActivity() {
                     }
                     if (!initialSeekApplied) {
                         val savedPosition = intent.getLongExtra("positionMs", 0L)
-                        val restored = savedInstanceState?.takeIf { it.containsKey("position_ms") }
-                            ?.getLong("position_ms")
-                        seekToSavedPosition(restored ?: savedPosition)
+                        seekToSavedPosition(restoredPositionMs ?: savedPosition)
                         initialSeekApplied = true
                     }
                     completionReported = false
@@ -447,14 +448,14 @@ class NativePlayerActivity : ComponentActivity() {
         subtitleButton.tag = "reiflix_subtitle_button"
         topBar.addView(subtitleButton, weightParams(72))
 
-        val speedButton = actionButton("1.0x", 58) {
-            cycleSpeed(speedButton)
+        val speedButton = actionButton("1.0x", 58) { button ->
+            cycleSpeed(button)
         }
         speedButton.tag = "reiflix_speed_button"
         topBar.addView(speedButton, weightParams(58))
 
-        val aspectButton = actionButton("Ajustar", 68) {
-            cycleAspect(aspectButton)
+        val aspectButton = actionButton("Ajustar", 68) { button ->
+            cycleAspect(button)
         }
         aspectButton.tag = "reiflix_aspect_button"
         topBar.addView(aspectButton, weightParams(68))
@@ -1244,7 +1245,7 @@ class NativePlayerActivity : ComponentActivity() {
         return result
     }
 
-    private fun findViewByTag(tagValue: String): View? =
+    private fun <T : View> findViewByTag(tagValue: String): T? =
         root.findViewWithTag(tagValue)
 
     private fun logPlayer(message: String, error: Throwable? = null) {
@@ -1256,8 +1257,6 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private inner class GestureLayer(context: Context) : View(context) {
-        private enum class GestureMode { NONE, HORIZONTAL_SEEK, VERTICAL_BRIGHTNESS, VERTICAL_VOLUME }
-
         private val gestureDetector = GestureDetector(
             context,
             object : GestureDetector.SimpleOnGestureListener() {

@@ -47,11 +47,20 @@ for test_root in ("src/test", "src/androidTest"):
         destination_test = app / test_root
         shutil.copytree(source_test, destination_test, dirs_exist_ok=True)
 
-# Keep the generated Flutter launch resources.  ReiFlix adds only its own
+# Keep the generated Flutter launch resources. ReiFlix adds only its own
 # player/host theme resource, avoiding replacement of Flutter's LaunchTheme.
-values = app / "src" / "main" / "res" / "values"
+res_source = overlay / "src" / "main" / "res"
+res_destination = app / "src" / "main" / "res"
+values = res_destination / "values"
 values.mkdir(parents=True, exist_ok=True)
-shutil.copy2(overlay / "src" / "main" / "res" / "values" / "styles.xml", values / "reiflix_styles.xml")
+shutil.copy2(res_source / "values" / "styles.xml", values / "reiflix_styles.xml")
+
+# Native PlayerView XML belongs to the rendered Android resource tree. Copy the
+# overlay resource subtree instead of relying on the source project existing
+# beside the generated Flet module.
+layout_source = res_source / "layout"
+if layout_source.is_dir():
+    shutil.copytree(layout_source, res_destination / "layout", dirs_exist_ok=True)
 
 manifest_path = app / "src" / "main" / "AndroidManifest.xml"
 tree = ET.parse(manifest_path)
@@ -293,6 +302,7 @@ def main() -> int:
         source / "src/main/kotlin/com/reiflix/reiflix_local/NativeIndex.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/NativeScanController.kt",
         source / "src/main/res/values/styles.xml",
+        source / "src/main/res/layout/native_player_view.xml",
     ]
     missing = [str(path) for path in required if not path.is_file()]
     if missing:

@@ -905,7 +905,7 @@ class NativePlayerActivity : ComponentActivity() {
             touchControls()
         } else {
             moreVisible = false
-            findViewByTag("reiflix_more_panel")?.visibility = View.GONE
+            findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
         }
     }
 

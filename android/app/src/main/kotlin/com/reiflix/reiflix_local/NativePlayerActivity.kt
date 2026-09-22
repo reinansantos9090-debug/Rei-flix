@@ -410,7 +410,9 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun installGestureLayer() {
-        val gestureLayer = GestureLayer(this)
+        val gestureLayer = GestureLayer(this).apply {
+            tag = "reiflix_gesture_layer"
+        }
         root.addView(
             gestureLayer,
             FrameLayout.LayoutParams(

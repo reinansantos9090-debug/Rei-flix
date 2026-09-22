@@ -78,33 +78,54 @@ async def main(page: ft.Page):
     organize_state = {}
     navigation = NavigationController()
     saf_selection = SafSelectionState()
+    # One Python navigation stack, one persistent Flet host, and cached
+    # top-level screens. Returning to a screen must not destroy its scroll,
+    # search, filter or focus state.
+    screen_cache = {}
+    view_host = ft.Container(expand=True, bgcolor=page.bgcolor)
     # Runtime snapshots are deliberately not stored in SQLite: only Android is
     # proof of a current grant.  ``dismissed`` prevents an automatic onboarding loop.
     storage_onboarding = {"dismissed": False, "dialog_open": False, "waiting_for_result": False}
     storage_capabilities = [StorageCapabilities.unknown()]
     processed_native_operations = set()
-    def show(control): page.clean(); page.add(control); safe_update()
-    def render_current():
-        if navigation.current == "home":
-            show(HomeView.build(page, library, navigate_details, navigate_settings, play_episode, navigate_organize,
-                                view_state=home_state, on_request_thumbnail=request_missing_thumbnail))
-        elif navigation.current == "organize":
-            show(OrganizeView.build(page, library, navigate_details, navigate_back, navigate_settings,
-                                    on_request_storage_access=open_broad_storage_access,
-                                    on_scan_storage=refresh_library,
-                                    on_request_video_access=request_video_access,
-                                    on_add_folder=add_folder,
-                                    view_state=organize_state))
-        elif navigation.current == "details":
-            show(DetailView.build(page, current[0], play_episode, navigate_back,
-                                  store.toggle_favorite, library.playback_target, library.set_user_tags,
-                                  library.toggle_pinned, library.set_personal_note, store.set_episode_identification,
-                                  refresh_current_details, refresh_current_metadata, library.resolve_artwork))
-        elif navigation.current == "settings":
-            show(SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
-                                    folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match,
-                                    on_create_backup=create_backup, on_restore_backup=restore_backup,
-                                    storage_snapshot=storage_capabilities[0], scan_snapshot=scan_state[0]))
+    page.add(view_host)
+
+    def show(control):
+        if view_host.content is control:
+            return
+        view_host.content = control
+        safe_update()
+
+    def render_current(force=False):
+        route = navigation.current
+        if force:
+            screen_cache.pop(route, None)
+        control = screen_cache.get(route)
+        if control is None:
+            if route == "home":
+                control = HomeView.build(page, library, navigate_details, navigate_settings, play_episode, navigate_organize,
+                                         view_state=home_state, on_request_thumbnail=request_missing_thumbnail)
+            elif route == "organize":
+                control = OrganizeView.build(page, library, navigate_details, navigate_back, navigate_settings,
+                                             on_request_storage_access=open_broad_storage_access,
+                                             on_scan_storage=refresh_library,
+                                             on_request_video_access=request_video_access,
+                                             on_add_folder=add_folder,
+                                             view_state=organize_state)
+            elif route == "details":
+                control = DetailView.build(page, current[0], play_episode, navigate_back,
+                                           store.toggle_favorite, library.playback_target, library.set_user_tags,
+                                           library.toggle_pinned, library.set_personal_note, store.set_episode_identification,
+                                           refresh_current_details, refresh_current_metadata, library.resolve_artwork)
+            elif route == "settings":
+                control = SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
+                                             folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match,
+                                             on_create_backup=create_backup, on_restore_backup=restore_backup,
+                                             storage_snapshot=storage_capabilities[0], scan_snapshot=scan_state[0])
+            if control is None:
+                raise RuntimeError(f"Unknown navigation route: {route}")
+            screen_cache[route] = control
+        show(control)
     def navigate_home():
         navigation.reset_to_root()
         render_current()
@@ -141,22 +162,18 @@ async def main(page: ft.Page):
         # origin to which Android back returns.
         page.run_task(launch_native_player)
     def navigate_details(anime, on_back=None):
-        # The originating card already contains the durable SQLite projection.
-        # Avoid a synchronous catalog query just to enter Details.
         current[0] = anime
+        # Details is keyed by the selected anime, so never reuse the previous
+        # anime's cached control tree.
+        screen_cache.pop("details", None)
         navigation.push("details")
         render_current()
     async def refresh_current_details():
-        """Reload the durable record after an in-place Details edit.
-
-        A manual season correction can move an episode between groups, so a
-        local widget patch is insufficient; rebuild from SQLite without
-        pushing another navigation entry.
-        """
+        """Reload the durable record after an in-place Details edit."""
         anime_id = current[0].get("id") if current[0] else None
         catalog = await asyncio.to_thread(library.catalog)
         current[0] = next((item for item in catalog if item["id"] == anime_id), current[0])
-        render_current()
+        render_current(force=True)
     async def refresh_current_metadata(e=None):
         """Refresh only editorial metadata; never rescans or mutates playback state."""
         anime = current[0] or {}
@@ -176,9 +193,8 @@ async def main(page: ft.Page):
             safe_update()
     def on_catalog_changed():
         diagnostics.record("UI_REFRESHED", result="catalog_changed", source=navigation.current)
-        # Native scan completion must immediately re-read SQLite on the active
-        # screen; the previous implementation intentionally did nothing here,
-        # leaving a freshly indexed catalog invisible until manual navigation.
+        # Durable catalog data changed: invalidate only the visible screen.
+        screen_cache.pop(navigation.current, None)
         render_current()
     async def remove_folder(reference):
         if scan_in_progress[0] or saf_selection.pending:
@@ -249,7 +265,7 @@ async def main(page: ft.Page):
             page.window.close()
     def refresh_settings_if_active():
         if navigation.current == "settings":
-            render_current()
+            render_current(force=True)
     async def add_folder(_=None):
         if scan_in_progress[0] or not saf_selection.begin():
             return False

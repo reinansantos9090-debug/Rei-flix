@@ -99,6 +99,24 @@ class UiStateTests(unittest.TestCase):
         self.assertIn("caps.can_scan", refresh)
         self.assertNotIn("folder.get('authorization') == 'granted'", refresh)
 
+
+    def test_home_and_organize_do_not_mutate_flet_from_background_threads(self):
+        home = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
+        organize = (ROOT / "views" / "organize_view.py").read_text(encoding="utf-8")
+        self.assertIn("await asyncio.to_thread(", home)
+        self.assertIn("page.run_task(load_catalog)", home)
+        self.assertNotIn("page.run_thread(work)", home)
+        self.assertIn("await asyncio.to_thread(", organize)
+        self.assertIn("page.run_task(load_catalog)", organize)
+        self.assertNotIn("page.run_thread(load_catalog)", organize)
+
+    def test_home_filters_are_secondary_and_card_dimensions_are_compact(self):
+        source = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
+        self.assertIn('filter_button = ft.OutlinedButton("Filtros"', source)
+        self.assertIn('page.show_dialog(dialog)', source)
+        self.assertIn("width=146, ink=True", source)
+        self.assertIn("height=176", source)
+
     def test_source_is_valid_python(self):
         for path in (ROOT / "main.py", ROOT / "views" / "settings_view.py", ROOT / "core" / "storage_access.py"):
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

@@ -1,6 +1,7 @@
 """Local-library exploration view for genres and durable playback states."""
 from __future__ import annotations
 
+import asyncio
 import math
 import inspect
 import flet as ft
@@ -162,15 +163,15 @@ class OrganizeView:
                 alignment=ft.Alignment(0, 0), padding=24,
             )
 
-        def open_collection(genre, state):
+        async def open_collection(genre, state):
             selected_genre[0], selected_state[0], mode[0] = genre, state, "collection"
             save_view_state()
-            render()
+            await render()
 
-        def back_to_overview():
+        async def back_to_overview():
             mode[0] = "overview"
             save_view_state()
-            render()
+            await render()
 
         def filter_chip(label):
             active = label == selected_state[0]
@@ -198,8 +199,14 @@ class OrganizeView:
             else:
                 content.controls.append(ft.Text("Nenhum gênero está disponível nos metadados locais.", color="#AAA7B6", size=12))
 
-        def render_collection():
-            filtered = library.browse_catalog(catalog, state=selected_state[0], genre=selected_genre[0], sort=selected_sort[0])
+        async def render_collection():
+            filtered = await asyncio.to_thread(
+                library.browse_catalog,
+                catalog,
+                state=selected_state[0],
+                genre=selected_genre[0],
+                sort=selected_sort[0],
+            )
             title = selected_genre[0].upper() if selected_genre[0] != "Todos" else selected_state[0]
             content.controls.extend([
                 header(title, back_to_overview),
@@ -210,10 +217,10 @@ class OrganizeView:
                                bgcolor="#252836", border_color="#39364B", border_radius=12,
                                options=[ft.dropdown.Option(key=value, text=value) for value in
                                         ("Mais recentes", "Assistidos recentemente", "Nome A-Z", "Nome Z-A")])
-            def change_sort(event):
+            async def change_sort(event):
                 selected_sort[0] = event.control.value or "Mais recentes"
                 save_view_state()
-                render()
+                await render()
             sort.on_select = change_sort
             content.controls.append(sort)
             if filtered:
@@ -228,24 +235,27 @@ class OrganizeView:
                 content=empty_state(ft.Icons.FILTER_LIST_OFF, "Nenhum anime nesta categoria", "Altere o filtro ou volte para explorar a biblioteca."), alignment=ft.Alignment(0, 0), height=190,
                 ))
 
-        def render():
+        async def render():
             content.controls.clear()
             if mode[0] == "overview":
                 render_overview()
             else:
-                render_collection()
+                await render_collection()
             page.update()
 
-        def load_catalog():
+        async def load_catalog():
             nonlocal catalog
             try:
-                catalog = library.catalog()
+                catalog = await asyncio.to_thread(library.catalog)
                 status.visible = False
-            except Exception as exc:
-                status.controls = [ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FFB4AB", size=18), ft.Text("Não foi possível carregar sua biblioteca local.", color="#FFB4AB", size=12)]
-            render()
+            except Exception:
+                status.controls = [
+                    ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FFB4AB", size=18),
+                    ft.Text("Não foi possível carregar sua biblioteca local.", color="#FFB4AB", size=12),
+                ]
+            await render()
 
-        page.run_thread(load_catalog)
+        page.run_task(load_catalog)
         return ft.Container(
             content=content,
             padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=18, bottom=8),

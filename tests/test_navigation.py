@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from core.navigation import NavigationController, SafSelectionState
 
@@ -40,11 +41,17 @@ class NavigationControllerTests(unittest.TestCase):
         self.assertEqual(self.navigation.back(), "previous")
         self.assertEqual(self.navigation.current, "organize")
 
-    def test_player_is_a_regular_history_entry(self):
+    def test_native_player_is_not_a_second_navigation_route(self):
         self.navigation.push("details")
-        self.navigation.push("player")
-        self.assertEqual(self.navigation.back(), "previous")
         self.assertEqual(self.navigation.current, "details")
+        self.assertEqual(self.navigation.back(), "previous")
+        self.assertEqual(self.navigation.current, "home")
+
+    def test_main_uses_one_persistent_view_host(self):
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        self.assertIn("view_host = ft.Container", source)
+        self.assertIn("screen_cache = {}", source)
+        self.assertNotIn("page.clean()", source)
 
     def test_multiple_back_events_never_underflow_history(self):
         self.navigation.push("organize")

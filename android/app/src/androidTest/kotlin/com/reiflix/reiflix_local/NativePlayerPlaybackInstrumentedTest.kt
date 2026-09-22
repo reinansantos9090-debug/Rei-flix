@@ -115,11 +115,8 @@ class NativePlayerPlaybackInstrumentedTest {
         await("Second click must resume playback") { player?.isPlaying == true }
 
         await("Native player should keep system bars hidden") {
-            val insets = WindowInsetsCompat.toWindowInsetsCompat(
-                activity!!.window.decorView.rootWindowInsets,
-                activity!!.window.decorView,
-            )
-            !insets.isVisible(WindowInsetsCompat.Type.systemBars())
+            val insets = androidx.core.view.ViewCompat.getRootWindowInsets(activity!!.window.decorView)
+            insets != null && !insets.isVisible(WindowInsetsCompat.Type.systemBars())
         }
         assertTrue(
             "Player must remain sensor-orientation capable",

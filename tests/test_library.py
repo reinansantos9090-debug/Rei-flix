@@ -1663,10 +1663,10 @@ class OrganizeTests(unittest.TestCase):
         def run_thread(self, work): work()
         def run_task(self, task_fn):
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
             except RuntimeError:
                 return asyncio.run(task_fn())
-            return loop.create_task(task_fn())
+            return None
 
     def _catalog(self, directory):
         store = LibraryStore(directory)

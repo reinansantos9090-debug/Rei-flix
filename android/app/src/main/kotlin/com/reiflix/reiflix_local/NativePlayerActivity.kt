@@ -1399,6 +1399,8 @@ class NativePlayerActivity : ComponentActivity() {
         private var lastTapAt = 0L
         private var tapToken = 0L
         private var pendingSingleTap: Runnable? = null
+        private val doubleTapWindowMs: Long =
+            ViewConfiguration.getDoubleTapTimeout().toLong().coerceAtMost(DOUBLE_TAP_WINDOW_MS)
 
         private var zoomScale = 1f
         private var zoomTranslationX = 0f
@@ -1676,7 +1678,7 @@ class NativePlayerActivity : ComponentActivity() {
         private fun handleTap(x: Float) {
             val now = android.os.SystemClock.uptimeMillis()
             val elapsed = now - lastTapAt
-            if (lastTapAt > 0L && elapsed <= DOUBLE_TAP_WINDOW_MS) {
+            if (lastTapAt > 0L && elapsed <= doubleTapWindowMs) {
                 cancelPendingTap()
                 lastTapAt = 0L
                 handleDoubleTap(x)
@@ -1693,7 +1695,7 @@ class NativePlayerActivity : ComponentActivity() {
                 setControlsVisible(!controlsVisible)
             }
             pendingSingleTap = runnable
-            handler.postDelayed(runnable, DOUBLE_TAP_WINDOW_MS)
+            handler.postDelayed(runnable, doubleTapWindowMs)
         }
 
         private fun handleDoubleTap(x: Float) {

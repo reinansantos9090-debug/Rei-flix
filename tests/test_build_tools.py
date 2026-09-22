@@ -240,8 +240,10 @@ E: manifest
         template = PREPARE_TEMPLATE.read_text(encoding="utf-8")
         self.assertIn('android:launchMode="singleTask"', manifest)
         self.assertIn('android:documentLaunchMode="never"', manifest)
+        self.assertIn('android:enableOnBackInvokedCallback="true"', manifest)
         self.assertIn('main.set(launch_attr, "singleTask")', template)
         self.assertIn('main.set(document_launch_attr, "never")', template)
+        self.assertIn('enableOnBackInvokedCallback', template)
         self.assertNotIn('main.set(launch_attr, "singleTop")', template)
 
     def test_main_activity_uses_lifecycle_aware_back_and_activity_result_callbacks(self):

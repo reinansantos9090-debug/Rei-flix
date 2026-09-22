@@ -339,7 +339,7 @@ class NativePlayerPlaybackInstrumentedTest {
             maximumSpan
         } else {
             maxOf(minimumSpan + 64f, startSpan - spanDelta)
-        )
+        }
         val middleSpan = startSpan + (endSpan - startSpan) * 0.5f
         val down = SystemClock.uptimeMillis()
 

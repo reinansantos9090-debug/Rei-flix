@@ -147,18 +147,35 @@ class NativePlayerPlaybackInstrumentedTest {
         val controls = awaitView<View>("reiflix_controls_root")
         val controlsBefore = onMain { controls.visibility }
         val gestureSize = onMain { gestureLayer.width to gestureLayer.height }
-        tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
-        await("Single tap must toggle the custom controls") { controls.visibility != controlsBefore }
-        tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
-        await("Second tap must restore the custom controls") { controls.visibility == View.VISIBLE }
 
-        onMain { player.seekTo(3_000L) }
+        // A single tap is deliberately delayed for the double-tap window. This
+        // prevents the first tap from firing a UI toggle before a second tap
+        // can be recognized as the CloudStream-style double tap.
+        tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
+        SystemClock.sleep(80L)
+        assertTrue(
+            "First tap must not toggle controls before the double-tap window expires",
+            onMain { controls.visibility == controlsBefore },
+        )
+
+        onMain {
+            player.pause()
+            player.seekTo(3_000L)
+        }
         await("Seek position must be restored for left double tap") { player.currentPosition >= 2_500L }
         doubleTap(gestureLayer, gestureSize.first * 0.12f, gestureSize.second * 0.5f)
         await("Left double tap must seek backward") { player.currentPosition <= 1_000L }
 
         doubleTap(gestureLayer, gestureSize.first * 0.88f, gestureSize.second * 0.5f)
         await("Right double tap must seek forward") { player.currentPosition >= 2_000L }
+
+        // After the double-tap sequence a normal single tap is still allowed
+        // to toggle the custom controls once the debounce window expires.
+        val afterDouble = onMain { controls.visibility }
+        tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
+        await("Single tap must toggle controls after the debounce window") {
+            controls.visibility != afterDouble
+        }
 
         onMain { player.seekTo(0L) }
         await("Horizontal gesture precondition") { player.currentPosition <= 500L }
@@ -200,9 +217,16 @@ class NativePlayerPlaybackInstrumentedTest {
         await("Pinch out must select ZOOM") {
             playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
         }
+        assertTrue(
+            "Pinch out must actually transform the video surface, not only change resize mode",
+            onMain { (playerView.videoSurfaceView?.scaleX ?: 1f) > 1.01f },
+        )
         pinch(gestureLayer, zoom = false)
         await("Pinch in must select FIT") {
             playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+        await("Pinch in must restore the video surface scale") {
+            (playerView.videoSurfaceView?.scaleX ?: 1f) <= 1.01f
         }
 
         cancelGesture(gestureLayer, gestureSize.first * 0.8f, gestureSize.second * 0.5f)
@@ -214,6 +238,9 @@ class NativePlayerPlaybackInstrumentedTest {
             "Play control must remain accessible after gesture sequences",
             onMain { controls.isShown },
         )
+
+        onMain { activity!!.onBackPressedDispatcher.onBackPressed() }
+        await("Android Back must finish the native player Activity") { activity!!.isFinishing }
     }
 
     private fun grantMediaReadPermission() {

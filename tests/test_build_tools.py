@@ -322,7 +322,7 @@ E: manifest
         self.assertIn("private var suppressExitEvent = false", player)
         self.assertIn("private fun reportPlayerExit", player)
         self.assertIn("if (isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations)", player)
-        self.assertIn("reportPlayerExit("activity_finish")", player)
+        self.assertIn('reportPlayerExit("activity_finish")', player)
 
     def test_template_requires_the_system_ui_controller(self):
         source = PREPARE_TEMPLATE.read_text(encoding="utf-8")

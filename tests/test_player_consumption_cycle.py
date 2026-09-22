@@ -224,7 +224,8 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         self.assertIn('savedInstanceState?.takeIf { it.containsKey("autoplay_next") }', player)
         self.assertIn('saveProgress("player_progress", force = true)', player)
         self.assertIn('saveProgress("player_paused", force = true)', player)
-        self.assertIn('if (!suppressExitEvent && !isChangingConfigurations)', player)
+        self.assertIn('if (isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations)', player)
+        self.assertIn('reportPlayerExit("activity_finish")', player)
         self.assertIn('val temp = File(queue, "$PREFIX$id.json.tmp")', (root / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativeMailbox.kt").read_text(encoding="utf-8"))
 
 

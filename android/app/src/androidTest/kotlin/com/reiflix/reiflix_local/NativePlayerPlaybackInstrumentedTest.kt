@@ -56,24 +56,26 @@ class NativePlayerPlaybackInstrumentedTest {
         activity = InstrumentationRegistry.getInstrumentation().startActivitySync(intent) as NativePlayerActivity
 
         val playerView = awaitView<PlayerView>("reiflix_player_view")
-        val player = requireNotNull(playerView.player) { "Media3 PlayerView did not receive a player" }
+        val player = onMain {
+            requireNotNull(playerView.player) { "Media3 PlayerView did not receive a player" }
+        }
 
         await("Media3 must reach READY before interaction") {
             player.playbackState == Player.STATE_READY
         }
-        assertTrue("Player should initially remain paused for deterministic interaction", player.isPlaying == false)
+        assertFalse("Player should initially remain paused for deterministic interaction", onMain { player.isPlaying })
         assertTrue("Native player Activity must remain alive after READY", !activity!!.isFinishing)
 
         val playPause = awaitView<View>("reiflix_play_pause")
-        assertTrue("Play control must be present", playPause.performClick())
+        assertTrue("Play control must be present", onMain { playPause.performClick() })
         await("Play button must start playback") { player.isPlaying }
         await("The real video must render its first frame") { activity!!.firstFrameRenderedForTesting }
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-        assertTrue("Native player must actually be playing the local fixture", player.isPlaying)
+        assertTrue("Native player must actually be playing the local fixture", onMain { player.isPlaying })
         assertTrue("Native player Activity must remain alive after first frame", !activity!!.isFinishing && !activity!!.isDestroyed)
 
         val seekBar = awaitView<android.widget.SeekBar>("reiflix_seekbar")
-        val initialDuration = player.duration
+        val initialDuration = onMain { player.duration }
         assertTrue("Fixture must expose a positive duration", initialDuration > 0L)
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val y = seekBar.height / 2f
@@ -114,10 +116,10 @@ class NativePlayerPlaybackInstrumentedTest {
             player.currentPosition > 500L && player.currentPosition < player.duration - 100L
         }
 
-        assertTrue("Pause control must be clickable", playPause.performClick())
-        await("Pause button must pause playback") { player?.isPlaying == false }
-        assertTrue("Play button must resume playback", playPause.performClick())
-        await("Second click must resume playback") { player?.isPlaying == true }
+        assertTrue("Pause control must be clickable", onMain { playPause.performClick() })
+        await("Pause button must pause playback") { !player.isPlaying }
+        assertTrue("Play button must resume playback", onMain { playPause.performClick() })
+        await("Second click must resume playback") { player.isPlaying }
 
         await("Native player should keep system bars hidden") {
             val insets = androidx.core.view.ViewCompat.getRootWindowInsets(activity!!.window.decorView)
@@ -128,40 +130,43 @@ class NativePlayerPlaybackInstrumentedTest {
             activity!!.requestedOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR,
         )
 
-        val beforeSeek = player!!.currentPosition
-        player.seekTo(0L)
+        val beforeSeek = onMain { player.currentPosition }
+        onMain { player.seekTo(0L) }
         await("Media3 seek must reach the beginning") { player.currentPosition <= 200L }
         assertTrue("Seek position should move from the pre-seek position", beforeSeek >= 0L)
 
         val gestureLayer = awaitView<View>("reiflix_gesture_layer")
 
-        player.pause()
-        player.seekTo(3_000L)
+        onMain {
+            player.pause()
+            player.seekTo(3_000L)
+        }
         await("Gesture seek precondition must be reachable") { player.currentPosition >= 2_500L }
 
         val controls = awaitView<View>("reiflix_play_pause")
-        val controlsBefore = controls.visibility
-        tap(gestureLayer, gestureLayer.width * 0.5f, gestureLayer.height * 0.5f)
+        val controlsBefore = onMain { controls.visibility }
+        val gestureSize = onMain { gestureLayer.width to gestureLayer.height }
+        tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
         await("Single tap must toggle the custom controls") { controls.visibility != controlsBefore }
-        tap(gestureLayer, gestureLayer.width * 0.5f, gestureLayer.height * 0.5f)
+        tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
         await("Second tap must restore the custom controls") { controls.visibility == View.VISIBLE }
 
-        player.seekTo(3_000L)
+        onMain { player.seekTo(3_000L) }
         await("Seek position must be restored for left double tap") { player.currentPosition >= 2_500L }
-        doubleTap(gestureLayer, gestureLayer.width * 0.12f, gestureLayer.height * 0.5f)
+        doubleTap(gestureLayer, gestureSize.first * 0.12f, gestureSize.second * 0.5f)
         await("Left double tap must seek backward") { player.currentPosition <= 1_000L }
 
-        doubleTap(gestureLayer, gestureLayer.width * 0.88f, gestureLayer.height * 0.5f)
+        doubleTap(gestureLayer, gestureSize.first * 0.88f, gestureSize.second * 0.5f)
         await("Right double tap must seek forward") { player.currentPosition >= 2_000L }
 
-        player.seekTo(0L)
+        onMain { player.seekTo(0L) }
         await("Horizontal gesture precondition") { player.currentPosition <= 500L }
         swipe(
             gestureLayer,
-            gestureLayer.width * 0.25f,
-            gestureLayer.height * 0.5f,
-            gestureLayer.width * 0.65f,
-            gestureLayer.height * 0.5f,
+            gestureSize.first * 0.25f,
+            gestureSize.second * 0.5f,
+            gestureSize.first * 0.65f,
+            gestureSize.second * 0.5f,
         )
         await("Horizontal swipe must commit one coherent seek on ACTION_UP") {
             player.currentPosition > 500L
@@ -169,10 +174,10 @@ class NativePlayerPlaybackInstrumentedTest {
 
         swipe(
             gestureLayer,
-            gestureLayer.width * 0.12f,
-            gestureLayer.height * 0.72f,
-            gestureLayer.width * 0.12f,
-            gestureLayer.height * 0.30f,
+            gestureSize.first * 0.12f,
+            gestureSize.second * 0.72f,
+            gestureSize.first * 0.12f,
+            gestureSize.second * 0.30f,
         )
         await("Left vertical gesture must expose brightness feedback") {
             awaitView<TextView>("reiflix_feedback").text?.contains("BRILHO") == true
@@ -180,10 +185,10 @@ class NativePlayerPlaybackInstrumentedTest {
 
         swipe(
             gestureLayer,
-            gestureLayer.width * 0.88f,
-            gestureLayer.height * 0.72f,
-            gestureLayer.width * 0.88f,
-            gestureLayer.height * 0.30f,
+            gestureSize.first * 0.88f,
+            gestureSize.second * 0.72f,
+            gestureSize.first * 0.88f,
+            gestureSize.second * 0.30f,
         )
         await("Right vertical gesture must expose volume feedback") {
             awaitView<TextView>("reiflix_feedback").text?.contains("VOLUME") == true
@@ -198,14 +203,14 @@ class NativePlayerPlaybackInstrumentedTest {
             playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
 
-        cancelGesture(gestureLayer, gestureLayer.width * 0.8f, gestureLayer.height * 0.5f)
-        tap(gestureLayer, gestureLayer.width * 0.5f, gestureLayer.height * 0.5f)
+        cancelGesture(gestureLayer, gestureSize.first * 0.8f, gestureSize.second * 0.5f)
+        tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
         await("Touch state must recover after ACTION_CANCEL") {
             controls.visibility == View.VISIBLE
         }
         assertTrue(
             "Play control must remain accessible after gesture sequences",
-            controls.isShown,
+            onMain { controls.isShown },
         )
     }
 
@@ -414,20 +419,37 @@ class NativePlayerPlaybackInstrumentedTest {
         dispatchEvent(view, MotionEvent.obtain(down, down + 220L, MotionEvent.ACTION_UP, centerX - endSpan / 2f, centerY, 0))
     }
 
-    private fun <T : View> awaitView(tag: String): T {
-        var result: T? = null
-        await("view with tag $tag") {
-            result = activity?.window?.decorView?.findViewWithTag(tag)
-            result != null
+    private fun <T : View> awaitView(tag: String, timeoutMs: Long = 12_000L): T {
+        var result: View? = null
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        while (SystemClock.uptimeMillis() < deadline) {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                result = activity?.window?.decorView?.findViewWithTag(tag)
+            }
+            if (result != null) {
+                @Suppress("UNCHECKED_CAST")
+                return result as T
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            SystemClock.sleep(50L)
         }
-        @Suppress("UNCHECKED_CAST")
-        return result as T
+        assertTrue("view with tag $tag", false)
+        throw AssertionError("view with tag $tag not found")
+    }
+
+    private fun <T> onMain(action: () -> T): T {
+        var result: T? = null
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            result = action()
+        }
+        return checkNotNull(result) { "Main-thread action returned null unexpectedly" }
     }
 
     private fun await(description: String, timeoutMs: Long = 12_000L, condition: () -> Boolean) {
         val deadline = SystemClock.uptimeMillis() + timeoutMs
         while (SystemClock.uptimeMillis() < deadline) {
-            if (condition()) return
+            val passed = onMain { condition() }
+            if (passed) return
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             SystemClock.sleep(50L)
         }

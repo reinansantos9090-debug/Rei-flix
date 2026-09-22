@@ -197,7 +197,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun installResponsiveOverlay() {
-        val overlay = playerView.overlayFrameLayout
+        val overlay = playerView.overlayFrameLayout ?: return
         addEpisodeButtons(overlay)
         ViewCompat.setOnApplyWindowInsetsListener(playerView) { _, insets ->
             applyControlInsets(insets)

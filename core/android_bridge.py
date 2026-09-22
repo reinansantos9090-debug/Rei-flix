@@ -102,14 +102,23 @@ class AndroidBridge:
         value = str(reference or "").strip()
         if not value:
             return None
-        if value.startswith("content://") or value.startswith("file://"):
-            return value
         if os.path.isabs(value):
             try:
                 return Path(value).resolve().as_uri()
             except (OSError, ValueError):
                 return None
-        return None
+        try:
+            from urllib.parse import urlsplit, urlunsplit
+            parsed = urlsplit(value)
+        except ValueError:
+            return None
+        scheme = parsed.scheme.lower()
+        if scheme not in {"content", "file"}:
+            return None
+        if scheme == "content" and not parsed.netloc:
+            return None
+        normalized = urlunsplit((scheme, parsed.netloc, parsed.path, parsed.query, parsed.fragment))
+        return normalized or None
 
     @classmethod
     def is_local_media_reference(cls, uri: str) -> bool:

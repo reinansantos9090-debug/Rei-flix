@@ -1,13 +1,16 @@
 package com.reiflix.reiflix_local
 
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -18,6 +21,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.GestureDetector
 import android.view.ScaleGestureDetector
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
@@ -78,6 +82,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var lastControlsInteraction = 0L
     private var requestId = ""
     private var errorVisible = false
+    private var openedReported = false
     private var brightnessLevel = 0.5f
     private var feedbackHideAt = 0L
 
@@ -86,7 +91,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     private val controlsHider = object : Runnable {
         override fun run() {
-            if (controlsVisible && ::player.isInitialized && player.isPlaying && !errorVisible) {
+            if (controlsVisible && !errorVisible) {
                 val elapsed = System.currentTimeMillis() - lastControlsInteraction
                 if (elapsed >= CONTROL_TIMEOUT_MS) {
                     setControlsVisible(false)
@@ -126,6 +131,10 @@ class NativePlayerActivity : ComponentActivity() {
 
         enterImmersiveMode()
         configureWindow()
+        brightnessLevel = window.attributes.screenBrightness
+            .takeIf { it.isFinite() && it >= 0f }
+            ?.coerceIn(0f, 1f)
+            ?: 0.5f
 
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -137,6 +146,7 @@ class NativePlayerActivity : ComponentActivity() {
         installGestureLayer()
         installControls()
         installBackHandler()
+        configurePictureInPicture()
         applyRootInsets(WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView))
 
         val rawUri = intent.getStringExtra("uri")
@@ -218,15 +228,6 @@ class NativePlayerActivity : ComponentActivity() {
             player.playWhenReady = savedInstanceState?.takeIf { it.containsKey("play_when_ready") }
                 ?.getBoolean("play_when_ready") ?: true
             logPlayer("PLAY_WHEN_READY=" + player.playWhenReady + " requestId=" + requestId.ifEmpty { "-" })
-            NativeMailbox.write(
-                this,
-                JSONObject().put("type", "player_opened")
-                    .put("requestId", requestId)
-                    .put("payload", JSONObject()
-                        .put("uri", uri.toString())
-                        .put("source", source)
-                        .put("title", titleValue))
-            )
         } catch (exception: Exception) {
             logPlayer("EXOPLAYER_INIT_FAILED requestId=" + requestId.ifEmpty { "-" }, exception)
             showPlayerError("Não foi possível iniciar o player local.", "player_initialization")
@@ -246,6 +247,22 @@ class NativePlayerActivity : ComponentActivity() {
                 " positionMs=" + if (::player.isInitialized) player.currentPosition else 0L)
             when (state) {
                 Player.STATE_READY -> {
+                    if (!openedReported) {
+                        openedReported = true
+                        val opened = NativeMailbox.write(
+                            this@NativePlayerActivity,
+                            JSONObject().put("type", "player_opened")
+                                .put("requestId", requestId)
+                                .put("payload", JSONObject()
+                                    .put("uri", uri.toString())
+                                    .put("source", sourceFor(uri))
+                                    .put("title", titleValue)
+                                    .put("state", "READY"))
+                        )
+                        if (!opened) {
+                            logPlayer("FAILED_TO_PUBLISH player_opened requestId=" + requestId.ifEmpty { "-" })
+                        }
+                    }
                     if (!initialSeekApplied) {
                         val savedPosition = intent.getLongExtra("positionMs", 0L)
                         val restored = savedInstanceState?.takeIf { it.containsKey("position_ms") }
@@ -258,9 +275,12 @@ class NativePlayerActivity : ComponentActivity() {
                     updatePlayPauseButton()
                     updateProgressUi()
                     startProgressReporting()
-                    if (player.playWhenReady && !errorVisible) scheduleControlsHide()
+                    if (!errorVisible) scheduleControlsHide()
                 }
-                Player.STATE_BUFFERING -> updatePlayPauseButton()
+                Player.STATE_BUFFERING -> {
+                    updatePlayPauseButton()
+                    if (!errorVisible) scheduleControlsHide()
+                }
                 Player.STATE_ENDED -> {
                     completionReported = true
                     saveProgress("player_completed", force = true)
@@ -276,10 +296,8 @@ class NativePlayerActivity : ComponentActivity() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             logPlayer("IS_PLAYING_CHANGED=" + isPlaying)
             updatePlayPauseButton()
-            if (isPlaying && !errorVisible) {
+            if (!errorVisible) {
                 scheduleControlsHide()
-            } else if (!errorVisible) {
-                setControlsVisible(true)
             }
         }
 
@@ -301,6 +319,7 @@ class NativePlayerActivity : ComponentActivity() {
 
         override fun onPlayerError(error: PlaybackException) {
             val code = error.errorCodeName.orEmpty()
+            val technicalCode = "media3:" + code
             val detail = error.message?.trim().orEmpty()
             logPlayer(
                 "PlaybackException requestId=" + requestId.ifEmpty { "-" } +
@@ -312,10 +331,10 @@ class NativePlayerActivity : ComponentActivity() {
             player.pause()
             showPlayerError(
                 "Não foi possível reproduzir este arquivo neste dispositivo.",
-                "media3:" + code,
+                technicalCode,
                 JSONObject()
                     .put("uri", uri.toString())
-                    .put("errorCode", code)
+                    .put("errorCode", technicalCode)
                     .put("detail", detail)
                     .put("cause", error.cause?.javaClass?.simpleName ?: ""),
             )
@@ -329,8 +348,23 @@ class NativePlayerActivity : ComponentActivity() {
         window.navigationBarColor = Color.TRANSPARENT
     }
 
+    private fun canEnterPictureInPicture(): Boolean {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    }
+
+    private fun configurePictureInPicture() {
+        if (!canEnterPictureInPicture()) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val builder = PictureInPictureParams.Builder()
+                .setAutoEnterEnabled(true)
+            setPictureInPictureParams(builder.build())
+        }
+    }
+
     private fun installBasePlayerView() {
         playerView = PlayerView(this).apply {
+            tag = "reiflix_player_view"
             useController = false
             controllerAutoShow = false
             controllerHideOnTouch = false
@@ -784,11 +818,18 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun adjustBrightness(deltaPercent: Float) {
-        brightnessLevel = (brightnessLevel + deltaPercent).coerceIn(0.05f, 1f)
-        val attributes = window.attributes
-        attributes.screenBrightness = brightnessLevel
-        window.attributes = attributes
-        showAdjustment("BRILHO", brightnessLevel)
+        val target = (brightnessLevel + deltaPercent).coerceIn(0.05f, 1f)
+        runCatching {
+            val attributes = window.attributes
+            attributes.screenBrightness = target
+            window.attributes = attributes
+            brightnessLevel = target
+        }.onSuccess {
+            showAdjustment("BRILHO", brightnessLevel)
+        }.onFailure { error ->
+            logPlayer("BRIGHTNESS_CHANGE_FAILED", error)
+            showFeedback("BRILHO\nIndisponível neste dispositivo", 1100L)
+        }
     }
 
     private fun adjustVolume(deltaSteps: Int) {
@@ -796,17 +837,48 @@ class NativePlayerActivity : ComponentActivity() {
         val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         val current = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
         val next = (current + deltaSteps).coerceIn(0, maxVolume)
-        if (next != current) {
-            manager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+        runCatching {
+            if (next != current) {
+                manager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+            }
+        }.onFailure { error ->
+            logPlayer("VOLUME_CHANGE_FAILED", error)
+            showFeedback("VOLUME\nIndisponível neste dispositivo", 1100L)
+            return
         }
         showAdjustment("VOLUME", next.toFloat() / maxVolume.toFloat())
     }
 
-    private fun showAdjustment(label: String, ratio: Float) {
+    private fun adjustVolumeByFraction(fraction: Float) {
+        val manager = audioManager ?: return
+        val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val current = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val deltaSteps = (fraction * maxVolume).roundToInt()
+        if (deltaSteps != 0) {
+            manager.setStreamVolume(
+                AudioManager.STREAM_MUSIC,
+                (current + deltaSteps).coerceIn(0, maxVolume),
+                0,
+            )
+        }
+        showAdjustment("VOLUME", manager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume)
+    }
+
+    private fun currentVolumeSummary(): String {
+        val manager = audioManager ?: return "VOLUME"
+        val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        return adjustmentSummary("VOLUME", manager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume)
+    }
+
+    private fun adjustmentSummary(label: String, ratio: Float): String {
         val percent = (ratio.coerceIn(0f, 1f) * 100f).roundToInt()
         val bars = 10
         val filled = ((percent / 100f) * bars).roundToInt().coerceIn(0, bars)
-        showFeedback(label + "\n" + "█".repeat(filled) + "░".repeat(bars - filled) + "\n" + percent + "%", 1100L)
+        return label + "\n" + "█".repeat(filled) + "░".repeat(bars - filled) + "\n" + percent + "%"
+    }
+
+    private fun showAdjustment(label: String, ratio: Float) {
+        showFeedback(adjustmentSummary(label, ratio), 1100L)
     }
 
     private fun showFeedback(message: String, durationMs: Long = 900L) {
@@ -875,21 +947,25 @@ class NativePlayerActivity : ComponentActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
+    private fun reportPlayerExit(reason: String) {
+        if (exitReported) return
+        exitReported = true
+        suppressExitEvent = true
+        val payload = JSONObject()
+            .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
+            .put("reason", reason)
+        val ok = NativeMailbox.write(
+            this,
+            JSONObject().put("type", "player_exited")
+                .put("requestId", requestId)
+                .put("payload", payload),
+        )
+        if (!ok) logPlayer("FAILED_TO_PUBLISH player_exited requestId=" + requestId.ifEmpty { "-" })
+        logPlayer("player_exit_reported reason=" + reason + " requestId=" + requestId.ifEmpty { "-" })
+    }
+
     private fun finishPlayer(reason: String) {
-        if (!exitReported) {
-            exitReported = true
-            suppressExitEvent = true
-            val payload = JSONObject()
-                .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
-                .put("reason", reason)
-            NativeMailbox.write(
-                this,
-                JSONObject().put("type", "player_exited")
-                    .put("requestId", requestId)
-                    .put("payload", payload)
-            )
-            logPlayer("finish() requested reason=" + reason + " requestId=" + requestId.ifEmpty { "-" })
-        }
+        reportPlayerExit(reason)
         finish()
     }
 
@@ -1006,12 +1082,12 @@ class NativePlayerActivity : ComponentActivity() {
         handler.removeCallbacks(feedbackHider)
         if (::player.isInitialized) {
             if (isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations) {
-                finishPlayer("activity_finish")
+                reportPlayerExit("activity_finish")
             }
             player.release()
             logPlayer("player.release requestId=" + requestId.ifEmpty { "-" })
         } else if (isFinishing && !exitReported && !isChangingConfigurations) {
-            finishPlayer("activity_finish_without_player")
+            reportPlayerExit("activity_finish_without_player")
         }
         logPlayer("onDestroy finishing=" + isFinishing + " changingConfig=" + isChangingConfigurations)
         super.onDestroy()
@@ -1089,9 +1165,9 @@ class NativePlayerActivity : ComponentActivity() {
         if (parsed.scheme.isNullOrBlank() && reference.startsWith(File.separator)) {
             return runCatching { Uri.fromFile(File(reference).canonicalFile) }.getOrNull()
         }
-        return parsed.takeIf {
-            it.scheme.equals("content", true) || it.scheme.equals("file", true)
-        }
+        val scheme = parsed.scheme?.lowercase()
+        if (scheme != "content" && scheme != "file") return null
+        return if (parsed.scheme == scheme) parsed else parsed.buildUpon().scheme(scheme).build()
     }
 
     private fun validateLocalSource(localUri: Uri): String? {
@@ -1158,20 +1234,26 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private inner class GestureLayer(context: Context) : View(context) {
+        private enum class GestureMode { NONE, HORIZONTAL_SEEK, VERTICAL_BRIGHTNESS, VERTICAL_VOLUME }
+
         private val gestureDetector = GestureDetector(
             context,
             object : GestureDetector.SimpleOnGestureListener() {
                 override fun onDown(e: MotionEvent): Boolean = true
 
                 override fun onDoubleTap(e: MotionEvent): Boolean {
-                    if (errorVisible) return true
+                    if (errorVisible || gestureMode != GestureMode.NONE) return true
                     val delta = if (e.x < width / 2f) -10_000L else 10_000L
                     seekBy(delta, if (delta < 0) "−10s" else "+10s")
                     return true
                 }
 
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                    if (!errorVisible) {
+                    if (!errorVisible &&
+                        gestureMode == GestureMode.NONE &&
+                        !gestureConsumed &&
+                        android.os.SystemClock.uptimeMillis() >= suppressTapUntil
+                    ) {
                         setControlsVisible(!controlsVisible)
                     }
                     return true
@@ -1182,61 +1264,148 @@ class NativePlayerActivity : ComponentActivity() {
         private val scaleDetector = ScaleGestureDetector(
             context,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                    gestureConsumed = true
+                    gestureMode = GestureMode.NONE
+                    touchControls()
+                    return true
+                }
+
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
                     if (errorVisible) return true
-                    if (detector.scaleFactor > 1.04f) {
+                    if (detector.scaleFactor > 1.02f) {
                         playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         showFeedback("ZOOM")
-                    } else if (detector.scaleFactor < 0.96f) {
+                    } else if (detector.scaleFactor < 0.98f) {
                         playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                         showFeedback("FIT")
                     }
                     touchControls()
                     return true
                 }
+
+                override fun onScaleEnd(detector: ScaleGestureDetector) {
+                    showFeedback(if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) "ZOOM" else "FIT")
+                }
             },
         )
 
         private var downX = 0f
         private var downY = 0f
+        private var lastX = 0f
+        private var lastY = 0f
         private var downAt = 0L
+        private var seekStartPosition = 0L
+        private var gestureMode = GestureMode.NONE
+        private var gestureConsumed = false
+        private var suppressTapUntil = 0L
         private var scaled = false
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             scaleDetector.onTouchEvent(event)
             if (event.pointerCount > 1) {
                 scaled = true
+                gestureConsumed = true
                 return true
             }
-            gestureDetector.onTouchEvent(event)
+
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.x
                     downY = event.y
+                    lastX = event.x
+                    lastY = event.y
                     downAt = System.currentTimeMillis()
+                    seekStartPosition = if (::player.isInitialized) player.currentPosition else 0L
+                    gestureMode = GestureMode.NONE
+                    if (android.os.SystemClock.uptimeMillis() >= suppressTapUntil) {
+                        gestureConsumed = false
+                    }
                     scaled = false
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (!scaled && event.actionMasked == MotionEvent.ACTION_UP) {
-                        val dx = event.x - downX
-                        val dy = event.y - downY
-                        val duration = System.currentTimeMillis() - downAt
-                        if (duration < 900L && abs(dx) > dp(44) && abs(dx) > abs(dy) * 1.2f) {
-                            val seekMs = (dx / resources.displayMetrics.density * 40L).roundToInt().toLong()
-                            seekBy(seekMs, if (seekMs < 0) "−" + formatTime(abs(seekMs)) else "+" + formatTime(abs(seekMs)))
-                        } else if (duration < 900L && abs(dy) > dp(44) && abs(dy) > abs(dx) * 1.2f) {
-                            val normalized = (-dy / dp(100).toFloat())
-                            if (downX < width / 2f) {
-                                adjustBrightness(normalized * 0.15f)
-                            } else {
-                                val steps = (normalized * 2f).roundToInt()
-                                adjustVolume(if (steps == 0) if (dy < 0) 1 else -1 else steps)
-                            }
+
+                MotionEvent.ACTION_MOVE -> {
+                    if (scaled || errorVisible) return true
+                    val dx = event.x - downX
+                    val dy = event.y - downY
+                    val absX = abs(dx)
+                    val absY = abs(dy)
+                    if (gestureMode == GestureMode.NONE &&
+                        (absX > dp(28) || absY > dp(28))) {
+                        gestureConsumed = true
+                        gestureMode = when {
+                            absX > absY * 1.15f && absX > dp(44) -> GestureMode.HORIZONTAL_SEEK
+                            absY > absX * 1.15f && absY > dp(44) ->
+                                if (downX < width / 2f) GestureMode.VERTICAL_BRIGHTNESS
+                                else GestureMode.VERTICAL_VOLUME
+                            else -> GestureMode.NONE
                         }
-                        scaled = false
+                        if (gestureMode != GestureMode.NONE) touchControls()
+                    }
+
+                    when (gestureMode) {
+                        GestureMode.HORIZONTAL_SEEK -> {
+                            if (!::player.isInitialized || player.duration <= 0L) return true
+                            val previewDelta = (dx / resources.displayMetrics.density * 40L)
+                                .roundToInt().toLong()
+                            val target = (seekStartPosition + previewDelta)
+                                .coerceIn(0L, player.duration)
+                            player.seekTo(target)
+                            showFeedback(
+                                if (previewDelta < 0) "−" + formatTime(abs(previewDelta))
+                                else "+" + formatTime(abs(previewDelta)),
+                                700L,
+                            )
+                        }
+                        GestureMode.VERTICAL_BRIGHTNESS -> {
+                            val deltaY = event.y - lastY
+                            adjustBrightness((-deltaY / height.coerceAtLeast(1).toFloat()) * 1.25f)
+                        }
+                        GestureMode.VERTICAL_VOLUME -> {
+                            val deltaY = event.y - lastY
+                            adjustVolumeByFraction(-deltaY / height.coerceAtLeast(1).toFloat())
+                        }
+                        GestureMode.NONE -> Unit
+                    }
+                    lastX = event.x
+                    lastY = event.y
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    if (!scaled && gestureMode != GestureMode.NONE) {
+                        if (gestureMode == GestureMode.HORIZONTAL_SEEK) {
+                            saveProgress("player_progress", force = true)
+                        }
+                        showFeedback(
+                            when (gestureMode) {
+                                GestureMode.VERTICAL_BRIGHTNESS -> adjustmentSummary("BRILHO", brightnessLevel)
+                                GestureMode.VERTICAL_VOLUME -> currentVolumeSummary()
+                                else -> if (::player.isInitialized) formatTime(player.currentPosition) else ""
+                            },
+                            900L,
+                        )
+                        touchControls()
+                    }
+                    val wasGesture = gestureConsumed || scaled || gestureMode != GestureMode.NONE
+                    gestureMode = GestureMode.NONE
+                    scaled = false
+                    if (wasGesture) {
+                        gestureConsumed = true
+                        suppressTapUntil =
+                            android.os.SystemClock.uptimeMillis() + ViewConfiguration.getDoubleTapTimeout() + 80L
                     }
                 }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    gestureMode = GestureMode.NONE
+                    scaled = false
+                    gestureConsumed = true
+                    suppressTapUntil =
+                        android.os.SystemClock.uptimeMillis() + ViewConfiguration.getDoubleTapTimeout()
+                }
             }
+
+            gestureDetector.onTouchEvent(event)
             return true
         }
     }

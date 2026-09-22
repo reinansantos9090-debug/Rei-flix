@@ -16,6 +16,7 @@ import android.util.Log
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.ViewCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,7 +48,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingPlayCanPrevious = false
     private var pendingPlayAutoplay = true
     private var pendingPlayRequestId: String? = null
-    private var playerLaunchActive = false
+    private var activePlayerRequestId: String? = null
     private var startupDiscoveryTriggered = false
     private var lastObservedMediaAccess: String? = null
     private var lastObservedBroadAccess: Boolean? = null
@@ -68,7 +69,7 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_PENDING_PLAY_CAN_PREVIOUS = "reiflix.pendingPlayCanPrevious"
         private const val STATE_PENDING_PLAY_AUTOPLAY = "reiflix.pendingPlayAutoplay"
         private const val STATE_PENDING_PLAY_REQUEST_ID = "reiflix.pendingPlayRequestId"
-        private const val STATE_PLAYER_LAUNCH_ACTIVE = "reiflix.playerLaunchActive"
+        private const val STATE_ACTIVE_PLAYER_REQUEST_ID = "reiflix.activePlayerRequestId"
         private const val STATE_SAF_PICKER_PENDING = "reiflix.safPickerPending"
         private const val STATE_SEEN_NATIVE_REQUEST_IDS = "reiflix.seenNativeRequestIds"
         private const val STATE_STARTUP_DISCOVERY_TRIGGERED = "reiflix.startupDiscoveryTriggered"
@@ -303,7 +304,7 @@ class MainActivity : FlutterFragmentActivity() {
         pendingPlayCanPrevious = savedInstanceState?.getBoolean(STATE_PENDING_PLAY_CAN_PREVIOUS) ?: false
         pendingPlayAutoplay = savedInstanceState?.getBoolean(STATE_PENDING_PLAY_AUTOPLAY) ?: true
         pendingPlayRequestId = savedInstanceState?.getString(STATE_PENDING_PLAY_REQUEST_ID)
-        playerLaunchActive = savedInstanceState?.getBoolean(STATE_PLAYER_LAUNCH_ACTIVE) ?: false
+        activePlayerRequestId = savedInstanceState?.getString(STATE_ACTIVE_PLAYER_REQUEST_ID)?.trim()?.takeIf { it.isNotEmpty() }
         safPickerPending = savedInstanceState?.getBoolean(STATE_SAF_PICKER_PENDING) ?: false
         startupDiscoveryTriggered = savedInstanceState?.getBoolean(STATE_STARTUP_DISCOVERY_TRIGGERED) ?: false
         lastObservedMediaAccess = savedInstanceState?.getString(STATE_LAST_OBSERVED_MEDIA_ACCESS)
@@ -314,7 +315,7 @@ class MainActivity : FlutterFragmentActivity() {
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
         onBackPressedDispatcher.addCallback(this, backCallback)
-        applyNormalSystemUi()
+        applyImmersiveSystemUi()
         // Permission-sensitive actions are queued until the Activity is resumed.
         handleNativeIntent(intent)
     }
@@ -336,7 +337,6 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onResume() {
         super.onResume()
         activityResumed = true
-        playerLaunchActive = false
         logLifecycle("onResume")
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "ON_RESUME").put("lifecycle", "onResume")))
         applyImmersiveSystemUi()
@@ -471,7 +471,7 @@ class MainActivity : FlutterFragmentActivity() {
         outState.putBoolean(STATE_PENDING_PLAY_CAN_PREVIOUS, pendingPlayCanPrevious)
         outState.putBoolean(STATE_PENDING_PLAY_AUTOPLAY, pendingPlayAutoplay)
         outState.putString(STATE_PENDING_PLAY_REQUEST_ID, pendingPlayRequestId)
-        outState.putBoolean(STATE_PLAYER_LAUNCH_ACTIVE, playerLaunchActive)
+        outState.putString(STATE_ACTIVE_PLAYER_REQUEST_ID, activePlayerRequestId)
         outState.putBoolean(STATE_BROAD_SETTINGS_PENDING, broadStoragePermissionPending)
         outState.putBoolean(STATE_SAF_PICKER_PENDING, safPickerPending)
         outState.putBoolean(STATE_STARTUP_DISCOVERY_TRIGGERED, startupDiscoveryTriggered)
@@ -1357,6 +1357,22 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         val authority = localUri.authority.orEmpty()
+        val authorized = when {
+            localUri.scheme.equals("content", true) -> {
+                localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri) ||
+                    MediaStoreScanner.isAuthorizedDocument(this, localUri)
+            }
+            localUri.scheme.equals("file", true) -> BroadStorageScanner.isAuthorizedFile(this, localUri)
+            else -> false
+        }
+        if (!authorized) {
+            Log.e(tag, "PLAY_HANDOFF_FAILED requestId=$requestId uri=$episodeUri reason=unauthorized")
+            NativeMailbox.write(this, JSONObject().put("type", "player_error")
+                .put("requestId", requestId)
+                .put("message", "Este arquivo local não está mais autorizado.")
+                .put("payload", JSONObject().put("uri", episodeUri).put("stage", "handoff").put("reason", "unauthorized")))
+            return
+        }
         val mediaSource = when {
             localUri.scheme.equals("content", true) && authority == MediaStore.AUTHORITY -> "mediastore"
             localUri.scheme.equals("content", true) -> "saf_or_local_provider"
@@ -1366,11 +1382,12 @@ class MainActivity : FlutterFragmentActivity() {
             " uri_original=" + episodeUri + " uri_normalized=" + localUri +
             " scheme=" + localUri.scheme + " authority=" + authority.ifEmpty { "-" } +
             " source=" + mediaSource + " activityResumed=" + activityResumed + " task=" + taskId)
-        if (playerLaunchActive) {
-            Log.i(tag, "PLAY_HANDOFF_DUPLICATE requestId=" + requestId.ifEmpty { "-" } + " ignored=true")
+        if (requestId.isNotBlank() && activePlayerRequestId == requestId) {
+            Log.i(tag, "PLAY_HANDOFF_DUPLICATE requestId=$requestId ignored=true")
             return
         }
-        playerLaunchActive = true
+        activePlayerRequestId = requestId.takeIf { it.isNotBlank() }
+        Log.i(tag, "PLAY_HANDOFF_ACCEPTED requestId=" + requestId.ifEmpty { "-" })
         try {
             val intent = Intent(this, NativePlayerActivity::class.java)
                 .putExtra("requestId", requestId)
@@ -1383,7 +1400,9 @@ class MainActivity : FlutterFragmentActivity() {
             Log.i(tag, "PLAY_HANDOFF_START requestId=" + requestId.ifEmpty { "-" } + " component=" + intent.component)
             startActivity(intent)
         } catch (exception: Exception) {
-            playerLaunchActive = false
+            if (activePlayerRequestId == requestId.takeIf { it.isNotBlank() }) {
+                activePlayerRequestId = null
+            }
             Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId.ifEmpty { "-" } + " reason=start_activity", exception)
             NativeMailbox.write(this, JSONObject().put("type", "player_error")
                 .put("requestId", requestId)
@@ -1437,10 +1456,18 @@ class MainActivity : FlutterFragmentActivity() {
     }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) applyNormalSystemUi()
+        logLifecycle("onWindowFocusChanged")
+        if (hasFocus) {
+            applyImmersiveSystemUi()
+            ViewCompat.requestApplyInsets(window.decorView)
+        }
     }
-    private fun applyNormalSystemUi() {
-        if (::systemUiController.isInitialized) systemUiController.applyNormal()
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        Log.i(tag, "CONFIGURATION_CHANGED orientation=${newConfig.orientation}")
+        applyImmersiveSystemUi()
+        ViewCompat.requestApplyInsets(window.decorView)
     }
     private fun signInWithGoogle(serverClientId: String?) {
         if (serverClientId.isNullOrBlank()) { NativeMailbox.write(this, JSONObject().put("type", "google_error").put("message", "Configure o Web Client ID do Google.")); return }

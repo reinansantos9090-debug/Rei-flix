@@ -126,6 +126,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
             manifest_text = rendered_manifest.read_text(encoding="utf-8")
             self.assertIn("NativePlayerActivity", manifest_text)
             self.assertIn("@style/ReiFlixTheme", manifest_text)
+            self.assertIn("enableOnBackInvokedCallback", manifest_text)
             tree = ET.parse(rendered_manifest)
             android_ns = "http://schemas.android.com/apk/res/android"
             main = next(
@@ -293,10 +294,12 @@ E: manifest
         self.assertIn("private lateinit var systemUiController: SystemUiController", main)
         self.assertIn("systemUiController = SystemUiController(window)", main)
         self.assertIn("override fun onResume()", main)
-        self.assertIn("applyNormalSystemUi()", main)
+        self.assertIn("applyImmersiveSystemUi()", main)
         self.assertIn("WindowCompat.getInsetsController(window, window.decorView)", controller)
-        self.assertIn("setDecorFitsSystemWindows(window, true)", controller)
-        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", controller)
+        self.assertIn("setDecorFitsSystemWindows(window, false)", controller)
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
+        self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", controller)
+        self.assertNotIn("applyNormalSystemUi()", main)
         main_style = styles.split('<style name="ReiFlixPlayerTheme"', 1)[0]
         self.assertNotIn('<item name="android:windowFullscreen">true</item>', main_style)
 
@@ -305,9 +308,10 @@ E: manifest
         controller = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SystemUiController.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("systemUiController = SystemUiController(window)", main)
-        self.assertIn("applyNormalSystemUi()", main)
-        self.assertIn("setDecorFitsSystemWindows(window, true)", controller)
-        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", controller)
+        self.assertIn("applyImmersiveSystemUi()", main)
+        self.assertNotIn("applyNormalSystemUi()", main)
+        self.assertIn("setDecorFitsSystemWindows(window, false)", controller)
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", player)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", player)
 

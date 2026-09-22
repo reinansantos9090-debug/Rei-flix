@@ -67,6 +67,7 @@ class FletTemplateManifestTests(unittest.TestCase):
             prepare_source = (Path(__file__).parents[1] / "scripts" / "prepare_flet_template.py").read_text(encoding="utf-8")
             self.assertIn("NativeRequestState.kt", prepare_source)
             self.assertIn("StorageAuthorization.kt", prepare_source)
+            self.assertIn("native_player_view.xml", prepare_source)
             self.assertTrue(
                 (project / "android/app/src/test/kotlin/com/reiflix/reiflix_local/FixtureTest.kt").is_file()
             )

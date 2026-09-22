@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.widget.TextView
 import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.Player
@@ -326,8 +327,20 @@ class NativePlayerPlaybackInstrumentedTest {
     private fun pinch(view: View, zoom: Boolean) {
         val centerX = view.width * 0.5f
         val centerY = view.height * 0.5f
-        val startSpan = 120f
-        val endSpan = if (zoom) 280f else 70f
+        val minimumSpan = ViewConfiguration.get(view.context).scaledMinimumScalingSpan.toFloat()
+        val spanDelta = maxOf(192f, minimumSpan * 0.5f)
+        val startSpan = minOf(view.width * 0.72f, minimumSpan + spanDelta)
+        val maximumSpan = view.width * 0.9f
+        assertTrue(
+            "Pinch test surface is too narrow for the platform minimum scaling span",
+            maximumSpan > startSpan + 32f,
+        )
+        val endSpan = if (zoom) {
+            maximumSpan
+        } else {
+            maxOf(minimumSpan + 64f, startSpan - spanDelta)
+        }
+        val middleSpan = startSpan + (endSpan - startSpan) * 0.5f
         val down = SystemClock.uptimeMillis()
 
         val first = MotionEvent.PointerProperties().apply {
@@ -408,12 +421,13 @@ class NativePlayerPlaybackInstrumentedTest {
                 startSpan,
             ),
         )
-        dispatchEvent(view, twoPointers(MotionEvent.ACTION_MOVE, down + 100L, endSpan))
+        dispatchEvent(view, twoPointers(MotionEvent.ACTION_MOVE, down + 100L, middleSpan))
+        dispatchEvent(view, twoPointers(MotionEvent.ACTION_MOVE, down + 140L, endSpan))
         dispatchEvent(
             view,
             twoPointers(
                 MotionEvent.ACTION_POINTER_UP or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT),
-                down + 160L,
+                down + 180L,
                 endSpan,
             ),
         )

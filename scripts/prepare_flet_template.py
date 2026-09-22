@@ -121,6 +121,7 @@ host_attr = "{" + ANDROID + "}host"
 # Use the ReiFlix normal system-bar host policy. The native player declares its own
 # immersive theme below.
 application.set(theme_attr, "@style/ReiFlixTheme")
+application.set("{" + ANDROID + "}enableOnBackInvokedCallback", "true")
 activities = application.findall("activity")
 main = next((activity for activity in activities if activity.get(name) in [".MainActivity", "com.reiflix.reiflix_local.MainActivity"]), None)
 if main is None:

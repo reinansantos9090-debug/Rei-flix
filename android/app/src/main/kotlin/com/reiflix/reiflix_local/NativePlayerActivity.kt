@@ -78,6 +78,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var lastControlsInteraction = 0L
     private var requestId = ""
     private var errorVisible = false
+    private var openedReported = false
     private var brightnessLevel = 0.5f
     private var feedbackHideAt = 0L
 
@@ -86,7 +87,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     private val controlsHider = object : Runnable {
         override fun run() {
-            if (controlsVisible && ::player.isInitialized && player.isPlaying && !errorVisible) {
+            if (controlsVisible && !errorVisible) {
                 val elapsed = System.currentTimeMillis() - lastControlsInteraction
                 if (elapsed >= CONTROL_TIMEOUT_MS) {
                     setControlsVisible(false)
@@ -218,15 +219,6 @@ class NativePlayerActivity : ComponentActivity() {
             player.playWhenReady = savedInstanceState?.takeIf { it.containsKey("play_when_ready") }
                 ?.getBoolean("play_when_ready") ?: true
             logPlayer("PLAY_WHEN_READY=" + player.playWhenReady + " requestId=" + requestId.ifEmpty { "-" })
-            NativeMailbox.write(
-                this,
-                JSONObject().put("type", "player_opened")
-                    .put("requestId", requestId)
-                    .put("payload", JSONObject()
-                        .put("uri", uri.toString())
-                        .put("source", source)
-                        .put("title", titleValue))
-            )
         } catch (exception: Exception) {
             logPlayer("EXOPLAYER_INIT_FAILED requestId=" + requestId.ifEmpty { "-" }, exception)
             showPlayerError("Não foi possível iniciar o player local.", "player_initialization")
@@ -246,6 +238,22 @@ class NativePlayerActivity : ComponentActivity() {
                 " positionMs=" + if (::player.isInitialized) player.currentPosition else 0L)
             when (state) {
                 Player.STATE_READY -> {
+                    if (!openedReported) {
+                        openedReported = true
+                        val opened = NativeMailbox.write(
+                            this@NativePlayerActivity,
+                            JSONObject().put("type", "player_opened")
+                                .put("requestId", requestId)
+                                .put("payload", JSONObject()
+                                    .put("uri", uri.toString())
+                                    .put("source", sourceFor(uri))
+                                    .put("title", titleValue)
+                                    .put("state", "READY"))
+                        )
+                        if (!opened) {
+                            logPlayer("FAILED_TO_PUBLISH player_opened requestId=" + requestId.ifEmpty { "-" })
+                        }
+                    }
                     if (!initialSeekApplied) {
                         val savedPosition = intent.getLongExtra("positionMs", 0L)
                         val restored = savedInstanceState?.takeIf { it.containsKey("position_ms") }
@@ -258,9 +266,12 @@ class NativePlayerActivity : ComponentActivity() {
                     updatePlayPauseButton()
                     updateProgressUi()
                     startProgressReporting()
-                    if (player.playWhenReady && !errorVisible) scheduleControlsHide()
+                    if (!errorVisible) scheduleControlsHide()
                 }
-                Player.STATE_BUFFERING -> updatePlayPauseButton()
+                Player.STATE_BUFFERING -> {
+                    updatePlayPauseButton()
+                    if (!errorVisible) scheduleControlsHide()
+                }
                 Player.STATE_ENDED -> {
                     completionReported = true
                     saveProgress("player_completed", force = true)
@@ -276,10 +287,8 @@ class NativePlayerActivity : ComponentActivity() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             logPlayer("IS_PLAYING_CHANGED=" + isPlaying)
             updatePlayPauseButton()
-            if (isPlaying && !errorVisible) {
+            if (!errorVisible) {
                 scheduleControlsHide()
-            } else if (!errorVisible) {
-                setControlsVisible(true)
             }
         }
 
@@ -875,21 +884,25 @@ class NativePlayerActivity : ComponentActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
+    private fun reportPlayerExit(reason: String) {
+        if (exitReported) return
+        exitReported = true
+        suppressExitEvent = true
+        val payload = JSONObject()
+            .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
+            .put("reason", reason)
+        val ok = NativeMailbox.write(
+            this,
+            JSONObject().put("type", "player_exited")
+                .put("requestId", requestId)
+                .put("payload", payload),
+        )
+        if (!ok) logPlayer("FAILED_TO_PUBLISH player_exited requestId=" + requestId.ifEmpty { "-" })
+        logPlayer("player_exit_reported reason=" + reason + " requestId=" + requestId.ifEmpty { "-" })
+    }
+
     private fun finishPlayer(reason: String) {
-        if (!exitReported) {
-            exitReported = true
-            suppressExitEvent = true
-            val payload = JSONObject()
-                .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
-                .put("reason", reason)
-            NativeMailbox.write(
-                this,
-                JSONObject().put("type", "player_exited")
-                    .put("requestId", requestId)
-                    .put("payload", payload)
-            )
-            logPlayer("finish() requested reason=" + reason + " requestId=" + requestId.ifEmpty { "-" })
-        }
+        reportPlayerExit(reason)
         finish()
     }
 
@@ -1006,12 +1019,12 @@ class NativePlayerActivity : ComponentActivity() {
         handler.removeCallbacks(feedbackHider)
         if (::player.isInitialized) {
             if (isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations) {
-                finishPlayer("activity_finish")
+                reportPlayerExit("activity_finish")
             }
             player.release()
             logPlayer("player.release requestId=" + requestId.ifEmpty { "-" })
         } else if (isFinishing && !exitReported && !isChangingConfigurations) {
-            finishPlayer("activity_finish_without_player")
+            reportPlayerExit("activity_finish_without_player")
         }
         logPlayer("onDestroy finishing=" + isFinishing + " changingConfig=" + isChangingConfigurations)
         super.onDestroy()

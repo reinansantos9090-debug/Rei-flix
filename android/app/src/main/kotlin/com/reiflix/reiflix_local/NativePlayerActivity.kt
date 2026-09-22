@@ -150,7 +150,7 @@ class NativePlayerActivity : ComponentActivity() {
         installControls()
         installBackHandler()
         configurePictureInPicture()
-        applyRootInsets(WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView))
+        ViewCompat.getRootWindowInsets(window.decorView)?.let { applyRootInsets(it) }
 
         val rawUri = intent.getStringExtra("uri")
         logPlayer("URI_RECEIVED requestId=" + requestId.ifEmpty { "-" } +

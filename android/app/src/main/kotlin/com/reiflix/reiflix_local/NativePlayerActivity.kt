@@ -88,6 +88,7 @@ class NativePlayerActivity : ComponentActivity() {
         private set
     private enum class GestureMode { NONE, HORIZONTAL_SEEK, VERTICAL_BRIGHTNESS, VERTICAL_VOLUME }
     private var brightnessLevel = 0.5f
+    private var pendingSeekPosition: Long? = null
     private var feedbackHideAt = 0L
 
     private val titleValue: String
@@ -1308,9 +1309,18 @@ class NativePlayerActivity : ComponentActivity() {
                 override fun onDown(e: MotionEvent): Boolean = true
 
                 override fun onDoubleTap(e: MotionEvent): Boolean {
-                    if (errorVisible || gestureMode != GestureMode.NONE) return true
-                    val delta = if (e.x < width / 2f) -10_000L else 10_000L
-                    seekBy(delta, if (delta < 0) "−10s" else "+10s")
+                    if (errorVisible || gestureMode != GestureMode.NONE || !::player.isInitialized) return true
+                    val leftZone = width * 0.32f
+                    val rightZone = width * 0.68f
+                    when {
+                        e.x < leftZone -> seekBy(-10_000L, "−10s")
+                        e.x > rightZone -> seekBy(10_000L, "+10s")
+                        else -> togglePlayPause()
+                    }
+                    gestureConsumed = true
+                    suppressTapUntil = android.os.SystemClock.uptimeMillis() +
+                        ViewConfiguration.getDoubleTapTimeout() + 80L
+                    touchControls()
                     return true
                 }
 
@@ -1416,7 +1426,7 @@ class NativePlayerActivity : ComponentActivity() {
                                 .roundToInt().toLong()
                             val target = (seekStartPosition + previewDelta)
                                 .coerceIn(0L, player.duration)
-                            player.seekTo(target)
+                            pendingSeekPosition = target
                             showFeedback(
                                 if (previewDelta < 0) "−" + formatTime(abs(previewDelta))
                                 else "+" + formatTime(abs(previewDelta)),
@@ -1440,12 +1450,19 @@ class NativePlayerActivity : ComponentActivity() {
                 MotionEvent.ACTION_UP -> {
                     if (!scaled && gestureMode != GestureMode.NONE) {
                         if (gestureMode == GestureMode.HORIZONTAL_SEEK) {
-                            saveProgress("player_progress", force = true)
+                            pendingSeekPosition?.let { target ->
+                                if (::player.isInitialized && player.duration > 0L) {
+                                    player.seekTo(target.coerceIn(0L, player.duration))
+                                    saveProgress("player_progress", force = true)
+                                }
+                            }
                         }
                         showFeedback(
                             when (gestureMode) {
                                 GestureMode.VERTICAL_BRIGHTNESS -> adjustmentSummary("BRILHO", brightnessLevel)
                                 GestureMode.VERTICAL_VOLUME -> currentVolumeSummary()
+                                GestureMode.HORIZONTAL_SEEK -> pendingSeekPosition?.let(::formatTime)
+                                    ?: if (::player.isInitialized) formatTime(player.currentPosition) else ""
                                 else -> if (::player.isInitialized) formatTime(player.currentPosition) else ""
                             },
                             900L,
@@ -1455,6 +1472,7 @@ class NativePlayerActivity : ComponentActivity() {
                     val wasGesture = gestureConsumed || scaled || gestureMode != GestureMode.NONE
                     gestureMode = GestureMode.NONE
                     scaled = false
+                    pendingSeekPosition = null
                     if (wasGesture) {
                         gestureConsumed = true
                         suppressTapUntil =
@@ -1465,6 +1483,7 @@ class NativePlayerActivity : ComponentActivity() {
                 MotionEvent.ACTION_CANCEL -> {
                     gestureMode = GestureMode.NONE
                     scaled = false
+                    pendingSeekPosition = null
                     gestureConsumed = true
                     suppressTapUntil =
                         android.os.SystemClock.uptimeMillis() + ViewConfiguration.getDoubleTapTimeout()

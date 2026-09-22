@@ -196,70 +196,171 @@ class NativePlayerActivity : ComponentActivity() {
         player.playWhenReady = savedInstanceState?.takeIf { it.containsKey("play_when_ready") }?.getBoolean("play_when_ready") ?: true
     }
 
+    private fun installResponsiveOverlay() {
+        val overlay = playerView.overlayFrameLayout
+        addEpisodeButtons(overlay)
+        ViewCompat.setOnApplyWindowInsetsListener(playerView) { _, insets ->
+            applyControlInsets(insets)
+            insets
+        }
+        ViewCompat.requestApplyInsets(playerView)
+    }
+
     private fun addEpisodeButtons(root: FrameLayout) {
-        val controls = listOf(
+        val density = resources.displayMetrics.density
+        fun dp(value: Int): Int = (value * density).roundToInt()
+        val sideButtonSize = dp(48)
+        val sideMargin = dp(12)
+
+        val episodeControls = listOf(
             Triple("Anterior", "player_previous_request", intent.getBooleanExtra("canPrevious", false)),
             Triple("Próximo", "player_next_request", intent.getBooleanExtra("canNext", false)),
         )
-        controls.forEachIndexed { index, (label, eventType, enabled) ->
+        episodeControls.forEachIndexed { index, (label, eventType, enabled) ->
             if (!enabled) return@forEachIndexed
+            val params = FrameLayout.LayoutParams(sideButtonSize, sideButtonSize).apply {
+                gravity = Gravity.CENTER_VERTICAL or if (index == 0) Gravity.START else Gravity.END
+                if (index == 0) leftMargin = sideMargin else rightMargin = sideMargin
+            }
             root.addView(Button(this).apply {
                 text = label
+                textSize = 11f
+                minWidth = 0
+                minHeight = 0
+                setPadding(dp(4), dp(2), dp(4), dp(2))
                 setOnClickListener { requestEpisode(eventType) }
-            }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.BOTTOM or if (index == 0) Gravity.START else Gravity.END
-                setMargins(24, 0, 24, 28)
-            })
+            }, params)
         }
-        root.addView(Button(this).apply {
-            text = "1.0x"
-            setOnClickListener { cycleSpeed(this) }
-        }, bottomParams(Gravity.CENTER, 150))
-        audioButton = Button(this).apply {
-            text = "Áudio"
-            isEnabled = false
-            setOnClickListener { showTrackSelection(C.TRACK_TYPE_AUDIO, "Áudio") }
+
+        controlsBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            setBackgroundColor(0x66000000)
         }
-        root.addView(audioButton, bottomParams(Gravity.CENTER, 214))
-        subtitleButton = Button(this).apply {
-            text = "Legendas"
-            isEnabled = false
-            setOnClickListener { showTrackSelection(C.TRACK_TYPE_TEXT, "Legendas") }
+        val bar = controlsBar ?: return
+        root.addView(bar, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            gravity = Gravity.BOTTOM
+            leftMargin = dp(8)
+            rightMargin = dp(8)
+        })
+
+        fun addWeightedButton(label: String, enabled: Boolean = true, onClick: (Button) -> Unit): Button {
+            val button = Button(this).apply {
+                text = label
+                textSize = 11f
+                isAllCaps = false
+                isEnabled = enabled
+                minWidth = 0
+                minHeight = 0
+                maxLines = 1
+                setPadding(dp(2), dp(2), dp(2), dp(2))
+            }
+            button.layoutParams = LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                marginStart = dp(2)
+                marginEnd = dp(2)
+            }
+            button.setOnClickListener { onClick(button) }
+            bar.addView(button)
+            return button
         }
-        root.addView(subtitleButton, bottomParams(Gravity.CENTER, 276))
-        root.addView(Button(this).apply {
-            text = "Ajustar"
-            setOnClickListener { cycleAspect(this) }
-        }, bottomParams(Gravity.CENTER, 88))
-        root.addView(Button(this).apply {
-            text = "Reiniciar"
-            setOnClickListener { player.seekTo(0); saveProgress("player_progress", true) }
-        }, bottomParams(Gravity.CENTER, 26))
+
+        audioButton = addWeightedButton("Áudio", false) {
+            showTrackSelection(C.TRACK_TYPE_AUDIO, "Áudio")
+        }
+        subtitleButton = addWeightedButton("Legendas", false) {
+            showTrackSelection(C.TRACK_TYPE_TEXT, "Legendas")
+        }
+        addWeightedButton("1.0x") { cycleSpeed(it) }
+        addWeightedButton("Ajustar") { cycleAspect(it) }
+        addWeightedButton("Reiniciar") {
+            player.seekTo(0)
+            saveProgress("player_progress", true)
+        }
+
         root.addView(Button(this).apply {
             text = if (autoplayNext) "Autoplay: ON" else "Autoplay: OFF"
+            textSize = 10f
             setOnClickListener {
                 autoplayNext = !autoplayNext
                 text = if (autoplayNext) "Autoplay: ON" else "Autoplay: OFF"
-                NativeMailbox.write(this@NativePlayerActivity, JSONObject()
-                    .put("type", "player_autoplay_changed")
-                    .put("payload", JSONObject().put("enabled", autoplayNext)))
+                NativeMailbox.write(
+                    this@NativePlayerActivity,
+                    JSONObject().put("type", "player_autoplay_changed")
+                        .put("payload", JSONObject().put("enabled", autoplayNext)),
+                )
             }
-        }, bottomParams(Gravity.TOP or Gravity.END, 24))
+        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(44)).apply {
+            gravity = Gravity.TOP or Gravity.END
+            topMargin = sideMargin
+            rightMargin = sideMargin
+        })
+
         root.addView(Button(this).apply {
             text = "15 min"
+            textSize = 10f
             setOnClickListener { setSleepTimer(this) }
-        }, bottomParams(Gravity.TOP or Gravity.START, 24))
+        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(44)).apply {
+            gravity = Gravity.TOP or Gravity.START
+            topMargin = sideMargin
+            leftMargin = sideMargin
+        })
+
         root.addView(Button(this).apply {
             text = "Visto"
-            setOnClickListener { NativeMailbox.write(this@NativePlayerActivity, JSONObject().put("type", "player_mark_watched").put("payload", JSONObject().put("uri", uri.toString()))); saveProgress("player_progress", true) }
-        }, bottomParams(Gravity.CENTER or Gravity.TOP, 24))
+            textSize = 10f
+            setOnClickListener {
+                NativeMailbox.write(
+                    this@NativePlayerActivity,
+                    JSONObject().put("type", "player_mark_watched")
+                        .put("payload", JSONObject().put("uri", uri.toString())),
+                )
+                saveProgress("player_progress", true)
+            }
+        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(44)).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = sideMargin
+        })
+
         root.addView(Button(this).apply {
             text = "Não visto"
-            setOnClickListener { NativeMailbox.write(this@NativePlayerActivity, JSONObject().put("type", "player_mark_unwatched").put("payload", JSONObject().put("uri", uri.toString()))) }
-        }, bottomParams(Gravity.CENTER or Gravity.TOP, 76))
+            textSize = 10f
+            setOnClickListener {
+                NativeMailbox.write(
+                    this@NativePlayerActivity,
+                    JSONObject().put("type", "player_mark_unwatched")
+                        .put("payload", JSONObject().put("uri", uri.toString())),
+                )
+            }
+        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(44)).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = dp(58)
+        })
+
+        applyControlInsets(
+            WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView)
+        )
     }
 
-    private fun bottomParams(gravity: Int, bottom: Int) = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply { this.gravity = gravity; setMargins(18, 18, 18, bottom) }
+    private fun applyControlInsets(insets: WindowInsetsCompat) {
+        val density = resources.displayMetrics.density
+        fun dp(value: Int): Int = (value * density).roundToInt()
+        val system = insets.getInsets(
+            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        )
+        controlsBar?.let { bar ->
+            val params = bar.layoutParams as? FrameLayout.LayoutParams
+            if (params != null) {
+                params.bottomMargin = maxOf(dp(8), system.bottom)
+                bar.layoutParams = params
+            }
+        }
+        playerView.requestLayout()
+    }
+
     private fun showTrackSelection(trackType: Int, label: String) {
         if (!::player.isInitialized) return
         if (!player.currentTracks.groups.any { it.type == trackType && it.isSupported }) return

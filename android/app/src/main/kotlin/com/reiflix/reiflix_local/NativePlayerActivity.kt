@@ -310,15 +310,15 @@ class NativePlayerActivity : ComponentActivity() {
             )
             saveProgress("player_progress", force = true)
             player.pause()
-            publishPlayerError(
+            showPlayerError(
                 "Não foi possível reproduzir este arquivo neste dispositivo.",
+                "media3:" + code,
                 JSONObject()
                     .put("uri", uri.toString())
                     .put("errorCode", code)
                     .put("detail", detail)
                     .put("cause", error.cause?.javaClass?.simpleName ?: ""),
             )
-            showPlayerError("Não foi possível reproduzir este arquivo neste dispositivo.", "media3:" + code)
         }
     }
 
@@ -450,6 +450,66 @@ class NativePlayerActivity : ComponentActivity() {
         ).apply { gravity = Gravity.CENTER }
         controls.addView(centerControls, centerParams)
 
+        feedback = TextView(this).apply {
+            tag = "reiflix_feedback"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setTypeface(Typeface.DEFAULT_BOLD)
+            setPadding(dp(18), dp(10), dp(18), dp(10))
+            setBackgroundColor(0xAA000000.toInt())
+            visibility = View.GONE
+            isClickable = false
+        }
+        controls.addView(feedback, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            gravity = Gravity.CENTER
+            topMargin = dp(96)
+        })
+
+        errorPanel = LinearLayout(this).apply {
+            tag = "reiflix_error_panel"
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(20), dp(18), dp(20), dp(18))
+            setBackgroundColor(0xEE0B0A0F.toInt())
+            visibility = View.GONE
+            isFocusable = true
+        }
+        errorPanel.addView(TextView(this).apply {
+            tag = "reiflix_error_text"
+            textSize = 17f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(dp(320), ViewGroup.LayoutParams.WRAP_CONTENT))
+        errorPanel.addView(TextView(this).apply {
+            tag = "reiflix_error_reason"
+            textSize = 10f
+            setTextColor(0xFFBDB8C9.toInt())
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(dp(320), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(8)
+        })
+        val errorBack = actionButton("Voltar ao Rei-Flix", 170) {
+            finishPlayer("player_error_back")
+        }
+        errorBack.tag = "reiflix_error_back"
+        errorPanel.addView(errorBack, LinearLayout.LayoutParams(dp(190), dp(48)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = dp(14)
+        })
+        controls.addView(errorPanel, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            gravity = Gravity.CENTER
+            leftMargin = dp(18)
+            rightMargin = dp(18)
+        })
+
         val previousButton = actionButton("−10", 70) { seekBy(-10_000L, "−10s") }
         previousButton.tag = "reiflix_seek_back"
         centerControls.addView(previousButton, weightParams(70))
@@ -575,6 +635,12 @@ class NativePlayerActivity : ComponentActivity() {
         morePanel.addView(actionButton("Autoplay " + if (autoplayNext) "ON" else "OFF", 92) { button ->
             autoplayNext = !autoplayNext
             button.text = "Autoplay " + if (autoplayNext) "ON" else "OFF"
+            NativeMailbox.write(
+                this@NativePlayerActivity,
+                JSONObject().put("type", "player_autoplay_changed")
+                    .put("requestId", requestId)
+                    .put("payload", JSONObject().put("enabled", autoplayNext))
+            )
             showFeedback(if (autoplayNext) "Autoplay ligado" else "Autoplay desligado")
         }, weightParams(92))
         morePanel.addView(actionButton("Timer 15m", 82) {
@@ -759,9 +825,7 @@ class NativePlayerActivity : ComponentActivity() {
             touchControls()
         } else {
             moreVisible = false
-            findViewById<ViewGroup>(android.R.id.content)
-                ?.findViewWithTag<View>("reiflix_more_panel")
-                ?.visibility = View.GONE
+            findViewByTag("reiflix_more_panel")?.visibility = View.GONE
         }
     }
 
@@ -779,24 +843,23 @@ class NativePlayerActivity : ComponentActivity() {
         touchControls()
     }
 
-    private fun showPlayerError(message: String, reason: String) {
+    private fun showPlayerError(
+        message: String,
+        reason: String,
+        payload: JSONObject = JSONObject(),
+    ) {
         errorVisible = true
+        if (::player.isInitialized) player.pause()
         setControlsVisible(true)
         findViewByTag<View>("reiflix_error_text")?.let { (it as TextView).text = message }
         findViewByTag<View>("reiflix_error_reason")?.let { (it as TextView).text = "Detalhe: " + reason }
         findViewByTag<View>("reiflix_error_panel")?.visibility = View.VISIBLE
         findViewByTag<View>("reiflix_error_back")?.requestFocus()
         if (::feedback.isInitialized) feedback.visibility = View.GONE
-        if (reason.startsWith("media3:")) {
-            publishPlayerError(message, JSONObject().put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty()))
-        } else {
-            publishPlayerError(
-                message,
-                JSONObject()
-                    .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
-                    .put("reason", reason),
-            )
-        }
+        val effectivePayload = JSONObject(payload.toString())
+            .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
+            .put("reason", reason)
+        publishPlayerError(message, effectivePayload)
     }
 
     private fun publishPlayerError(message: String, payload: JSONObject = JSONObject()) {
@@ -1003,8 +1066,6 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun weightParams(widthDp: Int): LinearLayout.LayoutParams =
         LinearLayout.LayoutParams(0, dp(44), 1f).apply {
-            width = 0
-            minWidth = dp(widthDp)
             marginStart = dp(2)
             marginEnd = dp(2)
         }

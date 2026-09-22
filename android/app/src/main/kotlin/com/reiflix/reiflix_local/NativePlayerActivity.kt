@@ -1388,6 +1388,7 @@ class NativePlayerActivity : ComponentActivity() {
         private var gestureMode = GestureMode.NONE
         private var gestureConsumed = false
         private var pinchActive = false
+        private var wasPinchGesture = false
         private var lastPanX: Float? = null
         private var lastPanY: Float? = null
 
@@ -1537,10 +1538,11 @@ class NativePlayerActivity : ComponentActivity() {
                     } else if (gestureMode == GestureMode.VERTICAL_VOLUME) {
                         showFeedback(currentVolumeSummary(), 900L)
                         touchControls()
-                    } else if (!hadSwipe && !errorVisible) {
+                    } else if (!hadSwipe && !wasPinchGesture && !errorVisible) {
                         handleTap(event.x)
                     }
 
+                    wasPinchGesture = false
                     resetSingleFingerState()
                 }
 
@@ -1573,6 +1575,7 @@ class NativePlayerActivity : ComponentActivity() {
         private fun finishPinchGesture() {
             if (!pinchActive) return
             pinchActive = false
+            wasPinchGesture = true
             lastPanX = null
             lastPanY = null
             pendingSeekPosition = null
@@ -1606,15 +1609,17 @@ class NativePlayerActivity : ComponentActivity() {
                     zoomTranslationY = startY * (1f - progress)
                     applyZoomTransform()
                 }
-                doOnEndCompat {
-                    zoomScale = 1f
-                    zoomTranslationX = 0f
-                    zoomTranslationY = 0f
-                    playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    applyZoomTransform()
-                    showFeedback("FIT", 900L)
-                    zoomAnimator = null
-                }
+                addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                        zoomScale = 1f
+                        zoomTranslationX = 0f
+                        zoomTranslationY = 0f
+                        playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        applyZoomTransform()
+                        showFeedback("FIT", 900L)
+                        zoomAnimator = null
+                    }
+                })
                 start()
             }
         }
@@ -1724,17 +1729,6 @@ class NativePlayerActivity : ComponentActivity() {
             video.requestLayout()
         }
 
-        private fun doOnEndCompat(action: () -> Unit): ValueAnimator {
-            return object : ValueAnimator() {
-                init {
-                    addListener(object : android.animation.AnimatorListenerAdapter() {
-                        override fun onAnimationEnd(animation: android.animation.Animator) {
-                            action()
-                        }
-                    })
-                }
-            }
-        }
     }
 
 

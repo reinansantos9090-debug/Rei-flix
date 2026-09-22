@@ -115,7 +115,7 @@ class UiStateTests(unittest.TestCase):
         self.assertIn('filter_button = ft.OutlinedButton("Filtros"', source)
         self.assertIn('page.show_dialog(dialog)', source)
         self.assertIn("width=146", source)
-        self.assertIn("height=176", source)
+        self.assertIn("artwork_holder(item, 146, 176", source)
 
     def test_source_is_valid_python(self):
         for path in (ROOT / "main.py", ROOT / "views" / "settings_view.py", ROOT / "core" / "storage_access.py"):

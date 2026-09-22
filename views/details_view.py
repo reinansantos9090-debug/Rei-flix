@@ -513,4 +513,9 @@ class DetailView:
 
         layout = ft.Column(layout_controls, scroll=ft.ScrollMode.AUTO, expand=True, spacing=14)
         render_episodes()
-        return ft.Container(content=layout, padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=14, bottom=18), bgcolor=BACKGROUND)
+        return ft.Container(
+            content=ft.Column([layout], expand=True, spacing=0),
+            padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=14, bottom=18),
+            bgcolor=BACKGROUND,
+            expand=True,
+        )

@@ -390,7 +390,7 @@ class HomeView:
         status.visible = True
         load_catalog()
         return ft.Container(
-            content=ft.Column([layout], expand=True, spacing=0),
+            content=layout,
             padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=18, bottom=8),
             bgcolor=BACKGROUND,
             expand=True,

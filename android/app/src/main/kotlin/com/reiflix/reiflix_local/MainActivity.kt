@@ -40,6 +40,14 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingMediaRequestId: String? = null
     private var pendingBroadRequestId: String? = null
     private var pendingSafRequestId: String? = null
+    private var pendingPlayUri: String? = null
+    private var pendingPlayTitle: String? = null
+    private var pendingPlayPositionMs: Long = 0L
+    private var pendingPlayCanNext = false
+    private var pendingPlayCanPrevious = false
+    private var pendingPlayAutoplay = true
+    private var pendingPlayRequestId: String? = null
+    private var playerLaunchActive = false
     private var startupDiscoveryTriggered = false
     private var lastObservedMediaAccess: String? = null
     private var lastObservedBroadAccess: Boolean? = null
@@ -53,6 +61,14 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_PENDING_MEDIA_REQUEST_ID = "reiflix.pendingMediaRequestId"
         private const val STATE_PENDING_BROAD_REQUEST_ID = "reiflix.pendingBroadRequestId"
         private const val STATE_PENDING_SAF_REQUEST_ID = "reiflix.pendingSafRequestId"
+        private const val STATE_PENDING_PLAY_URI = "reiflix.pendingPlayUri"
+        private const val STATE_PENDING_PLAY_TITLE = "reiflix.pendingPlayTitle"
+        private const val STATE_PENDING_PLAY_POSITION_MS = "reiflix.pendingPlayPositionMs"
+        private const val STATE_PENDING_PLAY_CAN_NEXT = "reiflix.pendingPlayCanNext"
+        private const val STATE_PENDING_PLAY_CAN_PREVIOUS = "reiflix.pendingPlayCanPrevious"
+        private const val STATE_PENDING_PLAY_AUTOPLAY = "reiflix.pendingPlayAutoplay"
+        private const val STATE_PENDING_PLAY_REQUEST_ID = "reiflix.pendingPlayRequestId"
+        private const val STATE_PLAYER_LAUNCH_ACTIVE = "reiflix.playerLaunchActive"
         private const val STATE_SAF_PICKER_PENDING = "reiflix.safPickerPending"
         private const val STATE_SEEN_NATIVE_REQUEST_IDS = "reiflix.seenNativeRequestIds"
         private const val STATE_STARTUP_DISCOVERY_TRIGGERED = "reiflix.startupDiscoveryTriggered"
@@ -280,6 +296,14 @@ class MainActivity : FlutterFragmentActivity() {
         pendingMediaRequestId = savedInstanceState?.getString(STATE_PENDING_MEDIA_REQUEST_ID)
         pendingBroadRequestId = savedInstanceState?.getString(STATE_PENDING_BROAD_REQUEST_ID)
         pendingSafRequestId = savedInstanceState?.getString(STATE_PENDING_SAF_REQUEST_ID)
+        pendingPlayUri = savedInstanceState?.getString(STATE_PENDING_PLAY_URI)
+        pendingPlayTitle = savedInstanceState?.getString(STATE_PENDING_PLAY_TITLE)
+        pendingPlayPositionMs = savedInstanceState?.getLong(STATE_PENDING_PLAY_POSITION_MS, 0L) ?: 0L
+        pendingPlayCanNext = savedInstanceState?.getBoolean(STATE_PENDING_PLAY_CAN_NEXT) ?: false
+        pendingPlayCanPrevious = savedInstanceState?.getBoolean(STATE_PENDING_PLAY_CAN_PREVIOUS) ?: false
+        pendingPlayAutoplay = savedInstanceState?.getBoolean(STATE_PENDING_PLAY_AUTOPLAY) ?: true
+        pendingPlayRequestId = savedInstanceState?.getString(STATE_PENDING_PLAY_REQUEST_ID)
+        playerLaunchActive = savedInstanceState?.getBoolean(STATE_PLAYER_LAUNCH_ACTIVE) ?: false
         safPickerPending = savedInstanceState?.getBoolean(STATE_SAF_PICKER_PENDING) ?: false
         startupDiscoveryTriggered = savedInstanceState?.getBoolean(STATE_STARTUP_DISCOVERY_TRIGGERED) ?: false
         lastObservedMediaAccess = savedInstanceState?.getString(STATE_LAST_OBSERVED_MEDIA_ACCESS)
@@ -312,9 +336,10 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onResume() {
         super.onResume()
         activityResumed = true
+        playerLaunchActive = false
         logLifecycle("onResume")
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "ON_RESUME").put("lifecycle", "onResume")))
-        applyNormalSystemUi()
+        applyImmersiveSystemUi()
 
         // A lifecycle-sensitive command may have been queued because the
         // Activity was not resumed when Python delivered the request. Do not
@@ -331,6 +356,25 @@ class MainActivity : FlutterFragmentActivity() {
                 "select_tree" -> openTreePicker()
                 "request_media_access" -> requestMediaAccess()
                 "open_broad_storage_settings" -> openBroadStorageSettings()
+                "play" -> {
+                    val uri = pendingPlayUri
+                    if (!uri.isNullOrBlank()) {
+                        val playData = Uri.parse("reiflix://native").buildUpon()
+                            .appendQueryParameter("action", "play")
+                            .appendQueryParameter("request_id", pendingPlayRequestId.orEmpty())
+                            .appendQueryParameter("uri", uri)
+                            .appendQueryParameter("title", pendingPlayTitle ?: "Episódio")
+                            .appendQueryParameter("position_ms", pendingPlayPositionMs.toString())
+                            .appendQueryParameter("can_next", pendingPlayCanNext.toString())
+                            .appendQueryParameter("can_previous", pendingPlayCanPrevious.toString())
+                            .appendQueryParameter("autoplay", pendingPlayAutoplay.toString())
+                            .build()
+                        clearPendingPlay()
+                        openPlayer(playData)
+                    } else {
+                        clearPendingPlay()
+                    }
+                }
             }
             // Established host contract: "request_media_access" -> requestMediaAccess()
             return
@@ -420,6 +464,14 @@ class MainActivity : FlutterFragmentActivity() {
         outState.putString(STATE_PENDING_MEDIA_REQUEST_ID, pendingMediaRequestId)
         outState.putString(STATE_PENDING_BROAD_REQUEST_ID, pendingBroadRequestId)
         outState.putString(STATE_PENDING_SAF_REQUEST_ID, pendingSafRequestId)
+        outState.putString(STATE_PENDING_PLAY_URI, pendingPlayUri)
+        outState.putString(STATE_PENDING_PLAY_TITLE, pendingPlayTitle)
+        outState.putLong(STATE_PENDING_PLAY_POSITION_MS, pendingPlayPositionMs)
+        outState.putBoolean(STATE_PENDING_PLAY_CAN_NEXT, pendingPlayCanNext)
+        outState.putBoolean(STATE_PENDING_PLAY_CAN_PREVIOUS, pendingPlayCanPrevious)
+        outState.putBoolean(STATE_PENDING_PLAY_AUTOPLAY, pendingPlayAutoplay)
+        outState.putString(STATE_PENDING_PLAY_REQUEST_ID, pendingPlayRequestId)
+        outState.putBoolean(STATE_PLAYER_LAUNCH_ACTIVE, playerLaunchActive)
         outState.putBoolean(STATE_BROAD_SETTINGS_PENDING, broadStoragePermissionPending)
         outState.putBoolean(STATE_SAF_PICKER_PENDING, safPickerPending)
         outState.putBoolean(STATE_STARTUP_DISCOVERY_TRIGGERED, startupDiscoveryTriggered)
@@ -534,7 +586,24 @@ class MainActivity : FlutterFragmentActivity() {
             "extract_thumbnail" -> requestThumbnail(intent.data, requestId)
             "cancel_scan" -> cancelNativeScans(requestId)
             "google_sign_in" -> signInWithGoogle(intent.data?.getQueryParameter("server_client_id"))
-            "play" -> openPlayer(intent.data)
+            "play" -> {
+                if (!activityResumed) {
+                    pendingPlayUri = data.getQueryParameter("uri")
+                    pendingPlayTitle = data.getQueryParameter("title") ?: "Episódio"
+                    pendingPlayPositionMs = data.getQueryParameter("position_ms")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+                    pendingPlayCanNext = data.getQueryParameter("can_next")?.toBooleanStrictOrNull() ?: false
+                    pendingPlayCanPrevious = data.getQueryParameter("can_previous")?.toBooleanStrictOrNull() ?: false
+                    pendingPlayAutoplay = data.getQueryParameter("autoplay")?.toBooleanStrictOrNull() ?: true
+                    pendingPlayRequestId = requestId
+                    if (!nativeRequestState.queueLifecycleAction("play", requestId)) {
+                        Log.i(tag, "PLAY request could not be queued because another lifecycle action is pending; requestId=" + requestId)
+                    } else {
+                        Log.i(tag, "PLAY queued until Activity is resumed requestId=" + requestId)
+                    }
+                } else {
+                    openPlayer(data)
+                }
+            }
         }
     }
     /**
@@ -1267,20 +1336,72 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
     private fun openPlayer(data: Uri?) {
-        val episodeUri = data?.getQueryParameter("uri") ?: return
-        val localUri = Uri.parse(episodeUri)
-        if (!((localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri)) || MediaStoreScanner.isAuthorizedDocument(this, localUri) || BroadStorageScanner.isAuthorizedFile(this, localUri))) {
-            Log.w(tag, "Rejected unauthorized local media URI")
+        val source = data ?: return
+        val episodeUri = source.getQueryParameter("uri")?.trim().orEmpty()
+        val requestId = source.getQueryParameter("request_id")?.trim().orEmpty()
+        if (episodeUri.isBlank()) {
+            Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId + " reason=missing_uri")
             NativeMailbox.write(this, JSONObject().put("type", "player_error")
-                .put("message", "Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."))
+                .put("requestId", requestId)
+                .put("message", "Este episódio não possui uma referência local válida.")
+                .put("payload", JSONObject().put("stage", "handoff").put("reason", "missing_uri")))
             return
         }
-        startActivity(Intent(this, NativePlayerActivity::class.java)
-            .putExtra("uri", episodeUri).putExtra("title", data.getQueryParameter("title") ?: "Episódio")
-            .putExtra("positionMs", data.getQueryParameter("position_ms")?.toLongOrNull() ?: 0L)
-            .putExtra("canNext", data.getQueryParameter("can_next")?.toBoolean() ?: false)
-            .putExtra("canPrevious", data.getQueryParameter("can_previous")?.toBoolean() ?: false))
+        val localUri = runCatching { Uri.parse(episodeUri) }.getOrNull()
+        if (localUri == null || localUri.scheme?.lowercase() !in setOf("content", "file")) {
+            Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId + " uri=" + episodeUri + " reason=unsupported_scheme")
+            NativeMailbox.write(this, JSONObject().put("type", "player_error")
+                .put("requestId", requestId)
+                .put("message", "O Rei-Flix aceita somente mídias locais autorizadas.")
+                .put("payload", JSONObject().put("uri", episodeUri).put("stage", "handoff").put("reason", "unsupported_scheme")))
+            return
+        }
+        val authority = localUri.authority.orEmpty()
+        val mediaSource = when {
+            localUri.scheme.equals("content", true) && authority == MediaStore.AUTHORITY -> "mediastore"
+            localUri.scheme.equals("content", true) -> "saf_or_local_provider"
+            else -> "broad_storage"
+        }
+        Log.i(tag, "PLAY_HANDOFF requestId=" + requestId.ifEmpty { "-" } +
+            " uri_original=" + episodeUri + " uri_normalized=" + localUri +
+            " scheme=" + localUri.scheme + " authority=" + authority.ifEmpty { "-" } +
+            " source=" + mediaSource + " activityResumed=" + activityResumed + " task=" + taskId)
+        if (playerLaunchActive) {
+            Log.i(tag, "PLAY_HANDOFF_DUPLICATE requestId=" + requestId.ifEmpty { "-" } + " ignored=true")
+            return
+        }
+        playerLaunchActive = true
+        try {
+            val intent = Intent(this, NativePlayerActivity::class.java)
+                .putExtra("requestId", requestId)
+                .putExtra("uri", localUri.toString())
+                .putExtra("title", source.getQueryParameter("title") ?: "Episódio")
+                .putExtra("positionMs", source.getQueryParameter("position_ms")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L)
+                .putExtra("canNext", source.getQueryParameter("can_next")?.toBooleanStrictOrNull() ?: false)
+                .putExtra("canPrevious", source.getQueryParameter("can_previous")?.toBooleanStrictOrNull() ?: false)
+                .putExtra("autoplay", source.getQueryParameter("autoplay")?.toBooleanStrictOrNull() ?: true)
+            Log.i(tag, "PLAY_HANDOFF_START requestId=" + requestId.ifEmpty { "-" } + " component=" + intent.component)
+            startActivity(intent)
+        } catch (exception: Exception) {
+            playerLaunchActive = false
+            Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId.ifEmpty { "-" } + " reason=start_activity", exception)
+            NativeMailbox.write(this, JSONObject().put("type", "player_error")
+                .put("requestId", requestId)
+                .put("message", "Não foi possível abrir o player local.")
+                .put("payload", JSONObject().put("uri", localUri.toString()).put("stage", "start_activity").put("error", exception.message ?: exception::class.java.simpleName)))
+        }
     }
+
+    private fun clearPendingPlay() {
+        pendingPlayUri = null
+        pendingPlayTitle = null
+        pendingPlayPositionMs = 0L
+        pendingPlayCanNext = false
+        pendingPlayCanPrevious = false
+        pendingPlayAutoplay = true
+        pendingPlayRequestId = null
+    }
+
     private fun openTreePicker() {
         if (!activityResumed) {
             if (nativeRequestState.queueLifecycleAction("select_tree")) {

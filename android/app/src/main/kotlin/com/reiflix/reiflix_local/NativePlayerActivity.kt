@@ -1090,6 +1090,7 @@ class NativePlayerActivity : ComponentActivity() {
         super.onResume()
         logPlayer("onResume requestId=" + requestId.ifEmpty { "-" })
         enterImmersiveMode()
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.refreshZoomForLayout()
         if (::player.isInitialized && !errorVisible) {
             updateProgressUi()
             updatePlayPauseButton()
@@ -1135,6 +1136,7 @@ class NativePlayerActivity : ComponentActivity() {
         logPlayer("onConfigurationChanged orientation=" + newConfig.orientation)
         ViewCompat.requestApplyInsets(root)
         applyImmersiveAfterLayout()
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.refreshZoomForLayout()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -1153,6 +1155,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.dispose()
         handler.removeCallbacks(progressReporter)
         handler.removeCallbacks(controlsHider)
         handler.removeCallbacks(feedbackHider)
@@ -1553,6 +1556,32 @@ class NativePlayerActivity : ComponentActivity() {
                 }
             }
             return true
+        }
+
+        fun refreshZoomForLayout() {
+            if (zoomScale > 1.01f) {
+                applyZoomTransform()
+            } else {
+                zoomScale = 1f
+                zoomTranslationX = 0f
+                zoomTranslationY = 0f
+                playerView.videoSurfaceView?.apply {
+                    scaleX = 1f
+                    scaleY = 1f
+                    translationX = 0f
+                    translationY = 0f
+                }
+            }
+        }
+
+        fun dispose() {
+            zoomAnimator?.cancel()
+            zoomAnimator = null
+            cancelPendingTap()
+            lastPanX = null
+            lastPanY = null
+            pinchActive = false
+            wasPinchGesture = false
         }
 
         fun resetZoomToFit() {

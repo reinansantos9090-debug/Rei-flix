@@ -868,8 +868,7 @@ class NativePlayerActivity : ComponentActivity() {
             showAdjustment("BRILHO", brightnessLevel)
         }.onFailure { error ->
             logPlayer("BRIGHTNESS_CHANGE_FAILED", error)
-            showFeedback("BRILHO
-Indisponível neste dispositivo", 1100L)
+            showFeedback("BRILHO\nIndisponível neste dispositivo", 1100L)
         }
     }
 
@@ -884,8 +883,7 @@ Indisponível neste dispositivo", 1100L)
             }
         }.onFailure { error ->
             logPlayer("VOLUME_CHANGE_FAILED", error)
-            showFeedback("VOLUME
-Indisponível neste dispositivo", 1100L)
+            showFeedback("VOLUME\nIndisponível neste dispositivo", 1100L)
             return
         }
         showAdjustment("VOLUME", next.toFloat() / maxVolume.toFloat())
@@ -906,8 +904,7 @@ Indisponível neste dispositivo", 1100L)
             }
         }.onFailure { error ->
             logPlayer("VOLUME_CHANGE_FAILED", error)
-            showFeedback("VOLUME\
-Indisponível neste dispositivo", 1100L)
+            showFeedback("VOLUME\\nIndisponível neste dispositivo", 1100L)
             return
         }
         val effective = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -924,9 +921,7 @@ Indisponível neste dispositivo", 1100L)
         val percent = (ratio.coerceIn(0f, 1f) * 100f).roundToInt()
         val bars = 10
         val filled = ((percent / 100f) * bars).roundToInt().coerceIn(0, bars)
-        return label + "
-" + "█".repeat(filled) + "░".repeat(bars - filled) + "
-" + percent + "%"
+        return label + "\n" + "█".repeat(filled) + "░".repeat(bars - filled) + "\n" + percent + "%"
     }
 
     private fun showAdjustment(label: String, ratio: Float) {

@@ -1817,11 +1817,19 @@ class OrganizeTests(unittest.TestCase):
                     yield from walk(content)
 
             genre = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
-                         item.on_click and item.content.__class__.__name__ == 'Stack')
+                         item.on_click and item.content is not None and item.content.__class__.__name__ == 'Stack')
             genre.on_click(None)
+
+            def contains_value(control, expected):
+                if getattr(control, 'value', None) == expected:
+                    return True
+                if any(contains_value(child, expected) for child in getattr(control, 'controls', []) or []):
+                    return True
+                child = getattr(control, 'content', None)
+                return child is not None and contains_value(child, expected)
+
             card = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
-                         item.on_click and item.content is not None and item.content.__class__.__name__ == 'Column' and
-                         any(getattr(child, 'value', None) == 'Action' for child in getattr(item.content, 'controls', []) or []))
+                         item.on_click and item.content is not None and contains_value(item.content, 'Action'))
             card.on_click(None)
             self.assertEqual(selected[0]['id'], action)
 
@@ -1837,9 +1845,15 @@ class OrganizeTests(unittest.TestCase):
                     yield from walk(child)
                 if getattr(control, 'content', None) is not None:
                     yield from walk(control.content)
+            def contains_value(control, expected):
+                if getattr(control, 'value', None) == expected:
+                    return True
+                if any(contains_value(child, expected) for child in getattr(control, 'controls', []) or []):
+                    return True
+                child = getattr(control, 'content', None)
+                return child is not None and contains_value(child, expected)
             card = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
-                         item.on_click and item.content is not None and item.content.__class__.__name__ == 'Column' and
-                         any(getattr(child, 'text', None) == 'Action' for child in getattr(item.content, 'controls', []) or []))
+                         item.on_click and item.content is not None and contains_value(item.content, 'Action'))
             sort = next(item for item in walk(view) if item.__class__.__name__ == 'Dropdown')
             self.assertTrue(card.on_click)
             self.assertEqual(sort.value, 'Nome A-Z')

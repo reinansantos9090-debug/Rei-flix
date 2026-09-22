@@ -854,14 +854,21 @@ class NativePlayerActivity : ComponentActivity() {
         val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         val current = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
         val deltaSteps = (fraction * maxVolume).roundToInt()
-        if (deltaSteps != 0) {
-            manager.setStreamVolume(
-                AudioManager.STREAM_MUSIC,
-                (current + deltaSteps).coerceIn(0, maxVolume),
-                0,
-            )
+        runCatching {
+            if (deltaSteps != 0) {
+                manager.setStreamVolume(
+                    AudioManager.STREAM_MUSIC,
+                    (current + deltaSteps).coerceIn(0, maxVolume),
+                    0,
+                )
+            }
+        }.onFailure { error ->
+            logPlayer("VOLUME_CHANGE_FAILED", error)
+            showFeedback("VOLUME\\nIndisponível neste dispositivo", 1100L)
+            return
         }
-        showAdjustment("VOLUME", manager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume)
+        val effective = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        showAdjustment("VOLUME", effective.toFloat() / maxVolume)
     }
 
     private fun currentVolumeSummary(): String {

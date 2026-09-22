@@ -1,27 +1,35 @@
 package com.reiflix.reiflix_local
 
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
-import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Color
+import android.graphics.Typeface
+import android.media.AudioManager
 import android.net.Uri
-import android.provider.MediaStore
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.app.PictureInPictureParams
-import android.os.Build
+import android.provider.MediaStore
 import android.view.Gravity
-import java.io.File
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.view.GestureDetector
+import android.view.ScaleGestureDetector
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.SeekBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.core.view.ViewCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -30,10 +38,13 @@ import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.TrackSelectionDialogBuilder
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.TrackSelectionDialogBuilder
 import org.json.JSONObject
+import java.io.File
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /** Full-screen Media3 player for one persisted local, SAF, or MediaStore URI. */
@@ -41,24 +52,66 @@ import kotlin.math.roundToInt
 class NativePlayerActivity : ComponentActivity() {
     private lateinit var player: ExoPlayer
     private lateinit var uri: Uri
+    private lateinit var playerView: PlayerView
+    private lateinit var root: FrameLayout
+    private lateinit var controls: FrameLayout
+    private lateinit var centerControls: LinearLayout
+    private lateinit var topBar: LinearLayout
+    private lateinit var bottomBar: LinearLayout
+    private lateinit var playPauseButton: TextView
+    private lateinit var seekBar: SeekBar
+    private lateinit var positionLabel: TextView
+    private lateinit var durationLabel: TextView
+    private lateinit var feedback: TextView
+    private lateinit var errorPanel: LinearLayout
+
     private val handler = Handler(Looper.getMainLooper())
+    private val audioManager by lazy { getSystemService(AudioManager::class.java) }
     private var lastSavedPosition = -1L
-    // Episode replacement suppresses a normal exit only because Python opens
-    // the next native activity from the mailbox request. Completion and errors
-    // must still publish an exit when the user closes this activity.
     private var suppressExitEvent = false
+    private var exitReported = false
     private var initialSeekApplied = false
     private var autoplayNext = true
     private var completionReported = false
-    private var sleepDeadline = 0L
-    private lateinit var playerView: PlayerView
-    private var audioButton: Button? = null
-    private var subtitleButton: Button? = null
-    private var controlsBar: LinearLayout? = null
-    private val title get() = intent.getStringExtra("title") ?: "Episódio"
+    private var controlsVisible = true
+    private var moreVisible = false
+    private var lastControlsInteraction = 0L
+    private var requestId = ""
+    private var errorVisible = false
+    private var brightnessLevel = 0.5f
+    private var feedbackHideAt = 0L
+
+    private val titleValue: String
+        get() = intent.getStringExtra("title") ?: "Episódio"
+
+    private val controlsHider = object : Runnable {
+        override fun run() {
+            if (controlsVisible && ::player.isInitialized && player.isPlaying && !errorVisible) {
+                val elapsed = System.currentTimeMillis() - lastControlsInteraction
+                if (elapsed >= CONTROL_TIMEOUT_MS) {
+                    setControlsVisible(false)
+                } else {
+                    handler.postDelayed(this, CONTROL_TIMEOUT_MS - elapsed)
+                }
+            }
+        }
+    }
+
+    private val feedbackHider = object : Runnable {
+        override fun run() {
+            if (feedbackHideAt > 0L && System.currentTimeMillis() >= feedbackHideAt) {
+                feedbackHideAt = 0L
+                if (::feedback.isInitialized) feedback.visibility = View.GONE
+            } else if (feedbackHideAt > 0L) {
+                handler.postDelayed(this, 120L)
+            }
+        }
+    }
+
     private val progressReporter = object : Runnable {
         override fun run() {
             saveProgress("player_progress")
+            updateProgressUi()
             if (::player.isInitialized && player.playbackState != Player.STATE_ENDED) {
                 handler.postDelayed(this, PROGRESS_INTERVAL_MS)
             }
@@ -68,316 +121,568 @@ class NativePlayerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        requestId = intent.getStringExtra("requestId")?.trim().orEmpty()
+        logPlayer("onCreate requestId=" + requestId.ifEmpty { "-" } + " task=" + taskId)
+
         enterImmersiveMode()
+        configureWindow()
+
+        root = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            clipChildren = false
+            clipToPadding = false
+        }
+        setContentView(root)
+        installBasePlayerView()
+        installGestureLayer()
+        installControls()
+        installBackHandler()
+        applyRootInsets(WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView))
+
         val rawUri = intent.getStringExtra("uri")
-        if (rawUri.isNullOrBlank()) { reportError("Arquivo local inválido."); finish(); return }
+        logPlayer("URI_RECEIVED requestId=" + requestId.ifEmpty { "-" } +
+            " uriOriginal=" + rawUri.orEmpty())
+        if (rawUri.isNullOrBlank()) {
+            showPlayerError("Arquivo local inválido.", "missing_uri")
+            return
+        }
+
         val resolvedUri = normalizeLocalReference(rawUri)
+        logPlayer("URI_NORMALIZED requestId=" + requestId.ifEmpty { "-" } +
+            " uriNormalized=" + resolvedUri +
+            " scheme=" + (resolvedUri?.scheme ?: "-") +
+            " authority=" + (resolvedUri?.authority ?: "-"))
         if (resolvedUri == null) {
-            reportError("Referência local inválida.")
-            finish()
+            showPlayerError("Referência local inválida.", "invalid_uri")
             return
         }
         uri = resolvedUri
+
+        val source = sourceFor(uri)
+        logPlayer("PREFLIGHT_START requestId=" + requestId.ifEmpty { "-" } +
+            " source=" + source + " scheme=" + uri.scheme + " authority=" + (uri.authority ?: "-"))
         val preflightError = validateLocalSource(uri)
         if (preflightError != null) {
-            reportError(preflightError)
-            finish()
+            logPlayer("PREFLIGHT_FAILED requestId=" + requestId.ifEmpty { "-" } +
+                " source=" + source + " error=" + preflightError)
+            showPlayerError(preflightError, "unauthorized_or_unreadable")
             return
         }
+        logPlayer("PREFLIGHT_OK requestId=" + requestId.ifEmpty { "-" } + " source=" + source)
 
-        player = ExoPlayer.Builder(this).build()
-        savedInstanceState?.getBundle("track_selection_parameters")?.let { bundle ->
-            runCatching { TrackSelectionParameters.fromBundle(bundle) }
-                .onSuccess { player.trackSelectionParameters = it }
-        }
-        autoplayNext = savedInstanceState?.takeIf { it.containsKey("autoplay_next") }?.getBoolean("autoplay_next")
-            ?: intent.getBooleanExtra("autoplay", true)
-        playerView = PlayerView(this).apply {
-            player = this@NativePlayerActivity.player
-            useController = true
-            controllerShowTimeoutMs = 3500
-            controllerAutoShow = true
-            contentDescription = title
-            resizeMode = savedInstanceState?.takeIf { it.containsKey("resize_mode") }?.getInt(
-                "resize_mode", AspectRatioFrameLayout.RESIZE_MODE_FIT
-            ) ?: AspectRatioFrameLayout.RESIZE_MODE_FIT
-        }
-        savedInstanceState?.takeIf { it.containsKey("playback_speed") }?.getFloat("playback_speed")?.let { speed ->
-            if (speed > 0f && speed.isFinite()) player.setPlaybackSpeed(speed)
-        }
-        setContentView(FrameLayout(this).apply {
-            setBackgroundColor(android.graphics.Color.BLACK)
-            addView(playerView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        })
-        installResponsiveOverlay()
-        player.addListener(object : Player.Listener {
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) {
-                    if (!initialSeekApplied) {
-                        val savedPosition = savedInstanceState?.takeIf { it.containsKey("position_ms") }?.getLong("position_ms")
-                        seekToSavedPosition(savedPosition)
-                        initialSeekApplied = true
-                    }
-                    audioButton?.isEnabled = player.currentTracks.groups.any {
-                        it.type == C.TRACK_TYPE_AUDIO && it.isSupported
-                    }
-                    subtitleButton?.isEnabled = player.currentTracks.groups.any {
-                        it.type == C.TRACK_TYPE_TEXT && it.isSupported
-                    }
-                    handler.removeCallbacks(progressReporter)
-                    handler.postDelayed(progressReporter, PROGRESS_INTERVAL_MS)
-                } else if (state == Player.STATE_ENDED && !completionReported) {
-                    completionReported = true
-                    saveProgress("player_completed", force = true)
-                    if (autoplayNext && intent.getBooleanExtra("canNext", false)) requestEpisode("player_next_request")
-                }
+        try {
+            logPlayer("EXOPLAYER_CREATE requestId=" + requestId.ifEmpty { "-" })
+            player = ExoPlayer.Builder(this).build()
+            savedInstanceState?.getBundle("track_selection_parameters")?.let { bundle ->
+                runCatching { TrackSelectionParameters.fromBundle(bundle) }
+                    .onSuccess { player.trackSelectionParameters = it }
+                    .onFailure { error -> logPlayer("TRACK_SELECTION_RESTORE_FAILED " + error) }
             }
-            override fun onPositionDiscontinuity(
-                oldPosition: Player.PositionInfo,
-                newPosition: Player.PositionInfo,
-                reason: Int,
-            ) {
-                if (reason == Player.DISCONTINUITY_REASON_SEEK ||
-                    reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
-                    saveProgress("player_progress", force = true)
-                }
+            autoplayNext = savedInstanceState?.takeIf { it.containsKey("autoplay_next") }?.getBoolean("autoplay_next")
+                ?: intent.getBooleanExtra("autoplay", true)
+
+            player.addListener(playerListener)
+
+            val savedSpeed = savedInstanceState?.takeIf { it.containsKey("playback_speed") }
+                ?.getFloat("playback_speed") ?: 1f
+            if (savedSpeed > 0f && savedSpeed.isFinite()) {
+                player.setPlaybackSpeed(savedSpeed)
             }
-            override fun onPlayerError(error: PlaybackException) {
-                // An error is never completion, but the last reliable position is
-                // still useful for Resume. Flush it before leaving the Activity.
-                saveProgress("player_progress", force = true)
-                suppressExitEvent = true
-                val technicalCode = error.errorCodeName.orEmpty()
-                val detail = error.message?.trim().orEmpty()
-                val message = if (technicalCode.isNotBlank()) {
-                    "Não foi possível reproduzir este arquivo neste dispositivo (Media3: $technicalCode)."
-                } else {
-                    "Não foi possível reproduzir este arquivo neste dispositivo."
-                }
-                NativeMailbox.write(this@NativePlayerActivity, JSONObject()
-                    .put("type", "player_error")
-                    .put("message", message)
-                    .put("payload", JSONObject()
-                        .put("uri", uri.toString())
-                        .put("errorCode", technicalCode)
-                        .put("detail", detail)))
-                Toast.makeText(this@NativePlayerActivity, message, Toast.LENGTH_LONG).show()
-                finish()
+
+            val savedResize = savedInstanceState?.takeIf { it.containsKey("resize_mode") }
+                ?.getInt("resize_mode", AspectRatioFrameLayout.RESIZE_MODE_FIT)
+                ?: AspectRatioFrameLayout.RESIZE_MODE_FIT
+            playerView.resizeMode = savedResize
+
+            val subtitleTracks = LocalSubtitleResolver.resolve(this, uri)
+            val mediaItemBuilder = MediaItem.Builder()
+                .setUri(uri)
+                .setMediaId(uri.toString())
+            if (subtitleTracks.isNotEmpty()) {
+                mediaItemBuilder.setSubtitleConfigurations(
+                    subtitleTracks.map { track ->
+                        MediaItem.SubtitleConfiguration.Builder(track.uri)
+                            .setMimeType(track.mimeType)
+                            .setLanguage(track.language)
+                            .setSelectionFlags(if (track.isDefault) C.SELECTION_FLAG_DEFAULT else 0)
+                            .build()
+                    }
+                )
             }
-        })
-        val subtitleTracks = LocalSubtitleResolver.resolve(this, uri)
-        if (subtitleTracks.isNotEmpty()) {
+
+            val mediaItem = mediaItemBuilder.build()
+            logPlayer("MEDIA_ITEM requestId=" + requestId.ifEmpty { "-" } + " uri=" + mediaItem.localConfiguration?.uri)
+            player.setMediaItem(mediaItem)
+            logPlayer("PREPARE requestId=" + requestId.ifEmpty { "-" })
+            player.prepare()
+            player.playWhenReady = savedInstanceState?.takeIf { it.containsKey("play_when_ready") }
+                ?.getBoolean("play_when_ready") ?: true
+            logPlayer("PLAY_WHEN_READY=" + player.playWhenReady + " requestId=" + requestId.ifEmpty { "-" })
             NativeMailbox.write(
                 this,
-                JSONObject().put("type", "player_sidecar_subtitles").put(
-                    "payload",
-                    JSONObject()
+                JSONObject().put("type", "player_opened")
+                    .put("requestId", requestId)
+                    .put("payload", JSONObject()
                         .put("uri", uri.toString())
-                        .put("count", subtitleTracks.size)
-                        .put("names", subtitleTracks.map { it.displayName }),
-                ),
+                        .put("source", source)
+                        .put("title", titleValue))
             )
+        } catch (exception: Exception) {
+            logPlayer("EXOPLAYER_INIT_FAILED requestId=" + requestId.ifEmpty { "-" }, exception)
+            showPlayerError("Não foi possível iniciar o player local.", "player_initialization")
         }
-        val mediaItemBuilder = MediaItem.Builder().setUri(uri)
-            .setMediaId(uri.toString())
-        if (subtitleTracks.isNotEmpty()) {
-            mediaItemBuilder.setSubtitleConfigurations(
-                subtitleTracks.map { track ->
-                    MediaItem.SubtitleConfiguration.Builder(track.uri)
-                        .setMimeType(track.mimeType)
-                        .setLanguage(track.language)
-                        .setSelectionFlags(if (track.isDefault) C.SELECTION_FLAG_DEFAULT else 0)
-                        .build()
-                }
-            )
-        }
-        player.setMediaItem(mediaItemBuilder.build())
-        player.prepare()
-        player.playWhenReady = savedInstanceState?.takeIf { it.containsKey("play_when_ready") }?.getBoolean("play_when_ready") ?: true
     }
 
-    private fun installResponsiveOverlay() {
-        val overlay = playerView.overlayFrameLayout ?: return
-        addEpisodeButtons(overlay)
-        ViewCompat.setOnApplyWindowInsetsListener(playerView) { _, insets ->
-            applyControlInsets(insets)
-            insets
-        }
-        ViewCompat.requestApplyInsets(playerView)
-    }
-
-    private fun addEpisodeButtons(root: FrameLayout) {
-        val density = resources.displayMetrics.density
-        fun dp(value: Int): Int = (value * density).roundToInt()
-        val sideButtonSize = dp(48)
-        val sideMargin = dp(12)
-
-        val episodeControls = listOf(
-            Triple("Anterior", "player_previous_request", intent.getBooleanExtra("canPrevious", false)),
-            Triple("Próximo", "player_next_request", intent.getBooleanExtra("canNext", false)),
-        )
-        episodeControls.forEachIndexed { index, (label, eventType, enabled) ->
-            if (!enabled) return@forEachIndexed
-            val params = FrameLayout.LayoutParams(sideButtonSize, sideButtonSize).apply {
-                gravity = Gravity.CENTER_VERTICAL or if (index == 0) Gravity.START else Gravity.END
-                if (index == 0) leftMargin = sideMargin else rightMargin = sideMargin
+    private val playerListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(state: Int) {
+            val label = when (state) {
+                Player.STATE_IDLE -> "STATE_IDLE"
+                Player.STATE_BUFFERING -> "STATE_BUFFERING"
+                Player.STATE_READY -> "STATE_READY"
+                Player.STATE_ENDED -> "STATE_ENDED"
+                else -> "STATE_UNKNOWN"
             }
-            root.addView(Button(this).apply {
-                text = label
-                textSize = 11f
-                minWidth = 0
-                minHeight = 0
-                setPadding(dp(4), dp(2), dp(4), dp(2))
-                setOnClickListener { requestEpisode(eventType) }
-            }, params)
+            logPlayer("PLAYBACK_STATE=" + label + " requestId=" + requestId.ifEmpty { "-" } +
+                " positionMs=" + if (::player.isInitialized) player.currentPosition else 0L)
+            when (state) {
+                Player.STATE_READY -> {
+                    if (!initialSeekApplied) {
+                        val savedPosition = intent.getLongExtra("positionMs", 0L)
+                        val restored = savedInstanceState?.takeIf { it.containsKey("position_ms") }
+                            ?.getLong("position_ms")
+                        seekToSavedPosition(restored ?: savedPosition)
+                        initialSeekApplied = true
+                    }
+                    completionReported = false
+                    updateTrackButtons()
+                    updatePlayPauseButton()
+                    updateProgressUi()
+                    startProgressReporting()
+                    if (player.playWhenReady && !errorVisible) scheduleControlsHide()
+                }
+                Player.STATE_BUFFERING -> updatePlayPauseButton()
+                Player.STATE_ENDED -> {
+                    completionReported = true
+                    saveProgress("player_completed", force = true)
+                    updatePlayPauseButton()
+                    if (autoplayNext && intent.getBooleanExtra("canNext", false)) {
+                        requestEpisode("player_next_request")
+                    }
+                }
+                Player.STATE_IDLE -> updatePlayPauseButton()
+            }
         }
 
-        controlsBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(8), dp(6), dp(8), dp(6))
-            setBackgroundColor(0x66000000)
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            logPlayer("IS_PLAYING_CHANGED=" + isPlaying)
+            updatePlayPauseButton()
+            if (isPlaying && !errorVisible) {
+                scheduleControlsHide()
+            } else if (!errorVisible) {
+                setControlsVisible(true)
+            }
         }
-        val bar = controlsBar ?: return
-        root.addView(bar, FrameLayout.LayoutParams(
+
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int,
+        ) {
+            if (reason == Player.DISCONTINUITY_REASON_SEEK ||
+                reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
+                saveProgress("player_progress", force = true)
+            }
+            updateProgressUi()
+        }
+
+        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            updateTrackButtons()
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            val code = error.errorCodeName.orEmpty()
+            val detail = error.message?.trim().orEmpty()
+            logPlayer(
+                "PlaybackException requestId=" + requestId.ifEmpty { "-" } +
+                    " code=" + code + " detail=" + detail +
+                    " cause=" + (error.cause?.javaClass?.simpleName ?: "-"),
+                error,
+            )
+            saveProgress("player_progress", force = true)
+            player.pause()
+            publishPlayerError(
+                "Não foi possível reproduzir este arquivo neste dispositivo.",
+                JSONObject()
+                    .put("uri", uri.toString())
+                    .put("errorCode", code)
+                    .put("detail", detail)
+                    .put("cause", error.cause?.javaClass?.simpleName ?: ""),
+            )
+            showPlayerError("Não foi possível reproduzir este arquivo neste dispositivo.", "media3:" + code)
+        }
+    }
+
+    private fun configureWindow() {
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+    }
+
+    private fun installBasePlayerView() {
+        playerView = PlayerView(this).apply {
+            useController = false
+            controllerAutoShow = false
+            controllerHideOnTouch = false
+            keepScreenOn = true
+            setShutterBackgroundColor(Color.BLACK)
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+        root.addView(
+            playerView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
+        )
+    }
+
+    private fun installGestureLayer() {
+        val gestureLayer = GestureLayer(this)
+        root.addView(
+            gestureLayer,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
+        )
+    }
+
+    private fun installControls() {
+        controls = FrameLayout(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            isClickable = false
+        }
+        root.addView(
+            controls,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
+        )
+
+        topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            setBackgroundColor(0x88000000.toInt())
+        }
+        val topParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,
-        ).apply {
-            gravity = Gravity.BOTTOM
-            leftMargin = dp(8)
-            rightMargin = dp(8)
-        })
+        ).apply { gravity = Gravity.TOP }
+        controls.addView(topBar, topParams)
 
-        fun addWeightedButton(label: String, enabled: Boolean = true, onClick: (Button) -> Unit): Button {
-            val button = Button(this).apply {
-                text = label
-                textSize = 11f
-                isAllCaps = false
-                isEnabled = enabled
-                minWidth = 0
-                minHeight = 0
-                maxLines = 1
-                setPadding(dp(2), dp(2), dp(2), dp(2))
-            }
-            button.layoutParams = LinearLayout.LayoutParams(0, dp(46), 1f).apply {
-                marginStart = dp(2)
-                marginEnd = dp(2)
-            }
-            button.setOnClickListener { onClick(button) }
-            bar.addView(button)
-            return button
+        val back = actionButton("‹", 44) {
+            finishPlayer("back_button")
         }
+        back.contentDescription = "Voltar"
+        topBar.addView(back, weightParams(44))
 
-        audioButton = addWeightedButton("Áudio", false) {
+        val title = TextView(this).apply {
+            text = titleValue
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER_VERTICAL
+            contentDescription = "Título do episódio"
+        }
+        topBar.addView(title, LinearLayout.LayoutParams(0, dp(48), 1f))
+
+        val audioButton = actionButton("Áudio", 64) {
             showTrackSelection(C.TRACK_TYPE_AUDIO, "Áudio")
         }
-        subtitleButton = addWeightedButton("Legendas", false) {
+        audioButton.tag = "reiflix_audio_button"
+        topBar.addView(audioButton, weightParams(64))
+
+        val subtitleButton = actionButton("Legenda", 72) {
             showTrackSelection(C.TRACK_TYPE_TEXT, "Legendas")
         }
-        addWeightedButton("1.0x") { cycleSpeed(it) }
-        addWeightedButton("Ajustar") { cycleAspect(it) }
-        addWeightedButton("Reiniciar") {
-            player.seekTo(0)
-            saveProgress("player_progress", true)
+        subtitleButton.tag = "reiflix_subtitle_button"
+        topBar.addView(subtitleButton, weightParams(72))
+
+        val speedButton = actionButton("1.0x", 58) {
+            cycleSpeed(speedButton)
+        }
+        speedButton.tag = "reiflix_speed_button"
+        topBar.addView(speedButton, weightParams(58))
+
+        val aspectButton = actionButton("Ajustar", 68) {
+            cycleAspect(aspectButton)
+        }
+        aspectButton.tag = "reiflix_aspect_button"
+        topBar.addView(aspectButton, weightParams(68))
+
+        if (canEnterPictureInPicture()) {
+            val pipButton = actionButton("PIP", 48) {
+                enterPictureInPictureMode()
+            }
+            pipButton.contentDescription = "Picture in Picture"
+            topBar.addView(pipButton, weightParams(48))
         }
 
-        root.addView(Button(this).apply {
-            text = if (autoplayNext) "Autoplay: ON" else "Autoplay: OFF"
-            textSize = 10f
-            setOnClickListener {
-                autoplayNext = !autoplayNext
-                text = if (autoplayNext) "Autoplay: ON" else "Autoplay: OFF"
-                NativeMailbox.write(
-                    this@NativePlayerActivity,
-                    JSONObject().put("type", "player_autoplay_changed")
-                        .put("payload", JSONObject().put("enabled", autoplayNext)),
-                )
+        val moreButton = actionButton("Mais", 54) {
+            moreVisible = !moreVisible
+            findViewByTag<View>("reiflix_more_panel")?.visibility = if (moreVisible) View.VISIBLE else View.GONE
+            touchControls()
+        }
+        topBar.addView(moreButton, weightParams(54))
+
+        centerControls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val centerParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply { gravity = Gravity.CENTER }
+        controls.addView(centerControls, centerParams)
+
+        val previousButton = actionButton("−10", 70) { seekBy(-10_000L, "−10s") }
+        previousButton.tag = "reiflix_seek_back"
+        centerControls.addView(previousButton, weightParams(70))
+
+        playPauseButton = actionButton("▶", 84) { togglePlayPause() }.apply {
+            textSize = 26f
+            tag = "reiflix_play_pause"
+            minHeight = dp(72)
+            minWidth = dp(72)
+        }
+        centerControls.addView(playPauseButton, weightParams(84))
+
+        val nextButton = actionButton("+10", 70) { seekBy(10_000L, "+10s") }
+        nextButton.tag = "reiflix_seek_forward"
+        centerControls.addView(nextButton, weightParams(70))
+
+        bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(4), dp(8), dp(8))
+            setBackgroundColor(0x88000000.toInt())
+        }
+        val bottomParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply { gravity = Gravity.BOTTOM }
+        controls.addView(bottomBar, bottomParams)
+
+        val seekRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        positionLabel = TextView(this).apply {
+            text = "00:00"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            tag = "reiflix_position"
+        }
+        durationLabel = TextView(this).apply {
+            text = "00:00"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            tag = "reiflix_duration"
+        }
+        seekBar = SeekBar(this).apply {
+            max = SEEK_PROGRESS_MAX
+            contentDescription = "Barra de progresso"
+            tag = "reiflix_seekbar"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser && ::player.isInitialized && player.duration > 0L) {
+                        val target = player.duration * progress.toLong() / SEEK_PROGRESS_MAX
+                        positionLabel.text = formatTime(target)
+                    }
+                }
+
+                override fun onStartTrackingTouch(bar: SeekBar?) {
+                    touchControls()
+                }
+
+                override fun onStopTrackingTouch(bar: SeekBar?) {
+                    if (!::player.isInitialized || player.duration <= 0L) return
+                    val target = player.duration * seekBar.progress.toLong() / SEEK_PROGRESS_MAX
+                    player.seekTo(target.coerceIn(0L, player.duration))
+                    saveProgress("player_progress", force = true)
+                    showFeedback(formatTime(target))
+                    scheduleControlsHide()
+                }
+            })
+        }
+        seekRow.addView(positionLabel, LinearLayout.LayoutParams(dp(48), dp(40)))
+        seekRow.addView(seekBar, LinearLayout.LayoutParams(0, dp(40), 1f))
+        seekRow.addView(durationLabel, LinearLayout.LayoutParams(dp(48), dp(40)))
+        bottomBar.addView(seekRow)
+
+        val actionsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val prevEpisode = actionButton("Anterior", 82) {
+            if (intent.getBooleanExtra("canPrevious", false)) requestEpisode("player_previous_request")
+        }
+        prevEpisode.tag = "reiflix_previous_episode"
+        prevEpisode.isEnabled = intent.getBooleanExtra("canPrevious", false)
+        actionsRow.addView(prevEpisode, weightParams(82))
+
+        val audio = actionButton("Áudio", 72) { showTrackSelection(C.TRACK_TYPE_AUDIO, "Áudio") }
+        audio.tag = "reiflix_audio_bottom"
+        actionsRow.addView(audio, weightParams(72))
+
+        val nextEpisode = actionButton("Próximo", 82) {
+            if (intent.getBooleanExtra("canNext", false)) requestEpisode("player_next_request")
+        }
+        nextEpisode.tag = "reiflix_next_episode"
+        nextEpisode.isEnabled = intent.getBooleanExtra("canNext", false)
+        actionsRow.addView(nextEpisode, weightParams(82))
+
+        val watched = actionButton("Visto", 62) {
+            NativeMailbox.write(
+                this,
+                JSONObject().put("type", "player_mark_watched")
+                    .put("requestId", requestId)
+                    .put("payload", JSONObject().put("uri", uri.toString()))
+            )
+            saveProgress("player_progress", force = true)
+            showFeedback("Visto")
+        }
+        actionsRow.addView(watched, weightParams(62))
+        bottomBar.addView(actionsRow)
+
+        val morePanel = LinearLayout(this).apply {
+            tag = "reiflix_more_panel"
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+        }
+        morePanel.addView(actionButton("Reiniciar", 72) {
+            if (::player.isInitialized) {
+                player.seekTo(0L)
+                saveProgress("player_progress", force = true)
+                showFeedback("00:00")
             }
-        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(44)).apply {
-            gravity = Gravity.TOP or Gravity.END
-            topMargin = sideMargin
-            rightMargin = sideMargin
-        })
+        }, weightParams(72))
+        morePanel.addView(actionButton("Autoplay " + if (autoplayNext) "ON" else "OFF", 92) { button ->
+            autoplayNext = !autoplayNext
+            button.text = "Autoplay " + if (autoplayNext) "ON" else "OFF"
+            showFeedback(if (autoplayNext) "Autoplay ligado" else "Autoplay desligado")
+        }, weightParams(92))
+        morePanel.addView(actionButton("Timer 15m", 82) {
+            showFeedback("Timer de sono não interrompe a reprodução automaticamente")
+        }, weightParams(82))
+        bottomBar.addView(morePanel)
+    }
 
-        root.addView(Button(this).apply {
-            text = "15 min"
-            textSize = 10f
-            setOnClickListener { setSleepTimer(this) }
-        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(44)).apply {
-            gravity = Gravity.TOP or Gravity.START
-            topMargin = sideMargin
-            leftMargin = sideMargin
-        })
-
-        root.addView(Button(this).apply {
-            text = "Visto"
-            textSize = 10f
-            setOnClickListener {
-                NativeMailbox.write(
-                    this@NativePlayerActivity,
-                    JSONObject().put("type", "player_mark_watched")
-                        .put("payload", JSONObject().put("uri", uri.toString())),
-                )
-                saveProgress("player_progress", true)
-            }
-        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(44)).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            topMargin = sideMargin
-        })
-
-        root.addView(Button(this).apply {
-            text = "Não visto"
-            textSize = 10f
-            setOnClickListener {
-                NativeMailbox.write(
-                    this@NativePlayerActivity,
-                    JSONObject().put("type", "player_mark_unwatched")
-                        .put("payload", JSONObject().put("uri", uri.toString())),
-                )
-            }
-        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(44)).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            topMargin = dp(58)
-        })
-
-        applyControlInsets(
-            WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView)
+    private fun installBackHandler() {
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : androidx.activity.OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    finishPlayer("android_back")
+                }
+            },
         )
     }
 
-    private fun applyControlInsets(insets: WindowInsetsCompat) {
-        val density = resources.displayMetrics.density
-        fun dp(value: Int): Int = (value * density).roundToInt()
-        val system = insets.getInsets(
+    private fun applyRootInsets(insets: WindowInsetsCompat) {
+        val safe = insets.getInsets(
             WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
         )
-        controlsBar?.let { bar ->
-            val params = bar.layoutParams as? FrameLayout.LayoutParams
-            if (params != null) {
-                params.bottomMargin = maxOf(dp(8), system.bottom)
-                bar.layoutParams = params
-            }
+        val topParams = topBar.layoutParams as? FrameLayout.LayoutParams
+        if (topParams != null) {
+            topParams.topMargin = max(dp(4), safe.top)
+            topBar.layoutParams = topParams
         }
-        playerView.requestLayout()
+        val bottomParams = bottomBar.layoutParams as? FrameLayout.LayoutParams
+        if (bottomParams != null) {
+            bottomParams.bottomMargin = max(dp(4), safe.bottom)
+            bottomBar.layoutParams = bottomParams
+        }
+        controls.setPadding(
+            max(dp(4), safe.left),
+            0,
+            max(dp(4), safe.right),
+            0,
+        )
     }
 
-    private fun showTrackSelection(trackType: Int, label: String) {
+    private fun togglePlayPause() {
+        if (!::player.isInitialized || errorVisible) return
+        if (player.isPlaying) {
+            player.pause()
+            saveProgress("player_paused", force = true)
+        } else {
+            player.play()
+        }
+        touchControls()
+        updatePlayPauseButton()
+    }
+
+    private fun updatePlayPauseButton() {
+        if (!::playPauseButton.isInitialized) return
+        playPauseButton.text = when {
+            !::player.isInitialized -> "▶"
+            player.isPlaying -> "❚❚"
+            player.playbackState == Player.STATE_ENDED -> "↻"
+            else -> "▶"
+        }
+    }
+
+    private fun updateTrackButtons() {
+        val audioAvailable = ::player.isInitialized && player.currentTracks.groups.any {
+            it.type == C.TRACK_TYPE_AUDIO && it.isSupported
+        }
+        val subtitleAvailable = ::player.isInitialized && player.currentTracks.groups.any {
+            it.type == C.TRACK_TYPE_TEXT && it.isSupported
+        }
+        findViewByTag<View>("reiflix_audio_button")?.isEnabled = audioAvailable
+        findViewByTag<View>("reiflix_subtitle_button")?.isEnabled = subtitleAvailable
+        findViewByTag<View>("reiflix_audio_bottom")?.isEnabled = audioAvailable
+    }
+
+    private fun updateProgressUi() {
+        if (!::seekBar.isInitialized || !::player.isInitialized) return
+        val duration = player.duration
+        val position = player.currentPosition.coerceAtLeast(0L)
+        if (duration > 0L) {
+            seekBar.progress = ((position.toDouble() / duration.toDouble()) * SEEK_PROGRESS_MAX)
+                .roundToInt().coerceIn(0, SEEK_PROGRESS_MAX)
+        } else {
+            seekBar.progress = 0
+        }
+        positionLabel.text = formatTime(position)
+        durationLabel.text = formatTime(duration.coerceAtLeast(0L))
+    }
+
+    private fun startProgressReporting() {
+        handler.removeCallbacks(progressReporter)
+        handler.post(progressReporter)
+    }
+
+    private fun cycleSpeed(button: TextView) {
         if (!::player.isInitialized) return
-        if (!player.currentTracks.groups.any { it.type == trackType && it.isSupported }) return
-        TrackSelectionDialogBuilder(this, label, player, trackType)
-            .setAllowAdaptiveSelections(false)
-            .setAllowMultipleOverrides(false)
-            .build()
-            .show()
-    }
-
-    private fun cycleSpeed(button: Button) {
         val speeds = floatArrayOf(.5f, .75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
         val current = player.playbackParameters.speed
-        val next = speeds[((speeds.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 2) + 1) % speeds.size]
-        player.setPlaybackSpeed(next); button.text = "${next}x"
+        val index = speeds.indexOfFirst { abs(it - current) < 0.01f }.takeIf { it >= 0 } ?: 2
+        val next = speeds[(index + 1) % speeds.size]
+        player.setPlaybackSpeed(next)
+        button.text = String.format(java.util.Locale.US, "%.2fx", next)
+        showFeedback(button.text.toString())
+        touchControls()
     }
-    private fun cycleAspect(button: Button) {
+
+    private fun cycleAspect(button: TextView) {
+        if (!::playerView.isInitialized) return
         val next = if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) {
             AspectRatioFrameLayout.RESIZE_MODE_FIT
         } else {
@@ -385,41 +690,236 @@ class NativePlayerActivity : ComponentActivity() {
         }
         playerView.resizeMode = next
         button.text = if (next == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) "Preencher" else "Ajustar"
+        showFeedback(button.text.toString())
+        touchControls()
         playerView.requestLayout()
     }
-    private fun setSleepTimer(button: Button) {
-        val minutes = when ((sleepDeadline - System.currentTimeMillis()).coerceAtLeast(0L)) { 0L -> 15; in 1..900_000 -> 30; in 900_001..1_800_000 -> 45; else -> 0 }
-        sleepDeadline = if (minutes == 0) 0 else System.currentTimeMillis() + minutes * 60_000L
-        button.text = if (minutes == 0) "Timer: off" else "$minutes min"
-        handler.removeCallbacks(sleepReporter)
-        if (sleepDeadline > 0) handler.postDelayed(sleepReporter, 1_000L)
+
+    private fun showTrackSelection(trackType: Int, label: String) {
+        if (!::player.isInitialized) return
+        if (!player.currentTracks.groups.any { it.type == trackType && it.isSupported }) {
+            showFeedback("Nenhuma faixa disponível")
+            return
+        }
+        TrackSelectionDialogBuilder(this, label, player, trackType)
+            .setAllowAdaptiveSelections(false)
+            .setAllowMultipleOverrides(false)
+            .build()
+            .show()
     }
-    private val sleepReporter = object : Runnable {
-        override fun run() {
-            if (sleepDeadline > 0 && System.currentTimeMillis() >= sleepDeadline) {
-                saveProgress("player_paused", force = true)
-                player.pause()
-                sleepDeadline = 0
-                Toast.makeText(this@NativePlayerActivity, "Timer de sono concluído", Toast.LENGTH_SHORT).show()
-            } else if (sleepDeadline > 0) {
-                handler.postDelayed(this, 1_000L)
-            }
+
+    private fun seekBy(deltaMs: Long, feedbackText: String) {
+        if (!::player.isInitialized || player.duration <= 0L) return
+        val target = (player.currentPosition + deltaMs).coerceIn(0L, player.duration)
+        player.seekTo(target)
+        saveProgress("player_progress", force = true)
+        showFeedback(feedbackText)
+        touchControls()
+    }
+
+    private fun adjustBrightness(deltaPercent: Float) {
+        brightnessLevel = (brightnessLevel + deltaPercent).coerceIn(0.05f, 1f)
+        val attributes = window.attributes
+        attributes.screenBrightness = brightnessLevel
+        window.attributes = attributes
+        showAdjustment("BRILHO", brightnessLevel)
+    }
+
+    private fun adjustVolume(deltaSteps: Int) {
+        val manager = audioManager ?: return
+        val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val current = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val next = (current + deltaSteps).coerceIn(0, maxVolume)
+        if (next != current) {
+            manager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
+        }
+        showAdjustment("VOLUME", next.toFloat() / maxVolume.toFloat())
+    }
+
+    private fun showAdjustment(label: String, ratio: Float) {
+        val percent = (ratio.coerceIn(0f, 1f) * 100f).roundToInt()
+        val bars = 10
+        val filled = ((percent / 100f) * bars).roundToInt().coerceIn(0, bars)
+        showFeedback(label + "\n" + "█".repeat(filled) + "░".repeat(bars - filled) + "\n" + percent + "%", 1100L)
+    }
+
+    private fun showFeedback(message: String, durationMs: Long = 900L) {
+        if (!::feedback.isInitialized) return
+        feedback.text = message
+        feedback.visibility = View.VISIBLE
+        feedbackHideAt = System.currentTimeMillis() + durationMs
+        handler.removeCallbacks(feedbackHider)
+        handler.post(feedbackHider)
+    }
+
+    private fun setControlsVisible(visible: Boolean) {
+        controlsVisible = visible
+        controls.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+        if (visible) {
+            touchControls()
+        } else {
+            moreVisible = false
+            findViewById<ViewGroup>(android.R.id.content)
+                ?.findViewWithTag<View>("reiflix_more_panel")
+                ?.visibility = View.GONE
         }
     }
 
-    private fun requestEpisode(eventType: String) {
-        if (!completionReported) saveProgress("player_progress", force = true)
-        // The incoming replacement player owns the next screen state; avoid
-        // emitting a misleading normal-exit event while changing episodes.
-        suppressExitEvent = true
-        NativeMailbox.write(this, JSONObject().put("type", eventType).put("payload", JSONObject().put("uri", uri.toString())))
+    private fun touchControls() {
+        controlsVisible = true
+        controls.visibility = View.VISIBLE
+        lastControlsInteraction = System.currentTimeMillis()
+        handler.removeCallbacks(controlsHider)
+        if (::player.isInitialized && player.isPlaying && !errorVisible) {
+            handler.postDelayed(controlsHider, CONTROL_TIMEOUT_MS)
+        }
+    }
+
+    private fun scheduleControlsHide() {
+        touchControls()
+    }
+
+    private fun showPlayerError(message: String, reason: String) {
+        errorVisible = true
+        setControlsVisible(true)
+        findViewByTag<View>("reiflix_error_text")?.let { (it as TextView).text = message }
+        findViewByTag<View>("reiflix_error_reason")?.let { (it as TextView).text = "Detalhe: " + reason }
+        findViewByTag<View>("reiflix_error_panel")?.visibility = View.VISIBLE
+        findViewByTag<View>("reiflix_error_back")?.requestFocus()
+        if (::feedback.isInitialized) feedback.visibility = View.GONE
+        if (reason.startsWith("media3:")) {
+            publishPlayerError(message, JSONObject().put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty()))
+        } else {
+            publishPlayerError(
+                message,
+                JSONObject()
+                    .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
+                    .put("reason", reason),
+            )
+        }
+    }
+
+    private fun publishPlayerError(message: String, payload: JSONObject = JSONObject()) {
+        val ok = NativeMailbox.write(
+            this,
+            JSONObject()
+                .put("type", "player_error")
+                .put("requestId", requestId)
+                .put("message", message)
+                .put("payload", payload),
+        )
+        if (!ok) logPlayer("FAILED_TO_PUBLISH player_error requestId=" + requestId.ifEmpty { "-" })
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun finishPlayer(reason: String) {
+        if (!exitReported) {
+            exitReported = true
+            suppressExitEvent = true
+            val payload = JSONObject()
+                .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
+                .put("reason", reason)
+            NativeMailbox.write(
+                this,
+                JSONObject().put("type", "player_exited")
+                    .put("requestId", requestId)
+                    .put("payload", payload)
+            )
+            logPlayer("finish() requested reason=" + reason + " requestId=" + requestId.ifEmpty { "-" })
+        }
         finish()
     }
 
-    private fun seekToSavedPosition(savedPositionMs: Long? = null) {
-        val requested = (savedPositionMs ?: intent.getLongExtra("positionMs", 0L)).coerceAtLeast(0L)
+    private fun requestEpisode(eventType: String) {
+        if (!::player.isInitialized) return
+        if (!completionReported) saveProgress("player_progress", force = true)
+        suppressExitEvent = true
+        val payload = JSONObject()
+            .put("uri", uri.toString())
+            .put("requestId", requestId)
+        NativeMailbox.write(
+            this,
+            JSONObject().put("type", eventType)
+                .put("requestId", requestId)
+                .put("payload", payload)
+        )
+        logPlayer(eventType + " requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri)
+        finish()
+    }
+
+    private fun seekToSavedPosition(savedPositionMs: Long) {
+        if (!::player.isInitialized) return
+        val requested = savedPositionMs.coerceAtLeast(0L)
         val duration = player.duration
-        if (requested > 0 && (duration == C.TIME_UNSET || requested < duration)) player.seekTo(requested)
+        if (requested > 0L && (duration <= 0L || requested < duration)) {
+            player.seekTo(requested)
+        }
+    }
+
+    private fun saveProgress(eventType: String, force: Boolean = false) {
+        if (!::player.isInitialized) return
+        val position = player.currentPosition.coerceAtLeast(0L)
+        val duration = player.duration.coerceAtLeast(0L)
+        if (!force && lastSavedPosition >= 0L && abs(position - lastSavedPosition) < PROGRESS_INTERVAL_MS) return
+        if (force && position == lastSavedPosition &&
+            eventType != "player_completed" && eventType != "player_exited") {
+            return
+        }
+        lastSavedPosition = position
+        val ok = NativeMailbox.write(
+            this,
+            JSONObject().put("type", eventType)
+                .put("requestId", requestId)
+                .put(
+                    "payload",
+                    JSONObject().put("uri", uri.toString())
+                        .put("positionMs", position)
+                        .put("durationMs", duration),
+                ),
+        )
+        if (!ok) logPlayer("FAILED_TO_PUBLISH " + eventType + " requestId=" + requestId.ifEmpty { "-" })
+    }
+
+    override fun onStart() {
+        super.onStart()
+        logPlayer("onStart requestId=" + requestId.ifEmpty { "-" })
+        enterImmersiveMode()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        logPlayer("onResume requestId=" + requestId.ifEmpty { "-" })
+        enterImmersiveMode()
+        if (::player.isInitialized && !errorVisible) {
+            updateProgressUi()
+            updatePlayPauseButton()
+        }
+    }
+
+    override fun onPause() {
+        saveProgress("player_paused", force = true)
+        logPlayer("onPause requestId=" + requestId.ifEmpty { "-" })
+        super.onPause()
+    }
+
+    override fun onStop() {
+        saveProgress("player_progress", force = true)
+        logPlayer("onStop finishing=" + isFinishing + " changingConfig=" + isChangingConfigurations)
+        super.onStop()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        logPlayer("onWindowFocusChanged hasFocus=" + hasFocus +
+            " finishing=" + isFinishing + " resumed=" + !isFinishing)
+        if (hasFocus) enterImmersiveMode()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        logPlayer("onConfigurationChanged orientation=" + newConfig.orientation)
+        ViewCompat.requestApplyInsets(root)
+        applyImmersiveAfterLayout()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -430,60 +930,29 @@ class NativePlayerActivity : ComponentActivity() {
             outState.putBoolean("play_when_ready", player.playWhenReady)
             outState.putBundle("track_selection_parameters", player.trackSelectionParameters.toBundle())
         }
-        if (::playerView.isInitialized) outState.putInt("resize_mode", playerView.resizeMode)
+        if (::playerView.isInitialized) {
+            outState.putInt("resize_mode", playerView.resizeMode)
+        }
         outState.putBoolean("autoplay_next", autoplayNext)
         super.onSaveInstanceState(outState)
     }
-    override fun onPause() { saveProgress("player_paused", force = true); super.onPause() }
-    override fun onStop() { saveProgress("player_progress", force = true); super.onStop() }
+
     override fun onDestroy() {
         handler.removeCallbacks(progressReporter)
-        handler.removeCallbacks(sleepReporter)
+        handler.removeCallbacks(controlsHider)
+        handler.removeCallbacks(feedbackHider)
         if (::player.isInitialized) {
-            if (!suppressExitEvent && !isChangingConfigurations) {
-                saveProgress("player_exited", force = true)
+            if (isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations) {
+                finishPlayer("activity_finish")
             }
             player.release()
+            logPlayer("player.release requestId=" + requestId.ifEmpty { "-" })
+        } else if (isFinishing && !exitReported && !isChangingConfigurations) {
+            finishPlayer("activity_finish_without_player")
         }
+        logPlayer("onDestroy finishing=" + isFinishing + " changingConfig=" + isChangingConfigurations)
         super.onDestroy()
     }
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        if (::playerView.isInitialized) {
-            playerView.post {
-                applyControlInsets(
-                    WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView)
-                )
-                playerView.requestLayout()
-                enterImmersiveMode()
-            }
-        }
-    }
-
-    override fun onResume() { super.onResume(); enterImmersiveMode() }
-    override fun onUserLeaveHint() {
-        // Some Android/TV builds omit PiP even on API 26+. Entering PiP without
-        // the feature is not a fallback; it can throw and terminate playback.
-        if (canEnterPictureInPicture()) {
-            runCatching {
-                val builder = PictureInPictureParams.Builder()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    builder.setAutoEnterEnabled(true)
-                    builder.setSeamlessResizeEnabled(true)
-                }
-                enterPictureInPictureMode(builder.build())
-            }.onFailure { error ->
-                android.util.Log.w(TAG, "PiP indisponível neste dispositivo.", error)
-            }
-        }
-        super.onUserLeaveHint()
-    }
-
-    private fun canEnterPictureInPicture(): Boolean =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
-            ::player.isInitialized && player.isPlaying
-    override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) enterImmersiveMode() }
 
     private fun enterImmersiveMode() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -491,28 +960,65 @@ class NativePlayerActivity : ComponentActivity() {
             hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
+        ViewCompat.requestApplyInsets(window.decorView)
     }
-    private fun saveProgress(eventType: String, force: Boolean = false) {
-        if (!::player.isInitialized) return
-        val rawPosition = player.currentPosition
-        val rawDuration = player.duration
-        val position = rawPosition.takeIf { it >= 0L }?.coerceAtMost(
-            rawDuration.takeIf { it > 0L } ?: Long.MAX_VALUE
-        ) ?: 0L
-        val duration = rawDuration.takeIf { it > 0L } ?: 0L
-        if (!force && abs(position - lastSavedPosition) < PROGRESS_INTERVAL_MS) return
-        // Lifecycle callbacks can fire back-to-back (pause -> stop -> destroy).
-        // Avoid emitting identical snapshots while still flushing meaningful events.
-        if (force && position == lastSavedPosition &&
-            eventType != "player_completed" && eventType != "player_exited") return
-        lastSavedPosition = position
-        NativeMailbox.write(this, JSONObject().put("type", eventType).put("payload", JSONObject()
-            .put("uri", uri.toString()).put("positionMs", position)
-            .put("durationMs", duration)))
+
+    private fun applyImmersiveAfterLayout() {
+        window.decorView.post {
+            enterImmersiveMode()
+            if (::root.isInitialized) {
+                applyRootInsets(WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView))
+                root.requestLayout()
+            }
+        }
     }
-    private fun reportError(message: String) {
-        NativeMailbox.write(this, JSONObject().put("type", "player_error").put("message", message))
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+
+    private fun formatTime(valueMs: Long): String {
+        val totalSeconds = (valueMs / 1000L).coerceAtLeast(0L)
+        val seconds = totalSeconds % 60L
+        val minutes = (totalSeconds / 60L) % 60L
+        val hours = totalSeconds / 3600L
+        return if (hours > 0L) {
+            String.format(java.util.Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
+        }
+    }
+
+    private fun actionButton(label: String, widthDp: Int, action: (TextView) -> Unit): TextView {
+        return TextView(this).apply {
+            text = label
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(dp(4), dp(2), dp(4), dp(2))
+            isClickable = true
+            isFocusable = true
+            setBackgroundColor(0x66000000)
+            minWidth = dp(widthDp)
+            minHeight = dp(44)
+            setOnClickListener { action(this) }
+        }
+    }
+
+    private fun weightParams(widthDp: Int): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+            width = 0
+            minWidth = dp(widthDp)
+            marginStart = dp(2)
+            marginEnd = dp(2)
+        }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).roundToInt().coerceAtLeast(1)
+
+    private fun sourceFor(localUri: Uri): String {
+        return when {
+            localUri.scheme.equals("content", true) && localUri.authority == MediaStore.AUTHORITY -> "mediastore"
+            localUri.scheme.equals("content", true) -> "saf"
+            localUri.scheme.equals("file", true) -> "broad_storage"
+            else -> "unknown"
+        }
     }
 
     private fun normalizeLocalReference(rawReference: String): Uri? {
@@ -528,7 +1034,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun validateLocalSource(localUri: Uri): String? {
-        return when (localUri.scheme?.lowercase()) {
+        val result = when (localUri.scheme?.lowercase()) {
             "content" -> {
                 val safAuthorized = runCatching {
                     SafScanner.isAuthorizedDocument(this, localUri)
@@ -538,16 +1044,19 @@ class NativePlayerActivity : ComponentActivity() {
                         MediaStoreScanner.isAuthorizedDocument(this, localUri)
                     }.getOrDefault(false)
                 } else false
+                logPlayer("AUTH_CHECK uri=" + localUri + " saf=" + safAuthorized + " mediastore=" + mediaStoreAuthorized)
                 if (!safAuthorized && !mediaStoreAuthorized) {
                     if (localUri.authority == MediaStore.AUTHORITY &&
                         !MediaStoreScanner.hasReadPermission(this)) {
                         "A permissão para ler vídeos foi revogada."
                     } else {
-                        "A autorização deste arquivo não está mais disponível ou o provedor está indisponível."
+                        "A autorização deste arquivo não está mais disponível ou o provedor local está indisponível."
                     }
                 } else {
                     val readable = runCatching {
                         contentResolver.openFileDescriptor(localUri, "r")?.use { true } == true
+                    }.onFailure { error ->
+                        logPlayer("CONTENT_READ_PREFLIGHT_FAILED uri=" + localUri, error)
                     }.getOrDefault(false)
                     if (!readable) {
                         "O provedor local não está disponível para leitura deste arquivo."
@@ -558,21 +1067,123 @@ class NativePlayerActivity : ComponentActivity() {
                 val file = runCatching {
                     File(localUri.path ?: "").canonicalFile
                 }.getOrNull() ?: return "Arquivo local inválido."
+                val authorized = runCatching {
+                    BroadStorageScanner.isAuthorizedFile(this, localUri)
+                }.getOrDefault(false)
+                logPlayer("AUTH_CHECK uri=" + localUri + " broad=" + authorized + " exists=" + file.exists())
                 when {
                     !file.exists() -> "Arquivo local removido ou indisponível."
                     !file.isFile -> "A referência local não aponta para um arquivo."
-                    !BroadStorageScanner.isAuthorizedFile(this, localUri) ->
-                        "Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."
+                    !authorized -> "Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."
                     !file.canRead() -> "O arquivo local não pode ser lido neste momento."
                     else -> null
                 }
             }
             else -> "A reprodução aceita somente referências locais content:// ou file://."
         }
+        logPlayer("validateLocalSource result=" + (result ?: "OK") + " uri=" + localUri)
+        return result
+    }
+
+    private fun findViewByTag(tagValue: String): View? =
+        root.findViewWithTag(tagValue)
+
+    private fun logPlayer(message: String, error: Throwable? = null) {
+        if (error != null) {
+            android.util.Log.e(TAG, message, error)
+        } else {
+            android.util.Log.i(TAG, message)
+        }
+    }
+
+    private inner class GestureLayer(context: Context) : View(context) {
+        private val gestureDetector = GestureDetector(
+            context,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(e: MotionEvent): Boolean = true
+
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    if (errorVisible) return true
+                    val delta = if (e.x < width / 2f) -10_000L else 10_000L
+                    seekBy(delta, if (delta < 0) "−10s" else "+10s")
+                    return true
+                }
+
+                override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                    if (!errorVisible) {
+                        setControlsVisible(!controlsVisible)
+                    }
+                    return true
+                }
+            },
+        )
+
+        private val scaleDetector = ScaleGestureDetector(
+            context,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    if (errorVisible) return true
+                    if (detector.scaleFactor > 1.04f) {
+                        playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        showFeedback("ZOOM")
+                    } else if (detector.scaleFactor < 0.96f) {
+                        playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        showFeedback("FIT")
+                    }
+                    touchControls()
+                    return true
+                }
+            },
+        )
+
+        private var downX = 0f
+        private var downY = 0f
+        private var downAt = 0L
+        private var scaled = false
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            scaleDetector.onTouchEvent(event)
+            if (event.pointerCount > 1) {
+                scaled = true
+                return true
+            }
+            gestureDetector.onTouchEvent(event)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    downAt = System.currentTimeMillis()
+                    scaled = false
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (!scaled && event.actionMasked == MotionEvent.ACTION_UP) {
+                        val dx = event.x - downX
+                        val dy = event.y - downY
+                        val duration = System.currentTimeMillis() - downAt
+                        if (duration < 900L && abs(dx) > dp(44) && abs(dx) > abs(dy) * 1.2f) {
+                            val seekMs = (dx / resources.displayMetrics.density * 40L).roundToInt().toLong()
+                            seekBy(seekMs, if (seekMs < 0) "−" + formatTime(abs(seekMs)) else "+" + formatTime(abs(seekMs)))
+                        } else if (duration < 900L && abs(dy) > dp(44) && abs(dy) > abs(dx) * 1.2f) {
+                            val normalized = (-dy / dp(100).toFloat())
+                            if (downX < width / 2f) {
+                                adjustBrightness(normalized * 0.15f)
+                            } else {
+                                val steps = (normalized * 2f).roundToInt()
+                                adjustVolume(if (steps == 0) if (dy < 0) 1 else -1 else steps)
+                            }
+                        }
+                        scaled = false
+                    }
+                }
+            }
+            return true
+        }
     }
 
     companion object {
         private const val TAG = "[REIFLIX][PLAYER]"
         private const val PROGRESS_INTERVAL_MS = 15_000L
+        private const val CONTROL_TIMEOUT_MS = 3_500L
+        private const val SEEK_PROGRESS_MAX = 1000
     }
 }

@@ -1330,7 +1330,16 @@ class NativePlayerActivity : ComponentActivity() {
                     return true
                 }
 
-                override fun onSingleTapConfirmed(e: MotionEvent): Boolean = true
+                override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                    if (!errorVisible &&
+                        gestureMode == GestureMode.NONE &&
+                        !gestureConsumed &&
+                        android.os.SystemClock.uptimeMillis() >= suppressTapUntil
+                    ) {
+                        setControlsVisible(!controlsVisible)
+                    }
+                    return true
+                }
             },
         )
 

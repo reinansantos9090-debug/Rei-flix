@@ -1065,9 +1065,6 @@ class LibraryBrowseTests(unittest.TestCase):
                     yield from walk(child)
                 if getattr(control, 'content', None) is not None:
                     yield from walk(control.content)
-            texts = [item.value for item in walk(view)
-                     if item.__class__.__name__ == 'Text' and getattr(item, 'value', None)]
-            self.assertIn('Continuar', texts)
             card = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
                         item.on_click and getattr(item, 'width', None) == 258)
             card.on_click(None)

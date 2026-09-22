@@ -201,21 +201,64 @@ def normalize_storage_snapshot(snapshot: Any) -> StorageCapabilities:
     return StorageCapabilities.from_native(payload)
 
 
-def storage_access_state(media_access: str | None, broad_granted: bool, saf_available: bool = False, *, dismissed: bool = False) -> StorageAccessState:
-    access = str(media_access or "denied").casefold()
+def storage_access_state(
+    media_access: str | None,
+    broad_granted: bool,
+    saf_available: bool = False,
+    *,
+    dismissed: bool = False,
+    require_broad: bool = False,
+) -> StorageAccessState:
+    """Resolve effective readiness while keeping source grants independent."""
     if dismissed:
         return StorageAccessState.DECLINED
-    if access == "full":
+
+    access = str(media_access or "denied").casefold()
+    if require_broad and not broad_granted:
+        return StorageAccessState.NEEDS_BROAD_STORAGE
+
+    if saf_available or broad_granted:
         return StorageAccessState.READY
+
     if access == "partial":
         return StorageAccessState.MEDIA_PARTIAL
-    if broad_granted and saf_available:
-        return StorageAccessState.READY
-    if broad_granted:
-        return StorageAccessState.BROAD_STORAGE_AVAILABLE
-    if saf_available:
-        return StorageAccessState.SAF_AVAILABLE
-    return StorageAccessState.NEEDS_MEDIA_PERMISSION
+
+    if access != "full":
+        return StorageAccessState.NEEDS_MEDIA_PERMISSION
+
+    return StorageAccessState.READY
+
+
+def storage_source_states(
+    media_access: str | None,
+    broad_granted: bool,
+    saf_uris: list[str] | tuple[str, ...] | None = None,
+    *,
+    saf_revoked: bool = False,
+) -> dict[str, str]:
+    """Return explicit per-source states without merging grants."""
+    media = str(media_access or "denied").casefold()
+    media_state = {
+        "full": StorageAccessState.MEDIA_FULL.value,
+        "partial": StorageAccessState.MEDIA_PARTIAL.value,
+    }.get(media, StorageAccessState.MEDIA_DENIED.value)
+    broad_state = (
+        StorageAccessState.BROAD_STORAGE_AVAILABLE.value
+        if bool(broad_granted)
+        else StorageAccessState.BROAD_STORAGE_UNAVAILABLE.value
+    )
+    if saf_uris:
+        saf_state = StorageAccessState.SAF_AVAILABLE.value
+    elif saf_revoked:
+        saf_state = StorageAccessState.SAF_REVOKED.value
+    else:
+        saf_state = StorageAccessState.UNKNOWN.value
+    return {
+        "media": media_state,
+        "saf": saf_state,
+        "broad": broad_state,
+        "effective": storage_access_state(media_access, broad_granted, bool(saf_uris)).value,
+    }
 
 
 __all__ = [
@@ -225,4 +268,5 @@ __all__ = [
     "StorageCapabilities",
     "normalize_storage_snapshot",
     "storage_access_state",
+    "storage_source_states",
 ]

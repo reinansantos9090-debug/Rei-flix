@@ -378,10 +378,14 @@ class NativePlayerActivity : ComponentActivity() {
         player.setPlaybackSpeed(next); button.text = "${next}x"
     }
     private fun cycleAspect(button: Button) {
-        val modes = intArrayOf(AspectRatioFrameLayout.RESIZE_MODE_FIT, AspectRatioFrameLayout.RESIZE_MODE_FILL, AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
-        val index = modes.indexOf(playerView.resizeMode)
-        playerView.resizeMode = modes[(index + 1) % modes.size]
-        button.text = arrayOf("Ajustar", "Preencher", "Zoom")[(index + 1) % modes.size]
+        val next = if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) {
+            AspectRatioFrameLayout.RESIZE_MODE_FIT
+        } else {
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        }
+        playerView.resizeMode = next
+        button.text = if (next == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) "Preencher" else "Ajustar"
+        playerView.requestLayout()
     }
     private fun setSleepTimer(button: Button) {
         val minutes = when ((sleepDeadline - System.currentTimeMillis()).coerceAtLeast(0L)) { 0L -> 15; in 1..900_000 -> 30; in 900_001..1_800_000 -> 45; else -> 0 }
@@ -443,6 +447,19 @@ class NativePlayerActivity : ComponentActivity() {
         }
         super.onDestroy()
     }
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (::playerView.isInitialized) {
+            playerView.post {
+                applyControlInsets(
+                    WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView)
+                )
+                playerView.requestLayout()
+                enterImmersiveMode()
+            }
+        }
+    }
+
     override fun onResume() { super.onResume(); enterImmersiveMode() }
     override fun onUserLeaveHint() {
         // Some Android/TV builds omit PiP even on API 26+. Entering PiP without

@@ -55,6 +55,44 @@ class MainActivity : FlutterFragmentActivity() {
     private var lastObservedBroadAccess: Boolean? = null
     private val nativeRequestState = NativeRequestState()
 
+    private val playerActivityLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
+            val requestId = result.data?.getStringExtra("requestId") ?: activePlayerRequestId
+            val reason = result.data?.getStringExtra("reason").orEmpty()
+            val controlled = result.resultCode == RESULT_OK && reason.isNotBlank()
+            Log.i(
+                tag,
+                "PLAYER_ACTIVITY_RESULT requestId=" + (requestId ?: "-") + " " +
+                    "resultCode=" + result.resultCode + " controlled=" + controlled +
+                    " reason=" + reason.ifBlank { "-" },
+            )
+            NativeMailbox.write(
+                this,
+                JSONObject()
+                    .put("type", "diagnostic")
+                    .put("requestId", requestId ?: "")
+                    .put(
+                        "payload",
+                        JSONObject()
+                            .put("event", "PLAYER_ACTIVITY_RESULT")
+                            .put("resultCode", result.resultCode)
+                            .put("controlled", controlled)
+                            .put("reason", reason)
+                            .put("unexpectedCancellation", result.resultCode == RESULT_CANCELED && !controlled),
+                    ),
+            )
+            if (result.resultCode == RESULT_CANCELED && !controlled) {
+                Log.e(
+                    tag,
+                    "PLAYER_ACTIVITY_UNEXPECTED_CANCELED requestId=" + (requestId ?: "-") +
+                        " child ended without a controlled result; inspect NativePlayerActivity logcat for FATAL EXCEPTION/Media3 details.",
+                )
+            }
+            if (requestId != null && activePlayerRequestId == requestId) {
+                activePlayerRequestId = null
+            }
+        }
+
     companion object {
         private const val STATE_LAST_NATIVE_REQUEST_ID = "reiflix.lastNativeRequestId"
         private const val STATE_PENDING_LIFECYCLE_ACTION = "reiflix.pendingLifecycleAction"
@@ -1405,7 +1443,7 @@ class MainActivity : FlutterFragmentActivity() {
                 .putExtra("canPrevious", source.getQueryParameter("can_previous")?.toBooleanStrictOrNull() ?: false)
                 .putExtra("autoplay", source.getQueryParameter("autoplay")?.toBooleanStrictOrNull() ?: true)
             Log.i(tag, "PLAY_HANDOFF_START requestId=" + requestId.ifEmpty { "-" } + " component=" + intent.component)
-            startActivity(intent)
+            playerActivityLauncher.launch(intent)
         } catch (exception: Exception) {
             if (activePlayerRequestId == requestId.takeIf { it.isNotBlank() }) {
                 activePlayerRequestId = null

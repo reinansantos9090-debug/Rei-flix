@@ -137,6 +137,20 @@ class AndroidHostVerificationTests(unittest.TestCase):
             self.assertIn("media3-exoplayer:1.5.1", (rendered / "build.gradle").read_text(encoding="utf-8"))
             self.assertIn("compileSdk 36", (rendered / "build.gradle").read_text(encoding="utf-8"))
 
+    def test_native_thumbnail_pipeline_uses_metadata_retriever_and_mailbox_reference(self):
+        extractor = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/VideoThumbnailExtractor.kt").read_text(encoding="utf-8")
+        activity = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        bridge = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
+        self.assertIn("MediaMetadataRetriever", extractor)
+        self.assertIn("getScaledFrameAtTime", extractor)
+        self.assertIn("output.fd.sync()", extractor)
+        self.assertIn('temp.renameTo(target)', extractor)
+        self.assertIn('"extract_thumbnail" -> requestThumbnail', activity)
+        self.assertIn('JSONObject().put("type", "thumbnail_ready")', activity)
+        self.assertIn('async def request_thumbnail', bridge)
+        self.assertNotIn("Bitmap", activity.split("private fun requestThumbnail", 1)[1].split("private fun releaseTree", 1)[0])
+
+
     def test_manifest_verifier_parses_aapt2_without_fixed_indentation(self):
         import importlib.util
 

@@ -996,7 +996,12 @@ class LibraryBrowseTests(unittest.TestCase):
         class FakePage:
             def update(self): pass
             def run_thread(self, work): work()
-            def run_task(self, task_fn): return asyncio.run(task_fn())
+            def run_task(self, task_fn):
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return asyncio.run(task_fn())
+            return loop.create_task(task_fn())
         with tempfile.TemporaryDirectory() as d:
             view = HomeView.build(FakePage(), LibraryService(LibraryStore(d)), lambda _: None, lambda: None, lambda *args, **kwargs: None)
         self.assertEqual(view.content.controls[0].__class__.__name__, 'Row')
@@ -1005,7 +1010,12 @@ class LibraryBrowseTests(unittest.TestCase):
         class FakePage:
             def update(self): pass
             def run_thread(self, work): work()
-            def run_task(self, task_fn): return asyncio.run(task_fn())
+            def run_task(self, task_fn):
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return asyncio.run(task_fn())
+            return loop.create_task(task_fn())
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)
             anime = store.upsert_anime('partial-complete', {'title': 'Partial Complete', 'genres': '[]'})
@@ -1032,7 +1042,12 @@ class LibraryBrowseTests(unittest.TestCase):
         class FakePage:
             def update(self): pass
             def run_thread(self, work): work()
-            def run_task(self, task_fn): return asyncio.run(task_fn())
+            def run_task(self, task_fn):
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return asyncio.run(task_fn())
+            return loop.create_task(task_fn())
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)
             anime = store.upsert_anime('attack', {'title': 'Attack on Titan', 'genres': '[]'})
@@ -1067,7 +1082,12 @@ class LibraryBrowseTests(unittest.TestCase):
         class FakePage:
             def update(self): pass
             def run_thread(self, work): work()
-            def run_task(self, task_fn): return asyncio.run(task_fn())
+            def run_task(self, task_fn):
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return asyncio.run(task_fn())
+            return loop.create_task(task_fn())
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)
             anime = store.upsert_anime('attack', {'title': 'Attack', 'genres': '["Ação"]'})
@@ -1649,7 +1669,12 @@ class OrganizeTests(unittest.TestCase):
     class FakePage:
         def update(self): pass
         def run_thread(self, work): work()
-        def run_task(self, task_fn): return asyncio.run(task_fn())
+        def run_task(self, task_fn):
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return asyncio.run(task_fn())
+            return loop.create_task(task_fn())
 
     def _catalog(self, directory):
         store = LibraryStore(directory)

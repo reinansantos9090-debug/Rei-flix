@@ -104,6 +104,22 @@ class ArtworkEngineTests(unittest.TestCase):
         self.assertIsNotNone(self.engine.resolve("episode", ep, "episode_thumbnail", allow_network=False))
         self.assertIsNotNone(self.engine.resolve("season", f"{anime}:season:1", "season_poster", allow_network=False))
 
+    def test_generated_native_thumbnail_persists_for_episode_and_anime(self):
+        anime = self._media("Thumb")
+        episode_path = str(Path(self.tmp.name) / "Thumb S01E01.mkv")
+        ep = self._episode(anime, episode_path, "Thumb S01E01.mkv")
+        thumb = Path(self.tmp.name) / "native.jpg"
+        thumb.write_bytes(b"jpeg")
+        self.assertTrue(self.engine.register_generated_thumbnail(
+            episode_path, thumb, size=123, modified_at=456
+        ))
+        episode_art = self.engine.resolve("episode", ep, "episode_thumbnail", allow_network=False)
+        anime_art = self.engine.resolve("anime", anime, "poster", allow_network=False)
+        self.assertEqual(episode_art["source"], "generated")
+        self.assertEqual(episode_art["local_path"], str(thumb))
+        self.assertEqual(anime_art["source"], "generated")
+        self.assertEqual(anime_art["local_path"], str(thumb))
+
     def test_cache_and_anilist_external_reference(self):
         anime = self._media()
         cached = Path(self.tmp.name) / "cached.jpg"

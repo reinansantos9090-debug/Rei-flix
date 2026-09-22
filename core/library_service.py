@@ -198,6 +198,9 @@ class LibraryService:
     def set_manual_metadata(self, lookup_title, values):
         return self.store.set_manual_metadata(lookup_title, values)
 
+    def register_generated_thumbnail(self, media_uri, thumbnail_path, *, size=0, modified_at=0):
+        return self.artwork.register_generated_thumbnail(media_uri, thumbnail_path, size=size, modified_at=modified_at)
+
     def resolve_artwork(self, entity_type, entity_id, artwork_type, *, allow_network=True):
         return self.artwork.resolve(entity_type, entity_id, artwork_type, allow_network=allow_network)
 

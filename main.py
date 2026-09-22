@@ -88,7 +88,7 @@ async def main(page: ft.Page):
     def render_current():
         if navigation.current == "home":
             show(HomeView.build(page, library, navigate_details, navigate_settings, play_episode, navigate_organize,
-                                view_state=home_state))
+                                view_state=home_state, on_request_thumbnail=request_missing_thumbnail))
         elif navigation.current == "organize":
             show(OrganizeView.build(page, library, navigate_details, navigate_back, navigate_settings,
                                     on_request_storage_access=open_broad_storage_access,
@@ -258,6 +258,33 @@ async def main(page: ft.Page):
             return
         logger.info("[STORAGE] action=broad_storage python_callback=dispatch")
         await bridge.open_broad_storage_settings()
+
+    thumbnail_requests = set()
+
+    def request_missing_thumbnail(item):
+        if not bridge.available or not isinstance(item, dict):
+            return
+        episode = item if item.get("path") else item.get("current_episode") or {}
+        path_ref = str(episode.get("path") or "").strip()
+        if not path_ref or episode.get("missing"):
+            return
+        key = (path_ref, int(episode.get("file_size") or 0), int(episode.get("modified_at") or 0))
+        if key in thumbnail_requests:
+            return
+        try:
+            resolved = library.resolve_artwork("episode", episode.get("id"), "episode_thumbnail", allow_network=False)
+        except Exception:
+            resolved = None
+        if resolved and resolved.get("local_path") and os.path.isfile(resolved.get("local_path")):
+            return
+        thumbnail_requests.add(key)
+        async def run():
+            try:
+                await bridge.request_thumbnail(path_ref, key[1], key[2])
+            except Exception as exc:
+                thumbnail_requests.discard(key)
+                logger.debug("[ARTWORK] native thumbnail request failed: %s", exc)
+        page.run_task(run)
 
     def storage_state():
         caps = storage_capabilities[0]
@@ -972,6 +999,43 @@ async def main(page: ft.Page):
                             page.snack_bar.open = True
                             safe_update()
                             refresh_settings_if_active()
+                        elif event_type == 'thumbnail_ready':
+                            uri = str(payload.get('uri') or '').strip()
+                            thumbnail_path = str(payload.get('thumbnailPath') or '').strip()
+                            size = int(payload.get('size') or 0)
+                            modified_at = int(payload.get('modifiedAt') or 0)
+                            if uri and thumbnail_path:
+                                registered = await asyncio.to_thread(
+                                    library.register_generated_thumbnail,
+                                    uri,
+                                    thumbnail_path,
+                                    size=size,
+                                    modified_at=modified_at,
+                                )
+                                if registered:
+                                    thumbnail_requests.difference_update({
+                                        key for key in thumbnail_requests if key[0] == uri
+                                    })
+                                    if navigation.current in {'home', 'details', 'organize'}:
+                                        on_catalog_changed()
+                                        render_current()
+                            diagnostics.record(
+                                "THUMBNAIL_READY",
+                                request_id=request_id,
+                                source=payload.get('source') or "media_metadata_retriever",
+                                result="REGISTERED" if thumbnail_path else "EMPTY",
+                            )
+                        elif event_type == 'thumbnail_error':
+                            uri = str(payload.get('uri') or '').strip()
+                            thumbnail_requests.difference_update({
+                                key for key in thumbnail_requests if key[0] == uri
+                            })
+                            diagnostics.record(
+                                "THUMBNAIL_ERROR",
+                                request_id=request_id,
+                                result=payload.get('status') or "FAILED",
+                                error=event.get('message') or payload.get('error'),
+                            )
                         elif event_type in {'player_progress', 'player_paused', 'player_exited', 'player_completed'}:
                             uri = payload.get('uri', '')
                             if isinstance(payload, dict) and isinstance(uri, str) and uri:

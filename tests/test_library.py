@@ -13,6 +13,7 @@ from core.google_account import normalize_google_profile
 from core.library_parser import parse_video_path
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
+from core.ui import count_label
 from core.organizer_ai import AnimeOrganizer, normalize
 from views.home_view import HomeView
 from views.organize_view import OrganizeView
@@ -38,6 +39,18 @@ class ParserTests(unittest.TestCase):
         p=parse_video_path('Jujutsu Kaisen - S02E15.mkv')
         self.assertEqual((p.anime_title,p.season,p.episode),('Jujutsu Kaisen',2,15))
         self.assertEqual(p.extension, '.mkv')
+    def test_android_filename_patterns_and_recording_noise(self):
+        temp = parse_video_path("Supernatural Temp07Ep06.mp4")
+        self.assertEqual((temp.anime_title, temp.season, temp.episode), ("Supernatural", 7, 6))
+        self.assertEqual((parse_video_path("Supernatural TEMP07EP06.mp4").season, parse_video_path("Supernatural TEMP07EP06.mp4").episode), (7, 6))
+        x = parse_video_path("Supernatural 07x06.mkv")
+        self.assertEqual((x.anime_title, x.season, x.episode), ("Supernatural", 7, 6))
+        accented = parse_video_path("Supernatural - Episódio 06.mkv")
+        self.assertEqual((accented.anime_title, accented.season, accented.episode), ("Supernatural", 1, 6))
+        recording = parse_video_path("Recording 20260921 194102.mp4")
+        self.assertNotIn("20260921", recording.anime_title)
+        self.assertNotIn("194102", recording.anime_title)
+
     def test_s01e01_and_episode_prefixes(self):
         s01 = parse_video_path('Frieren S01E01.mkv')
         ep = parse_video_path('Frieren EP01.mp4')
@@ -82,6 +95,15 @@ class ParserTests(unittest.TestCase):
         selected, confident, _ = AnimeOrganizer.choose('Shingeki no Kyojin', [candidate])
         self.assertEqual(selected['id'], 16498)
         self.assertTrue(confident)
+
+class UiTextTests(unittest.TestCase):
+    def test_portuguese_count_label_handles_zero_one_and_many(self):
+        self.assertEqual(count_label(0, "episódio"), "0 episódios")
+        self.assertEqual(count_label(1, "episódio"), "1 episódio")
+        self.assertEqual(count_label(2, "episódio"), "2 episódios")
+        self.assertEqual(count_label(1, "vídeo"), "1 vídeo")
+        self.assertEqual(count_label(2, "vídeo"), "2 vídeos")
+
 
 class StoreTests(unittest.TestCase):
     def test_personal_tags_persist_normalize_and_are_searchable_offline(self):

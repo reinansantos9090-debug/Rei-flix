@@ -1,6 +1,7 @@
+import os
 import flet as ft
 from core.consumption import consumption_state, progress_ratio
-from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title
+from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, chip_style, empty_state, media_artwork, section_title, count_label
 
 
 class HomeView:
@@ -8,7 +9,7 @@ class HomeView:
 
     @staticmethod
     def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode, on_open_organize=None,
-              view_state=None):
+              view_state=None, on_request_thumbnail=None):
         catalog, continuing, home_data = [], [], {}
         view_state = view_state if view_state is not None else {}
         selected_state = [view_state.get("state", "Todos")]
@@ -83,12 +84,33 @@ class HomeView:
         def home_card(item, action=None, wide=False, episode=False):
             meta = item.get("meta") or {}
             cover = item.get("cover") or meta.get("cover_cache") or meta.get("cover_url")
+            remote_cover = bool(isinstance(cover, str) and cover.startswith(("http://", "https://")))
+            local_cover_missing = bool(
+                cover and isinstance(cover, str) and
+                not remote_cover and not cover.startswith("content://") and
+                not os.path.isfile(cover)
+            )
+            if (not cover or local_cover_missing or remote_cover) and library is not None and item.get("id") is not None:
+                try:
+                    entity = "movie" if item.get("media_kind") == "movie" else "anime"
+                    resolved = library.resolve_artwork(entity, item.get("id"), "poster", allow_network=False)
+                    cover = (resolved or {}).get("local_path")
+                except Exception:
+                    resolved = None
+                if not cover:
+                    cover = None
+            if not cover and on_request_thumbnail:
+                candidate = item.get("episode") or item.get("current_episode")
+                if not candidate and item.get("seasons"):
+                    candidate = next((ep for season in item.get("seasons", []) for ep in season.get("episodes", []) if ep.get("path") and not ep.get("missing")), None)
+                if candidate:
+                    on_request_thumbnail(candidate)
             if episode:
                 title = item.get("anime_title") or item.get("title") or "Mídia local"
                 subtitle = item.get("episode_title") or (f"T{item.get('season')} E{item.get('number')}" if item.get("season") is not None else "Episódio")
             else:
                 title = item.get("main_title") or item.get("anime_title") or meta.get("title") or "Mídia local"
-                subtitle = "Filme" if item.get("media_kind") == "movie" else (f"{item.get('available_count', 0)} episódios" if item.get("available_count") else "")
+                subtitle = "Filme" if item.get("media_kind") == "movie" else (count_label(item.get("available_count", 0), "episódio") if item.get("available_count") else "")
             return ft.Container(
                 width=170 if not wide else 220, ink=True, border_radius=RADIUS,
                 on_click=(lambda _, value=item: action(value)) if action else None,
@@ -212,7 +234,7 @@ class HomeView:
             content_count = int(anime.get("content_count") or 0)
             missing_count = int(anime.get("missing_count") or 0)
             subtitle = "Filme" if anime.get("media_kind") == "movie" else (
-                f"{available_count} episódios" if missing_count == 0 else f"{available_count}/{content_count} disponíveis"
+                count_label(available_count, "episódio") if missing_count == 0 else f"{available_count}/{content_count} disponíveis"
             )
             status = "Concluído" if available_count > 0 and missing_count == 0 and completed == available_count else (f"{completed} concluídos" if completed else subtitle)
             indicators = []

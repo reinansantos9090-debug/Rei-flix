@@ -6,6 +6,7 @@ never contacts AniList and delegates playback selection to LibraryService.
 from __future__ import annotations
 
 import html
+import logging
 import math
 import re
 
@@ -16,6 +17,8 @@ from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, 
 
 
 class DetailView:
+    _logger = logging.getLogger("reiflix.details")
+
     @staticmethod
     def build(page: ft.Page, anime_group: dict, on_play_episode, on_back,
               on_toggle_favorite, get_playback_target=None, on_set_user_tags=None,
@@ -181,8 +184,13 @@ class DetailView:
                     value = on_set_personal_note(anime_group["id"], field.value) if on_set_personal_note else field.value
                     note_text[0] = value or ""; anime_group["personal_note"] = note_text[0]
                     render_note(); dismiss_dialog(page, dialog)
+                    page.snack_bar = ft.SnackBar(ft.Text("Nota salva.")); page.snack_bar.open = True; safe_update()
                 except ValueError as exc:
                     field.error_text = str(exc); page.update()
+                except Exception as exc:
+                    DetailView._logger.exception("Failed to save personal note")
+                    field.error_text = "Não foi possível salvar a nota."
+                    page.update()
             dialog.actions = [ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog)),
                               ft.TextButton("Apagar", visible=bool(note_text[0]), on_click=lambda _: (setattr(field, "value", ""), save(None))),
                               ft.FilledButton("Salvar", on_click=save)]
@@ -199,6 +207,7 @@ class DetailView:
                 personal_tags = on_set_user_tags(anime_group["id"], tags) if on_set_user_tags else tags
                 anime_group["user_tags"] = personal_tags
                 render_tags()
+                page.snack_bar = ft.SnackBar(ft.Text("Etiqueta salva.")); page.snack_bar.open = True
                 page.update()
             except Exception:
                 page.snack_bar = ft.SnackBar(ft.Text("Não foi possível salvar suas etiquetas."))

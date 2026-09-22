@@ -76,6 +76,7 @@ class AndroidBridge:
     async def check_storage_access(self): await self._launch("check_storage_access")
     async def open_broad_storage_settings(self): await self._launch("open_broad_storage_settings")
     async def scan_all_storage(self): await self._launch("scan_all_storage")
+    async def request_thumbnail(self, uri: str, size: int = 0, modified_at: int = 0): await self._launch("extract_thumbnail", uri=uri, size=max(0, int(size)), modified_at=max(0, int(modified_at)))
     async def cancel_scans(self): await self._launch("cancel_scan")
     async def verify_tree(self, tree_uri: str): await self._launch("verify_tree", tree_uri=tree_uri)
     async def release_tree(self, tree_uri: str): await self._launch("release_tree", tree_uri=tree_uri)

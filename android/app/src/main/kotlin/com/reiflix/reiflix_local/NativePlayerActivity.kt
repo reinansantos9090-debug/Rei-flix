@@ -3,6 +3,7 @@ package com.reiflix.reiflix_local
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.provider.MediaStore
 import android.os.Bundle
@@ -14,11 +15,13 @@ import android.view.Gravity
 import java.io.File
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.ViewCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -31,6 +34,7 @@ import androidx.media3.ui.TrackSelectionDialogBuilder
 import androidx.media3.ui.PlayerView
 import org.json.JSONObject
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Full-screen Media3 player for one persisted local, SAF, or MediaStore URI. */
 @OptIn(UnstableApi::class)
@@ -50,6 +54,7 @@ class NativePlayerActivity : ComponentActivity() {
     private lateinit var playerView: PlayerView
     private var audioButton: Button? = null
     private var subtitleButton: Button? = null
+    private var controlsBar: LinearLayout? = null
     private val title get() = intent.getStringExtra("title") ?: "Episódio"
     private val progressReporter = object : Runnable {
         override fun run() {
@@ -62,7 +67,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         enterImmersiveMode()
         val rawUri = intent.getStringExtra("uri")
         if (rawUri.isNullOrBlank()) { reportError("Arquivo local inválido."); finish(); return }
@@ -103,8 +108,8 @@ class NativePlayerActivity : ComponentActivity() {
         setContentView(FrameLayout(this).apply {
             setBackgroundColor(android.graphics.Color.BLACK)
             addView(playerView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-            addEpisodeButtons(this)
         })
+        installResponsiveOverlay()
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
@@ -191,70 +196,171 @@ class NativePlayerActivity : ComponentActivity() {
         player.playWhenReady = savedInstanceState?.takeIf { it.containsKey("play_when_ready") }?.getBoolean("play_when_ready") ?: true
     }
 
+    private fun installResponsiveOverlay() {
+        val overlay = playerView.overlayFrameLayout ?: return
+        addEpisodeButtons(overlay)
+        ViewCompat.setOnApplyWindowInsetsListener(playerView) { _, insets ->
+            applyControlInsets(insets)
+            insets
+        }
+        ViewCompat.requestApplyInsets(playerView)
+    }
+
     private fun addEpisodeButtons(root: FrameLayout) {
-        val controls = listOf(
+        val density = resources.displayMetrics.density
+        fun dp(value: Int): Int = (value * density).roundToInt()
+        val sideButtonSize = dp(48)
+        val sideMargin = dp(12)
+
+        val episodeControls = listOf(
             Triple("Anterior", "player_previous_request", intent.getBooleanExtra("canPrevious", false)),
             Triple("Próximo", "player_next_request", intent.getBooleanExtra("canNext", false)),
         )
-        controls.forEachIndexed { index, (label, eventType, enabled) ->
+        episodeControls.forEachIndexed { index, (label, eventType, enabled) ->
             if (!enabled) return@forEachIndexed
+            val params = FrameLayout.LayoutParams(sideButtonSize, sideButtonSize).apply {
+                gravity = Gravity.CENTER_VERTICAL or if (index == 0) Gravity.START else Gravity.END
+                if (index == 0) leftMargin = sideMargin else rightMargin = sideMargin
+            }
             root.addView(Button(this).apply {
                 text = label
+                textSize = 11f
+                minWidth = 0
+                minHeight = 0
+                setPadding(dp(4), dp(2), dp(4), dp(2))
                 setOnClickListener { requestEpisode(eventType) }
-            }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.BOTTOM or if (index == 0) Gravity.START else Gravity.END
-                setMargins(24, 0, 24, 28)
-            })
+            }, params)
         }
-        root.addView(Button(this).apply {
-            text = "1.0x"
-            setOnClickListener { cycleSpeed(this) }
-        }, bottomParams(Gravity.CENTER, 150))
-        audioButton = Button(this).apply {
-            text = "Áudio"
-            isEnabled = false
-            setOnClickListener { showTrackSelection(C.TRACK_TYPE_AUDIO, "Áudio") }
+
+        controlsBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            setBackgroundColor(0x66000000)
         }
-        root.addView(audioButton, bottomParams(Gravity.CENTER, 214))
-        subtitleButton = Button(this).apply {
-            text = "Legendas"
-            isEnabled = false
-            setOnClickListener { showTrackSelection(C.TRACK_TYPE_TEXT, "Legendas") }
+        val bar = controlsBar ?: return
+        root.addView(bar, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            gravity = Gravity.BOTTOM
+            leftMargin = dp(8)
+            rightMargin = dp(8)
+        })
+
+        fun addWeightedButton(label: String, enabled: Boolean = true, onClick: (Button) -> Unit): Button {
+            val button = Button(this).apply {
+                text = label
+                textSize = 11f
+                isAllCaps = false
+                isEnabled = enabled
+                minWidth = 0
+                minHeight = 0
+                maxLines = 1
+                setPadding(dp(2), dp(2), dp(2), dp(2))
+            }
+            button.layoutParams = LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                marginStart = dp(2)
+                marginEnd = dp(2)
+            }
+            button.setOnClickListener { onClick(button) }
+            bar.addView(button)
+            return button
         }
-        root.addView(subtitleButton, bottomParams(Gravity.CENTER, 276))
-        root.addView(Button(this).apply {
-            text = "Ajustar"
-            setOnClickListener { cycleAspect(this) }
-        }, bottomParams(Gravity.CENTER, 88))
-        root.addView(Button(this).apply {
-            text = "Reiniciar"
-            setOnClickListener { player.seekTo(0); saveProgress("player_progress", true) }
-        }, bottomParams(Gravity.CENTER, 26))
+
+        audioButton = addWeightedButton("Áudio", false) {
+            showTrackSelection(C.TRACK_TYPE_AUDIO, "Áudio")
+        }
+        subtitleButton = addWeightedButton("Legendas", false) {
+            showTrackSelection(C.TRACK_TYPE_TEXT, "Legendas")
+        }
+        addWeightedButton("1.0x") { cycleSpeed(it) }
+        addWeightedButton("Ajustar") { cycleAspect(it) }
+        addWeightedButton("Reiniciar") {
+            player.seekTo(0)
+            saveProgress("player_progress", true)
+        }
+
         root.addView(Button(this).apply {
             text = if (autoplayNext) "Autoplay: ON" else "Autoplay: OFF"
+            textSize = 10f
             setOnClickListener {
                 autoplayNext = !autoplayNext
                 text = if (autoplayNext) "Autoplay: ON" else "Autoplay: OFF"
-                NativeMailbox.write(this@NativePlayerActivity, JSONObject()
-                    .put("type", "player_autoplay_changed")
-                    .put("payload", JSONObject().put("enabled", autoplayNext)))
+                NativeMailbox.write(
+                    this@NativePlayerActivity,
+                    JSONObject().put("type", "player_autoplay_changed")
+                        .put("payload", JSONObject().put("enabled", autoplayNext)),
+                )
             }
-        }, bottomParams(Gravity.TOP or Gravity.END, 24))
+        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(44)).apply {
+            gravity = Gravity.TOP or Gravity.END
+            topMargin = sideMargin
+            rightMargin = sideMargin
+        })
+
         root.addView(Button(this).apply {
             text = "15 min"
+            textSize = 10f
             setOnClickListener { setSleepTimer(this) }
-        }, bottomParams(Gravity.TOP or Gravity.START, 24))
+        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(44)).apply {
+            gravity = Gravity.TOP or Gravity.START
+            topMargin = sideMargin
+            leftMargin = sideMargin
+        })
+
         root.addView(Button(this).apply {
             text = "Visto"
-            setOnClickListener { NativeMailbox.write(this@NativePlayerActivity, JSONObject().put("type", "player_mark_watched").put("payload", JSONObject().put("uri", uri.toString()))); saveProgress("player_progress", true) }
-        }, bottomParams(Gravity.CENTER or Gravity.TOP, 24))
+            textSize = 10f
+            setOnClickListener {
+                NativeMailbox.write(
+                    this@NativePlayerActivity,
+                    JSONObject().put("type", "player_mark_watched")
+                        .put("payload", JSONObject().put("uri", uri.toString())),
+                )
+                saveProgress("player_progress", true)
+            }
+        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(44)).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = sideMargin
+        })
+
         root.addView(Button(this).apply {
             text = "Não visto"
-            setOnClickListener { NativeMailbox.write(this@NativePlayerActivity, JSONObject().put("type", "player_mark_unwatched").put("payload", JSONObject().put("uri", uri.toString()))) }
-        }, bottomParams(Gravity.CENTER or Gravity.TOP, 76))
+            textSize = 10f
+            setOnClickListener {
+                NativeMailbox.write(
+                    this@NativePlayerActivity,
+                    JSONObject().put("type", "player_mark_unwatched")
+                        .put("payload", JSONObject().put("uri", uri.toString())),
+                )
+            }
+        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(44)).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = dp(58)
+        })
+
+        applyControlInsets(
+            WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView)
+        )
     }
 
-    private fun bottomParams(gravity: Int, bottom: Int) = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply { this.gravity = gravity; setMargins(18, 18, 18, bottom) }
+    private fun applyControlInsets(insets: WindowInsetsCompat) {
+        val density = resources.displayMetrics.density
+        fun dp(value: Int): Int = (value * density).roundToInt()
+        val system = insets.getInsets(
+            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        )
+        controlsBar?.let { bar ->
+            val params = bar.layoutParams as? FrameLayout.LayoutParams
+            if (params != null) {
+                params.bottomMargin = maxOf(dp(8), system.bottom)
+                bar.layoutParams = params
+            }
+        }
+        playerView.requestLayout()
+    }
+
     private fun showTrackSelection(trackType: Int, label: String) {
         if (!::player.isInitialized) return
         if (!player.currentTracks.groups.any { it.type == trackType && it.isSupported }) return
@@ -272,10 +378,14 @@ class NativePlayerActivity : ComponentActivity() {
         player.setPlaybackSpeed(next); button.text = "${next}x"
     }
     private fun cycleAspect(button: Button) {
-        val modes = intArrayOf(AspectRatioFrameLayout.RESIZE_MODE_FIT, AspectRatioFrameLayout.RESIZE_MODE_FILL, AspectRatioFrameLayout.RESIZE_MODE_ZOOM)
-        val index = modes.indexOf(playerView.resizeMode)
-        playerView.resizeMode = modes[(index + 1) % modes.size]
-        button.text = arrayOf("Ajustar", "Preencher", "Zoom")[(index + 1) % modes.size]
+        val next = if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) {
+            AspectRatioFrameLayout.RESIZE_MODE_FIT
+        } else {
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        }
+        playerView.resizeMode = next
+        button.text = if (next == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) "Preencher" else "Ajustar"
+        playerView.requestLayout()
     }
     private fun setSleepTimer(button: Button) {
         val minutes = when ((sleepDeadline - System.currentTimeMillis()).coerceAtLeast(0L)) { 0L -> 15; in 1..900_000 -> 30; in 900_001..1_800_000 -> 45; else -> 0 }
@@ -337,6 +447,19 @@ class NativePlayerActivity : ComponentActivity() {
         }
         super.onDestroy()
     }
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (::playerView.isInitialized) {
+            playerView.post {
+                applyControlInsets(
+                    WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets, window.decorView)
+                )
+                playerView.requestLayout()
+                enterImmersiveMode()
+            }
+        }
+    }
+
     override fun onResume() { super.onResume(); enterImmersiveMode() }
     override fun onUserLeaveHint() {
         // Some Android/TV builds omit PiP even on API 26+. Entering PiP without

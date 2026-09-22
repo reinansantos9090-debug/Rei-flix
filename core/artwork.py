@@ -10,7 +10,7 @@ from pathlib import Path
 ARTWORK_TYPES = {"poster", "backdrop", "thumbnail", "season_poster", "episode_thumbnail"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif"}
 
-_SOURCE_PRIORITY = {"manual": 400, "local": 300, "cache": 200, "anilist": 100}
+_SOURCE_PRIORITY = {"manual": 500, "cache": 450, "anilist": 400, "local": 300, "generated": 50}
 _NAME_HINTS = {
     "poster": {"poster", "cover", "folder", "front"},
     "backdrop": {"backdrop", "fanart", "banner", "background"},
@@ -130,6 +130,77 @@ class ArtworkEngine:
                 ).fetchone()
                 if not protected:
                     con.execute("UPDATE anime SET cover_cache=? WHERE id=?", (path, int(entity_id)))
+        return True
+
+    def register_generated_thumbnail(self, media_uri, thumbnail_path, *, size=0, modified_at=0):
+        """Attach a native video-frame thumbnail to the existing episode/artwork store."""
+        media_uri = str(media_uri or "").strip()
+        thumbnail_path = os.path.abspath(os.fspath(thumbnail_path))
+        if not media_uri or not os.path.isfile(thumbnail_path):
+            return False
+        if Path(thumbnail_path).suffix.casefold() not in IMAGE_EXTENSIONS:
+            return False
+
+        with self.store._conn() as con:
+            rows = con.execute(
+                """SELECT DISTINCT e.id, e.anime_id, a.media_kind
+                   FROM episodes e
+                   JOIN anime a ON a.id=e.anime_id
+                   LEFT JOIN episode_observations o ON o.episode_id=e.id
+                   WHERE e.path=? OR o.uri=?""",
+                (media_uri, media_uri),
+            ).fetchall()
+        if not rows:
+            return False
+
+        source_ref = f"native:{media_uri}|{int(size or 0)}|{int(modified_at or 0)}"
+        for row in rows:
+            episode_id = int(row["id"])
+            anime_id = int(row["anime_id"])
+            entity_type = "movie" if str(row["media_kind"] or "series").casefold() == "movie" else "anime"
+            with self.store._conn() as con:
+                con.execute(
+                    "DELETE FROM artwork WHERE entity_type='episode' AND entity_id=? AND artwork_type='episode_thumbnail' AND source='generated'",
+                    (str(episode_id),),
+                )
+            self._upsert(
+                entity_type="episode",
+                entity_id=episode_id,
+                artwork_type="episode_thumbnail",
+                source="generated",
+                source_ref=source_ref,
+                local_path=thumbnail_path,
+                manual=False,
+            )
+            with self.store._conn() as con:
+                has_protected = con.execute(
+                    """SELECT 1 FROM artwork
+                       WHERE entity_type=? AND entity_id=? AND artwork_type='poster'
+                         AND status='ready' AND local_path IS NOT NULL
+                         AND source IN ('local','cache','anilist','manual')
+                       LIMIT 1""",
+                    (entity_type, str(anime_id)),
+                ).fetchone()
+                if has_protected:
+                    continue
+                con.execute(
+                    "DELETE FROM artwork WHERE entity_type=? AND entity_id=? AND artwork_type='poster' AND source='generated'",
+                    (entity_type, str(anime_id)),
+                )
+            self._upsert(
+                entity_type=entity_type,
+                entity_id=anime_id,
+                artwork_type="poster",
+                source="generated",
+                source_ref=source_ref,
+                local_path=thumbnail_path,
+                manual=False,
+            )
+            with self.store._conn() as con:
+                con.execute(
+                    "UPDATE anime SET cover_cache=? WHERE id=? AND (cover_cache IS NULL OR trim(cover_cache)='')",
+                    (thumbnail_path, anime_id),
+                )
         return True
 
     def set_manual(self, entity_type, entity_id, artwork_type, *, path=None, external_url=None):

@@ -15,6 +15,16 @@ RADIUS = 14
 PAGE_PADDING = 16
 
 
+def count_label(count: int, singular: str, plural: str | None = None) -> str:
+    """Return a localized count label with correct Brazilian Portuguese plurality."""
+    try:
+        value = int(count)
+    except (TypeError, ValueError):
+        value = 0
+    word = singular if value == 1 else (plural or f"{singular}s")
+    return f"{value} {word}"
+
+
 def section_title(text: str, icon=None):
     controls = []
     if icon:

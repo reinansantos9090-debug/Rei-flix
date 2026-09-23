@@ -249,6 +249,10 @@ class OrganizeView:
                 catalog = await asyncio.to_thread(library.catalog)
                 status.visible = False
             except Exception:
+                logger.exception(
+                    "Organize catalog load failed",
+                    extra={"screen":"organize","requestId":"-","scanId":"-","library_items":len(catalog)},
+                )
                 status.controls = [
                     ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FFB4AB", size=18),
                     ft.Text("Não foi possível carregar sua biblioteca local.", color="#FFB4AB", size=12),

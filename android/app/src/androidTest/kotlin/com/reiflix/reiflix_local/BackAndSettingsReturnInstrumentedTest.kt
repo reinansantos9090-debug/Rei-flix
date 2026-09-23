@@ -3,12 +3,11 @@ package com.reiflix.reiflix_local
 import android.content.Intent
 import android.os.SystemClock
 import android.provider.Settings
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.By
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -18,84 +17,86 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class BackAndSettingsReturnInstrumentedTest {
-    private lateinit var scenario: ActivityScenario<MainActivity>
+    private lateinit var target: android.content.Context
+    private lateinit var device: UiDevice
 
     @Before
     fun setUp() {
-        scenario = ActivityScenario.launch(MainActivity::class.java)
-        awaitState("MainActivity must reach RESUMED before testing external returns") {
-            scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
-        }
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        target = instrumentation.targetContext
+        device = UiDevice.getInstance(instrumentation)
+        launchMainActivity()
+        waitForForegroundPackage(target.packageName)
+        assertMainActivityAlive()
     }
 
     @After
     fun tearDown() {
-        scenario.close()
+        runCatching { device.pressHome() }
+        runCatching { device.executeShellCommand("am force-stop ${target.packageName}").close() }
     }
 
     @Test
     fun allFilesSettingsBackReturnsToMainActivity() {
         val wasLaunched = invokeNoArg("openBroadStorageSettings")
         assertTrue("All-files Settings launch method must accept the request while Activity is resumed", wasLaunched)
-        awaitState("MainActivity must actually leave RESUMED while Android Settings is visible") {
-            scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
-        }
-        waitForExternalPackage("com.android.settings")
+        waitForForegroundPackage("com.android.settings")
         pressBackAcrossApplicationBoundary()
-        awaitState("Closing All Files Settings surface must return to MainActivity") {
-            scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
-        }
-        scenario.onActivity { activity ->
-            assertFalse("MainActivity must not be finishing after Settings Back", activity.isFinishing)
-            assertFalse("MainActivity must remain alive after Settings Back", activity.isDestroyed)
-        }
+        waitForForegroundPackage(target.packageName)
+        assertMainActivityAlive()
     }
 
     @Test
     fun appInfoSettingsBackReturnsToMainActivity() {
-        val target = InstrumentationRegistry.getInstrumentation().targetContext
         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
             .setData(android.net.Uri.parse("package:" + target.packageName))
         val launched = invokeExternalSettings("app_details", intent)
         assertTrue("App Info Settings launch must be accepted", launched)
-        awaitState("MainActivity must leave RESUMED while App Info is visible") {
-            scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
-        }
-        waitForExternalPackage("com.android.settings")
+        waitForForegroundPackage("com.android.settings")
         pressBackAcrossApplicationBoundary()
-        awaitState("Closing App Info Settings surface must return to MainActivity") {
-            scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
-        }
-        scenario.onActivity { activity ->
-            assertFalse(activity.isFinishing)
-            assertFalse(activity.isDestroyed)
-        }
+        waitForForegroundPackage(target.packageName)
+        assertMainActivityAlive()
     }
 
     @Test
     fun safPickerBackReturnsToMainActivityAndReleasesPendingState() {
         val launched = invokeNoArg("openTreePicker")
         assertTrue("SAF picker launch method must accept the request while Activity is resumed", launched)
-        awaitState("MainActivity must leave RESUMED while DocumentsUI is visible") {
-            scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
-        }
-        waitForExternalPackage("com.android.documentsui", "com.google.android.documentsui")
+        waitForForegroundPackage(
+            "com.android.documentsui",
+            "com.google.android.documentsui",
+        )
         pressBackAcrossApplicationBoundary()
-        awaitState("Closing SAF picker must return to MainActivity") {
-            scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
-        }
-        scenario.onActivity { activity ->
-            assertFalse(activity.isFinishing)
-            assertFalse(activity.isDestroyed)
-            val field = MainActivity::class.java.getDeclaredField("safPickerPending")
-            field.isAccessible = true
-            assertFalse("SAF pending state must be cleared after cancel/back", field.getBoolean(activity))
-        }
+        waitForForegroundPackage(target.packageName)
+        val activity = currentResumedMainActivity()
+        assertFalse("MainActivity must not be finishing after DocumentsUI Back", activity.isFinishing)
+        assertFalse("MainActivity must remain alive after DocumentsUI Back", activity.isDestroyed)
+        val field = MainActivity::class.java.getDeclaredField("safPickerPending")
+        field.isAccessible = true
+        assertFalse("SAF pending state must be cleared after cancel/back", field.getBoolean(activity))
+    }
+
+    @Test
+    fun appSystemBackIsHandledInsideReiFlix() {
+        assertTrue(
+            "UiDevice.pressBack() must dispatch the supported system Back action",
+            device.pressBack(),
+        )
+        waitForForegroundPackage(target.packageName)
+        assertMainActivityAlive()
+    }
+
+    private fun launchMainActivity() {
+        val intent = Intent(target, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        InstrumentationRegistry.getInstrumentation().startActivitySync(intent)
     }
 
     private fun invokeNoArg(name: String): Boolean {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
         var outcome = false
-        scenario.onActivity { activity ->
+        instrumentation.runOnMainSync {
+            val activity = currentResumedMainActivity()
             val method = MainActivity::class.java.getDeclaredMethod(name)
             method.isAccessible = true
             outcome = (method.invoke(activity) as? Boolean) ?: true
@@ -105,7 +106,8 @@ class BackAndSettingsReturnInstrumentedTest {
 
     private fun invokeExternalSettings(kind: String, intent: Intent): Boolean {
         var outcome = false
-        scenario.onActivity { activity ->
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = currentResumedMainActivity()
             val method = MainActivity::class.java.getDeclaredMethod(
                 "launchExternalSettings",
                 String::class.java,
@@ -123,37 +125,45 @@ class BackAndSettingsReturnInstrumentedTest {
         return outcome
     }
 
+    private fun currentResumedMainActivity(): MainActivity {
+        var activity: MainActivity? = null
+        ActivityLifecycleMonitorRegistry.getInstance()
+            .getActivitiesInStage(Stage.RESUMED)
+            .firstOrNull { it is MainActivity }
+            ?.let { activity = it as MainActivity }
+        return checkNotNull(activity) { "MainActivity must be RESUMED when this helper is used" }
+    }
+
+    private fun assertMainActivityAlive() {
+        var finishing = true
+        var destroyed = true
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val activity = currentResumedMainActivity()
+            finishing = activity.isFinishing
+            destroyed = activity.isDestroyed
+        }
+        assertFalse("MainActivity must not be finishing", finishing)
+        assertFalse("MainActivity must remain alive", destroyed)
+    }
+
     private fun pressBackAcrossApplicationBoundary() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val device = UiDevice.getInstance(instrumentation)
         assertTrue(
             "UiDevice.pressBack() must dispatch the supported system Back action",
             device.pressBack(),
         )
-        SystemClock.sleep(750L)
     }
 
-    private fun waitForExternalPackage(vararg packages: String) {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val device = UiDevice.getInstance(instrumentation)
-        val visible = packages.any { packageName ->
-            device.wait(
-                Until.hasObject(By.pkg(packageName)),
-                5_000L,
-            )
-        }
-        assertTrue(
-            "Expected external Android surface to become visible: " + packages.joinToString(),
-            visible,
-        )
-    }
-
-    private fun awaitState(description: String, timeoutMs: Long = 15_000L, condition: () -> Boolean) {
+    private fun waitForForegroundPackage(vararg packages: String, timeoutMs: Long = 15_000L) {
         val deadline = SystemClock.uptimeMillis() + timeoutMs
+        val expected = packages.toSet()
         while (SystemClock.uptimeMillis() < deadline) {
-            if (condition()) return
+            if (expected.contains(device.currentPackageName)) return
             SystemClock.sleep(100L)
         }
-        assertTrue(description, false)
+        assertTrue(
+            "Expected foreground Android package, got: " + (device.currentPackageName ?: "<none>") +
+                "; expected one of: " + packages.joinToString(),
+            false,
+        )
     }
 }

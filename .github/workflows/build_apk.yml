@@ -6,8 +6,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
+    timeout-minutes: 75
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -237,29 +242,94 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Run Android instrumented tests on API 30 emulator
+        id: android_api30
+        timeout-minutes: 30
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         env:
           SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/flutter/site-packages
+          REIFLIX_ANDROID_API_LEVEL: "30"
         with:
           api-level: 30
           arch: x86_64
           profile: pixel_7
+          force-avd-creation: true
+          emulator-port: 5554
+          emulator-boot-timeout: 300
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           working-directory: build/flutter/android
+          pre-emulator-launch-script: |
+            diag="$GITHUB_WORKSPACE/build/android30-diagnostics/runner"
+            mkdir -p "$diag"
+            {
+              echo "phase=pre-emulator-launch"
+              date -u +"timestamp_utc=%Y-%m-%dT%H:%M:%SZ"
+              echo "api=30"
+              echo "runner=${RUNNER_NAME:-unknown}"
+              uname -a
+              df -h "$GITHUB_WORKSPACE"
+              if test -e /dev/kvm; then
+                echo "kvm=present"
+                ls -l /dev/kvm
+              else
+                echo "kvm=missing"
+              fi
+              if adb version; then :; else echo "adb_version_failed"; fi
+              if "$ANDROID_HOME/emulator/emulator" -version; then :; else echo "emulator_version_failed"; fi
+            } > "$diag/environment.txt" 2>&1
           script: |
             mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon
+            chmod +x "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
+            "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
+
+      - name: Upload API 30 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android30-instrumentation-diagnostics
+          path: build/android30-diagnostics
+          if-no-files-found: ignore
 
       - name: Run Android instrumented tests on API 36 emulator
+        id: android_api36
         timeout-minutes: 30
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         env:
           SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/flutter/site-packages
+          REIFLIX_ANDROID_API_LEVEL: "36"
         with:
           api-level: 36
           arch: x86_64
           profile: pixel_7
+          force-avd-creation: true
+          emulator-port: 5554
+          emulator-boot-timeout: 300
           disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           working-directory: build/flutter/android
+          pre-emulator-launch-script: |
+            diag="$GITHUB_WORKSPACE/build/android36-diagnostics/runner"
+            mkdir -p "$diag"
+            {
+              echo "phase=pre-emulator-launch"
+              date -u +"timestamp_utc=%Y-%m-%dT%H:%M:%SZ"
+              echo "api=36"
+              echo "runner=${RUNNER_NAME:-unknown}"
+              uname -a
+              df -h "$GITHUB_WORKSPACE"
+              if test -e /dev/kvm; then
+                echo "kvm=present"
+                ls -l /dev/kvm
+              else
+                echo "kvm=missing"
+              fi
+              if adb version; then :; else echo "adb_version_failed"; fi
+              if "$ANDROID_HOME/emulator/emulator" -version; then :; else echo "emulator_version_failed"; fi
+            } > "$diag/environment.txt" 2>&1
           script: |
             mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
             chmod +x "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
@@ -273,17 +343,34 @@ jobs:
           path: build/android36-diagnostics
           if-no-files-found: ignore
 
+      - name: Enforce Android instrumented test outcomes
+        if: always()
+        env:
+          API30_OUTCOME: ${{ steps.android_api30.outcome }}
+          API36_OUTCOME: ${{ steps.android_api36.outcome }}
+        run: |
+          echo "API30 instrumented outcome: $API30_OUTCOME"
+          echo "API36 instrumented outcome: $API36_OUTCOME"
+          test "$API30_OUTCOME" = "success"
+          test "$API36_OUTCOME" = "success"
+
       - name: Install release APK on clean API 36 emulator
+        timeout-minutes: 15
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36
           arch: x86_64
           profile: pixel_7
+          force-avd-creation: true
+          emulator-port: 5554
+          emulator-boot-timeout: 300
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
             adb install "$GITHUB_WORKSPACE/build/apk/reiflix-local.apk"
             adb shell pm path com.reiflix.reiflix_local
             adb shell dumpsys package com.reiflix.reiflix_local | grep -E "versionCode=|versionName="
-
       - name: Locate APK
         id: apk
         shell: bash

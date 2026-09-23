@@ -3,13 +3,21 @@ set -Eeuo pipefail
 
 WORKSPACE="${GITHUB_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 PACKAGE="com.reiflix.reiflix_local"
-DIAG_ROOT="${WORKSPACE}/build/android36-diagnostics"
+API_LEVEL="${REIFLIX_ANDROID_API_LEVEL:-}"
+case "${API_LEVEL}" in
+    30|36) ;;
+    *)
+        printf 'REIFLIX_ANDROID_API_LEVEL must be 30 or 36 (got %q)\n' "${API_LEVEL}" >&2
+        exit 2
+        ;;
+esac
+DIAG_ROOT="${WORKSPACE}/build/android${API_LEVEL}-diagnostics"
 CLASS_TIMEOUT_SECONDS="${REIFLIX_ANDROID_CLASS_TIMEOUT_SECONDS:-120}"
 METHOD_TIMEOUT_SECONDS="${REIFLIX_ANDROID_METHOD_TIMEOUT_SECONDS:-90}"
 FULL_TIMEOUT_SECONDS="${REIFLIX_ANDROID_FULL_TIMEOUT_SECONDS:-300}"
 
 mkdir -p "${DIAG_ROOT}"
-printf 'Android 36 instrumentation diagnostic run\n' > "${DIAG_ROOT}/summary.txt"
+printf 'Android %s instrumentation diagnostic run\n' "${API_LEVEL}" > "${DIAG_ROOT}/summary.txt"
 
 capture() {
     local output="$1"
@@ -40,6 +48,7 @@ collect_diagnostics() {
     capture "${dir}/adb_devices.txt" adb devices -l
     capture "${dir}/sdk.txt" adb shell getprop ro.build.version.sdk
     capture "${dir}/release.txt" adb shell getprop ro.build.version.release
+    capture "${dir}/boot_completed.txt" adb shell getprop sys.boot_completed
     capture "${dir}/instrumentation.txt" adb shell pm list instrumentation
     capture "${dir}/activity_top.txt" adb shell dumpsys activity top
     capture "${dir}/window.txt" adb shell dumpsys window
@@ -48,8 +57,17 @@ collect_diagnostics() {
     capture "${dir}/media_session.txt" adb shell dumpsys media_session
     capture "${dir}/surfaceflinger.txt" adb shell dumpsys SurfaceFlinger
     capture "${dir}/gfxinfo.txt" adb shell dumpsys gfxinfo "${PACKAGE}"
-    capture "${dir}/media_codec_logcat.txt" adb logcat -d -b all -v threadtime MediaCodec:* ExoPlayer:* ActivityTaskManager:* WindowManager:* '*:S'
     capture "${dir}/logcat_all.txt" adb logcat -d -b all -v threadtime
+    if grep -Ei 'ActivityTaskManager|WindowManager|InputDispatcher|system_server|com\.android\.settings|DocumentsUI|com\.reiflix\.reiflix_local|Media3|ExoPlayer|MediaCodec|Surface|TextureView' "${dir}/logcat_all.txt" > "${dir}/logcat_focus.txt"; then
+        :
+    else
+        grep_status=$?
+        if (( grep_status == 1 )); then
+            : > "${dir}/logcat_focus.txt"
+        else
+            return "${grep_status}"
+        fi
+    fi
 
     local pids_raw=""
     if pids_raw="$(timeout 20s adb shell pidof "${PACKAGE}" 2>/dev/null)"; then
@@ -68,6 +86,44 @@ collect_diagnostics() {
             done
         } >"${dir}/thread_dump_command.txt" 2>&1
         capture "${dir}/logcat_after_thread_dump.txt" adb logcat -d -b all -v threadtime
+    fi
+}
+
+
+snapshot_device() {
+    local dir="$1"
+    mkdir -p "${dir}"
+    {
+        printf 'timestamp_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'api=%s\n' "${API_LEVEL}"
+    } > "${dir}/metadata.txt"
+    capture "${dir}/adb_devices.txt" adb devices -l
+    capture "${dir}/sdk.txt" adb shell getprop ro.build.version.sdk
+    capture "${dir}/boot_completed.txt" adb shell getprop sys.boot_completed
+    capture "${dir}/activity_top.txt" adb shell dumpsys activity top
+    capture "${dir}/window.txt" adb shell dumpsys window
+    capture "${dir}/input.txt" adb shell dumpsys input
+}
+
+watch_case() {
+    local dir="$1"
+    while :; do
+        {
+            printf '\n=== WATCH %s ===\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            if timeout 10s adb shell dumpsys activity top; then :; else echo "activity_top_timeout_or_failure=$?"; fi
+            if timeout 10s adb shell dumpsys window; then :; else echo "window_timeout_or_failure=$?"; fi
+            if timeout 10s adb shell dumpsys input; then :; else echo "input_timeout_or_failure=$?"; fi
+            if timeout 10s adb shell getprop sys.boot_completed; then :; else echo "boot_completed_timeout_or_failure=$?"; fi
+        } >> "${dir}/watchdog.txt" 2>&1
+        sleep 10
+    done
+}
+
+stop_case_watch() {
+    local pid="$1"
+    if [[ -n "${pid}" ]]; then
+        if kill "${pid}" 2>/dev/null; then :; fi
+        if wait "${pid}" 2>/dev/null; then :; fi
     fi
 }
 
@@ -96,6 +152,12 @@ run_case() {
     printf 'selector=%s\n' "${selector}"
 
     reset_device_state
+    local case_dir="${DIAG_ROOT}/${safe_label}"
+    mkdir -p "${case_dir}"
+    snapshot_device "${case_dir}/before"
+    local watch_pid=""
+    watch_case "${case_dir}" &
+    watch_pid="$!"
     local status=0
     if [[ -n "${selector}" ]]; then
         if timeout --foreground --signal=TERM --kill-after=30s "${timeout_seconds}s" \
@@ -114,11 +176,13 @@ run_case() {
         fi
     fi
 
+    stop_case_watch "${watch_pid}"
+    snapshot_device "${case_dir}/after"
     if (( status != 0 )); then
         printf 'CASE_FAILED label=%s selector=%s exit=%s\n' "${label}" "${selector}" "${status}" | tee -a "${DIAG_ROOT}/summary.txt"
         collect_diagnostics "${safe_label}"
     else
-        printf 'CASE_PASS label=%s selector=%s\n' "${label}" "${selector}" | tee -a "${DIAG_ROOT}/summary.txt"
+        printf 'CASE_PASS label=%s selector=%s exit=%s\n' "${label}" "${selector}" "${status}" | tee -a "${DIAG_ROOT}/summary.txt"
     fi
 
     reset_device_state

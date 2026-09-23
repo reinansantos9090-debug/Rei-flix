@@ -307,6 +307,8 @@ class NativePlayerPlaybackInstrumentedTest {
         await("Visual Back must finish the native player Activity") { activity!!.isFinishing }
 
         logStage("SYSTEM_BACK")
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        waitForForegroundPackage(target.packageName)
         val secondIntent = Intent(target, NativePlayerActivity::class.java)
             .putExtra("requestId", "instrumented-player-android-back")
             .putExtra("uri", fixtureUri!!.toString())
@@ -318,15 +320,44 @@ class NativePlayerPlaybackInstrumentedTest {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         activity = InstrumentationRegistry.getInstrumentation().startActivitySync(secondIntent) as NativePlayerActivity
         awaitView<View>("reiflix_back_button")
-        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         assertTrue(
             "UiDevice.pressBack() must dispatch the real system Back action",
             device.pressBack(),
         )
         await("Android Back must finish the native player Activity") { activity!!.isFinishing }
+        waitForReiFlixMainActivityForeground()
 
     }
 
+    private fun waitForForegroundPackage(expected: String, timeoutMs: Long = 15_000L) {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (device.currentPackageName == expected) return
+            SystemClock.sleep(100L)
+        }
+        assertTrue(
+            "Expected foreground package $expected, got ${device.currentPackageName}",
+            false,
+        )
+    }
+
+    private fun waitForReiFlixMainActivityForeground(timeoutMs: Long = 15_000L) {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).currentPackageName == target.packageName) {
+                var resumed = false
+                runOnMainBounded {
+                    resumed = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                        .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                        .any { it is MainActivity }
+                }
+                if (resumed) return
+            }
+            SystemClock.sleep(100L)
+        }
+        assertTrue("Android Back must return to a resumed Rei-Flix MainActivity", false)
+    }
     private fun grantMediaReadPermission() {
         val permission = if (Build.VERSION.SDK_INT >= 33) {
             "android.permission.READ_MEDIA_VIDEO"

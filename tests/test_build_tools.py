@@ -71,6 +71,81 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("targetSdkVersion:'36'", workflow)
         self.assertIn("MANAGE_EXTERNAL_STORAGE", workflow)
 
+    def test_workflow_android_instrumented_ci_is_bounded_and_concurrent(self):
+        workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
+        self.assertIn("concurrency:", workflow)
+        self.assertIn("group: ${{ github.workflow }}-${{ github.ref }}", workflow)
+        self.assertIn("cancel-in-progress: true", workflow)
+        self.assertIn("timeout-minutes: 75", workflow)
+        self.assertIn("id: android_api30", workflow)
+        self.assertIn("id: android_api36", workflow)
+        self.assertEqual(workflow.count("timeout-minutes: 30"), 2)
+        self.assertEqual(workflow.count("continue-on-error: true"), 2)
+        self.assertIn('REIFLIX_ANDROID_API_LEVEL: "30"', workflow)
+        self.assertIn('REIFLIX_ANDROID_API_LEVEL: "36"', workflow)
+        self.assertIn("build/android30-diagnostics", workflow)
+        self.assertIn("build/android36-diagnostics", workflow)
+        self.assertIn("android30-instrumentation-diagnostics", workflow)
+        self.assertIn("android36-instrumentation-diagnostics", workflow)
+        self.assertIn("emulator-boot-timeout: 300", workflow)
+        self.assertIn("force-avd-creation: true", workflow)
+        self.assertIn("disable-animations: true", workflow)
+        self.assertIn("disable-linux-hw-accel: false", workflow)
+        self.assertIn("-gpu swiftshader_indirect", workflow)
+        self.assertIn("-no-snapshot", workflow)
+        self.assertIn("-noaudio", workflow)
+        self.assertIn("-no-boot-anim", workflow)
+        self.assertIn("-camera-back none", workflow)
+        self.assertIn("Enforce Android instrumented test outcomes", workflow)
+        self.assertIn('test "$API30_OUTCOME" = "success"', workflow)
+        self.assertIn('test "$API36_OUTCOME" = "success"', workflow)
+        self.assertNotIn("|| true", workflow)
+
+    def test_android_instrumented_diagnostic_is_api_scoped_and_device_diagnostic_rich(self):
+        source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")
+        self.assertIn("REIFLIX_ANDROID_API_LEVEL:-", source)
+        self.assertIn("build/android${API_LEVEL}-diagnostics", source)
+        self.assertIn("30|36)", source)
+        for token in (
+            "adb devices -l",
+            "getprop ro.build.version.sdk",
+            "getprop ro.build.version.release",
+            "getprop sys.boot_completed",
+            "dumpsys activity top",
+            "dumpsys window",
+            "dumpsys input",
+            "dumpsys SurfaceFlinger",
+            "dumpsys gfxinfo",
+            "dumpsys media_session",
+            "adb logcat -d -b all -v threadtime",
+            "kill -3",
+            "InputDispatcher",
+            "ActivityTaskManager",
+            "WindowManager",
+            "DocumentsUI",
+            "MediaCodec",
+            "ExoPlayer",
+            "TextureView",
+        ):
+            self.assertIn(token, source)
+
+    def test_cross_app_back_instrumentation_is_device_driven(self):
+        source = (ROOT / "android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/BackAndSettingsReturnInstrumentedTest.kt").read_text(encoding="utf-8")
+        self.assertNotIn("ActivityScenario", source)
+        self.assertIn("UiDevice", source)
+        self.assertIn("currentPackageName", source)
+        self.assertIn("device.pressBack()", source)
+        self.assertIn("ActivityLifecycleMonitorRegistry", source)
+        self.assertIn("Stage.RESUMED", source)
+        self.assertIn("safPickerPending", source)
+        self.assertIn("appSystemBackIsHandledInsideReiFlix", source)
+
+    def test_player_system_back_requires_reiflix_foreground_return(self):
+        source = (ROOT / "android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/NativePlayerPlaybackInstrumentedTest.kt").read_text(encoding="utf-8")
+        self.assertIn("UiDevice.pressBack()", source)
+        self.assertIn("waitForReiFlixMainActivityForeground()", source)
+        self.assertIn("Stage.RESUMED", source)
+        self.assertIn("MainActivity", source)
     def test_workflow_generated_json_validation_uses_safe_heredoc(self):
         workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
         self.assertIn("python - <<'PY'", workflow)

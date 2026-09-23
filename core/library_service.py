@@ -241,15 +241,24 @@ class LibraryService:
                             if row.get('source_ref') == cover_url and row.get('status') == 'failed':
                                 blocked = time.time() - float(row.get('last_attempt_at') or 0) < self.COVER_RETRY_SECONDS
                                 break
-                    if not blocked and not metadata_refreshed:
-                        downloaded = self.anilist.cache_cover(cover_url)
-                        if downloaded and os.path.isfile(downloaded) and os.path.getsize(downloaded) > 0:
-                            self.store.upsert_anime(lookup_title, {'anilist_id': anilist_id, 'cover_url': cover_url, 'cover_cache': downloaded},
-                                                    source='anilist', confidence=cached.get('metadata_confidence') or 'medium',
-                                                    status=cached.get('metadata_status') or 'available', fetched_at=cached.get('metadata_fetched_at'))
-                            cached = self.store.anime_metadata(lookup_title) or cached
-                        elif cached.get('id'):
-                            self.artwork.mark_download_failure(entity_type, cached['id'], 'poster', cover_url)
+                    if not blocked:
+                        if metadata_refreshed:
+                            # refresh_metadata() already attempted this exact cover URL
+                            # through AniListClient.metadata_from_media(). Do not issue
+                            # a duplicate HTTP request in the same hydration cycle; record
+                            # the failed attempt so the existing ArtworkEngine backoff
+                            # governs the next cycle.
+                            if cached.get('id') and not cover_valid:
+                                self.artwork.mark_download_failure(entity_type, cached['id'], 'poster', cover_url)
+                        else:
+                            downloaded = self.anilist.cache_cover(cover_url)
+                            if downloaded and os.path.isfile(downloaded) and os.path.getsize(downloaded) > 0:
+                                self.store.upsert_anime(lookup_title, {'anilist_id': anilist_id, 'cover_url': cover_url, 'cover_cache': downloaded},
+                                                        source='anilist', confidence=cached.get('metadata_confidence') or 'medium',
+                                                        status=cached.get('metadata_status') or 'available', fetched_at=cached.get('metadata_fetched_at'))
+                                cached = self.store.anime_metadata(lookup_title) or cached
+                            elif cached.get('id'):
+                                self.artwork.mark_download_failure(entity_type, cached['id'], 'poster', cover_url)
                 if cached.get('id'):
                     self.artwork.sync_anime_metadata(cached['id'], cached)
                 hydrated.append({'lookup_title': lookup_title, 'id': cached.get('id'), 'metadata': cached})

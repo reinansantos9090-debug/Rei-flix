@@ -115,7 +115,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn('"flet==0.86.5"', project)
         self.assertIn('"certifi>=2024.8.30"', project)
-        self.assertIn("min_sdk_version = 23", project)
+        self.assertIn("min_sdk_version = 24", project)
 
     def test_android_instrumented_diagnostic_is_not_part_of_fast_build(self):
         workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")

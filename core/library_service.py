@@ -195,6 +195,66 @@ class LibraryService:
                     self.artwork.sync_anime_metadata(row["id"], row)
                 return local
 
+    def hydrate_catalog_metadata(self, catalog, on_item=None):
+        """Hydrate local items that still need AniList metadata or poster artwork.
+
+        The queue is intentionally sequential and reuses the existing AniListClient,
+        ArtworkEngine and SQLite catalog. It never creates a second cache or catalog.
+        """
+        hydrated = []
+        pending_cache = None
+        for item in list(catalog or []):
+            metadata = dict(item.get('meta') or {})
+            lookup_title = str(metadata.get('lookup_title') or item.get('main_title') or '').strip()
+            display_title = str(item.get('main_title') or metadata.get('title') or lookup_title).strip()
+            if not lookup_title or not display_title: continue
+
+            cached = self.store.anime_metadata(lookup_title) or metadata
+            status = str(cached.get('metadata_status') or 'unresolved').casefold()
+            anilist_id = self.store.association(lookup_title) or cached.get('anilist_id')
+            if status == 'manual' and not anilist_id:
+                continue
+            cover_cache = str(cached.get('cover_cache') or '').strip()
+            cover_valid = bool(cover_cache and os.path.isfile(cover_cache) and os.path.getsize(cover_cache) > 0)
+            needs_metadata = not anilist_id or status in {'unresolved', 'error'}
+            if status == 'ambiguous' and not anilist_id:
+                if pending_cache is None: pending_cache = self.store.pending_matches()
+                needs_metadata = not any(p.get('lookup_title') == lookup_title for p in pending_cache)
+            needs_cover = bool(anilist_id and str(cached.get('cover_url') or '').strip() and not cover_valid)
+            if not needs_metadata and not needs_cover: continue
+            try:
+                if needs_metadata:
+                    cached = self.refresh_metadata(lookup_title, display_title, force=False)
+                    cached = self.store.anime_metadata(lookup_title) or cached or {}
+                    status = str(cached.get('metadata_status') or status).casefold()
+                    anilist_id = self.store.association(lookup_title) or cached.get('anilist_id')
+                cover_cache = str(cached.get('cover_cache') or '').strip()
+                cover_valid = bool(cover_cache and os.path.isfile(cover_cache) and os.path.getsize(cover_cache) > 0)
+                cover_url = str(cached.get('cover_url') or '').strip()
+                if anilist_id and cover_url and not cover_valid:
+                    entity_type = 'movie' if str(cached.get('media_kind') or item.get('media_kind') or 'series').casefold() == 'movie' else 'anime'
+                    blocked = False
+                    if cached.get('id'):
+                        for row in self.artwork.list_for(entity_type, cached['id'], 'poster'):
+                            if row.get('source_ref') == cover_url and row.get('status') == 'failed':
+                                blocked = time.time() - float(row.get('last_attempt_at') or 0) < self.COVER_RETRY_SECONDS
+                                break
+                    if not blocked:
+                        downloaded = self.anilist.cache_cover(cover_url)
+                        if downloaded and os.path.isfile(downloaded) and os.path.getsize(downloaded) > 0:
+                            self.store.upsert_anime(lookup_title, {'anilist_id': anilist_id, 'cover_url': cover_url, 'cover_cache': downloaded},
+                                                    source='anilist', confidence=cached.get('metadata_confidence') or 'medium',
+                                                    status=cached.get('metadata_status') or 'available', fetched_at=cached.get('metadata_fetched_at'))
+                            cached = self.store.anime_metadata(lookup_title) or cached
+                        elif cached.get('id'):
+                            self.artwork.mark_download_failure(entity_type, cached['id'], 'poster', cover_url)
+                if cached.get('id'):
+                    self.artwork.sync_anime_metadata(cached['id'], cached)
+                hydrated.append({'lookup_title': lookup_title, 'id': cached.get('id'), 'metadata': cached})
+                if callable(on_item): on_item(cached)
+            except Exception:
+                logger.exception('Local metadata/artwork hydration failed', extra={'screen':'home','lookup_title':lookup_title,'library_items':len(catalog)})
+        return hydrated
     def set_manual_metadata(self, lookup_title, values):
         return self.store.set_manual_metadata(lookup_title, values)
 

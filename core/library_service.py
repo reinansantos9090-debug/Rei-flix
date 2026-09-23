@@ -118,14 +118,14 @@ class LibraryService:
             stale = True
         return "stale" if stale else "available"
 
-    def refresh_metadata(self, lookup_title, display_title, *, force=False):
+    def refresh_metadata(self, lookup_title, display_title, *, force=False, bypass_request_dedupe=False):
         """Resolve AniList metadata explicitly, conservatively and offline-safe."""
         with self._metadata_lock:
             cached = self.store.anime_metadata(lookup_title)
             associated_id = self.store.association(lookup_title)
             cached_id = cached.get("anilist_id") if cached else None
             refresh_id = associated_id or cached_id
-            if cached and cached.get("metadata_fetched_at"):
+            if cached and cached.get("metadata_fetched_at") and not bypass_request_dedupe:
                 try:
                     if time.time() - float(cached["metadata_fetched_at"]) < self.REQUEST_DEDUPE_SECONDS:
                         return cached
@@ -225,7 +225,7 @@ class LibraryService:
             try:
                 metadata_refreshed = False
                 if needs_metadata:
-                    cached = self.refresh_metadata(lookup_title, display_title, force=False)
+                    cached = self.refresh_metadata(lookup_title, display_title, force=True, bypass_request_dedupe=True)
                     cached = self.store.anime_metadata(lookup_title) or cached or {}
                     status = str(cached.get('metadata_status') or status).casefold()
                     anilist_id = self.store.association(lookup_title) or cached.get('anilist_id')

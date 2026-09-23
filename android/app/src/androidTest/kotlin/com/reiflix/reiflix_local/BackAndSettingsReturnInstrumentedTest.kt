@@ -2,6 +2,7 @@ package com.reiflix.reiflix_local
 
 import android.content.Intent
 import android.os.SystemClock
+import android.accessibilityservice.AccessibilityService
 import android.provider.Settings
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -39,6 +40,7 @@ class BackAndSettingsReturnInstrumentedTest {
         awaitState("MainActivity must actually leave RESUMED while Android Settings is visible") {
             scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
         }
+        waitForExternalUiSettle()
         pressBackBestEffort()
         awaitState("Android Back from All Files Settings must return to MainActivity") {
             scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
@@ -59,6 +61,7 @@ class BackAndSettingsReturnInstrumentedTest {
         awaitState("MainActivity must leave RESUMED while App Info is visible") {
             scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
         }
+        waitForExternalUiSettle()
         pressBackBestEffort()
         awaitState("Android Back from App Info must return to MainActivity") {
             scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
@@ -76,6 +79,7 @@ class BackAndSettingsReturnInstrumentedTest {
         awaitState("MainActivity must leave RESUMED while DocumentsUI is visible") {
             scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
         }
+        waitForExternalUiSettle()
         pressBackBestEffort()
         awaitState("Android Back from SAF picker must return to MainActivity") {
             scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
@@ -120,12 +124,13 @@ class BackAndSettingsReturnInstrumentedTest {
     }
 
     private fun pressBackBestEffort() {
-        runCatching {
-            val descriptor = InstrumentationRegistry.getInstrumentation()
-                .uiAutomation
-                .executeShellCommand("input keyevent 4")
-            descriptor.close()
-        }
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        assertTrue("Instrumentation must be able to dispatch Android Back", automation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK))
+    }
+
+    private fun waitForExternalUiSettle() {
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        SystemClock.sleep(750L)
     }
 
     private fun awaitState(description: String, timeoutMs: Long = 15_000L, condition: () -> Boolean) {

@@ -132,6 +132,10 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertNotIn("FULL_SUITE_SKIPPED_DURING_DIAGNOSTIC_FAILURE", source)
         self.assertIn("METHOD_LEVEL_REPLAY_SKIPPED=1", source)
         self.assertNotIn('run_diagnostic_case "$class_name#$method_name"', source)
+        tail = source[source.index("# Do not replay every failed method"):]
+        self.assertNotIn("\\n#", tail)
+        self.assertNotIn("\\n\\n", tail)
+        self.assertIn("printf 'METHOD_LEVEL_REPLAY_SKIPPED=1\\n'", source)
 
     def test_android_instrumented_diagnostic_is_api_scoped_and_device_diagnostic_rich(self):
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")

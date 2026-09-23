@@ -2,11 +2,11 @@ package com.reiflix.reiflix_local
 
 import android.content.Intent
 import android.os.SystemClock
-import android.accessibilityservice.AccessibilityService
 import android.provider.Settings
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -124,13 +124,15 @@ class BackAndSettingsReturnInstrumentedTest {
     }
 
     private fun pressBackBestEffort() {
-        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-        assertTrue("Instrumentation must be able to dispatch Android Back", automation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK))
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        assertTrue("UiAutomator must be able to dispatch Android Back", device.pressBack())
+        device.waitForIdle(2_000L)
     }
 
     private fun waitForExternalUiSettle() {
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-        SystemClock.sleep(750L)
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        device.waitForIdle(2_000L)
+        SystemClock.sleep(500L)
     }
 
     private fun awaitState(description: String, timeoutMs: Long = 15_000L, condition: () -> Boolean) {

@@ -33,6 +33,7 @@ class HomeView:
         selected_artwork = [view_state.get("artwork", "Todos")]
         search_visible = [bool(view_state.get("search_visible", False))]
         render_generation = [0]
+        scan_active = [False]
         artwork_tasks: set[tuple] = set()
         artwork_bindings: dict[tuple, list] = {}
 
@@ -111,7 +112,16 @@ class HomeView:
                 artwork_bindings.setdefault((binding_entity, int(item.get("id")), kind), []).append((holder, width, height))
 
             def apply_source(path):
-                if not isinstance(path, str) or not (path.startswith(("content://", "file://")) or os.path.isfile(path)):
+                if not isinstance(path, str):
+                    return False
+                if path.startswith(("content://", "file://")):
+                    valid = True
+                else:
+                    try:
+                        valid = os.path.isfile(path) and os.path.getsize(path) > 0
+                    except OSError:
+                        valid = False
+                if not valid:
                     return False
                 holder.content = ft.Image(src=path, width=width, height=height, fit=ft.BoxFit.COVER, border_radius=RADIUS)
                 return True
@@ -135,6 +145,9 @@ class HomeView:
                             )
                             path = (resolved or {}).get("local_path")
                             if apply_source(path):
+                                meta = item.setdefault("meta", {})
+                                meta["cover_cache"] = path
+                                item["cover"] = path
                                 page.update()
                         except Exception:
                             logger.exception(
@@ -222,7 +235,15 @@ class HomeView:
             if token != render_generation[0]:
                 return
             grid.controls.clear()
-            if not catalog:
+            if not catalog and scan_active[0]:
+                library_label.value = "DESCOBRINDO BIBLIOTECA LOCAL…"
+                feedback.visible = False
+                status.visible = True
+                status.controls = [
+                    ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
+                    ft.Text("Descobrindo vídeos locais…", color=TEXT_MUTED, size=12),
+                ]
+            elif not catalog:
                 library_label.value = "SUA BIBLIOTECA"
                 feedback.content = empty_state(ft.Icons.VIDEO_LIBRARY_OUTLINED, "Sua biblioteca local está vazia",
                                                "Adicione uma pasta com animes nas configurações para começar.",
@@ -444,6 +465,18 @@ class HomeView:
             catalog.extend(loaded_catalog or [])
 
             try:
+                last_scan = await asyncio.to_thread(library.last_scan)
+            except Exception:
+                logger.exception(
+                    "Home last-scan state lookup failed",
+                    extra={"screen":"home","requestId":"-","library_items":len(catalog)},
+                )
+                last_scan = None
+            scan_active[0] = bool(
+                last_scan and str(last_scan.get("status") or "").casefold() in {"running", "started"}
+            )
+
+            try:
                 loaded_home_data = await asyncio.to_thread(
                     library.media_center_home, limit=12, catalog=list(catalog)
                 )
@@ -470,14 +503,8 @@ class HomeView:
             continuing.clear()
             continuing.extend(home_data.get("continue_watching", []))
             refresh_filter_options(loaded_options or {})
-            try:
-                last_scan = await asyncio.to_thread(library.last_scan)
-            except Exception:
-                logger.exception("Home last-scan state lookup failed", extra={"screen":"home","requestId":"-","library_items":len(catalog)})
-                last_scan = None
-            scan_active = bool(last_scan and str(last_scan.get("status") or "").casefold() in {"running", "started"})
-            status.visible = scan_active
-            if scan_active:
+            status.visible = scan_active[0]
+            if scan_active[0]:
                 status.controls = [
                     ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
                     ft.Text("Descobrindo vídeos locais…", color=TEXT_MUTED, size=12),
@@ -505,7 +532,7 @@ class HomeView:
                         extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog),"section":key},
                     )
             await render_library()
-            if not catalog and scan_active:
+            if not catalog and scan_active[0]
                 feedback.visible = False
                 library_label.value = "DESCOBRINDO BIBLIOTECA LOCAL…"
                 page.update()

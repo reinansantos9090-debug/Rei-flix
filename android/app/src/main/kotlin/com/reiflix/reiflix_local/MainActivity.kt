@@ -160,6 +160,12 @@ class MainActivity : FlutterFragmentActivity() {
             )
             when (kind) {
                 "broad_storage" -> handleBroadSettingsReturn(requestId, "activity_result")
+                else -> {
+                    // App Info and other Android permission surfaces must still
+                    // converge to the authoritative native snapshot on return.
+                    Log.i(tag, "SETTINGS_RETURN revalidating non-broad surface kind=" + (kind ?: "-"))
+                    publishStorageStatus()
+                }
             }
         }
 

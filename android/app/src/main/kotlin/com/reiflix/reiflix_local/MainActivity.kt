@@ -1102,9 +1102,11 @@ class MainActivity : FlutterFragmentActivity() {
         for ((label, intent) in intents) {
             externalSettingsKind = kind
             externalSettingsRequestId = requestId
+            var launched = false
             try {
                 Log.i(tag, "SETTINGS_LAUNCH kind=" + kind + " label=" + label + " requestId=" + (requestId ?: "-"))
                 externalSettingsLauncher.launch(intent)
+                launched = true
                 return true
             } catch (exception: ActivityNotFoundException) {
                 Log.w(tag, "Settings intent unavailable label=" + label, exception)
@@ -1113,8 +1115,10 @@ class MainActivity : FlutterFragmentActivity() {
             } catch (exception: Exception) {
                 Log.w(tag, "Settings intent failed label=" + label, exception)
             } finally {
-                externalSettingsKind = null
-                externalSettingsRequestId = null
+                if (!launched) {
+                    externalSettingsKind = null
+                    externalSettingsRequestId = null
+                }
             }
         }
         return false

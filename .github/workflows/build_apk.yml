@@ -301,6 +301,23 @@ jobs:
           fi
           test -s build/reiflix-release-metadata.txt
 
+      - name: Create standalone APK ZIP
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          apk = Path("${{ steps.apk.outputs.path }}")
+          archive = Path("build/ReiFlix-apk.zip")
+          if not apk.is_file() or apk.stat().st_size == 0:
+              raise SystemExit(f"APK not found or empty: {apk}")
+          with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
+              bundle.write(apk, arcname="ReiFlix.apk")
+          if not archive.is_file() or archive.stat().st_size == 0:
+              raise SystemExit("APK ZIP was not created")
+          print(f"Created {archive} containing ReiFlix.apk")
+          PY
       - name: Upload APK as direct artifact
         uses: actions/upload-artifact@v7
         with:
@@ -308,6 +325,12 @@ jobs:
           archive: false
           if-no-files-found: error
 
+      - name: Upload APK ZIP as direct artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/ReiFlix-apk.zip
+          archive: false
+          if-no-files-found: error
       - name: Upload APK metadata
         uses: actions/upload-artifact@v7
         with:

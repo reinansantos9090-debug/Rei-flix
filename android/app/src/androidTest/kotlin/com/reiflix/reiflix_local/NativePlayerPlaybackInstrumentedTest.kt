@@ -1,11 +1,13 @@
 package com.reiflix.reiflix_local
 
 import android.content.ContentValues
+import android.graphics.Matrix
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.MotionEvent
+import android.view.TextureView
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.TextView
@@ -219,14 +221,35 @@ class NativePlayerPlaybackInstrumentedTest {
         }
         assertTrue(
             "Pinch out must actually transform the video surface, not only change resize mode",
-            onMain { (playerView.videoSurfaceView?.scaleX ?: 1f) > 1.01f },
+            onMain {
+                val video = playerView.videoSurfaceView
+                if (video !is TextureView) {
+                    false
+                } else {
+                    val matrix = Matrix()
+                    video.getTransform(matrix)
+                    val values = FloatArray(9)
+                    matrix.getValues(values)
+                    values[Matrix.MSCALE_X] > 1.01f && values[Matrix.MSCALE_Y] > 1.01f
+                }
+            },
         )
         pinch(gestureLayer, zoom = false)
         await("Pinch in must select FIT") {
             playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
-        await("Pinch in must restore the video surface scale") {
-            (playerView.videoSurfaceView?.scaleX ?: 1f) <= 1.01f
+        await("Pinch in must restore the video surface transform") {
+            val video = playerView.videoSurfaceView
+            if (video !is TextureView) {
+                false
+            } else {
+                val matrix = Matrix()
+                video.getTransform(matrix)
+                val values = FloatArray(9)
+                matrix.getValues(values)
+                kotlin.math.abs(values[Matrix.MSCALE_X] - 1f) <= 0.01f &&
+                    kotlin.math.abs(values[Matrix.MSCALE_Y] - 1f) <= 0.01f
+            }
         }
 
         cancelGesture(gestureLayer, gestureSize.first * 0.8f, gestureSize.second * 0.5f)

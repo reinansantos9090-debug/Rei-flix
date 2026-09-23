@@ -78,7 +78,8 @@ class AniListClient:
                 if delay > 0:
                     logger.warning('AniList atingiu rate limit; aguardando %.1fs antes de uma nova tentativa.', delay)
                     time.sleep(delay)
-                    self._pace_request()
+                    with self._rate_lock:
+                        self._next_request_at = time.monotonic() + self._min_interval
                     try:
                         with urllib.request.urlopen(req, timeout=10) as retry_response:
                             raw = retry_response.read()

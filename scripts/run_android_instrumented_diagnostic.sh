@@ -161,17 +161,16 @@ run_diagnostic_case() {
     watch_pid="$!"
     local status=0
     set +e
+    # The normal suite already ran once. Diagnostic isolation reuses the Gradle daemon
+    # so a failure does not pay a fresh Gradle JVM/configuration cost per class.
+    set +e
     if [[ -n "$selector" ]]; then
         timeout --foreground --signal=TERM --kill-after=30s "$timeout_seconds"s \
-            # The normal suite already ran once. Diagnostic isolation reuses the Gradle daemon\
-            # so a failure does not pay a fresh Gradle JVM/configuration cost per class.\
             ./gradlew :app:connectedDebugAndroidTest --stacktrace \
             "-Pandroid.testInstrumentationRunnerArguments.class=$selector" \
             > "$case_dir/gradle.log" 2>&1
     else
         timeout --foreground --signal=TERM --kill-after=30s "$timeout_seconds"s \
-            # The normal suite already ran once. Diagnostic isolation reuses the Gradle daemon\
-            # so a failure does not pay a fresh Gradle JVM/configuration cost per class.\
             ./gradlew :app:connectedDebugAndroidTest --stacktrace \
             > "$case_dir/gradle.log" 2>&1
     fi

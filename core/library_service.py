@@ -223,11 +223,13 @@ class LibraryService:
             needs_cover = bool(anilist_id and str(cached.get('cover_url') or '').strip() and not cover_valid)
             if not needs_metadata and not needs_cover: continue
             try:
+                metadata_refreshed = False
                 if needs_metadata:
                     cached = self.refresh_metadata(lookup_title, display_title, force=False)
                     cached = self.store.anime_metadata(lookup_title) or cached or {}
                     status = str(cached.get('metadata_status') or status).casefold()
                     anilist_id = self.store.association(lookup_title) or cached.get('anilist_id')
+                    metadata_refreshed = True
                 cover_cache = str(cached.get('cover_cache') or '').strip()
                 cover_valid = bool(cover_cache and os.path.isfile(cover_cache) and os.path.getsize(cover_cache) > 0)
                 cover_url = str(cached.get('cover_url') or '').strip()
@@ -239,7 +241,7 @@ class LibraryService:
                             if row.get('source_ref') == cover_url and row.get('status') == 'failed':
                                 blocked = time.time() - float(row.get('last_attempt_at') or 0) < self.COVER_RETRY_SECONDS
                                 break
-                    if not blocked:
+                    if not blocked and not metadata_refreshed:
                         downloaded = self.anilist.cache_cover(cover_url)
                         if downloaded and os.path.isfile(downloaded) and os.path.getsize(downloaded) > 0:
                             self.store.upsert_anime(lookup_title, {'anilist_id': anilist_id, 'cover_url': cover_url, 'cover_cache': downloaded},

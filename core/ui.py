@@ -44,7 +44,7 @@ def media_artwork(source, height, *, width=None, icon_size=32, label="Sem capa")
     )
     if not source:
         return fallback
-    return ft.Image(src=source, width=width, height=height, fit=ft.ImageFit.COVER,
+    return ft.Image(src=source, width=width, height=height, fit=ft.BoxFit.COVER,
                     border_radius=RADIUS, error_content=fallback)
 
 

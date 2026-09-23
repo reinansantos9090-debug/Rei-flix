@@ -25,9 +25,27 @@ class LibraryStore:
         self._last_playback_event_at = {}
         self._init()
 
+    @staticmethod
+    def _row_factory(cursor, row):
+        """Preserve the semantic type of episode numbers on SQLite REAL columns.
+
+        SQLite may return an integer-valued REAL as 6.0. The project accepts
+        decimal episode numbers too, so only finite integral values in a column
+        named "number" are narrowed to int at the repository boundary.
+        """
+        columns = {description[0]: index for index, description in enumerate(cursor.description or ())}
+        number_index = columns.get("number")
+        if number_index is not None:
+            value = row[number_index]
+            if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+                row = list(row)
+                row[number_index] = int(value)
+                row = tuple(row)
+        return sqlite3.Row(cursor, row)
+
     def _conn(self):
         con = sqlite3.connect(self.db_path)
-        con.row_factory = sqlite3.Row
+        con.row_factory = self._row_factory
         con.execute("PRAGMA foreign_keys=ON")
         return con
 

@@ -17,6 +17,8 @@ class AniListClient:
         self._rate_limit = None
         self._rate_remaining = None
         self._rate_reset = None
+        self._transport_backoff_until = 0.0
+        self._transport_failures = 0
 
     @staticmethod
     def _header(headers, name):
@@ -28,9 +30,25 @@ class AniListClient:
 
     def _pace_request(self):
         with self._rate_lock:
-            delay = max(0.0, self._next_request_at - time.monotonic())
-        if delay: time.sleep(delay)
-        with self._rate_lock: self._next_request_at = time.monotonic() + self._min_interval
+            now = time.monotonic()
+            backoff = max(0.0, self._transport_backoff_until - now)
+            delay = max(backoff, self._next_request_at - now)
+        if delay:
+            time.sleep(delay)
+        with self._rate_lock:
+            self._next_request_at = time.monotonic() + self._min_interval
+
+    def _transport_failure(self):
+        with self._rate_lock:
+            self._transport_failures += 1
+            delay = min(300.0, 30.0 * (2 ** (self._transport_failures - 1)))
+            self._transport_backoff_until = time.monotonic() + delay
+        logger.warning("AniList transporte indisponível; backoff de %.1fs aplicado.", delay)
+
+    def _transport_success(self):
+        with self._rate_lock:
+            self._transport_failures = 0
+            self._transport_backoff_until = 0.0
 
     def _observe_rate_headers(self, headers):
         limit_raw = self._header(headers, 'X-RateLimit-Limit')
@@ -65,11 +83,16 @@ class AniListClient:
     def _request(self, query, variables):
         data = json.dumps({'query': query, 'variables': variables}).encode()
         req = urllib.request.Request(self.endpoint, data=data, headers={'Content-Type':'application/json','Accept':'application/json','User-Agent':'ReiFlix/1.0'})
+        with self._rate_lock:
+            if time.monotonic() < self._transport_backoff_until:
+                logger.info("AniList request skipped during transport backoff.")
+                return None
         self._pace_request()
         try:
             with urllib.request.urlopen(req, timeout=10) as response:
                 raw = response.read()
                 self._observe_rate_headers(getattr(response, 'headers', None))
+            self._transport_success()
             payload = json.loads(raw)
         except urllib.error.HTTPError as exc:
             self._observe_rate_headers(getattr(exc, 'headers', None))
@@ -96,9 +119,15 @@ class AniListClient:
                     return None
             else:
                 logger.warning('AniList indisponível: HTTP %s', exc.code)
+                if exc.code >= 500:
+                    self._transport_failure()
                 return None
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            self._transport_failure()
             logger.warning('AniList indisponível: %s', exc)
+            return None
+        except json.JSONDecodeError as exc:
+            logger.warning('AniList retornou JSON inválido: %s', exc)
             return None
         except Exception as exc:
             logger.warning('Falha inesperada na comunicação com AniList: %s', exc)

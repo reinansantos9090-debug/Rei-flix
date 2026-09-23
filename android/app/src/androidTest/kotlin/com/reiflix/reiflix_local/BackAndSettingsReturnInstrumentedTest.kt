@@ -6,7 +6,6 @@ import android.provider.Settings
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -124,14 +123,14 @@ class BackAndSettingsReturnInstrumentedTest {
     }
 
     private fun pressBackBestEffort() {
-        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        assertTrue("UiAutomator must be able to dispatch Android Back", device.pressBack())
-        device.waitForIdle(2_000L)
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+        instrumentation.waitForIdleSync()
+        SystemClock.sleep(500L)
     }
 
     private fun waitForExternalUiSettle() {
-        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        device.waitForIdle(2_000L)
+        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         SystemClock.sleep(500L)
     }
 

@@ -6,6 +6,7 @@ import unittest
 import zipfile
 from pathlib import Path
 import json
+import re
 import xml.etree.ElementTree as ET
 
 
@@ -114,6 +115,9 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("min_sdk_version = 23", project)
 
     def test_android_instrumented_diagnostic_uses_full_suite_as_the_only_normal_path(self):
+        workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
+        actual_invocations = re.findall(r'^\s+"\\$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic\\.sh"$', workflow, re.MULTILINE)
+        self.assertEqual(actual_invocations, [\n            '            "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"',\n            '            "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"',\n        ])
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")
         normal = "./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace"
         self.assertIn(normal, source)

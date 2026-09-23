@@ -418,7 +418,7 @@ class HomeView:
                 loaded_catalog = await asyncio.to_thread(library.catalog)
             except Exception:
                 try:
-                    last_scan = library.last_scan()
+                    last_scan = await asyncio.to_thread(library.last_scan)
                 except Exception:
                     last_scan = None
                 logger.exception(

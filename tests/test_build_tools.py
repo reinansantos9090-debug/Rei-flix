@@ -111,13 +111,13 @@ class AndroidHostVerificationTests(unittest.TestCase):
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")
         normal = "./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace"
         self.assertIn(normal, source)
-        self.assertIn("FULL_STATUS=__DOLLAR__{PIPESTATUS[0]}", source)
+        self.assertIn("FULL_STATUS=${PIPESTATUS[0]}", source)
         self.assertIn("if (( FULL_STATUS == 0 )); then", source)
         self.assertIn("DIAGNOSTIC_NOT_REQUIRED=1", source)
         self.assertIn("collect_diagnostics", source)
         self.assertIn("discover_failed_tests", source)
         self.assertIn("run_diagnostic_case", source)
-        self.assertIn('"-Pandroid.testInstrumentationRunnerArguments.class=__DOLLAR__{selector}"', source)
+        self.assertIn('"-Pandroid.testInstrumentationRunnerArguments.class=$selector"', source)
         self.assertNotIn("declare -a classes=", source)
         self.assertNotIn("FULL_SUITE_SKIPPED_DURING_DIAGNOSTIC_FAILURE", source)
 

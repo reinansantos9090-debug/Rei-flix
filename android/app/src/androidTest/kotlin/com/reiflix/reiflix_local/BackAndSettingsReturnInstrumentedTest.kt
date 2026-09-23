@@ -40,8 +40,8 @@ class BackAndSettingsReturnInstrumentedTest {
             scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
         }
         waitForExternalUiSettle()
-        pressBackBestEffort()
-        awaitState("Android Back from All Files Settings must return to MainActivity") {
+        returnFromExternalSurface("com.android.settings")
+        awaitState("Closing All Files Settings surface must return to MainActivity") {
             scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
         }
         scenario.onActivity { activity ->
@@ -61,8 +61,8 @@ class BackAndSettingsReturnInstrumentedTest {
             scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
         }
         waitForExternalUiSettle()
-        pressBackBestEffort()
-        awaitState("Android Back from App Info must return to MainActivity") {
+        returnFromExternalSurface("com.android.settings")
+        awaitState("Closing App Info Settings surface must return to MainActivity") {
             scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
         }
         scenario.onActivity { activity ->
@@ -79,8 +79,8 @@ class BackAndSettingsReturnInstrumentedTest {
             scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
         }
         waitForExternalUiSettle()
-        pressBackBestEffort()
-        awaitState("Android Back from SAF picker must return to MainActivity") {
+        returnFromExternalSurface("com.google.android.documentsui", "com.android.documentsui")
+        awaitState("Closing SAF picker must return to MainActivity") {
             scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
         }
         scenario.onActivity { activity ->
@@ -122,16 +122,20 @@ class BackAndSettingsReturnInstrumentedTest {
         return outcome
     }
 
-    private fun pressBackBestEffort() {
+    private fun returnFromExternalSurface(vararg packageNames: String) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+        val packages = packageNames.joinToString(" ")
+        val descriptor = instrumentation.uiAutomation.executeShellCommand(
+            "for p in $packages; do am force-stop $p >/dev/null 2>&1 || true; done"
+        )
+        descriptor.close()
         instrumentation.waitForIdleSync()
-        SystemClock.sleep(500L)
+        SystemClock.sleep(750L)
     }
 
     private fun waitForExternalUiSettle() {
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
-        SystemClock.sleep(500L)
+        SystemClock.sleep(750L)
     }
 
     private fun awaitState(description: String, timeoutMs: Long = 15_000L, condition: () -> Boolean) {

@@ -537,7 +537,7 @@ E: manifest
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn('localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri)', main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("startActivity(intent)", main)
+        self.assertIn("playerActivityLauncher.launch(intent)", main)
         self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", player)

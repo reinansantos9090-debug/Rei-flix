@@ -80,7 +80,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("id: android_api30", workflow)
         self.assertIn("id: android_api36", workflow)
         self.assertEqual(workflow.count("timeout-minutes: 30"), 2)
-        self.assertEqual(workflow.count("continue-on-error: true"), 2)
+        self.assertNotIn("continue-on-error: true", workflow)
         self.assertIn('REIFLIX_ANDROID_API_LEVEL: "30"', workflow)
         self.assertIn('REIFLIX_ANDROID_API_LEVEL: "36"', workflow)
         self.assertIn("build/android30-diagnostics", workflow)
@@ -96,9 +96,9 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("-noaudio", workflow)
         self.assertIn("-no-boot-anim", workflow)
         self.assertIn("-camera-back none", workflow)
-        self.assertIn("Enforce Android instrumented test outcomes", workflow)
-        self.assertIn('test "$API30_OUTCOME" = "success"', workflow)
-        self.assertIn('test "$API36_OUTCOME" = "success"', workflow)
+        self.assertNotIn("Enforce Android instrumented test outcomes", workflow)
+        self.assertNotIn('test "$API30_OUTCOME" = "success"', workflow)
+        self.assertNotIn('test "$API36_OUTCOME" = "success"', workflow)
         self.assertNotIn("|| true", workflow)
         self.assertIn("actions: write", workflow)
         self.assertIn("Cancel legacy Android workflow runs", workflow)
@@ -106,6 +106,20 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("CURRENT_RUN_ID", workflow)
         self.assertIn("/actions/runs?status=$status&per_page=100", workflow)
         self.assertIn("/actions/runs?status=$status&per_page=100", workflow)
+
+    def test_android_instrumented_diagnostic_uses_full_suite_as_the_only_normal_path(self):
+        source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")
+        normal = "./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace"
+        self.assertIn(normal, source)
+        self.assertIn("FULL_STATUS=__DOLLAR__{PIPESTATUS[0]}", source)
+        self.assertIn("if (( FULL_STATUS == 0 )); then", source)
+        self.assertIn("DIAGNOSTIC_NOT_REQUIRED=1", source)
+        self.assertIn("collect_diagnostics", source)
+        self.assertIn("discover_failed_tests", source)
+        self.assertIn("run_diagnostic_case", source)
+        self.assertIn('"-Pandroid.testInstrumentationRunnerArguments.class=__DOLLAR__{selector}"', source)
+        self.assertNotIn("declare -a classes=", source)
+        self.assertNotIn("FULL_SUITE_SKIPPED_DURING_DIAGNOSTIC_FAILURE", source)
 
     def test_android_instrumented_diagnostic_is_api_scoped_and_device_diagnostic_rich(self):
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")

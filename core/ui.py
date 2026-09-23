@@ -1,6 +1,7 @@
 """Small shared visual language for Rei-flix Flet views."""
 from __future__ import annotations
 
+import os
 import flet as ft
 
 BACKGROUND = "#16151F"
@@ -43,6 +44,16 @@ def media_artwork(source, height, *, width=None, icon_size=32, label="Sem capa")
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True, spacing=3),
     )
     if not source:
+        return fallback
+    source = str(source)
+    if source.startswith(("content://", "file://", "http://", "https://")):
+        valid = True
+    else:
+        try:
+            valid = os.path.isfile(source) and os.path.getsize(source) > 0
+        except OSError:
+            valid = False
+    if not valid:
         return fallback
     return ft.Image(src=source, width=width, height=height, fit=ft.BoxFit.COVER,
                     border_radius=RADIUS, error_content=fallback)

@@ -136,11 +136,6 @@ class NativePlayerActivity : ComponentActivity() {
         enterImmersiveMode()
         configureWindow()
         restoredPositionMs = savedInstanceState?.takeIf { it.containsKey("position_ms") }?.getLong("position_ms")
-        brightnessLevel = window.attributes.screenBrightness
-            .takeIf { it.isFinite() && it >= 0f }
-            ?.coerceIn(0f, 1f)
-            ?: 0.5f
-
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             clipChildren = false

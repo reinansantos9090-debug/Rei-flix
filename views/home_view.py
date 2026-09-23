@@ -113,7 +113,7 @@ class HomeView:
             def apply_source(path):
                 if not isinstance(path, str) or not (path.startswith(("content://", "file://")) or os.path.isfile(path)):
                     return False
-                holder.content = ft.Image(src=path, width=width, height=height, fit=ft.ImageFit.COVER, border_radius=RADIUS)
+                holder.content = ft.Image(src=path, width=width, height=height, fit=ft.BoxFit.COVER, border_radius=RADIUS)
                 return True
 
             if apply_source(source):
@@ -394,7 +394,7 @@ class HomeView:
                         for holder, width, height in artwork_bindings.get((entity, int(item_id), "poster"), []):
                             holder.content = ft.Image(
                                 src=cover_path, width=width, height=height,
-                                fit=ft.ImageFit.COVER, border_radius=RADIUS,
+                                fit=ft.BoxFit.COVER, border_radius=RADIUS,
                             )
                         page.update()
             except Exception:

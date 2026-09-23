@@ -532,9 +532,11 @@ class HomeView:
                         extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog),"section":key},
                     )
             await render_library()
-            if not catalog and scan_active[0]
-                feedback.visible = False
-                library_label.value = "DESCOBRINDO BIBLIOTECA LOCAL…"
+            if scan_active[0]:
+                status.visible = True
+                if not catalog:
+                    feedback.visible = False
+                    library_label.value = "DESCOBRINDO BIBLIOTECA LOCAL…"
                 page.update()
             else:
                 status.visible = False

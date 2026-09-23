@@ -276,6 +276,15 @@ E: manifest
         self.assertIn("PLAYER_BACK ANDROID_BACK", player)
 
 
+    def test_external_settings_launcher_retains_pending_kind_until_return(self):
+        main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        block = main[main.index("private fun launchExternalSettings"):main.index("private fun openBroadStorageSettings", main.index("private fun launchExternalSettings"))]
+        self.assertIn("var launched = false", block)
+        self.assertIn("launched = true", block)
+        self.assertIn("if (!launched)", block)
+        self.assertNotIn("finally {\n                externalSettingsKind = null", block)
+
+
     def test_main_activity_uses_lifecycle_aware_back_and_activity_result_callbacks(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("import androidx.activity.OnBackPressedCallback", main)

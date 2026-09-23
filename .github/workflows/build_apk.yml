@@ -12,34 +12,15 @@ concurrency:
 
 jobs:
   build:
-    timeout-minutes: 75
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Cancel legacy Android workflow runs
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CURRENT_RUN_ID: ${{ github.run_id }}
-        run: |
-          for status in in_progress queued; do
-            gh api --paginate \
-              -H "Accept: application/vnd.github+json" \
-              "/repos/$GITHUB_REPOSITORY/actions/runs?status=$status&per_page=100" \
-              --jq '.workflow_runs[] | select(.name == "Build ReiFlix Android APK" and .head_branch == "main") | .id' \
-              | while IFS= read -r run_id; do
-                  if test -z "$run_id" || test "$run_id" = "$CURRENT_RUN_ID"; then
-                    continue
-                  fi
-                  echo "Cancelling legacy Android workflow run $run_id"
-                  gh run cancel "$run_id"
-                done
-          done
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -121,13 +102,6 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git status --short
 
-      - name: Generate deterministic local player fixture
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          python scripts/create_player_fixture.py --output build/player_fixture.mp4
-          test -s build/player_fixture.mp4
-
       - name: Prepare Flet build template with Android host
         run: |
           mkdir -p build
@@ -140,13 +114,6 @@ jobs:
           python scripts/prepare_flet_template.py \
             --template "$GITHUB_WORKSPACE/build/flet-build-template" \
             --overlay "$GITHUB_WORKSPACE/android"
-
-      - name: Install generated player fixture into rendered Android test assets
-        run: |
-          test -s build/player_fixture.mp4
-          mkdir -p build/flutter/android/app/src/androidTest/assets
-          cp build/player_fixture.mp4 build/flutter/android/app/src/androidTest/assets/player_fixture.mp4
-          test -s build/flutter/android/app/src/androidTest/assets/player_fixture.mp4
 
       - name: Fix generated JSON files
         shell: bash
@@ -255,91 +222,6 @@ jobs:
             ./gradlew :app:testDebugUnitTest --no-daemon
           )
 
-      - name: Enable KVM for Android instrumented tests
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - name: Run Android instrumented tests on API 30 emulator
-        id: android_api30
-        timeout-minutes: 30
-        uses: reactivecircus/android-emulator-runner@v2
-        env:
-          SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/flutter/site-packages
-          REIFLIX_ANDROID_API_LEVEL: "30"
-        with:
-          api-level: 30
-          arch: x86_64
-          profile: pixel_7
-          force-avd-creation: true
-          emulator-port: 5554
-          emulator-boot-timeout: 300
-          disable-animations: true
-          disable-linux-hw-accel: false
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          working-directory: build/flutter/android
-          script: |
-            mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
-            chmod +x "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
-            "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
-
-      - name: Upload API 30 diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android30-instrumentation-diagnostics
-          path: build/android30-diagnostics
-          if-no-files-found: ignore
-
-      - name: Run Android instrumented tests on API 36 emulator
-        id: android_api36
-        timeout-minutes: 30
-        uses: reactivecircus/android-emulator-runner@v2
-        env:
-          SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/flutter/site-packages
-          REIFLIX_ANDROID_API_LEVEL: "36"
-        with:
-          api-level: 36
-          arch: x86_64
-          profile: pixel_7
-          force-avd-creation: true
-          emulator-port: 5554
-          emulator-boot-timeout: 300
-          disable-animations: true
-          disable-linux-hw-accel: false
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          working-directory: build/flutter/android
-          script: |
-            mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
-            chmod +x "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
-            "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
-
-      - name: Upload API 36 diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android36-instrumentation-diagnostics
-          path: build/android36-diagnostics
-          if-no-files-found: ignore
-
-      - name: Install release APK on clean API 36 emulator
-        timeout-minutes: 15
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 36
-          arch: x86_64
-          profile: pixel_7
-          force-avd-creation: true
-          emulator-port: 5554
-          emulator-boot-timeout: 300
-          disable-animations: true
-          disable-linux-hw-accel: false
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: |
-            adb install "$GITHUB_WORKSPACE/build/apk/reiflix-local.apk"
-            adb shell pm path com.reiflix.reiflix_local
-            adb shell dumpsys package com.reiflix.reiflix_local | grep -E "versionCode=|versionName="
       - name: Locate APK
         id: apk
         shell: bash

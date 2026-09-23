@@ -193,27 +193,31 @@ class NativePlayerPlaybackInstrumentedTest {
         }
 
         val feedback = awaitView<TextView>("reiflix_feedback")
-        swipe(
-            gestureLayer,
-            gestureSize.first * 0.12f,
-            gestureSize.second * 0.72f,
-            gestureSize.first * 0.12f,
-            gestureSize.second * 0.30f,
-        )
-        await("Left vertical gesture must expose brightness feedback") {
-            feedback.text?.contains("BRILHO") == true
-        }
+        val back = awaitView<View>("reiflix_back_button")
+        val systemAudio = target.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+        val volumeBefore = systemAudio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
 
         swipe(
             gestureLayer,
+            gestureSize.first * 0.12f,
+            gestureSize.second * 0.72f,
+            gestureSize.first * 0.12f,
+            gestureSize.second * 0.30f,
+        )
+        swipe(
+            gestureLayer,
             gestureSize.first * 0.88f,
             gestureSize.second * 0.72f,
             gestureSize.first * 0.88f,
             gestureSize.second * 0.30f,
         )
-        await("Right vertical gesture must expose volume feedback") {
-            feedback.text?.contains("VOLUME") == true
-        }
+        SystemClock.sleep(300L)
+        assertFalse("Vertical swipes must not expose brightness feedback", onMain { feedback.text?.contains("BRILHO") == true })
+        assertFalse("Vertical swipes must not expose volume feedback", onMain { feedback.text?.contains("VOLUME") == true })
+        assertEquals("Vertical swipes must not change Android media volume", volumeBefore, systemAudio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC))
+
+        assertTrue("Visual Back control must be clickable", onMain { back.performClick() })
+        await("Visual Back must finish the native player Activity") { activity!!.isFinishing }
 
         pinch(gestureLayer, zoom = true)
         await("Pinch out must select ZOOM") {
@@ -262,8 +266,8 @@ class NativePlayerPlaybackInstrumentedTest {
             onMain { controls.isShown },
         )
 
-        onMain { activity!!.onBackPressedDispatcher.onBackPressed() }
-        await("Android Back must finish the native player Activity") { activity!!.isFinishing }
+        // Android Back is covered by the dedicated dispatcher contract after
+        // the visual Back path; both routes converge on finishPlayer().
     }
 
     private fun grantMediaReadPermission() {

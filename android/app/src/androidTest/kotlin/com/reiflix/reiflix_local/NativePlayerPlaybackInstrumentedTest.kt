@@ -17,6 +17,7 @@ import androidx.media3.ui.PlayerView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -193,7 +194,6 @@ class NativePlayerPlaybackInstrumentedTest {
         }
 
         val feedback = awaitView<TextView>("reiflix_feedback")
-        val back = awaitView<View>("reiflix_back_button")
         val systemAudio = target.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
         val volumeBefore = systemAudio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
 
@@ -215,23 +215,6 @@ class NativePlayerPlaybackInstrumentedTest {
         assertFalse("Vertical swipes must not expose brightness feedback", onMain { feedback.text?.contains("BRILHO") == true })
         assertFalse("Vertical swipes must not expose volume feedback", onMain { feedback.text?.contains("VOLUME") == true })
         assertEquals("Vertical swipes must not change Android media volume", volumeBefore, systemAudio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC))
-
-        assertTrue("Visual Back control must be clickable", onMain { back.performClick() })
-        await("Visual Back must finish the native player Activity") { activity!!.isFinishing }
-
-        val secondIntent = Intent(target, NativePlayerActivity::class.java)
-            .putExtra("requestId", "instrumented-player-android-back")
-            .putExtra("uri", fixtureUri!!.toString())
-            .putExtra("title", "Fixture local")
-            .putExtra("positionMs", 0L)
-            .putExtra("canNext", false)
-            .putExtra("canPrevious", false)
-            .putExtra("autoplay", false)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        activity = InstrumentationRegistry.getInstrumentation().startActivitySync(secondIntent) as NativePlayerActivity
-        awaitView<View>("reiflix_back_button")
-        onMain { activity!!.onBackPressedDispatcher.onBackPressed() }
-        await("Android Back must finish the native player Activity") { activity!!.isFinishing }
 
         pinch(gestureLayer, zoom = true)
         await("Pinch out must select ZOOM") {
@@ -279,6 +262,24 @@ class NativePlayerPlaybackInstrumentedTest {
             "Play control must remain accessible after gesture sequences",
             onMain { controls.isShown },
         )
+
+        val back = awaitView<View>("reiflix_back_button")
+        assertTrue("Visual Back control must be clickable", onMain { back.performClick() })
+        await("Visual Back must finish the native player Activity") { activity!!.isFinishing }
+
+        val secondIntent = Intent(target, NativePlayerActivity::class.java)
+            .putExtra("requestId", "instrumented-player-android-back")
+            .putExtra("uri", fixtureUri!!.toString())
+            .putExtra("title", "Fixture local")
+            .putExtra("positionMs", 0L)
+            .putExtra("canNext", false)
+            .putExtra("canPrevious", false)
+            .putExtra("autoplay", false)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        activity = InstrumentationRegistry.getInstrumentation().startActivitySync(secondIntent) as NativePlayerActivity
+        awaitView<View>("reiflix_back_button")
+        onMain { activity!!.onBackPressedDispatcher.onBackPressed() }
+        await("Android Back must finish the native player Activity") { activity!!.isFinishing }
 
     }
 

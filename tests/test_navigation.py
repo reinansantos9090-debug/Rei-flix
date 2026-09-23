@@ -47,6 +47,22 @@ class NavigationControllerTests(unittest.TestCase):
         self.assertEqual(self.navigation.back(), "previous")
         self.assertEqual(self.navigation.current, "home")
 
+    def test_main_has_single_logical_back_router_with_duplicate_suppression(self):
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        self.assertIn('def navigate_back(source="unknown")', source)
+        self.assertIn("BACK_DEBOUNCE_SECONDS = 0.30", source)
+        self.assertIn('"last_route": None', source)
+        self.assertIn('"duplicate BACK suppressed', source)
+        self.assertIn('"[NAV] DIALOG_BACK', source)
+        self.assertIn('"[NAV] NAVIGATE_BACK', source)
+
+    def test_visual_back_callbacks_identify_their_origin_screen(self):
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        self.assertIn('lambda: navigate_back("visual:organize")', source)
+        self.assertIn('lambda: navigate_back("visual:details")', source)
+        self.assertIn('lambda: navigate_back("visual:settings")', source)
+
+
     def test_main_uses_one_persistent_view_host(self):
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
         self.assertIn("view_host = ft.Container", source)

@@ -106,6 +106,7 @@ class SettingsView:
                     await on_request_video_access()
                     notice("Solicitação de permissão para ler vídeos enviada ao Android…")
                 except Exception:
+                    logger.exception("Settings video permission request failed")
                     notice("Não foi possível solicitar a permissão para ler vídeos.", error=True)
                 finally:
                     busy["permission"] = False
@@ -135,6 +136,7 @@ class SettingsView:
                     await on_open_broad_storage()
                     notice("Abrindo as configurações do Android para permitir o acesso ao armazenamento…")
                 except Exception:
+                    logger.exception("Settings broad storage request failed")
                     notice("Não foi possível abrir a configuração de armazenamento.", error=True)
                 finally:
                     busy["permission"] = False
@@ -211,6 +213,7 @@ class SettingsView:
                 await on_add_folder()
                 notice("Abrindo seletor Android para autorizar a pasta…")
             except Exception:
+                logger.exception("Settings folder picker failed")
                 notice("Não foi possível abrir o seletor de pasta.", error=True)
             finally:
                 busy["folder"] = False
@@ -229,6 +232,7 @@ class SettingsView:
                 notice(message)
                 on_catalog_changed()
             except Exception:
+                logger.exception("Settings library refresh failed")
                 notice("Não foi possível atualizar a biblioteca.", error=True)
             finally:
                 busy["scan"] = waiting_native_result
@@ -296,6 +300,7 @@ class SettingsView:
                 store.set_preference("resume_playback", "true" if event.control.value else "false")
                 notice("Preferência de reprodução salva.")
             except Exception:
+                logger.exception("Settings preference save failed")
                 event.control.value = not event.control.value
                 notice("Não foi possível salvar a preferência.", error=True)
         resume_switch.on_change = save_resume
@@ -398,6 +403,7 @@ class SettingsView:
             try:
                 on_logout()
             except Exception:
+                logger.exception("Settings logout failed")
                 busy["logout"] = False; logout_button.disabled = False
                 notice("Não foi possível sair da conta.", error=True)
         def ask_logout(_):

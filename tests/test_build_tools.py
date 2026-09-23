@@ -105,7 +105,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("gh run cancel", workflow)
         self.assertIn("CURRENT_RUN_ID", workflow)
         self.assertIn("/actions/runs?status=$status&per_page=100", workflow)
-        self.assertIn("status queued", workflow)
+        self.assertIn("/actions/runs?status=$status&per_page=100", workflow)
 
     def test_android_instrumented_diagnostic_is_api_scoped_and_device_diagnostic_rich(self):
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")

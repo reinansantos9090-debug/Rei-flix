@@ -104,7 +104,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("Cancel legacy Android workflow runs", workflow)
         self.assertIn("gh run cancel", workflow)
         self.assertIn("CURRENT_RUN_ID", workflow)
-        self.assertIn("status in_progress", workflow)
+        self.assertIn("status=$status", workflow)
         self.assertIn("status queued", workflow)
 
     def test_android_instrumented_diagnostic_is_api_scoped_and_device_diagnostic_rich(self):

@@ -143,6 +143,18 @@ class AniListClientTests(unittest.TestCase):
             self.assertTrue(Path(path).is_file())
             self.assertEqual(Path(path).read_bytes(), b"cover-bytes")
 
+    def test_rate_headers_adapt_request_pacing_to_current_limit(self):
+        client = AniListClient('/tmp/cache')
+        response = {'data': {'Media': {'id': 123}}}
+        fake = type('Response', (), {
+            '__enter__': lambda self: self,
+            '__exit__': lambda self, *args: None,
+            'read': lambda self: json.dumps(response).encode(),
+            'headers': {'X-RateLimit-Limit': '30', 'X-RateLimit-Remaining': '29', 'X-RateLimit-Reset': str(int(__import__('time').time()) + 60)},
+        })()
+        with patch('core.anilist.urllib.request.urlopen', return_value=fake):
+            self.assertEqual(client._request('query', {}), response['data'])
+        self.assertGreaterEqual(client._min_interval, 2.0)
 
 if __name__ == "__main__":
     unittest.main()

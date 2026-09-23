@@ -1747,26 +1747,39 @@ class NativePlayerActivity : ComponentActivity() {
 
         private fun applyZoomTransform() {
             val video = playerView.videoSurfaceView ?: return
-            if (video.width <= 1 || video.height <= 1 || width <= 1 || height <= 1) return
-
-            val maxTx = ((video.width * zoomScale) - width).coerceAtLeast(0f) * 0.5f
-            val maxTy = ((video.height * zoomScale) - height).coerceAtLeast(0f) * 0.5f
-            zoomTranslationX = zoomTranslationX.coerceIn(-maxTx, maxTx)
-            zoomTranslationY = zoomTranslationY.coerceIn(-maxTy, maxTy)
 
             if (video is TextureView) {
-                val matrix = Matrix().apply {
-                    setScale(
+                val matrix = Matrix()
+                if (video.width > 1 && video.height > 1 && width > 1 && height > 1) {
+                    val maxTx = ((video.width * zoomScale) - width).coerceAtLeast(0f) * 0.5f
+                    val maxTy = ((video.height * zoomScale) - height).coerceAtLeast(0f) * 0.5f
+                    zoomTranslationX = zoomTranslationX.coerceIn(-maxTx, maxTx)
+                    zoomTranslationY = zoomTranslationY.coerceIn(-maxTy, maxTy)
+                    matrix.setScale(
                         zoomScale,
                         zoomScale,
                         video.width * 0.5f,
                         video.height * 0.5f,
                     )
-                    postTranslate(zoomTranslationX, zoomTranslationY)
+                    matrix.postTranslate(zoomTranslationX, zoomTranslationY)
+                } else {
+                    // A TextureView can receive the first gesture before its
+                    // measured size is published. Apply the scale around the
+                    // origin now, then refresh it from the normal layout/lifecycle
+                    // path once dimensions are available.
+                    matrix.setScale(zoomScale, zoomScale)
                 }
                 video.isOpaque = false
                 video.setTransform(matrix)
             } else {
+                if (video.width <= 1 || video.height <= 1 || width <= 1 || height <= 1) {
+                    video.post { applyZoomTransform() }
+                    return
+                }
+                val maxTx = ((video.width * zoomScale) - width).coerceAtLeast(0f) * 0.5f
+                val maxTy = ((video.height * zoomScale) - height).coerceAtLeast(0f) * 0.5f
+                zoomTranslationX = zoomTranslationX.coerceIn(-maxTx, maxTx)
+                zoomTranslationY = zoomTranslationY.coerceIn(-maxTy, maxTy)
                 video.pivotX = video.width * 0.5f
                 video.pivotY = video.height * 0.5f
                 video.scaleX = zoomScale

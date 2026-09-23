@@ -88,6 +88,8 @@ async def main(page: ft.Page):
     storage_onboarding = {"dismissed": False, "dialog_open": False, "waiting_for_result": False}
     storage_capabilities = [StorageCapabilities.unknown()]
     processed_native_operations = set()
+    back_state = {"last_at": 0.0, "last_route": None, "last_action": None}
+    BACK_DEBOUNCE_SECONDS = 0.30
     page.add(view_host)
 
     def show(control):
@@ -246,22 +248,49 @@ async def main(page: ft.Page):
         if bridge.available:
             diagnostics.record("PERMISSION_CHECK", source="android")
             page.run_task(bridge.check_storage_access)
-    def navigate_back():
-        # Dialogs always have first refusal of Back. Flet owns the dialog stack.
+    def navigate_back(source="unknown"):
+        # One user Back gesture/button owns one logical operation. This protects
+        # against Android + Flutter delivering the same physical Back twice.
+        now = time.monotonic()
+        route_before = navigation.current
+        if (
+            back_state["last_route"] == route_before
+            and now - back_state["last_at"] < BACK_DEBOUNCE_SECONDS
+        ):
+            logger.info(
+                "[NAV] duplicate BACK suppressed source=%s route=%s delta_ms=%.0f",
+                source, route_before, (now - back_state["last_at"]) * 1000,
+            )
+            return
+        back_state.update(last_at=now, last_route=route_before, last_action=source)
+        logger.info("[NAV] BACK received source=%s route=%s", source, route_before)
+
         try:
             dialog = page.pop_dialog()
-        except Exception:
+        except Exception as exc:
+            logger.exception(
+                "[NAV] DIALOG_BACK lookup failed",
+                extra={"screen": route_before, "requestId": "-", "event": source},
+            )
             dialog = None
         if dialog is not None:
+            logger.info("[NAV] DIALOG_BACK source=%s route=%s", source, route_before)
             safe_update()
             return
+
         action = navigation.back()
+        logger.info(
+            "[NAV] NAVIGATE_BACK source=%s from=%s action=%s to=%s",
+            source, route_before, action, navigation.current,
+        )
         if action == "previous":
             render_current()
         elif action == "prompt_exit":
-            page.snack_bar=ft.SnackBar(ft.Text("Pressione voltar novamente para sair")); page.snack_bar.open=True; safe_update()
+            page.snack_bar=ft.SnackBar(ft.Text("Pressione voltar novamente para sair"))
+            page.snack_bar.open=True
+            safe_update()
         elif action == "exit":
-            # Close only after the Android/Python shared two-back policy.
+            logger.info("[NAV] NAVIGATE_BACK exit source=%s", source)
             page.window.close()
     def refresh_settings_if_active():
         if navigation.current == "settings":
@@ -1436,7 +1465,7 @@ async def main(page: ft.Page):
                                 page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; safe_update()
                             if event_type == 'saf_error': refresh_settings_if_active()
                         elif event_type == 'android_back':
-                            navigate_back()
+                            navigate_back('android_back')
                         if operation_key:
                             processed_native_operations.add(operation_key)
                         if event_id:

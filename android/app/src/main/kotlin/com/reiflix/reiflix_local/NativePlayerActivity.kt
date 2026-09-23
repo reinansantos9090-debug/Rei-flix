@@ -27,6 +27,7 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -69,6 +70,7 @@ class NativePlayerActivity : ComponentActivity() {
     private lateinit var durationLabel: TextView
     private lateinit var feedback: TextView
     private lateinit var errorPanel: LinearLayout
+    private lateinit var preparingIndicator: ProgressBar
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastSavedPosition = -1L
@@ -241,6 +243,7 @@ class NativePlayerActivity : ComponentActivity() {
             logPlayer("PREPARE requestId=" + requestId.ifEmpty { "-" })
             player.prepare()
         } catch (exception: Exception) {
+            if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
             logPlayer("EXOPLAYER_INIT_FAILED requestId=" + requestId.ifEmpty { "-" }, exception)
             showPlayerError("Não foi possível iniciar o player local.", "player_initialization")
         }
@@ -250,6 +253,7 @@ class NativePlayerActivity : ComponentActivity() {
         override fun onEvents(player: Player, events: Player.Events) {
             if (events.contains(Player.EVENT_RENDERED_FIRST_FRAME)) {
                 firstFrameRenderedForTesting = true
+                if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
                 logPlayer("FIRST_FRAME_RENDERED requestId=" + requestId.ifEmpty { "-" } +
                     " positionMs=" + player.currentPosition)
             }
@@ -267,6 +271,8 @@ class NativePlayerActivity : ComponentActivity() {
                 " positionMs=" + if (::player.isInitialized) player.currentPosition else 0L)
             when (state) {
                 Player.STATE_READY -> {
+                    // READY means the media is prepared, but keep the preparation
+                    // indicator until Media3 actually renders the first frame.
                     if (!openedReported) {
                         openedReported = true
                         val opened = NativeMailbox.write(
@@ -400,6 +406,19 @@ class NativePlayerActivity : ComponentActivity() {
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
         root.addView(playerView)
+
+        preparingIndicator = ProgressBar(this).apply {
+            tag = "reiflix_player_preparing"
+            isIndeterminate = true
+            visibility = View.VISIBLE
+            contentDescription = "Preparando vídeo"
+        }
+        root.addView(
+            preparingIndicator,
+            FrameLayout.LayoutParams(dp(48), dp(48)).apply {
+                gravity = Gravity.CENTER
+            },
+        )
     }
 
     private fun installGestureLayer() {
@@ -876,6 +895,7 @@ class NativePlayerActivity : ComponentActivity() {
         payload: JSONObject = JSONObject(),
     ) {
         errorVisible = true
+        if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
         if (::player.isInitialized) player.pause()
         setControlsVisible(true)
         findViewByTag<View>("reiflix_error_text")?.let { (it as TextView).text = message }

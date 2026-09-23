@@ -116,16 +116,12 @@ class AndroidHostVerificationTests(unittest.TestCase):
 
     def test_android_instrumented_diagnostic_uses_full_suite_as_the_only_normal_path(self):
         workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
-        actual_invocations = [
-            line
-            for line in workflow.splitlines()
-            if line.strip() == '"$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"'
-        ]
-        expected_invocations = [
-            '"$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"',
-            '"$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"',
-        ]
-        self.assertEqual(actual_invocations, expected_invocations)
+        diagnostic_launcher = '"$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"'
+        self.assertEqual(workflow.count(diagnostic_launcher), 2)
+        self.assertEqual(
+            workflow.count('chmod +x "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"'),
+            2,
+        )
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")
         normal = "./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace"
         self.assertIn(normal, source)

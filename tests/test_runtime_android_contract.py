@@ -101,25 +101,53 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertIn("BroadStorageScanner.isAuthorizedFile", source)
         self.assertIn("contentResolver.openFileDescriptor", source)
 
-    def test_native_player_gesture_contract_is_continuous_and_non_stretching(self):
+    def test_native_player_gesture_contract_is_clean_and_non_stretching(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         for token in (
             "HORIZONTAL_SEEK",
-            "VERTICAL_BRIGHTNESS",
-            "VERTICAL_VOLUME",
             "ScaleGestureDetector",
             "RESIZE_MODE_ZOOM",
             "RESIZE_MODE_FIT",
-            "adjustBrightness",
-            "adjustVolumeByFraction",
             "showFeedback",
             "setControlsVisible",
             "CONTROL_TIMEOUT_MS",
             "pendingSeekPosition",
             "ViewConfiguration.getDoubleTapTimeout()",
+            "BACK_BUTTON_TOUCH",
+            "ANDROID_BACK",
+            "PLAYER_SINGLE_TAP",
+            "PLAYER_DOUBLE_TAP",
+            "GESTURE_START",
+            "GESTURE_END",
+            "controls.bringToFront()",
+            'tag = "reiflix_back_button"',
         ):
             self.assertIn(token, source)
+        for token in (
+            "VERTICAL_BRIGHTNESS",
+            "VERTICAL_VOLUME",
+            "adjustBrightness",
+            "adjustVolumeByFraction",
+            "adjustVolume(",
+            "showAdjustment",
+            "currentVolumeSummary",
+            "brightnessLevel",
+        ):
+            self.assertNotIn(token, source)
         self.assertNotIn("RESIZE_MODE_FILL", source)
+
+    def test_native_player_primary_surface_does_not_expose_secondary_controls(self):
+        source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        controls = source[source.index("private fun installControls()"):source.index("private fun installBackHandler()")]
+        top = controls[:controls.index("centerControls =")]
+        bottom = controls[controls.index("bottomBar ="):]
+        self.assertIn('actionButton("‹", 44)', top)
+        self.assertIn('actionButton("⋮", 48)', top)
+        for label in ('"Áudio"', '"Legenda"', '"Velocidade"', '"Ajuste"', '"PIP"'):
+            self.assertNotIn("actionButton("+label, top)
+        self.assertNotIn('"Visto"', bottom)
+        self.assertNotIn('"Timer 15m"', bottom)
+        self.assertNotIn('"audio_bottom"', bottom)
 
     def test_scroll_architecture_has_one_vertical_owner_per_main_screen(self):
         views = {

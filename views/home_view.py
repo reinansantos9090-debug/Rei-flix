@@ -34,6 +34,7 @@ class HomeView:
         search_visible = [bool(view_state.get("search_visible", False))]
         render_generation = [0]
         artwork_tasks: set[tuple] = set()
+        artwork_bindings: dict[tuple, list] = {}
 
         def save_view_state():
             view_state.update(
@@ -54,6 +55,7 @@ class HomeView:
             spacing=8,
         )
         feedback = ft.Container(visible=False)
+        hydration_status = ft.Text("", color=TEXT_MUTED, size=11, visible=False)
         library_label = ft.Text("MINHA BIBLIOTECA", size=13, weight=ft.FontWeight.BOLD, color=TEXT_MUTED)
         search = ft.TextField(
             value=view_state.get("query", ""), visible=search_visible[0],
@@ -104,15 +106,22 @@ class HomeView:
                 width=width, height=height, border_radius=RADIUS, bgcolor="#2D2A3B",
                 alignment=ft.Alignment(0, 0),
             )
-            valid_source = isinstance(source, str) and (source.startswith(("content://", "file://")) or os.path.isfile(source))
-            if valid_source:
-                holder.content = ft.Image(src=source, width=width, height=height, fit=ft.ImageFit.COVER, border_radius=RADIUS)
+            if item.get("id") is not None:
+                artwork_bindings.setdefault((entity, int(item.get("id")), kind), []).append((holder, width, height))
+
+            def apply_source(path):
+                if not isinstance(path, str) or not (path.startswith(("content://", "file://")) or os.path.isfile(path)):
+                    return False
+                holder.content = ft.Image(src=path, width=width, height=height, fit=ft.ImageFit.COVER, border_radius=RADIUS)
+                return True
+
+            if apply_source(source):
                 return holder
             meta = item.get("meta") or {}
             candidate_source = item.get("cover") or meta.get("cover_cache")
-            if isinstance(candidate_source, str) and (candidate_source.startswith(("content://", "file://")) or os.path.isfile(candidate_source)):
-                holder.content = ft.Image(src=candidate_source, width=width, height=height, fit=ft.ImageFit.COVER, border_radius=RADIUS)
+            if apply_source(candidate_source):
                 return holder
+
             item_id = item.get("id")
             if item_id is not None and library is not None:
                 key = (entity, int(item_id), kind, width, height)
@@ -124,11 +133,13 @@ class HomeView:
                                 library.resolve_artwork, entity, item_id, kind, allow_network=False
                             )
                             path = (resolved or {}).get("local_path")
-                            if path and (str(path).startswith(("content://", "file://")) or os.path.isfile(str(path))):
-                                holder.content = ft.Image(src=path, width=width, height=height, fit=ft.ImageFit.COVER, border_radius=RADIUS)
+                            if apply_source(path):
                                 page.update()
                         except Exception:
-                            logger.exception("Artwork hydration failed")
+                            logger.exception(
+                                "Artwork render hydration failed",
+                                extra={"screen":"home","requestId":"-","item_id":item_id},
+                            )
                         finally:
                             artwork_tasks.discard(key)
                     page.run_task(hydrate)
@@ -191,12 +202,22 @@ class HomeView:
         async def render_library():
             render_generation[0] += 1
             token = render_generation[0]
-            filtered = await asyncio.to_thread(
-                library.browse_catalog, catalog, search.value or "", selected_state[0], selected_genre[0],
-                selected_sort[0], selected_tag[0], media_type=selected_media_type[0], season=selected_season[0],
-                episode_type=selected_episode_type[0], availability=selected_availability[0],
-                metadata=selected_metadata[0], artwork=selected_artwork[0],
-            )
+            filter_failed = False
+            try:
+                filtered = await asyncio.to_thread(
+                    library.browse_catalog, catalog, search.value or "", selected_state[0], selected_genre[0],
+                    selected_sort[0], selected_tag[0], media_type=selected_media_type[0], season=selected_season[0],
+                    episode_type=selected_episode_type[0], availability=selected_availability[0],
+                    metadata=selected_metadata[0], artwork=selected_artwork[0],
+                )
+            except Exception:
+                filter_failed = True
+                logger.exception(
+                    "Home filter projection failed",
+                    extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog)},
+                )
+                filtered = list(catalog)
+
             if token != render_generation[0]:
                 return
             grid.controls.clear()
@@ -219,7 +240,9 @@ class HomeView:
                 selected_season[0], selected_episode_type[0], selected_availability[0],
                 selected_metadata[0], selected_artwork[0],
             ))
-            filter_summary.value = f"{active_filters} filtro(s) ativo(s)" if active_filters else "Filtros"
+            filter_summary.value = "Filtros temporariamente indisponíveis" if filter_failed else (
+                f"{active_filters} filtro(s) ativo(s)" if active_filters else "Filtros"
+            )
             page.update()
 
         def card(anime):
@@ -346,41 +369,131 @@ class HomeView:
             save_view_state()
             await render_library()
 
-        async def load_catalog():
-            status.visible = True
-            status.controls = [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT), ft.Text("Carregando biblioteca local…", color=TEXT_MUTED, size=12)]
+        async def hydrate_metadata_and_artwork():
+            if not catalog:
+                return
+            hydration_status.visible = True
+            hydration_status.value = "Atualizando metadata e capas…"
             page.update()
             try:
-                def load_data():
-                    loaded_catalog = library.catalog()
-                    loaded_home_data = library.media_center_home(limit=12, catalog=loaded_catalog)
-                    loaded_options = library.search_options(loaded_catalog)
-                    return loaded_catalog, loaded_home_data, loaded_options
-                loaded_catalog, loaded_home_data, loaded_options = await asyncio.to_thread(load_data)
-                catalog.clear(); catalog.extend(loaded_catalog)
-                home_data.clear(); home_data.update(loaded_home_data)
-                continuing.clear(); continuing.extend(home_data.get("continue_watching", []))
-                refresh_filter_options(loaded_options)
-                status.visible = False
-                render_continue()
-                render_section("PRÓXIMO EPISÓDIO", "next_episode", home_data.get("next_episode"), action=on_select_anime)
-                render_section("RECENTEMENTE ADICIONADOS", "recently_added", home_data.get("recently_added"), action=on_select_anime)
-                render_section("RECENTEMENTE ASSISTIDOS", "recently_watched", home_data.get("recently_watched"), episode=True)
-                render_section("FAVORITOS", "favorites", home_data.get("favorites"), action=on_select_anime)
-                render_section("PINADOS", "pinned", home_data.get("pinned"), action=on_select_anime)
-                render_section("SÉRIES / ANIMES", "series", home_data.get("series"), action=on_select_anime)
-                render_section("FILMES", "movies", home_data.get("movies"), action=on_select_anime)
-                render_section("ESPECIAIS", "specials", home_data.get("specials"), action=on_select_anime)
-                await render_library()
+                results = await asyncio.to_thread(library.hydrate_catalog_metadata, catalog)
+                by_id = {int(item.get("id")): item for item in catalog if item.get("id") is not None}
+                for result in results or []:
+                    item_id = result.get("id")
+                    if item_id is None:
+                        continue
+                    target = by_id.get(int(item_id))
+                    metadata = result.get("metadata") or {}
+                    if target is None or not metadata:
+                        continue
+                    target["meta"] = dict(metadata)
+                    entity = "movie" if target.get("media_kind") == "movie" else "anime"
+                    cover_path = metadata.get("cover_cache")
+                    if cover_path and os.path.isfile(str(cover_path)):
+                        for holder, width, height in artwork_bindings.get((entity, int(item_id), "poster"), []):
+                            holder.content = ft.Image(
+                                src=cover_path, width=width, height=height,
+                                fit=ft.ImageFit.COVER, border_radius=RADIUS,
+                            )
+                        page.update()
             except Exception:
-                catalog.clear(); continuing.clear(); home_data.clear()
+                logger.exception(
+                    "Home metadata/artwork hydration failed",
+                    extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog)},
+                )
+            finally:
+                hydration_status.visible = False
+                page.update()
+
+        async def load_catalog():
+            status.visible = True
+            status.controls = [
+                ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
+                ft.Text("Carregando biblioteca local…", color=TEXT_MUTED, size=12),
+            ]
+            page.update()
+
+            try:
+                loaded_catalog = await asyncio.to_thread(library.catalog)
+            except Exception:
+                try:
+                    last_scan = library.last_scan()
+                except Exception:
+                    last_scan = None
+                logger.exception(
+                    "Home local catalog load failed",
+                    extra={
+                        "screen":"home","requestId":"-",
+                        "scanId":(last_scan or {}).get("scan_id") if last_scan else "-",
+                        "library_items":len(catalog),
+                    },
+                )
                 status.controls = [
                     ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FFB4AB", size=18),
-                    ft.Text("Não foi possível carregar sua biblioteca local.", color="#FFB4AB", size=12),
+                    ft.Text("Não foi possível ler a biblioteca local agora.", color="#FFB4AB", size=12),
                     ft.TextButton("Tentar novamente", on_click=lambda _: page.run_task(load_catalog)),
                 ]
                 status.visible = True
                 page.update()
+                return
+
+            # Catalog acquisition is authoritative. A secondary Home projection
+            # may fail without making durable local media disappear from the UI.
+            catalog.clear()
+            catalog.extend(loaded_catalog or [])
+
+            try:
+                loaded_home_data = await asyncio.to_thread(
+                    library.media_center_home, limit=12, catalog=list(catalog)
+                )
+            except Exception:
+                logger.exception(
+                    "Home section projection failed",
+                    extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog)},
+                )
+                loaded_home_data = {}
+
+            try:
+                loaded_options = await asyncio.to_thread(
+                    library.search_options, list(catalog)
+                )
+            except Exception:
+                logger.exception(
+                    "Home filter options failed",
+                    extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog)},
+                )
+                loaded_options = {}
+
+            home_data.clear()
+            home_data.update(loaded_home_data or {})
+            continuing.clear()
+            continuing.extend(home_data.get("continue_watching", []))
+            refresh_filter_options(loaded_options or {})
+            status.visible = False
+            render_continue()
+            for title, key, is_episode in (
+                ("PRÓXIMO EPISÓDIO","next_episode",False),
+                ("RECENTEMENTE ADICIONADOS","recently_added",False),
+                ("RECENTEMENTE ASSISTIDOS","recently_watched",True),
+                ("FAVORITOS","favorites",False),
+                ("PINADOS","pinned",False),
+                ("SÉRIES / ANIMES","series",False),
+                ("FILMES","movies",False),
+                ("ESPECIAIS","specials",False),
+            ):
+                try:
+                    render_section(
+                        title, key, home_data.get(key),
+                        action=None if is_episode else on_select_anime,
+                        episode=is_episode,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Home section render failed",
+                        extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog),"section":key},
+                    )
+            await render_library()
+            page.run_task(hydrate_metadata_and_artwork)
 
         search.on_change = on_search
         search.on_submit = on_search
@@ -409,7 +522,7 @@ class HomeView:
         )
         layout = ft.Column([
             header, search, ft.Text("Sua biblioteca local, conteúdo primeiro.", size=12, color=TEXT_MUTED),
-            status, continuation_section, main_library_bar, feedback, grid, sections_column, ft.Container(height=24),
+            status, hydration_status, continuation_section, main_library_bar, feedback, grid, sections_column, ft.Container(height=24),
         ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=12)
         status.visible = True
         page.run_task(load_catalog)

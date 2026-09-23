@@ -1,7 +1,6 @@
 package com.reiflix.reiflix_local
 
 import android.content.Intent
-import android.accessibilityservice.AccessibilityService
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.test.core.app.ActivityScenario
@@ -123,16 +122,17 @@ class BackAndSettingsReturnInstrumentedTest {
 
     private fun pressBackAcrossApplicationBoundary() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val performed = instrumentation.uiAutomation.performGlobalAction(
-            AccessibilityService.GLOBAL_ACTION_BACK,
-        )
-        assertTrue("Android global Back must be dispatched successfully across application boundaries", performed)
-        instrumentation.waitForIdleSync()
+        // "adb shell input keyevent 4" targets the focused system window,
+        // so it exercises the real Android Back boundary without requiring
+        // UiAutomation.performGlobalAction() to synchronously coordinate with
+        // DocumentsUI.
+        instrumentation.uiAutomation.executeShellCommand("input keyevent 4").use {
+            // The command itself is the assertion boundary; state is verified below.
+        }
         SystemClock.sleep(750L)
     }
 
     private fun waitForExternalUiSettle() {
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         SystemClock.sleep(750L)
     }
 
@@ -140,7 +140,6 @@ class BackAndSettingsReturnInstrumentedTest {
         val deadline = SystemClock.uptimeMillis() + timeoutMs
         while (SystemClock.uptimeMillis() < deadline) {
             if (condition()) return
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             SystemClock.sleep(100L)
         }
         assertTrue(description, false)

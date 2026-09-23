@@ -9,7 +9,6 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Typeface
-import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -72,7 +71,6 @@ class NativePlayerActivity : ComponentActivity() {
     private lateinit var errorPanel: LinearLayout
 
     private val handler = Handler(Looper.getMainLooper())
-    private val audioManager by lazy { getSystemService(AudioManager::class.java) }
     private var lastSavedPosition = -1L
     private var suppressExitEvent = false
     private var exitReported = false
@@ -88,8 +86,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var restoredPositionMs: Long? = null
     internal var firstFrameRenderedForTesting = false
         private set
-    private enum class GestureMode { NONE, HORIZONTAL_SEEK, VERTICAL_BRIGHTNESS, VERTICAL_VOLUME }
-    private var brightnessLevel = 0.5f
+    private enum class GestureMode { NONE, HORIZONTAL_SEEK }
     private var pendingSeekPosition: Long? = null
     private var feedbackHideAt = 0L
 
@@ -436,6 +433,7 @@ class NativePlayerActivity : ComponentActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT,
             )
         )
+        controls.bringToFront()
 
         topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -450,8 +448,10 @@ class NativePlayerActivity : ComponentActivity() {
         controls.addView(topBar, topParams)
 
         val back = actionButton("‹", 44) {
+            logPlayer("BACK_BUTTON_TOUCH requestId=" + requestId.ifEmpty { "-" })
             finishPlayer("back_button")
         }
+        back.tag = "reiflix_back_button"
         back.contentDescription = "Voltar"
         topBar.addView(back, weightParams(44))
 
@@ -467,44 +467,16 @@ class NativePlayerActivity : ComponentActivity() {
         }
         topBar.addView(title, LinearLayout.LayoutParams(0, dp(48), 1f))
 
-        val audioButton = actionButton("Áudio", 64) {
-            showTrackSelection(C.TRACK_TYPE_AUDIO, "Áudio")
-        }
-        audioButton.tag = "reiflix_audio_button"
-        topBar.addView(audioButton, weightParams(64))
 
-        val subtitleButton = actionButton("Legenda", 72) {
-            showTrackSelection(C.TRACK_TYPE_TEXT, "Legendas")
-        }
-        subtitleButton.tag = "reiflix_subtitle_button"
-        topBar.addView(subtitleButton, weightParams(72))
 
-        val speedButton = actionButton("1.0x", 58) { button ->
-            cycleSpeed(button)
-        }
-        speedButton.tag = "reiflix_speed_button"
-        topBar.addView(speedButton, weightParams(58))
-
-        val aspectButton = actionButton("Ajustar", 68) { button ->
-            cycleAspect(button)
-        }
-        aspectButton.tag = "reiflix_aspect_button"
-        topBar.addView(aspectButton, weightParams(68))
-
-        if (canEnterPictureInPicture()) {
-            val pipButton = actionButton("PIP", 48) {
-                enterPictureInPictureMode()
-            }
-            pipButton.contentDescription = "Picture in Picture"
-            topBar.addView(pipButton, weightParams(48))
-        }
-
-        val moreButton = actionButton("Mais", 54) {
+        val moreButton = actionButton("⋮", 48) {
             moreVisible = !moreVisible
             findViewByTag<View>("reiflix_more_panel")?.visibility = if (moreVisible) View.VISIBLE else View.GONE
             touchControls()
         }
-        topBar.addView(moreButton, weightParams(54))
+        moreButton.contentDescription = "Mais opções"
+        moreButton.tag = "reiflix_more_button"
+        topBar.addView(moreButton, weightParams(48))
 
         centerControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -650,55 +622,56 @@ class NativePlayerActivity : ComponentActivity() {
         seekRow.addView(durationLabel, LinearLayout.LayoutParams(dp(48), dp(40)))
         bottomBar.addView(seekRow)
 
-        val actionsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        val prevEpisode = actionButton("Anterior", 82) {
-            if (intent.getBooleanExtra("canPrevious", false)) requestEpisode("player_previous_request")
-        }
-        prevEpisode.tag = "reiflix_previous_episode"
-        prevEpisode.isEnabled = intent.getBooleanExtra("canPrevious", false)
-        actionsRow.addView(prevEpisode, weightParams(82))
-
-        val audio = actionButton("Áudio", 72) { showTrackSelection(C.TRACK_TYPE_AUDIO, "Áudio") }
-        audio.tag = "reiflix_audio_bottom"
-        actionsRow.addView(audio, weightParams(72))
-
-        val nextEpisode = actionButton("Próximo", 82) {
-            if (intent.getBooleanExtra("canNext", false)) requestEpisode("player_next_request")
-        }
-        nextEpisode.tag = "reiflix_next_episode"
-        nextEpisode.isEnabled = intent.getBooleanExtra("canNext", false)
-        actionsRow.addView(nextEpisode, weightParams(82))
-
-        val watched = actionButton("Visto", 62) {
-            NativeMailbox.write(
-                this,
-                JSONObject().put("type", "player_mark_watched")
-                    .put("requestId", requestId)
-                    .put("payload", JSONObject().put("uri", uri.toString()))
-            )
-            saveProgress("player_progress", force = true)
-            showFeedback("Visto")
-        }
-        actionsRow.addView(watched, weightParams(62))
-        bottomBar.addView(actionsRow)
-
         val morePanel = LinearLayout(this).apply {
             tag = "reiflix_more_panel"
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setBackgroundColor(0xE614141A.toInt())
             visibility = View.GONE
         }
-        morePanel.addView(actionButton("Reiniciar", 72) {
+        fun addMoreRow(vararg buttons: View) {
+            val row = LinearLayout(this@NativePlayerActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            buttons.forEach { row.addView(it, weightParams(96)) }
+            morePanel.addView(row)
+        }
+        val previousEpisode = actionButton("Anterior", 92) {
+            if (intent.getBooleanExtra("canPrevious", false)) requestEpisode("player_previous_request")
+        }.apply {
+            tag = "reiflix_previous_episode"
+            isEnabled = intent.getBooleanExtra("canPrevious", false)
+        }
+        val nextEpisode = actionButton("Próximo", 92) {
+            if (intent.getBooleanExtra("canNext", false)) requestEpisode("player_next_request")
+        }.apply {
+            tag = "reiflix_next_episode"
+            isEnabled = intent.getBooleanExtra("canNext", false)
+        }
+        val audio = actionButton("Áudio", 92) { showTrackSelection(C.TRACK_TYPE_AUDIO, "Áudio") }.apply {
+            tag = "reiflix_audio_button"
+        }
+        val subtitle = actionButton("Legenda", 92) { showTrackSelection(C.TRACK_TYPE_TEXT, "Legendas") }.apply {
+            tag = "reiflix_subtitle_button"
+        }
+        val speed = actionButton("Velocidade", 92) { button -> cycleSpeed(button) }.apply {
+            tag = "reiflix_speed_button"
+        }
+        val aspect = actionButton("Ajuste", 92) { button -> cycleAspect(button) }.apply {
+            tag = "reiflix_aspect_button"
+        }
+        addMoreRow(previousEpisode, nextEpisode)
+        addMoreRow(audio, subtitle)
+        addMoreRow(speed, aspect)
+        addMoreRow(actionButton("Reiniciar", 92) {
             if (::player.isInitialized) {
                 player.seekTo(0L)
                 saveProgress("player_progress", force = true)
                 showFeedback("00:00")
             }
-        }, weightParams(72))
-        morePanel.addView(actionButton("Autoplay " + if (autoplayNext) "ON" else "OFF", 92) { button ->
+        }, actionButton("Autoplay", 92) { button ->
             autoplayNext = !autoplayNext
             button.text = "Autoplay " + if (autoplayNext) "ON" else "OFF"
             NativeMailbox.write(
@@ -708,18 +681,27 @@ class NativePlayerActivity : ComponentActivity() {
                     .put("payload", JSONObject().put("enabled", autoplayNext))
             )
             showFeedback(if (autoplayNext) "Autoplay ligado" else "Autoplay desligado")
-        }, weightParams(92))
-        morePanel.addView(actionButton("Timer 15m", 82) {
-            showFeedback("Timer de sono não interrompe a reprodução automaticamente")
-        }, weightParams(82))
-        bottomBar.addView(morePanel)
+        })
+        if (canEnterPictureInPicture()) {
+            val pip = actionButton("PIP", 92) { enterPictureInPictureMode() }
+            pip.contentDescription = "Picture in Picture"
+            addMoreRow(pip, actionButton(" ", 92) { })
+        }
+        controls.addView(morePanel, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            topMargin = dp(56)
+            rightMargin = dp(8)
+        })
     }
-
     private fun installBackHandler() {
         onBackPressedDispatcher.addCallback(
             this,
             object : androidx.activity.OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    logPlayer("ANDROID_BACK requestId=" + requestId.ifEmpty { "-" })
                     finishPlayer("android_back")
                 }
             },
@@ -858,77 +840,6 @@ class NativePlayerActivity : ComponentActivity() {
         saveProgress("player_progress", force = true)
         showFeedback(feedbackText)
         touchControls()
-    }
-
-    private fun adjustBrightness(deltaPercent: Float) {
-        val target = (brightnessLevel + deltaPercent).coerceIn(0.05f, 1f)
-        runCatching {
-            val attributes = window.attributes
-            attributes.screenBrightness = target
-            window.attributes = attributes
-            brightnessLevel = target
-        }.onSuccess {
-            showAdjustment("BRILHO", brightnessLevel)
-        }.onFailure { error ->
-            logPlayer("BRIGHTNESS_CHANGE_FAILED", error)
-            showFeedback("BRILHO\nIndisponível neste dispositivo", 1100L)
-        }
-    }
-
-    private fun adjustVolume(deltaSteps: Int) {
-        val manager = audioManager ?: return
-        val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        val current = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
-        val next = (current + deltaSteps).coerceIn(0, maxVolume)
-        runCatching {
-            if (next != current) {
-                manager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
-            }
-        }.onFailure { error ->
-            logPlayer("VOLUME_CHANGE_FAILED", error)
-            showFeedback("VOLUME\nIndisponível neste dispositivo", 1100L)
-            return
-        }
-        showAdjustment("VOLUME", next.toFloat() / maxVolume.toFloat())
-    }
-
-    private fun adjustVolumeByFraction(fraction: Float) {
-        val manager = audioManager ?: return
-        val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        val current = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
-        val deltaSteps = (fraction * maxVolume).roundToInt()
-        runCatching {
-            if (deltaSteps != 0) {
-                manager.setStreamVolume(
-                    AudioManager.STREAM_MUSIC,
-                    (current + deltaSteps).coerceIn(0, maxVolume),
-                    0,
-                )
-            }
-        }.onFailure { error ->
-            logPlayer("VOLUME_CHANGE_FAILED", error)
-            showFeedback("VOLUME\\nIndisponível neste dispositivo", 1100L)
-            return
-        }
-        val effective = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
-        showAdjustment("VOLUME", effective.toFloat() / maxVolume)
-    }
-
-    private fun currentVolumeSummary(): String {
-        val manager = audioManager ?: return "VOLUME"
-        val maxVolume = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        return adjustmentSummary("VOLUME", manager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume)
-    }
-
-    private fun adjustmentSummary(label: String, ratio: Float): String {
-        val percent = (ratio.coerceIn(0f, 1f) * 100f).roundToInt()
-        val bars = 10
-        val filled = ((percent / 100f) * bars).roundToInt().coerceIn(0, bars)
-        return label + "\n" + "█".repeat(filled) + "░".repeat(bars - filled) + "\n" + percent + "%"
-    }
-
-    private fun showAdjustment(label: String, ratio: Float) {
-        showFeedback(adjustmentSummary(label, ratio), 1100L)
     }
 
     private fun showFeedback(message: String, durationMs: Long = 900L) {
@@ -1156,6 +1067,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.resetZoomToFit()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.dispose()
         handler.removeCallbacks(progressReporter)
         handler.removeCallbacks(controlsHider)
@@ -1340,6 +1252,7 @@ class NativePlayerActivity : ComponentActivity() {
                     }
                     pinchActive = true
                     gestureConsumed = true
+                    logPlayer("GESTURE_START type=pinch requestId=" + requestId.ifEmpty { "-" })
                     gestureMode = GestureMode.NONE
                     cancelPendingTap()
                     touchControls()
@@ -1401,6 +1314,8 @@ class NativePlayerActivity : ComponentActivity() {
         private var zoomTranslationY = 0f
         private var zoomAnimator: ValueAnimator? = null
 
+        private var ignoredVerticalGesture = false
+
         override fun onTouchEvent(event: MotionEvent): Boolean {
             scaleDetector.onTouchEvent(event)
 
@@ -1426,16 +1341,11 @@ class NativePlayerActivity : ComponentActivity() {
                             lastPanY = centerY
                         }
                     }
-                    MotionEvent.ACTION_POINTER_UP -> {
-                        if (event.pointerCount <= 2) {
-                            lastPanX = null
-                            lastPanY = null
-                        }
+                    MotionEvent.ACTION_POINTER_UP -> if (event.pointerCount <= 2) {
+                        lastPanX = null
+                        lastPanY = null
                     }
-                    MotionEvent.ACTION_CANCEL,
-                    MotionEvent.ACTION_UP -> {
-                        finishPinchGesture()
-                    }
+                    MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> finishPinchGesture()
                 }
                 return true
             }
@@ -1446,82 +1356,44 @@ class NativePlayerActivity : ComponentActivity() {
                     downY = event.y
                     lastX = event.x
                     lastY = event.y
-                    seekStartPosition = if (::player.isInitialized) {
-                        player.currentPosition.coerceAtLeast(0L)
-                    } else 0L
+                    seekStartPosition = if (::player.isInitialized) player.currentPosition.coerceAtLeast(0L) else 0L
                     gestureMode = GestureMode.NONE
                     gestureConsumed = false
+                    ignoredVerticalGesture = false
                 }
-
                 MotionEvent.ACTION_MOVE -> {
                     if (errorVisible) return true
-
                     val dx = event.x - downX
                     val dy = event.y - downY
                     val absX = abs(dx)
                     val absY = abs(dy)
-
-                    if (gestureMode == GestureMode.NONE &&
-                        (absX > dp(18) || absY > dp(18))
-                    ) {
+                    if (gestureMode == GestureMode.NONE && !ignoredVerticalGesture && (absX > dp(18) || absY > dp(18))) {
                         cancelPendingTap()
                         gestureConsumed = true
-                        gestureMode = when {
-                            absX > dp(24) && absX > absY * 1.15f -> GestureMode.HORIZONTAL_SEEK
-                            absY > dp(24) && absY > absX * 1.15f ->
-                                if (downX < width / 2f) {
-                                    GestureMode.VERTICAL_BRIGHTNESS
-                                } else {
-                                    GestureMode.VERTICAL_VOLUME
-                                }
-                            else -> GestureMode.NONE
-                        }
-                        if (gestureMode != GestureMode.NONE) {
-                            touchControls()
+                        when {
+                            absX > dp(24) && absX > absY * 1.15f -> {
+                                gestureMode = GestureMode.HORIZONTAL_SEEK
+                                logPlayer("GESTURE_START type=horizontal_seek requestId=" + requestId.ifEmpty { "-" })
+                                touchControls()
+                            }
+                            absY > dp(24) && absY > absX * 1.15f -> {
+                                ignoredVerticalGesture = true
+                                logPlayer("GESTURE_START type=vertical_ignored requestId=" + requestId.ifEmpty { "-" })
+                            }
                         }
                     }
-
-                    when (gestureMode) {
-                        GestureMode.HORIZONTAL_SEEK -> {
-                            if (!::player.isInitialized || player.duration <= 0L) return true
-                            val target = calculateCloudStreamSeekTarget(
-                                seekStartPosition,
-                                dx,
-                                player.duration,
-                            )
-                            val delta = target - seekStartPosition
-                            pendingSeekPosition = target
-                            showFeedback(
-                                formatSeekPreview(target, delta),
-                                250L,
-                            )
-                        }
-                        GestureMode.VERTICAL_BRIGHTNESS -> {
-                            val deltaY = event.y - lastY
-                            adjustBrightness(
-                                (-deltaY / height.coerceAtLeast(1).toFloat()) * 2.0f,
-                            )
-                        }
-                        GestureMode.VERTICAL_VOLUME -> {
-                            val deltaY = event.y - lastY
-                            adjustVolumeByFraction(
-                                -deltaY / height.coerceAtLeast(1).toFloat() * 2.0f,
-                            )
-                        }
-                        GestureMode.NONE -> Unit
+                    if (gestureMode == GestureMode.HORIZONTAL_SEEK) {
+                        if (!::player.isInitialized || player.duration <= 0L) return true
+                        val target = calculateCloudStreamSeekTarget(seekStartPosition, dx, player.duration)
+                        pendingSeekPosition = target
+                        showFeedback(formatSeekPreview(target, target - seekStartPosition), 250L)
                     }
-
                     lastX = event.x
                     lastY = event.y
                 }
-
                 MotionEvent.ACTION_UP -> {
                     val hadSwipe = gestureMode != GestureMode.NONE || gestureConsumed
-                    if (gestureMode == GestureMode.HORIZONTAL_SEEK &&
-                        pendingSeekPosition != null &&
-                        ::player.isInitialized &&
-                        player.duration > 0L
-                    ) {
+                    if (gestureMode == GestureMode.HORIZONTAL_SEEK && pendingSeekPosition != null && ::player.isInitialized && player.duration > 0L) {
                         val target = pendingSeekPosition!!.coerceIn(0L, player.duration)
                         val delta = target - seekStartPosition
                         if (abs(delta) >= MIN_SEEK_COMMIT_MS) {
@@ -1531,29 +1403,24 @@ class NativePlayerActivity : ComponentActivity() {
                         } else {
                             showFeedback(formatTime(seekStartPosition), 700L)
                         }
+                        logPlayer("GESTURE_END type=horizontal_seek requestId=" + requestId.ifEmpty { "-" })
                         touchControls()
-                    } else if (gestureMode == GestureMode.VERTICAL_BRIGHTNESS) {
-                        showFeedback(adjustmentSummary("BRILHO", brightnessLevel), 900L)
-                        touchControls()
-                    } else if (gestureMode == GestureMode.VERTICAL_VOLUME) {
-                        showFeedback(currentVolumeSummary(), 900L)
-                        touchControls()
+                    } else if (ignoredVerticalGesture) {
+                        logPlayer("GESTURE_END type=vertical_ignored requestId=" + requestId.ifEmpty { "-" })
                     } else if (!hadSwipe && !wasPinchGesture && !errorVisible) {
                         handleTap(event.x)
                     }
-
                     wasPinchGesture = false
                     resetSingleFingerState()
                 }
-
                 MotionEvent.ACTION_CANCEL -> {
+                    logPlayer("GESTURE_END type=cancel requestId=" + requestId.ifEmpty { "-" })
                     cancelPendingTap()
                     resetSingleFingerState()
                 }
             }
             return true
         }
-
         fun refreshZoomForLayout() {
             if (zoomScale > 1.01f) {
                 applyZoomTransform()
@@ -1612,6 +1479,7 @@ class NativePlayerActivity : ComponentActivity() {
             if (!pinchActive) return
             pinchActive = false
             wasPinchGesture = true
+            logPlayer("GESTURE_END type=pinch requestId=" + requestId.ifEmpty { "-" })
             lastPanX = null
             lastPanY = null
             pendingSeekPosition = null
@@ -1694,6 +1562,7 @@ class NativePlayerActivity : ComponentActivity() {
             val token = ++tapToken
             val runnable = Runnable {
                 if (token != tapToken || errorVisible) return@Runnable
+                logPlayer("PLAYER_SINGLE_TAP requestId=" + requestId.ifEmpty { "-" })
                 lastTapAt = 0L
                 pendingSingleTap = null
                 setControlsVisible(!controlsVisible)
@@ -1704,6 +1573,7 @@ class NativePlayerActivity : ComponentActivity() {
 
         private fun handleDoubleTap(x: Float) {
             if (errorVisible || !::player.isInitialized) return
+            logPlayer("PLAYER_DOUBLE_TAP requestId=" + requestId.ifEmpty { "-" })
             val leftZone = width * 0.30f
             val rightZone = width * 0.70f
             when {
@@ -1763,11 +1633,10 @@ class NativePlayerActivity : ComponentActivity() {
                     )
                     matrix.postTranslate(zoomTranslationX, zoomTranslationY)
                 } else {
-                    // A TextureView can receive the first gesture before its
-                    // measured size is published. Apply the scale around the
-                    // origin now, then refresh it from the normal layout/lifecycle
-                    // path once dimensions are available.
-                    matrix.setScale(zoomScale, zoomScale)
+                    // Until the TextureView has real dimensions, keep the
+                    // surface at identity. Applying a scaled origin here can
+                    // place the first frame off-center and look distorted.
+                    matrix.reset()
                 }
                 video.isOpaque = false
                 video.setTransform(matrix)

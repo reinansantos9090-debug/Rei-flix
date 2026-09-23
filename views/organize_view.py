@@ -184,6 +184,8 @@ class OrganizeView:
             summary = library.organize_summary(catalog)
             content.controls.extend([header("Organizar"), status])
             if not catalog:
+                if status.visible:
+                    return
                 content.controls.append(empty_catalog())
                 return
             content.controls.extend([
@@ -247,7 +249,16 @@ class OrganizeView:
             nonlocal catalog
             try:
                 catalog = await asyncio.to_thread(library.catalog)
-                status.visible = False
+                last_scan = await asyncio.to_thread(library.last_scan)
+                scan_active = bool(
+                    last_scan and str(last_scan.get("status") or "").casefold() in {"running", "started"}
+                )
+                status.visible = scan_active
+                if scan_active:
+                    status.controls = [
+                        ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
+                        ft.Text("Descobrindo vídeos locais…", color=TEXT_MUTED, size=12),
+                    ]
             except Exception:
                 logger.exception(
                     "Organize catalog load failed",

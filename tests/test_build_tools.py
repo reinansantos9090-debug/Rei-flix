@@ -107,6 +107,11 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("/actions/runs?status=$status&per_page=100", workflow)
         self.assertIn("/actions/runs?status=$status&per_page=100", workflow)
 
+    def test_android_build_declares_runtime_python_dependencies(self):
+        project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn('"flet==0.86.5"', project)
+        self.assertIn('"certifi>=2024.8.30"', project)
+
     def test_android_instrumented_diagnostic_uses_full_suite_as_the_only_normal_path(self):
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")
         normal = "./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace"

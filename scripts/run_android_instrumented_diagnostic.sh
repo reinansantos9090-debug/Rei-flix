@@ -51,8 +51,14 @@ collect_diagnostics() {
     capture "${dir}/media_codec_logcat.txt" adb logcat -d -b all -v threadtime MediaCodec:* ExoPlayer:* ActivityTaskManager:* WindowManager:* '*:S'
     capture "${dir}/logcat_all.txt" adb logcat -d -b all -v threadtime
 
+    local pids_raw=""
+    if pids_raw="$(timeout 20s adb shell pidof "${PACKAGE}" 2>/dev/null)"; then
+        :
+    else
+        pids_raw=""
+    fi
     local pids
-    pids="$(timeout 20s adb shell pidof "${PACKAGE}" 2>/dev/null | tr -d '\r' || true)"
+    pids="$(printf '%s' "${pids_raw}" | tr -d '\r')"
     if [[ -n "${pids}" ]]; then
         {
             for pid in ${pids}; do

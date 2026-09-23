@@ -65,7 +65,12 @@ class NativePlayerPlaybackInstrumentedTest {
         }
 
         val preparing = awaitView<View>("reiflix_player_preparing")
-        assertTrue("Preparation indicator must be visible while the native player is starting", onMain { preparing.visibility == View.VISIBLE })
+        assertTrue(
+            "Preparation indicator must be visible until the first frame is rendered",
+            onMain {
+                preparing.visibility == View.VISIBLE || activity!!.firstFrameRenderedForTesting
+            },
+        )
 
         await("Media3 must reach READY before interaction") {
             player.playbackState == Player.STATE_READY

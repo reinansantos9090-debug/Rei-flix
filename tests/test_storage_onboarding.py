@@ -253,7 +253,7 @@ class StorageOnboardingTests(unittest.TestCase):
 
     def test_open_settings_does_not_publish_a_false_permission_before_navigation(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
-        block = source.split("private fun openBroadStorageSettings()", 1)[1].split("private fun openSettingsIntent", 1)[0]
+        block = source.split("private fun openBroadStorageSettings()", 1)[1].split("private fun scanAllStorage", 1)[0]
         self.assertNotIn('put("granted", false)', block)
         self.assertIn("broadStoragePermissionPending = true", block)
         self.assertIn("publishStorageStatus()", source)

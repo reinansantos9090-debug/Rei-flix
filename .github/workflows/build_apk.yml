@@ -314,9 +314,6 @@ jobs:
             mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
             chmod +x "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
             "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
-            mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
-            chmod +x "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
-            "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
 
       - name: Upload API 36 diagnostics
         if: always()

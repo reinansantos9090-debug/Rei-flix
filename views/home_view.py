@@ -107,7 +107,8 @@ class HomeView:
                 alignment=ft.Alignment(0, 0),
             )
             if item.get("id") is not None:
-                artwork_bindings.setdefault((entity, int(item.get("id")), kind), []).append((holder, width, height))
+                binding_entity = "movie" if item.get("media_kind") == "movie" and entity == "anime" else entity
+                artwork_bindings.setdefault((binding_entity, int(item.get("id")), kind), []).append((holder, width, height))
 
             def apply_source(path):
                 if not isinstance(path, str) or not (path.startswith(("content://", "file://")) or os.path.isfile(path)):

@@ -4,7 +4,10 @@ import android.content.ContentValues
 import android.graphics.Matrix
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.provider.MediaStore
 import android.view.MotionEvent
 import android.view.TextureView
@@ -23,9 +26,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class NativePlayerPlaybackInstrumentedTest {
+    private companion object {
+        const val TEST_TAG = "[REIFLIX][TEST][PLAYER]"
+        const val FIXTURE_DISPLAY_NAME = "reiflix-player-fixture.mp4"
+        const val MAIN_THREAD_TIMEOUT_MS = 2_000L
+    }
+
+    private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var target: android.content.Context
     private var fixtureUri: android.net.Uri? = null
     private var activity: NativePlayerActivity? = null
@@ -34,6 +47,8 @@ class NativePlayerPlaybackInstrumentedTest {
     fun setUp() {
         target = InstrumentationRegistry.getInstrumentation().targetContext
         grantMediaReadPermission()
+        removeStalePlayerFixtures()
+        logStage("SETUP_COMPLETE")
     }
 
     @After
@@ -44,6 +59,7 @@ class NativePlayerPlaybackInstrumentedTest {
 
     @Test
     fun localMediaStoreFixture_reachesReadyAndPlays_inImmersivePlayer() {
+        logStage("MEDIASTORE_FIXTURE_START")
         val uri = insertFixtureIntoMediaStore()
         fixtureUri = uri
 
@@ -57,8 +73,10 @@ class NativePlayerPlaybackInstrumentedTest {
             .putExtra("autoplay", false)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
+        logStage("ACTIVITY_START")
         activity = InstrumentationRegistry.getInstrumentation().startActivitySync(intent) as NativePlayerActivity
 
+        logStage("PLAYER_VIEW_WAIT")
         val playerView = awaitView<PlayerView>("reiflix_player_view")
         val player = onMain {
             requireNotNull(playerView.player) { "Media3 PlayerView did not receive a player" }
@@ -72,12 +90,14 @@ class NativePlayerPlaybackInstrumentedTest {
             },
         )
 
+        logStage("WAIT_READY")
         await("Media3 must reach READY before interaction") {
             player.playbackState == Player.STATE_READY
         }
         assertFalse("Player should initially remain paused for deterministic interaction", onMain { player.isPlaying })
         assertTrue("Native player Activity must remain alive after READY", !activity!!.isFinishing)
 
+        logStage("WAIT_FIRST_FRAME")
         val playPause = awaitView<View>("reiflix_play_pause")
         assertTrue("Play control must be present", onMain { playPause.performClick() })
         await("Play button must start playback") { player.isPlaying }
@@ -91,10 +111,11 @@ class NativePlayerPlaybackInstrumentedTest {
         assertTrue("Native player must actually be playing the local fixture", onMain { player.isPlaying })
         assertTrue("Native player Activity must remain alive after first frame", !activity!!.isFinishing && !activity!!.isDestroyed)
 
+        logStage("SEEK_BAR")
         val seekBar = awaitView<android.widget.SeekBar>("reiflix_seekbar")
         val initialDuration = onMain { player.duration }
         assertTrue("Fixture must expose a positive duration", initialDuration > 0L)
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+        runOnMainBounded {
             val y = seekBar.height / 2f
             val startX = (seekBar.paddingLeft + 4).toFloat()
             val targetX = (seekBar.width - seekBar.paddingRight - 4).toFloat() * 0.5f
@@ -152,6 +173,7 @@ class NativePlayerPlaybackInstrumentedTest {
         await("Media3 seek must reach the beginning") { player.currentPosition <= 200L }
         assertTrue("Seek position should move from the pre-seek position", beforeSeek >= 0L)
 
+        logStage("GESTURES_START")
         val gestureLayer = awaitView<View>("reiflix_gesture_layer")
 
         onMain {
@@ -229,6 +251,7 @@ class NativePlayerPlaybackInstrumentedTest {
         assertFalse("Vertical swipes must not expose volume feedback", onMain { feedback.text?.contains("VOLUME") == true })
         assertEquals("Vertical swipes must not change Android media volume", volumeBefore, systemAudio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC))
 
+        logStage("PINCH_ZOOM")
         pinch(gestureLayer, zoom = true)
         await("Pinch out must select ZOOM") {
             playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -248,6 +271,7 @@ class NativePlayerPlaybackInstrumentedTest {
                 }
             },
         )
+        logStage("PINCH_FIT")
         pinch(gestureLayer, zoom = false)
         await("Pinch in must select FIT") {
             playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -276,10 +300,12 @@ class NativePlayerPlaybackInstrumentedTest {
             onMain { controls.isShown },
         )
 
+        logStage("VISUAL_BACK")
         val back = awaitView<View>("reiflix_back_button")
         assertTrue("Visual Back control must be clickable", onMain { back.performClick() })
         await("Visual Back must finish the native player Activity") { activity!!.isFinishing }
 
+        logStage("SYSTEM_BACK")
         val secondIntent = Intent(target, NativePlayerActivity::class.java)
             .putExtra("requestId", "instrumented-player-android-back")
             .putExtra("uri", fixtureUri!!.toString())
@@ -291,6 +317,9 @@ class NativePlayerPlaybackInstrumentedTest {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         activity = InstrumentationRegistry.getInstrumentation().startActivitySync(secondIntent) as NativePlayerActivity
         awaitView<View>("reiflix_back_button")
+        // The final system-back assertion is intentionally delegated to the
+        // UI automation layer in a follow-up change; this method remains the
+        // deterministic in-process callback contract for this diagnostic pass.
         onMain { activity!!.onBackPressedDispatcher.onBackPressed() }
         await("Android Back must finish the native player Activity") { activity!!.isFinishing }
 
@@ -310,9 +339,35 @@ class NativePlayerPlaybackInstrumentedTest {
         }
     }
 
+    private fun removeStalePlayerFixtures() {
+        val collection = if (Build.VERSION.SDK_INT >= 29) {
+            MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        } else {
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        }
+        target.contentResolver.query(
+            collection,
+            arrayOf(MediaStore.Video.Media._ID),
+            MediaStore.Video.Media.DISPLAY_NAME + "=?",
+            arrayOf(FIXTURE_DISPLAY_NAME),
+            null,
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndex(MediaStore.Video.Media._ID)
+            if (idColumn >= 0) {
+                while (cursor.moveToNext()) {
+                    val staleUri = android.content.ContentUris.withAppendedId(
+                        collection,
+                        cursor.getLong(idColumn),
+                    )
+                    runCatching { target.contentResolver.delete(staleUri, null, null) }
+                }
+            }
+        }
+    }
+
     private fun insertFixtureIntoMediaStore(): android.net.Uri {
         val values = ContentValues().apply {
-            put(MediaStore.Video.Media.DISPLAY_NAME, "reiflix-player-fixture.mp4")
+            put(MediaStore.Video.Media.DISPLAY_NAME, FIXTURE_DISPLAY_NAME)
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
             if (Build.VERSION.SDK_INT >= 29) {
                 put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/ReiFlixTest")
@@ -348,7 +403,7 @@ class NativePlayerPlaybackInstrumentedTest {
 
 
     private fun dispatchEvent(view: View, event: MotionEvent) {
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+        runOnMainBounded {
             view.dispatchTouchEvent(event)
         }
         event.recycle()
@@ -518,7 +573,7 @@ class NativePlayerPlaybackInstrumentedTest {
         var result: View? = null
         val deadline = SystemClock.uptimeMillis() + timeoutMs
         while (SystemClock.uptimeMillis() < deadline) {
-            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            runOnMainBounded {
                 result = activity?.window?.decorView?.findViewWithTag(tag)
             }
             if (result != null) {
@@ -533,10 +588,27 @@ class NativePlayerPlaybackInstrumentedTest {
 
     private fun <T> onMain(action: () -> T): T {
         var result: T? = null
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            result = action()
-        }
+        runOnMainBounded { result = action() }
         return checkNotNull(result) { "Main-thread action returned null unexpectedly" }
+    }
+
+    private fun runOnMainBounded(timeoutMs: Long = MAIN_THREAD_TIMEOUT_MS, action: () -> Unit) {
+        val completed = CountDownLatch(1)
+        val failure = AtomicReference<Throwable?>(null)
+        mainHandler.post {
+            try {
+                action()
+            } catch (error: Throwable) {
+                failure.set(error)
+            } finally {
+                completed.countDown()
+            }
+        }
+        assertTrue(
+            "Android main thread did not respond within ${timeoutMs}ms; possible UI-thread hang",
+            completed.await(timeoutMs, TimeUnit.MILLISECONDS),
+        )
+        failure.get()?.let { throw AssertionError("Main-thread action failed", it) }
     }
 
     private fun await(description: String, timeoutMs: Long = 12_000L, condition: () -> Boolean) {
@@ -547,5 +619,9 @@ class NativePlayerPlaybackInstrumentedTest {
             SystemClock.sleep(50L)
         }
         assertTrue(description, false)
+    }
+
+    private fun logStage(stage: String) {
+        Log.i(TEST_TAG, "PLAYER_TEST_STAGE=" + stage)
     }
 }

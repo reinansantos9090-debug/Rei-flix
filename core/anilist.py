@@ -1,6 +1,6 @@
 """Cliente AniList somente para metadados, com falha segura e cache de capas."""
 from __future__ import annotations
-import hashlib, json, logging, os, tempfile, time, urllib.error, urllib.request
+import hashlib, json, logging, os, tempfile, threading, time, urllib.error, urllib.request
 
 logger = logging.getLogger(__name__)
 
@@ -9,45 +9,98 @@ class AniListClient:
     media_fields='''id title{romaji english native} synonyms description(asHtml:false) coverImage{extraLarge large} bannerImage genres seasonYear season status episodes duration averageScore format studios(isMain:true){nodes{name}}'''
     query=f'''query($search:String){{Page(perPage:5){{media(search:$search,type:ANIME){{{media_fields}}}}}}}'''
     by_id_query=f'''query($id:Int){{Media(id:$id,type:ANIME){{{media_fields}}}}}'''
-    def __init__(self, cache_dir): self.cache_dir=cache_dir
-    def _request(self, query, variables):
-        data=json.dumps({'query':query,'variables':variables}).encode()
-        req=urllib.request.Request(self.endpoint,data=data,headers={'Content-Type':'application/json','Accept':'application/json','User-Agent':'ReiFlix/1.0'})
+    def __init__(self, cache_dir):
+        self.cache_dir = cache_dir
+        self._rate_lock = threading.RLock()
+        self._next_request_at = 0.0
+        self._min_interval = 0.7
+        self._rate_limit = None
+        self._rate_remaining = None
+        self._rate_reset = None
+
+    @staticmethod
+    def _header(headers, name):
+        if headers is None: return None
+        try: return headers.get(name)
+        except AttributeError:
+            try: return headers.get(name.lower())
+            except AttributeError: return None
+
+    def _pace_request(self):
+        with self._rate_lock:
+            delay = max(0.0, self._next_request_at - time.monotonic())
+        if delay: time.sleep(delay)
+        with self._rate_lock: self._next_request_at = time.monotonic() + self._min_interval
+
+    def _observe_rate_headers(self, headers):
+        limit_raw = self._header(headers, 'X-RateLimit-Limit')
+        remaining_raw = self._header(headers, 'X-RateLimit-Remaining')
+        reset_raw = self._header(headers, 'X-RateLimit-Reset')
+        try: limit = int(limit_raw) if limit_raw is not None else None
+        except (TypeError, ValueError): limit = None
+        try: remaining = int(remaining_raw) if remaining_raw is not None else None
+        except (TypeError, ValueError): remaining = None
+        try: reset = float(reset_raw) if reset_raw is not None else None
+        except (TypeError, ValueError): reset = None
+        with self._rate_lock:
+            if limit and limit > 0:
+                self._rate_limit = limit
+                self._min_interval = max(0.7, min(3.0, 60.0 / float(limit)))
+            if remaining is not None: self._rate_remaining = remaining
+            if reset is not None: self._rate_reset = reset
+            if remaining is not None and remaining <= 2 and reset and reset > time.time():
+                window = reset - time.time()
+                self._min_interval = max(self._min_interval, min(5.0, window / max(1, remaining + 1)))
+
+    def _retry_delay_from_headers(self, headers):
+        retry_after = self._header(headers, 'Retry-After')
         try:
-            with urllib.request.urlopen(req,timeout=10) as r:
-                raw = r.read()
+            if retry_after is not None: return max(0.0, min(float(retry_after), 120.0))
+        except (TypeError, ValueError): pass
+        reset_raw = self._header(headers, 'X-RateLimit-Reset')
+        try:
+            if reset_raw is not None: return max(0.0, min(float(reset_raw) - time.time(), 120.0))
+        except (TypeError, ValueError): pass
+        return 0.0
+    def _request(self, query, variables):
+        data = json.dumps({'query': query, 'variables': variables}).encode()
+        req = urllib.request.Request(self.endpoint, data=data, headers={'Content-Type':'application/json','Accept':'application/json','User-Agent':'ReiFlix/1.0'})
+        self._pace_request()
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                raw = response.read()
+                self._observe_rate_headers(getattr(response, 'headers', None))
             payload = json.loads(raw)
         except urllib.error.HTTPError as exc:
+            self._observe_rate_headers(getattr(exc, 'headers', None))
             if exc.code == 429:
-                retry_after = exc.headers.get("Retry-After")
-                try:
-                    delay = max(0.0, min(float(retry_after), 60.0))
-                except (TypeError, ValueError):
-                    delay = 0.0
-                if delay:
-                    logger.warning("AniList atingiu rate limit; aguardando %.1fs antes de uma nova tentativa.", delay)
-                    try:
-                        time.sleep(delay)
-                    except Exception:
-                        return None
+                delay = self._retry_delay_from_headers(getattr(exc, 'headers', None))
+                if delay > 0:
+                    logger.warning('AniList atingiu rate limit; aguardando %.1fs antes de uma nova tentativa.', delay)
+                    time.sleep(delay)
+                    self._pace_request()
                     try:
                         with urllib.request.urlopen(req, timeout=10) as retry_response:
                             raw = retry_response.read()
+                            self._observe_rate_headers(getattr(retry_response, 'headers', None))
                         payload = json.loads(raw)
+                    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as retry_exc:
+                        logger.warning('AniList indisponível após rate limit: %s', retry_exc)
+                        return None
                     except Exception as retry_exc:
-                        logger.warning("AniList indisponível após rate limit: %s", retry_exc)
+                        logger.warning('Falha inesperada após rate limit do AniList: %s', retry_exc)
                         return None
                 else:
-                    logger.warning("AniList retornou HTTP 429 sem Retry-After.")
+                    logger.warning('AniList retornou HTTP 429 sem um atraso utilizável.')
                     return None
             else:
-                logger.warning("AniList indisponível: HTTP %s", exc.code)
+                logger.warning('AniList indisponível: HTTP %s', exc.code)
                 return None
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
-            logger.warning("AniList indisponível: %s", exc)
+            logger.warning('AniList indisponível: %s', exc)
             return None
         except Exception as exc:
-            logger.warning("Falha inesperada na comunicação com AniList: %s", exc)
+            logger.warning('Falha inesperada na comunicação com AniList: %s', exc)
             return None
         if not isinstance(payload, dict):
             logger.warning("AniList retornou uma resposta inválida.")

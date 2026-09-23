@@ -106,6 +106,18 @@ class UiTextTests(unittest.TestCase):
 
 
 class StoreTests(unittest.TestCase):
+    def test_manual_episode_identification_normalizes_integer_numbers(self):
+        with tempfile.TemporaryDirectory() as d:
+            store = LibraryStore(d)
+            anime = store.upsert_anime("summertime-render", {"title": "Summertime Render", "genres": "[]"})
+            path = "/tmp/Summertime Render S01E06.mkv"
+            store.upsert_episode(anime, path, "Summertime Render S01E06.mkv", 1, 6)
+            store.set_episode_identification(path, season=1, number=6.0)
+            with store._conn() as con:
+                row = con.execute("SELECT season, number FROM episodes WHERE path=?", (path,)).fetchone()
+            self.assertEqual((row["season"], row["number"]), (1, 6))
+            self.assertIsInstance(row["number"], int)
+
     def test_personal_tags_persist_normalize_and_are_searchable_offline(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

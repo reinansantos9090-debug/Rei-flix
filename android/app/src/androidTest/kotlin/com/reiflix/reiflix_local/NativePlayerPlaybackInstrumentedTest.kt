@@ -64,6 +64,9 @@ class NativePlayerPlaybackInstrumentedTest {
             requireNotNull(playerView.player) { "Media3 PlayerView did not receive a player" }
         }
 
+        val preparing = awaitView<View>("reiflix_player_preparing")
+        assertTrue("Preparation indicator must be visible while the native player is starting", onMain { preparing.visibility == View.VISIBLE })
+
         await("Media3 must reach READY before interaction") {
             player.playbackState == Player.STATE_READY
         }
@@ -74,6 +77,9 @@ class NativePlayerPlaybackInstrumentedTest {
         assertTrue("Play control must be present", onMain { playPause.performClick() })
         await("Play button must start playback") { player.isPlaying }
         await("The real video must render its first frame") { activity!!.firstFrameRenderedForTesting }
+        await("Preparation indicator must disappear after the first frame") {
+            preparing.visibility == View.GONE
+        }
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         assertTrue("Native player must actually be playing the local fixture", onMain { player.isPlaying })
         assertTrue("Native player Activity must remain alive after first frame", !activity!!.isFinishing && !activity!!.isDestroyed)

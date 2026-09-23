@@ -114,6 +114,7 @@ jobs:
       - name: Validate Python application
         run: |
           python -m compileall -q main.py app_config.py core views scripts
+          bash -n scripts/run_android_instrumented_diagnostic.sh
           python -m unittest discover -s tests -v
           python scripts/audit_release.py --root .
           git diff --check

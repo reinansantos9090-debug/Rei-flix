@@ -469,7 +469,18 @@ class HomeView:
             continuing.clear()
             continuing.extend(home_data.get("continue_watching", []))
             refresh_filter_options(loaded_options or {})
-            status.visible = False
+            try:
+                last_scan = await asyncio.to_thread(library.last_scan)
+            except Exception:
+                logger.exception("Home last-scan state lookup failed", extra={"screen":"home","requestId":"-","library_items":len(catalog)})
+                last_scan = None
+            scan_active = bool(last_scan and str(last_scan.get("status") or "").casefold() in {"running", "started"})
+            status.visible = scan_active
+            if scan_active:
+                status.controls = [
+                    ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
+                    ft.Text("Descobrindo vídeos locais…", color=TEXT_MUTED, size=12),
+                ]
             render_continue()
             for title, key, is_episode in (
                 ("PRÓXIMO EPISÓDIO","next_episode",False),
@@ -493,6 +504,13 @@ class HomeView:
                         extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog),"section":key},
                     )
             await render_library()
+            if not catalog and scan_active:
+                feedback.visible = False
+                library_label.value = "DESCOBRINDO BIBLIOTECA LOCAL…"
+                page.update()
+            else:
+                status.visible = False
+                page.update()
             page.run_task(hydrate_metadata_and_artwork)
 
         search.on_change = on_search

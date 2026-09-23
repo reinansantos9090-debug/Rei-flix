@@ -456,10 +456,10 @@ class MainActivity : FlutterFragmentActivity() {
 
         // Settings may revoke access while this activity is paused. Always
         // republish the actual Android state after a real Settings return.
-        if (broadStoragePermissionPending && externalSettingsKind == null) {
-            // Fallback for Settings surfaces that return through lifecycle without
-            // delivering an ActivityResult callback. The method is idempotent:
-            // ActivityResult after this point sees no pending request and is ignored.
+        if (broadStoragePermissionPending) {
+            // Revalidate the real Android state on every Settings return. This is
+            // safe even when ActivityResult is delivered afterward because the
+            // return handler is idempotent once the pending flag is cleared.
             handleBroadSettingsReturn(pendingBroadRequestId, "onResume")
             return
         }

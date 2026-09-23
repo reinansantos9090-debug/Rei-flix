@@ -60,7 +60,7 @@ class BackAndSettingsReturnInstrumentedTest {
             scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
         }
         waitForExternalUiSettle()
-        returnFromExternalSurface("com.android.settings")
+        pressBackAcrossApplicationBoundary()
         awaitState("Closing App Info Settings surface must return to MainActivity") {
             scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
         }

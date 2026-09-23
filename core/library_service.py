@@ -216,7 +216,7 @@ class LibraryService:
                 continue
             cover_cache = str(cached.get('cover_cache') or '').strip()
             cover_valid = bool(cover_cache and os.path.isfile(cover_cache) and os.path.getsize(cover_cache) > 0)
-            needs_metadata = not anilist_id or status in {'unresolved', 'error'}
+            needs_metadata = not anilist_id or status in {'unresolved', 'error', 'stale'}
             if status == 'ambiguous' and not anilist_id:
                 if pending_cache is None: pending_cache = self.store.pending_matches()
                 needs_metadata = not any(p.get('lookup_title') == lookup_title for p in pending_cache)

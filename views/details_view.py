@@ -391,6 +391,8 @@ class DetailView:
                 try:
                     parsed_season = int(season.value) if (season.value or "").strip() else None
                     parsed_number = float(number.value) if (number.value or "").strip() else None
+                    if parsed_number is not None and parsed_number.is_integer():
+                        parsed_number = int(parsed_number)
                 except (TypeError, ValueError) as exc:
                     number.error_text = str(exc) or "Valores inválidos."
                     page.update()

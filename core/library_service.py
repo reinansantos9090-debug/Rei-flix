@@ -224,6 +224,7 @@ class LibraryService:
             if not needs_metadata and not needs_cover: continue
             try:
                 metadata_refreshed = False
+                cover_attempt_failed = False
                 if needs_metadata:
                     cached = self.refresh_metadata(lookup_title, display_title, force=True, bypass_request_dedupe=True)
                     cached = self.store.anime_metadata(lookup_title) or cached or {}
@@ -249,7 +250,7 @@ class LibraryService:
                             # the failed attempt so the existing ArtworkEngine backoff
                             # governs the next cycle.
                             if cached.get('id') and not cover_valid:
-                                self.artwork.mark_download_failure(entity_type, cached['id'], 'poster', cover_url)
+                                cover_attempt_failed = True
                         else:
                             downloaded = self.anilist.cache_cover(cover_url)
                             if downloaded and os.path.isfile(downloaded) and os.path.getsize(downloaded) > 0:
@@ -258,9 +259,11 @@ class LibraryService:
                                                         status=cached.get('metadata_status') or 'available', fetched_at=cached.get('metadata_fetched_at'))
                                 cached = self.store.anime_metadata(lookup_title) or cached
                             elif cached.get('id'):
-                                self.artwork.mark_download_failure(entity_type, cached['id'], 'poster', cover_url)
+                                cover_attempt_failed = True
                 if cached.get('id'):
                     self.artwork.sync_anime_metadata(cached['id'], cached)
+                    if cover_attempt_failed:
+                        self.artwork.mark_download_failure(entity_type, cached['id'], 'poster', cover_url)
                 hydrated.append({'lookup_title': lookup_title, 'id': cached.get('id'), 'metadata': cached})
             except Exception:
                 logger.exception('Local metadata/artwork hydration failed', extra={'screen':'home','lookup_title':lookup_title,'library_items':len(catalog)})

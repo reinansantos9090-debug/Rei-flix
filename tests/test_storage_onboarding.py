@@ -462,7 +462,7 @@ class TestAuthorizedStorageDiscovery(unittest.TestCase):
 
     def test_existing_broad_access_converges_to_scan(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
-        block = source[source.index("private fun openBroadStorageSettings()"):source.index("private fun openSettingsIntent", source.index("private fun openBroadStorageSettings()"))]
+        block = source[source.index("private fun openBroadStorageSettings()"):source.index("private fun scanAllStorage", source.index("private fun openBroadStorageSettings()"))]
         self.assertIn("if (BroadStorageScanner.hasAccess(this))", block)
         self.assertIn("scanAllStorage(requestId)", block)
         self.assertIn("revalidatedAfterSettings", block)

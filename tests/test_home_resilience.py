@@ -6,6 +6,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class HomeResilienceContractTests(unittest.TestCase):
+    def test_flet_image_uses_box_fit_compatibility_api(self):
+        ui_source = (ROOT / 'core' / 'ui.py').read_text(encoding='utf-8')
+        home_source = (ROOT / 'views' / 'home_view.py').read_text(encoding='utf-8')
+        self.assertNotIn('ImageFit', ui_source + home_source)
+        self.assertIn('ft.BoxFit.COVER', ui_source + home_source)
+
     def test_catalog_load_is_authoritative_and_secondary_projections_are_isolated(self):
         source = (ROOT / 'views' / 'home_view.py').read_text(encoding='utf-8')
         self.assertIn('loaded_catalog = await asyncio.to_thread(library.catalog)', source)

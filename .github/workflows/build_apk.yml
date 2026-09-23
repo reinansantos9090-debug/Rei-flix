@@ -279,25 +279,6 @@ jobs:
           disable-linux-hw-accel: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           working-directory: build/flutter/android
-          pre-emulator-launch-script: |
-            diag="$GITHUB_WORKSPACE/build/android30-diagnostics/runner"
-            mkdir -p "$diag"
-            {
-              echo "phase=pre-emulator-launch"
-              date -u +"timestamp_utc=%Y-%m-%dT%H:%M:%SZ"
-              echo "api=30"
-              echo "runner=${RUNNER_NAME:-unknown}"
-              uname -a
-              df -h "$GITHUB_WORKSPACE"
-              if test -e /dev/kvm; then
-                echo "kvm=present"
-                ls -l /dev/kvm
-              else
-                echo "kvm=missing"
-              fi
-              if adb version; then :; else echo "adb_version_failed"; fi
-              if "$ANDROID_HOME/emulator/emulator" -version; then :; else echo "emulator_version_failed"; fi
-            } > "$diag/environment.txt" 2>&1
           script: |
             mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
             chmod +x "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
@@ -329,25 +310,6 @@ jobs:
           disable-linux-hw-accel: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           working-directory: build/flutter/android
-          pre-emulator-launch-script: |
-            diag="$GITHUB_WORKSPACE/build/android36-diagnostics/runner"
-            mkdir -p "$diag"
-            {
-              echo "phase=pre-emulator-launch"
-              date -u +"timestamp_utc=%Y-%m-%dT%H:%M:%SZ"
-              echo "api=36"
-              echo "runner=${RUNNER_NAME:-unknown}"
-              uname -a
-              df -h "$GITHUB_WORKSPACE"
-              if test -e /dev/kvm; then
-                echo "kvm=present"
-                ls -l /dev/kvm
-              else
-                echo "kvm=missing"
-              fi
-              if adb version; then :; else echo "adb_version_failed"; fi
-              if "$ANDROID_HOME/emulator/emulator" -version; then :; else echo "emulator_version_failed"; fi
-            } > "$diag/environment.txt" 2>&1
           script: |
             mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
             chmod +x "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"

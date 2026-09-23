@@ -279,11 +279,10 @@ else
     printf 'FAILED_TESTS_IDENTIFIED=0\n' | tee -a "$DIAG_ROOT/summary.txt"
 fi
 
-cut -d'|' -f1 "$FAILED_TESTS" | sed '/^$/d' | sort -u |
 while IFS= read -r class_name; do
     [[ -n "$class_name" ]] || continue
     run_diagnostic_case "$class_name" "$class_name" "$CLASS_TIMEOUT_SECONDS"
-done
+done < <(cut -d'|' -f1 "$FAILED_TESTS" | sed '/^$/d' | sort -u)
 
 while IFS='|' read -r class_name method_name; do
     [[ -n "$class_name" && -n "$method_name" ]] || continue

@@ -1647,6 +1647,8 @@ class LibraryStore:
                 raise ValueError("Número do episódio inválido.")
             if not math.isfinite(normalized_number) or normalized_number < 0:
                 raise ValueError("Número do episódio inválido.")
+            if normalized_number.is_integer():
+                normalized_number = int(normalized_number)
         normalized_type = str(episode_type or "regular").casefold()
         allowed = {"regular", "special", "ova", "oad", "ona", "extra", "movie", "unknown"}
         if normalized_type not in allowed:

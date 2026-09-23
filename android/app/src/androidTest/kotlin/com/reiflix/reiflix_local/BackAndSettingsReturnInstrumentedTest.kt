@@ -1,13 +1,13 @@
 package com.reiflix.reiflix_local
 
 import android.content.Intent
+import android.accessibilityservice.AccessibilityService
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -28,7 +28,6 @@ class BackAndSettingsReturnInstrumentedTest {
 
     @After
     fun tearDown() {
-        pressBackBestEffort()
         scenario.close()
     }
 
@@ -40,7 +39,7 @@ class BackAndSettingsReturnInstrumentedTest {
             scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
         }
         waitForExternalUiSettle()
-        returnFromExternalSurface("com.android.settings")
+        pressBackAcrossApplicationBoundary()
         awaitState("Closing All Files Settings surface must return to MainActivity") {
             scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
         }
@@ -79,7 +78,7 @@ class BackAndSettingsReturnInstrumentedTest {
             scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
         }
         waitForExternalUiSettle()
-        returnFromExternalSurface("com.google.android.documentsui", "com.android.documentsui")
+        pressBackAcrossApplicationBoundary()
         awaitState("Closing SAF picker must return to MainActivity") {
             scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
         }
@@ -122,13 +121,12 @@ class BackAndSettingsReturnInstrumentedTest {
         return outcome
     }
 
-    private fun returnFromExternalSurface(vararg packageNames: String) {
+    private fun pressBackAcrossApplicationBoundary() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val packages = packageNames.joinToString(" ")
-        val descriptor = instrumentation.uiAutomation.executeShellCommand(
-            "for p in $packages; do am force-stop $p >/dev/null 2>&1 || true; done"
+        val performed = instrumentation.uiAutomation.performGlobalAction(
+            AccessibilityService.GLOBAL_ACTION_BACK,
         )
-        descriptor.close()
+        assertTrue("Android global Back must be dispatched successfully across application boundaries", performed)
         instrumentation.waitForIdleSync()
         SystemClock.sleep(750L)
     }

@@ -100,6 +100,12 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn('test "$API30_OUTCOME" = "success"', workflow)
         self.assertIn('test "$API36_OUTCOME" = "success"', workflow)
         self.assertNotIn("|| true", workflow)
+        self.assertIn("actions: write", workflow)
+        self.assertIn("Cancel legacy Android workflow runs", workflow)
+        self.assertIn("gh run cancel", workflow)
+        self.assertIn("CURRENT_RUN_ID", workflow)
+        self.assertIn("status in_progress", workflow)
+        self.assertIn("status queued", workflow)
 
     def test_android_instrumented_diagnostic_is_api_scoped_and_device_diagnostic_rich(self):
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")

@@ -16,11 +16,30 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Cancel legacy Android workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          for status in in_progress queued; do
+            gh api --paginate \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$GITHUB_REPOSITORY/actions/runs?status=$status&per_page=100" \
+              --jq '.workflow_runs[] | select(.name == "Build ReiFlix Android APK" and .head_branch == "main") | .id' \
+              | while IFS= read -r run_id; do
+                  if test -z "$run_id" || test "$run_id" = "$CURRENT_RUN_ID"; then
+                    continue
+                  fi
+                  echo "Cancelling legacy Android workflow run $run_id"
+                  gh run cancel "$run_id"
+                done
+          done
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

@@ -25,7 +25,7 @@ that cannot be implemented by Python:
 | Kotlin | `2.0.21` |
 | Java toolchain | 17 |
 | compile / target SDK | 36 / 36 |
-| minimum SDK | 23 |
+| minimum SDK | 24 |
 | Media3 | `1.5.1` for ExoPlayer and UI |
 
 The repository does **not** commit an APK. The workflow builds one and refuses

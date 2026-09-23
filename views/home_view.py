@@ -411,7 +411,14 @@ class HomeView:
                     target["meta"] = dict(metadata)
                     entity = "movie" if target.get("media_kind") == "movie" else "anime"
                     cover_path = metadata.get("cover_cache")
-                    if cover_path and os.path.isfile(str(cover_path)):
+                    if cover_path:
+                        try:
+                            cover_valid = os.path.isfile(str(cover_path)) and os.path.getsize(str(cover_path)) > 0
+                        except OSError:
+                            cover_valid = False
+                    else:
+                        cover_valid = False
+                    if cover_valid:
                         for holder, width, height in artwork_bindings.get((entity, int(item_id), "poster"), []):
                             holder.content = ft.Image(
                                 src=cover_path, width=width, height=height,

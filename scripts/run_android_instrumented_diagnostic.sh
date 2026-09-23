@@ -286,7 +286,13 @@ while IFS= read -r class_name; do
     run_diagnostic_case "$class_name" "$class_name" "$CLASS_TIMEOUT_SECONDS"
 done < <(cut -d'|' -f1 "$FAILED_TESTS" | sed '/^$/d' | sort -u)
 
-# Do not replay every failed method after replaying its class. That multiplies\n# emulator/instrumentation startup and was the direct source of the 30-60 minute\n# failure runs seen in CI. The failed class already gives deterministic per-test\n# results in its Gradle/XML output; the full-suite log and collected device state\n# remain available for deeper diagnosis.\nprintf 'METHOD_LEVEL_REPLAY_SKIPPED=1\\n' | tee -a "$DIAG_ROOT/summary.txt"\n\nprintf 'CONNECTED_DEBUG_ANDROID_TEST_INVOCATIONS=%s\n' "$GRADLE_INVOCATIONS" | tee -a "$DIAG_ROOT/summary.txt"
+# Do not replay every failed method after replaying its class. That multiplies
+# emulator/instrumentation startup and was the direct source of the 30-60 minute
+# failure runs seen in CI. The failed class already gives deterministic per-test
+# results in its Gradle/XML output; the full-suite log and collected device state
+# remain available for deeper diagnosis.
+printf 'METHOD_LEVEL_REPLAY_SKIPPED=1\n' | tee -a "$DIAG_ROOT/summary.txt"
+printf 'CONNECTED_DEBUG_ANDROID_TEST_INVOCATIONS=%s\n' "$GRADLE_INVOCATIONS" | tee -a "$DIAG_ROOT/summary.txt"
 printf 'DIAGNOSTIC_COMPLETE=1\n' | tee -a "$DIAG_ROOT/summary.txt"
 printf 'DIAGNOSTIC_PRESERVED_FAILURE_EXIT=%s\n' "$FULL_STATUS" | tee -a "$DIAG_ROOT/summary.txt"
 

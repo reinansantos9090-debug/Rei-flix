@@ -271,7 +271,7 @@ E: manifest
         self.assertIn('put("action", "back")', block)
     def test_android_back_has_native_duplicate_suppression(self):
         main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
-        block = main[main.indexOf("private val backCallback"):main.indexOf("private var storageReceiverRegistered", main.indexOf("private val backCallback"))]
+        block = main[main.index("private val backCallback"):main.indexOf("private var storageReceiverRegistered", main.indexOf("private val backCallback"))]
         self.assertIn("lastBackEventAt", main)
         self.assertIn("backEventDebounceMs = 300L", main)
         self.assertIn("duplicate_suppressed", block)

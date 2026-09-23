@@ -239,6 +239,49 @@ class ProfessionalMetadataTests(unittest.TestCase):
         by_id.assert_not_called()
         self.assertEqual(result["metadata_status"], "available")
 
+    def test_first_hydration_resolves_local_title_and_caches_cover(self):
+        anime = self._anime('Attack on Titan', 'attack on titan')
+        cover = __import__('pathlib').Path(self.tmp.name) / 'cover.jpg'
+        cover.write_bytes(b'cover')
+        media = {'id': 16498, 'title': {'english': 'Attack on Titan', 'romaji': 'Shingeki no Kyojin'},
+                 'coverImage': {'extraLarge': 'https://img.example/a.jpg'}, 'genres': ['Action']}
+        with patch.object(self.service.anilist, 'search', return_value=[media]), patch.object(self.service.anilist, 'cache_cover', return_value=str(cover)) as downloader:
+            result = self.service.hydrate_catalog_metadata(self.service.catalog())
+        self.assertEqual(len(result), 1)
+        row = self.store.anime_metadata('attack on titan')
+        self.assertEqual(row['anilist_id'], 16498)
+        self.assertEqual(row['cover_cache'], str(cover))
+        self.assertEqual(self.store.association('attack on titan'), 16498)
+        downloader.assert_called_once_with('https://img.example/a.jpg')
+
+    def test_hydration_uses_existing_cover_without_http_download(self):
+        anime = self._anime('Attack on Titan', 'attack on titan')
+        cover = __import__('pathlib').Path(self.tmp.name) / 'cached.jpg'
+        cover.write_bytes(b'cached')
+        now = time.time()
+        with self.store._conn() as con:
+            con.execute(
+                'UPDATE anime SET anilist_id=?,cover_url=?,cover_cache=?,metadata_status=?,metadata_source=?,metadata_updated_at=?,metadata_fetched_at=? WHERE id=?',
+                (16498, 'https://img.example/a.jpg', str(cover), 'available', 'anilist', now, now, anime),
+            )
+        with patch.object(self.service.anilist, 'search') as search, patch.object(self.service.anilist, 'by_id') as by_id, patch.object(self.service.anilist, 'cache_cover') as downloader:
+            self.service.hydrate_catalog_metadata(self.service.catalog())
+        search.assert_not_called()
+        by_id.assert_not_called()
+        downloader.assert_not_called()
+
+    def test_missing_cover_is_retried_only_after_existing_artwork_backoff(self):
+        anime = self._anime('Attack on Titan', 'attack on titan')
+        now = time.time()
+        with self.store._conn() as con:
+            con.execute(
+                'UPDATE anime SET anilist_id=?,cover_url=?,cover_cache=?,metadata_status=?,metadata_source=?,metadata_updated_at=?,metadata_fetched_at=? WHERE id=?',
+                (16498, 'https://img.example/a.jpg', '', 'available', 'anilist', now, now, anime),
+            )
+        with patch.object(self.service.anilist, 'cache_cover', return_value='') as downloader:
+            self.service.hydrate_catalog_metadata(self.service.catalog())
+            self.service.hydrate_catalog_metadata(self.service.catalog())
+        self.assertEqual(downloader.call_count, 1)
 
 if __name__ == "__main__":
     unittest.main()

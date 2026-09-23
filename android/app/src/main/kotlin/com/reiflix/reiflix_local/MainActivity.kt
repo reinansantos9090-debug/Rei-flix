@@ -118,6 +118,12 @@ class MainActivity : FlutterFragmentActivity() {
     private val activeNativeScanJobs = mutableMapOf<String, Job>()
     private val backCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastBackEventAt < backEventDebounceMs) {
+                Log.i(tag, "ANDROID_BACK duplicate_suppressed deltaMs=" + (now - lastBackEventAt))
+                return
+            }
+            lastBackEventAt = now
             val requestId = UUID.randomUUID().toString()
             Log.i(tag, "ANDROID_BACK requestId=" + requestId + " lifecycle=RESUMED task=" + taskId)
             NativeMailbox.write(
@@ -131,6 +137,8 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private var storageReceiverRegistered = false
     private var safInventoryRunning = false
+    private var lastBackEventAt = 0L
+    private val backEventDebounceMs = 300L
     private val mediaStoreRescanHandler = Handler(Looper.getMainLooper())
     private var mediaStoreRescanScheduled = false
     private var externalSettingsKind: String? = null

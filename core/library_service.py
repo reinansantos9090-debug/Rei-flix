@@ -195,7 +195,7 @@ class LibraryService:
                     self.artwork.sync_anime_metadata(row["id"], row)
                 return local
 
-    def hydrate_catalog_metadata(self, catalog, on_item=None):
+    def hydrate_catalog_metadata(self, catalog):
         """Hydrate local items that still need AniList metadata or poster artwork.
 
         The queue is intentionally sequential and reuses the existing AniListClient,
@@ -251,7 +251,6 @@ class LibraryService:
                 if cached.get('id'):
                     self.artwork.sync_anime_metadata(cached['id'], cached)
                 hydrated.append({'lookup_title': lookup_title, 'id': cached.get('id'), 'metadata': cached})
-                if callable(on_item): on_item(cached)
             except Exception:
                 logger.exception('Local metadata/artwork hydration failed', extra={'screen':'home','lookup_title':lookup_title,'library_items':len(catalog)})
         return hydrated

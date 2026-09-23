@@ -111,6 +111,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn('"flet==0.86.5"', project)
         self.assertIn('"certifi>=2024.8.30"', project)
+        self.assertIn("min_sdk_version = 23", project)
 
     def test_android_instrumented_diagnostic_uses_full_suite_as_the_only_normal_path(self):
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")

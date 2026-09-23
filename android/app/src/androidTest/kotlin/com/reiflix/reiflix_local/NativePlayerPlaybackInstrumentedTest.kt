@@ -80,7 +80,9 @@ class NativePlayerPlaybackInstrumentedTest {
         await("Preparation indicator must disappear after the first frame") {
             preparing.visibility == View.GONE
         }
-        InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        // Do not block on global idleness here: Media3 and the rendered Flet host
+        // can keep the main looper non-idle while playback is healthy.
+        SystemClock.sleep(50L)
         assertTrue("Native player must actually be playing the local fixture", onMain { player.isPlaying })
         assertTrue("Native player Activity must remain alive after first frame", !activity!!.isFinishing && !activity!!.isDestroyed)
 
@@ -518,7 +520,6 @@ class NativePlayerPlaybackInstrumentedTest {
                 @Suppress("UNCHECKED_CAST")
                 return result as T
             }
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             SystemClock.sleep(50L)
         }
         assertTrue("view with tag $tag", false)

@@ -118,6 +118,23 @@ class StoreTests(unittest.TestCase):
             self.assertEqual((row["season"], row["number"]), (1, 6))
             self.assertIsInstance(row["number"], int)
 
+            store.set_episode_identification(path, season=1, number=6.5)
+            with store._conn() as con:
+                row = con.execute("SELECT season, number FROM episodes WHERE path=?", (path,)).fetchone()
+            self.assertEqual(row["number"], 6.5)
+            self.assertIsInstance(row["number"], float)
+
+            store.set_episode_identification(path, season=1, number="6.0")
+            with store._conn() as con:
+                row = con.execute("SELECT season, number FROM episodes WHERE path=?", (path,)).fetchone()
+            self.assertEqual(row["number"], 6)
+            self.assertIsInstance(row["number"], int)
+
+            store.set_episode_identification(path, season=1, number=None)
+            with store._conn() as con:
+                row = con.execute("SELECT season, number FROM episodes WHERE path=?", (path,)).fetchone()
+            self.assertIsNone(row["number"])
+
     def test_personal_tags_persist_normalize_and_are_searchable_offline(self):
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)

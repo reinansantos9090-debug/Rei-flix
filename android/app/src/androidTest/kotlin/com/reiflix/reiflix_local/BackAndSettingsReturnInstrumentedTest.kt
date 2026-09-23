@@ -93,20 +93,16 @@ class BackAndSettingsReturnInstrumentedTest {
     }
 
     private fun invokeNoArg(name: String): Boolean {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        var outcome = false
-        instrumentation.runOnMainSync {
+        return runOnMainBoundedValue {
             val activity = currentResumedMainActivity()
             val method = MainActivity::class.java.getDeclaredMethod(name)
             method.isAccessible = true
-            outcome = (method.invoke(activity) as? Boolean) ?: true
+            (method.invoke(activity) as? Boolean) ?: true
         }
-        return outcome
     }
 
     private fun invokeExternalSettings(kind: String, intent: Intent): Boolean {
-        var outcome = false
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+        return runOnMainBoundedValue {
             val activity = currentResumedMainActivity()
             val method = MainActivity::class.java.getDeclaredMethod(
                 "launchExternalSettings",
@@ -115,14 +111,13 @@ class BackAndSettingsReturnInstrumentedTest {
                 java.util.List::class.java,
             )
             method.isAccessible = true
-            outcome = method.invoke(
+            method.invoke(
                 activity,
                 kind,
                 null,
                 listOf("instrumented" to intent),
             ) as Boolean
         }
-        return outcome
     }
 
     private fun currentResumedMainActivity(): MainActivity {
@@ -135,15 +130,44 @@ class BackAndSettingsReturnInstrumentedTest {
     }
 
     private fun assertMainActivityAlive() {
-        var finishing = true
-        var destroyed = true
-        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+        val state = runOnMainBounded {
             val activity = currentResumedMainActivity()
-            finishing = activity.isFinishing
-            destroyed = activity.isDestroyed
+            activity.isFinishing to activity.isDestroyed
         }
-        assertFalse("MainActivity must not be finishing", finishing)
-        assertFalse("MainActivity must remain alive", destroyed)
+        assertFalse("MainActivity must not be finishing", state.first)
+        assertFalse("MainActivity must remain alive", state.second)
+    }
+
+    private fun runOnMainBounded(timeoutMs: Long = 2_000L, action: () -> Unit) {
+        val completed = java.util.concurrent.CountDownLatch(1)
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        handler.post {
+            try {
+                action()
+            } catch (error: Throwable) {
+                failure.set(error)
+            } finally {
+                completed.countDown()
+            }
+        }
+        assertTrue(
+            "Android main thread did not respond within ${timeoutMs}ms; possible UI-thread hang",
+            completed.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS),
+        )
+        failure.get()?.let { throw AssertionError("Main-thread action failed", it) }
+    }
+
+    private fun <T> runOnMainBoundedValue(timeoutMs: Long = 2_000L, action: () -> T): T {
+        val result = java.util.concurrent.atomic.AtomicReference<T?>(null)
+        var completedNormally = false
+        runOnMainBounded(timeoutMs) {
+            result.set(action())
+            completedNormally = true
+        }
+        assertTrue("Main-thread action did not complete", completedNormally)
+        return checkNotNull(result.get()) { "Main-thread action returned null unexpectedly" }
     }
 
     private fun pressBackAcrossApplicationBoundary() {

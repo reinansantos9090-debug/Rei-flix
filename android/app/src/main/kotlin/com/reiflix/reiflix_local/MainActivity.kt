@@ -118,13 +118,41 @@ class MainActivity : FlutterFragmentActivity() {
     private val activeNativeScanJobs = mutableMapOf<String, Job>()
     private val backCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
-            NativeMailbox.write(this@MainActivity, JSONObject().put("type", "android_back"))
+            val requestId = UUID.randomUUID().toString()
+            Log.i(tag, "ANDROID_BACK requestId=" + requestId + " lifecycle=RESUMED task=" + taskId)
+            NativeMailbox.write(
+                this@MainActivity,
+                JSONObject()
+                    .put("type", "android_back")
+                    .put("requestId", requestId)
+                    .put("payload", JSONObject().put("source", "android").put("action", "back")),
+            )
         }
     }
     private var storageReceiverRegistered = false
     private var safInventoryRunning = false
     private val mediaStoreRescanHandler = Handler(Looper.getMainLooper())
     private var mediaStoreRescanScheduled = false
+    private var externalSettingsKind: String? = null
+    private var externalSettingsRequestId: String? = null
+    private val externalSettingsLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
+            val kind = externalSettingsKind
+            val requestId = externalSettingsRequestId
+            externalSettingsKind = null
+            externalSettingsRequestId = null
+            Log.i(
+                tag,
+                "SETTINGS_RETURN kind=" + (kind ?: "-") +
+                    " resultCode=" + result.resultCode +
+                    " requestId=" + (requestId ?: "-") +
+                    " broad=" + BroadStorageScanner.hasAccess(this) +
+                    " media=" + MediaStoreScanner.accessLevel(this),
+            )
+            when (kind) {
+                "broad_storage" -> handleBroadSettingsReturn(requestId, "activity_result")
+            }
+        }
 
     private fun scheduleMediaStoreIncrementalRescan() {
         if (mediaStoreRescanScheduled) return
@@ -244,6 +272,11 @@ class MainActivity : FlutterFragmentActivity() {
         val requestId = pendingSafRequestId
         pendingSafRequestId = null
         safPickerPending = false
+        Log.i(
+            tag,
+            "SETTINGS_RETURN kind=saf_picker resultCode=" + result.resultCode +
+                " requestId=" + (requestId ?: "-"),
+        )
         if (result.resultCode != RESULT_OK || uri == null) {
             Log.i(tag, "SAF selection cancelled resultCode=" + result.resultCode)
             NativeMailbox.write(this, JSONObject().put("type", "saf_cancelled")
@@ -333,6 +366,8 @@ class MainActivity : FlutterFragmentActivity() {
         )
         nativeRequestState.restoreSeenRequestIds(savedInstanceState?.getString(STATE_SEEN_NATIVE_REQUEST_IDS))
         broadStoragePermissionPending = savedInstanceState?.getBoolean(STATE_BROAD_SETTINGS_PENDING) ?: false
+        externalSettingsKind = savedInstanceState?.getString("reiflix.externalSettingsKind")
+        externalSettingsRequestId = savedInstanceState?.getString("reiflix.externalSettingsRequestId")
         pendingMediaRequestId = savedInstanceState?.getString(STATE_PENDING_MEDIA_REQUEST_ID)
         pendingBroadRequestId = savedInstanceState?.getString(STATE_PENDING_BROAD_REQUEST_ID)
         pendingSafRequestId = savedInstanceState?.getString(STATE_PENDING_SAF_REQUEST_ID)
@@ -421,20 +456,11 @@ class MainActivity : FlutterFragmentActivity() {
 
         // Settings may revoke access while this activity is paused. Always
         // republish the actual Android state after a real Settings return.
-        if (broadStoragePermissionPending) {
-            broadStoragePermissionPending = false
-            val requestId = pendingBroadRequestId
-            pendingBroadRequestId = null
-            val granted = BroadStorageScanner.hasAccess(this)
-            NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission")
-                .put("requestId", requestId ?: "")
-                .put("payload", JSONObject()
-                    .put("granted", granted)
-                    .put("source", BroadStorageScanner.SOURCE)
-                    .put("revalidatedAfterSettings", true)
-                    .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.RETURNED))))
-            if (granted) scanAllStorage(requestId)
-            publishStorageCapabilities(StorageLifecycleState.REVALIDATED)
+        if (broadStoragePermissionPending && externalSettingsKind == null) {
+            // Fallback for Settings surfaces that return through lifecycle without
+            // delivering an ActivityResult callback. The method is idempotent:
+            // ActivityResult after this point sees no pending request and is ignored.
+            handleBroadSettingsReturn(pendingBroadRequestId, "onResume")
             return
         }
 
@@ -513,6 +539,8 @@ class MainActivity : FlutterFragmentActivity() {
         outState.putString(STATE_ACTIVE_PLAYER_REQUEST_ID, activePlayerRequestId)
         outState.putBoolean(STATE_BROAD_SETTINGS_PENDING, broadStoragePermissionPending)
         outState.putBoolean(STATE_SAF_PICKER_PENDING, safPickerPending)
+        outState.putString("reiflix.externalSettingsKind", externalSettingsKind)
+        outState.putString("reiflix.externalSettingsRequestId", externalSettingsRequestId)
         outState.putBoolean(STATE_STARTUP_DISCOVERY_TRIGGERED, startupDiscoveryTriggered)
         outState.putString(STATE_LAST_OBSERVED_MEDIA_ACCESS, lastObservedMediaAccess)
         lastObservedBroadAccess?.let { outState.putBoolean(STATE_LAST_OBSERVED_BROAD_ACCESS, it) }
@@ -1031,14 +1059,75 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
     }
+    private fun handleBroadSettingsReturn(requestId: String?, origin: String) {
+        if (!broadStoragePermissionPending) {
+            Log.i(tag, "SETTINGS_RETURN ignored kind=broad_storage origin=" + origin + " reason=no_pending_request")
+            return
+        }
+        broadStoragePermissionPending = false
+        val resolvedRequestId = requestId ?: pendingBroadRequestId
+        pendingBroadRequestId = null
+        val granted = BroadStorageScanner.hasAccess(this)
+        Log.i(
+            tag,
+            "SETTINGS_RETURN kind=broad_storage origin=" + origin +
+                " granted=" + granted +
+                " requestId=" + (resolvedRequestId ?: "-"),
+        )
+        NativeMailbox.write(
+            this,
+            JSONObject().put("type", "broad_storage_permission")
+                .put("requestId", resolvedRequestId ?: "")
+                .put("payload", JSONObject()
+                    .put("granted", granted)
+                    .put("source", BroadStorageScanner.SOURCE)
+                    .put("revalidatedAfterSettings", true)
+                    .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.RETURNED)))
+        )
+        if (granted) {
+            scanAllStorage(resolvedRequestId)
+        }
+        publishStorageCapabilities(StorageLifecycleState.REVALIDATED)
+    }
+
+    private fun launchExternalSettings(kind: String, requestId: String?, intents: List<Pair<String, Intent>>): Boolean {
+        if (!activityResumed) {
+            Log.i(tag, "Deferring external Settings launch kind=" + kind + " until Activity is resumed")
+            return false
+        }
+        if (externalSettingsKind != null) {
+            Log.i(tag, "External Settings already active kind=" + externalSettingsKind)
+            return false
+        }
+        for ((label, intent) in intents) {
+            externalSettingsKind = kind
+            externalSettingsRequestId = requestId
+            try {
+                Log.i(tag, "SETTINGS_LAUNCH kind=" + kind + " label=" + label + " requestId=" + (requestId ?: "-"))
+                externalSettingsLauncher.launch(intent)
+                return true
+            } catch (exception: ActivityNotFoundException) {
+                Log.w(tag, "Settings intent unavailable label=" + label, exception)
+            } catch (exception: SecurityException) {
+                Log.w(tag, "Settings intent blocked label=" + label, exception)
+            } catch (exception: Exception) {
+                Log.w(tag, "Settings intent failed label=" + label, exception)
+            } finally {
+                externalSettingsKind = null
+                externalSettingsRequestId = null
+            }
+        }
+        return false
+    }
+
     private fun openBroadStorageSettings() {
         if (!activityResumed) {
             nativeRequestState.queueLifecycleAction("open_broad_storage_settings", pendingBroadRequestId)
             Log.i(tag, "Deferring broad-storage Settings launch until Activity is resumed")
             return
         }
+        val requestId = pendingBroadRequestId
         if (BroadStorageScanner.hasAccess(this)) {
-            val requestId = pendingBroadRequestId
             pendingBroadRequestId = null
             NativeMailbox.write(
                 this,
@@ -1050,59 +1139,11 @@ class MainActivity : FlutterFragmentActivity() {
                         .put("revalidatedAfterSettings", true)
                         .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REVALIDATED)))
             )
-            // Existing broad access must converge to the same permission ->
-            // scan -> native index -> mailbox -> Python path.
             scanAllStorage(requestId)
             publishStorageCapabilities(StorageLifecycleState.REVALIDATED)
             return
         }
-        if (Build.VERSION.SDK_INT >= 30) {
-            broadStoragePermissionPending = true
-            NativeMailbox.write(this, JSONObject().put("type", "broad_storage_permission_request")
-                .put("requestId", pendingBroadRequestId ?: "")
-                .put("payload", JSONObject()
-                    .put("source", BroadStorageScanner.SOURCE)
-                    .put("state", "requesting")
-                    .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REQUESTING))))
-            val packageIntent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                .setData(Uri.parse("package:$packageName"))
-            val globalIntent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-            try {
-                startActivity(packageIntent)
-                Log.i(tag, "Opened app-specific all-files settings")
-                return
-            } catch (specificException: Exception) {
-                Log.w(tag, "App-specific all-files settings unavailable", specificException)
-            }
-            try {
-                startActivity(globalIntent)
-                Log.i(tag, "Opened global all-files settings")
-                return
-            } catch (globalException: Exception) {
-                Log.w(tag, "Global all-files settings unavailable", globalException)
-            }
-            val appDetailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                .setData(Uri.parse("package:$packageName"))
-            try {
-                startActivity(appDetailsIntent)
-                Log.i(tag, "Opened application details settings as final fallback")
-                return
-            } catch (detailsException: Exception) {
-                broadStoragePermissionPending = false
-                pendingBroadRequestId = null
-                Log.w(tag, "Application details settings unavailable", detailsException)
-            }
-            NativeMailbox.write(this, JSONObject().put("type", "broad_storage_error")
-                .put("message", "O Android não conseguiu abrir diretamente a tela de acesso amplo. Abra as configurações do aplicativo e procure por acesso a todos os arquivos.")
-                .put("payload", JSONObject()
-                    .put("api", Build.VERSION.SDK_INT)
-                    .put("specificIntent", Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                    .put("globalIntent", Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                    .put("appDetailsIntent", Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                    .put("hasAccess", BroadStorageScanner.hasAccess(this))
-                    .put("fallbackOpened", true)
-                    .put("source", BroadStorageScanner.SOURCE)))
-        } else {
+        if (Build.VERSION.SDK_INT < 30) {
             broadStoragePermissionPending = false
             pendingBroadRequestId = null
             NativeMailbox.write(this, JSONObject().put("type", "broad_storage_error")
@@ -1113,22 +1154,46 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("reason", "manage_external_storage_not_available")
                     .put("api", Build.VERSION.SDK_INT)
                     .put("permissionAuthority", "Environment.isExternalStorageManager")))
+            return
         }
-    }
 
-    private fun openSettingsIntent(label: String, intent: Intent): Boolean {
-        return try {
-            startActivity(intent)
-            true
-        } catch (exception: ActivityNotFoundException) {
-            Log.w(tag, "$label is unavailable; trying the next fallback", exception)
-            false
-        } catch (exception: SecurityException) {
-            Log.w(tag, "$label was blocked; trying the next fallback", exception)
-            false
-        } catch (exception: Exception) {
-            Log.w(tag, "$label failed unexpectedly; trying the next fallback", exception)
-            false
+        broadStoragePermissionPending = true
+        NativeMailbox.write(
+            this,
+            JSONObject().put("type", "broad_storage_permission_request")
+                .put("requestId", requestId ?: "")
+                .put("payload", JSONObject()
+                    .put("source", BroadStorageScanner.SOURCE)
+                    .put("state", "requesting")
+                    .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REQUESTING)))
+        )
+
+        val launched = launchExternalSettings(
+            "broad_storage",
+            requestId,
+            listOf(
+                "app_specific_all_files" to Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                    .setData(Uri.parse("package:$packageName")),
+                "global_all_files" to Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION),
+                "app_details" to Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.parse("package:$packageName")),
+            ),
+        )
+        if (!launched) {
+            broadStoragePermissionPending = false
+            pendingBroadRequestId = null
+            NativeMailbox.write(this, JSONObject().put("type", "broad_storage_error")
+                .put("message", "O Android não conseguiu abrir diretamente a tela de acesso amplo. Abra as configurações do aplicativo e procure por acesso a todos os arquivos.")
+                .put("payload", JSONObject()
+                    .put("api", Build.VERSION.SDK_INT)
+                    .put("specificIntent", Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                    .put("globalIntent", Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                    .put("appDetailsIntent", Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .put("hasAccess", BroadStorageScanner.hasAccess(this))
+                    .put("fallbackOpened", false)
+                    .put("source", BroadStorageScanner.SOURCE)))
+        } else {
+            Log.i(tag, "SETTINGS_LAUNCH accepted kind=broad_storage requestId=" + (requestId ?: "-"))
         }
     }
 

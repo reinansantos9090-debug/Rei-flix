@@ -250,6 +250,7 @@ jobs:
             ./gradlew :app:connectedDebugAndroidTest --no-daemon
 
       - name: Run Android instrumented tests on API 36 emulator
+        timeout-minutes: 30
         uses: reactivecircus/android-emulator-runner@v2
         env:
           SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/flutter/site-packages
@@ -257,10 +258,20 @@ jobs:
           api-level: 36
           arch: x86_64
           profile: pixel_7
+          disable-animations: true
           working-directory: build/flutter/android
           script: |
             mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon
+            chmod +x "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
+            "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
+
+      - name: Upload API 36 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android36-instrumentation-diagnostics
+          path: build/android36-diagnostics
+          if-no-files-found: ignore
 
       - name: Install release APK on clean API 36 emulator
         uses: reactivecircus/android-emulator-runner@v2

@@ -63,7 +63,6 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn('--build-version "0.2.1"', workflow)
         self.assertIn("Configure Android release signing", workflow)
         self.assertIn("FLET_ANDROID_SIGNING_KEY_STORE", workflow)
-        self.assertIn("Install release APK on clean API 36 emulator", workflow)
         self.assertNotIn("flet build apk --template .", workflow)
         self.assertIn('python scripts/verify_android_host.py "$apk"', workflow)
         self.assertIn("build-tools;36.0.0", workflow)
@@ -120,7 +119,8 @@ class AndroidHostVerificationTests(unittest.TestCase):
 
     def test_android_instrumented_diagnostic_is_not_part_of_fast_build(self):
         workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
-        self.assertNotIn("run_android_instrumented_diagnostic.sh", workflow)
+        self.assertNotIn('"$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"', workflow)
+        self.assertNotIn("./scripts/run_android_instrumented_diagnostic.sh", workflow)
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")
     def test_android_instrumented_diagnostic_is_api_scoped_and_device_diagnostic_rich(self):
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")

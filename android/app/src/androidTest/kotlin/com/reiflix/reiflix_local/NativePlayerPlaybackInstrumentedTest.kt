@@ -19,6 +19,7 @@ import androidx.media3.common.Player
 import androidx.media3.ui.PlayerView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -317,10 +318,11 @@ class NativePlayerPlaybackInstrumentedTest {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         activity = InstrumentationRegistry.getInstrumentation().startActivitySync(secondIntent) as NativePlayerActivity
         awaitView<View>("reiflix_back_button")
-        // The final system-back assertion is intentionally delegated to the
-        // UI automation layer in a follow-up change; this method remains the
-        // deterministic in-process callback contract for this diagnostic pass.
-        onMain { activity!!.onBackPressedDispatcher.onBackPressed() }
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        assertTrue(
+            "UiDevice.pressBack() must dispatch the real system Back action",
+            device.pressBack(),
+        )
         await("Android Back must finish the native player Activity") { activity!!.isFinishing }
 
     }

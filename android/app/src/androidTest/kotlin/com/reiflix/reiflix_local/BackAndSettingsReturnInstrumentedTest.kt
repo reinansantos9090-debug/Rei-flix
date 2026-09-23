@@ -33,7 +33,7 @@ class BackAndSettingsReturnInstrumentedTest {
     @After
     fun tearDown() {
         runCatching { device.pressHome() }
-        runCatching { device.executeShellCommand("am force-stop ${target.packageName}").close() }
+        runCatching { device.executeShellCommand("am force-stop ${target.packageName}") }
     }
 
     @Test

@@ -108,19 +108,19 @@ async def main(page: ft.Page):
                 control = HomeView.build(page, library, navigate_details, navigate_settings, play_episode, navigate_organize,
                                          view_state=home_state, on_request_thumbnail=request_missing_thumbnail)
             elif route == "organize":
-                control = OrganizeView.build(page, library, navigate_details, navigate_back, navigate_settings,
+                control = OrganizeView.build(page, library, navigate_details, lambda: navigate_back("visual:organize"), navigate_settings,
                                              on_request_storage_access=open_broad_storage_access,
                                              on_scan_storage=refresh_library,
                                              on_request_video_access=request_video_access,
                                              on_add_folder=add_folder,
                                              view_state=organize_state)
             elif route == "details":
-                control = DetailView.build(page, current[0], play_episode, navigate_back,
+                control = DetailView.build(page, current[0], play_episode, lambda: navigate_back("visual:details"),
                                            store.toggle_favorite, library.playback_target, library.set_user_tags,
                                            library.toggle_pinned, library.set_personal_note, store.set_episode_identification,
                                            refresh_current_details, refresh_current_metadata, library.resolve_artwork)
             elif route == "settings":
-                control = SettingsView.build(page,store,library,navigate_back,on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
+                control = SettingsView.build(page,store,library,lambda: navigate_back("visual:settings"),on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
                                              folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match,
                                              on_create_backup=create_backup, on_restore_backup=restore_backup,
                                              storage_snapshot=storage_capabilities[0], scan_snapshot=scan_state[0])

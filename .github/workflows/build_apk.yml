@@ -229,8 +229,11 @@ jobs:
           apk="$(find build -type f -name '*.apk' -print -quit)"
           test -n "$apk"
           test -s "$apk"
-          echo "path=$apk" >> "$GITHUB_OUTPUT"
-          file "$apk"
+          published="build/ReiFlix.apk"
+          cp "$apk" "$published"
+          test -s "$published"
+          echo "path=$published" >> "$GITHUB_OUTPUT"
+          file "$published"
 
       - name: Verify final APK permissions and target SDK
         shell: bash
@@ -298,12 +301,18 @@ jobs:
           fi
           test -s build/reiflix-release-metadata.txt
 
-      - name: Upload APK and SHA-256 artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload APK as direct artifact
+        uses: actions/upload-artifact@v7
         with:
-          name: reiflix-local-apk
+          path: ${{ steps.apk.outputs.path }}
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload APK metadata
+        uses: actions/upload-artifact@v7
+        with:
+          name: reiflix-release-metadata
           path: |
-            ${{ steps.apk.outputs.path }}
             ${{ steps.apk.outputs.path }}.sha256
             build/reiflix-release-metadata.txt
           if-no-files-found: error

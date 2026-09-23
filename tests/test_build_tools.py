@@ -181,6 +181,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("appSystemBackIsHandledInsideReiFlix", source)
         self.assertIn("runOnMainBounded", source)
         self.assertNotIn("runOnMainSync", source)
+        self.assertNotIn("executeShellCommand", source)
 
     def test_player_system_back_requires_reiflix_foreground_return(self):
         source = (ROOT / "android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/NativePlayerPlaybackInstrumentedTest.kt").read_text(encoding="utf-8")

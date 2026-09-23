@@ -114,6 +114,7 @@ jobs:
       - name: Validate Python application
         run: |
           python -m compileall -q main.py app_config.py core views scripts
+          bash -n scripts/run_android_instrumented_diagnostic.sh
           python -m unittest discover -s tests -v
           python scripts/audit_release.py --root .
           git diff --check
@@ -263,7 +264,6 @@ jobs:
       - name: Run Android instrumented tests on API 30 emulator
         id: android_api30
         timeout-minutes: 30
-        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         env:
           SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/flutter/site-packages
@@ -314,7 +314,6 @@ jobs:
       - name: Run Android instrumented tests on API 36 emulator
         id: android_api36
         timeout-minutes: 30
-        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         env:
           SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/flutter/site-packages
@@ -361,17 +360,6 @@ jobs:
           name: android36-instrumentation-diagnostics
           path: build/android36-diagnostics
           if-no-files-found: ignore
-
-      - name: Enforce Android instrumented test outcomes
-        if: always()
-        env:
-          API30_OUTCOME: ${{ steps.android_api30.outcome }}
-          API36_OUTCOME: ${{ steps.android_api36.outcome }}
-        run: |
-          echo "API30 instrumented outcome: $API30_OUTCOME"
-          echo "API36 instrumented outcome: $API36_OUTCOME"
-          test "$API30_OUTCOME" = "success"
-          test "$API36_OUTCOME" = "success"
 
       - name: Install release APK on clean API 36 emulator
         timeout-minutes: 15

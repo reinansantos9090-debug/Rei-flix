@@ -122,5 +122,21 @@ class UiStateTests(unittest.TestCase):
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
 
+
+    def test_settings_primary_sections_are_content_first(self):
+        source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
+        positions = [
+            source.index('section("CONTA"'),
+            source.index('section("BIBLIOTECA"'),
+            source.index('section("REPRODUÇÃO"'),
+            source.index('section("APARÊNCIA"'),
+            source.index('section("DADOS"'),
+            source.index('section("ANILIST"'),
+            source.index('section("ESTATÍSTICAS OFFLINE"'),
+            source.index('section("AVANÇADO / DIAGNÓSTICOS"'),
+        ]
+        self.assertEqual(positions, sorted(positions))
+
+
 if __name__ == "__main__":
     unittest.main()

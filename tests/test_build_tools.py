@@ -249,6 +249,33 @@ E: manifest
         self.assertIn('enableOnBackInvokedCallback', template)
         self.assertNotIn('main.set(launch_attr, "singleTop")', template)
 
+    def test_external_settings_return_uses_one_activity_result_launcher(self):
+        main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("registerForActivityResult(ActivityResultContracts.StartActivityForResult())", main)
+        self.assertIn('SETTINGS_LAUNCH kind=', main)
+        self.assertIn('SETTINGS_RETURN kind=', main)
+        self.assertIn('handleBroadSettingsReturn(requestId, "activity_result")', main)
+        self.assertIn('handleBroadSettingsReturn(pendingBroadRequestId, "onResume")', main)
+        self.assertNotIn("startActivity(packageIntent)", main)
+        self.assertNotIn("startActivity(globalIntent)", main)
+        self.assertNotIn("startActivity(appDetailsIntent)", main)
+
+    def test_android_back_emits_one_correlated_mailbox_event(self):
+        main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        start = main.index("private val backCallback")
+        end = main.index("private var storageReceiverRegistered", start)
+        block = main[start:end]
+        self.assertIn("UUID.randomUUID().toString()", block)
+        self.assertIn('put("requestId", requestId)', block)
+        self.assertIn('put("source", "android")', block)
+        self.assertIn('put("action", "back")', block)
+
+    def test_native_player_back_logs_use_explicit_player_back_marker(self):
+        player = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("PLAYER_BACK BACK_BUTTON_TOUCH", player)
+        self.assertIn("PLAYER_BACK ANDROID_BACK", player)
+
+
     def test_main_activity_uses_lifecycle_aware_back_and_activity_result_callbacks(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("import androidx.activity.OnBackPressedCallback", main)

@@ -160,7 +160,6 @@ run_diagnostic_case() {
     watch_case "$case_dir" &
     watch_pid="$!"
     local status=0
-    set +e
     # The normal suite already ran once. Diagnostic isolation reuses the Gradle daemon
     # so a failure does not pay a fresh Gradle JVM/configuration cost per class.
     set +e

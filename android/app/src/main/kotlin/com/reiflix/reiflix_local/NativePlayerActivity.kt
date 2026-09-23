@@ -685,7 +685,7 @@ class NativePlayerActivity : ComponentActivity() {
         if (canEnterPictureInPicture()) {
             val pip = actionButton("PIP", 92) { enterPictureInPictureMode() }
             pip.contentDescription = "Picture in Picture"
-            addMoreRow(pip, actionButton(" ", 92) { })
+            addMoreRow(pip)
         }
         controls.addView(morePanel, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -770,7 +770,6 @@ class NativePlayerActivity : ComponentActivity() {
         }
         findViewByTag<View>("reiflix_audio_button")?.isEnabled = audioAvailable
         findViewByTag<View>("reiflix_subtitle_button")?.isEnabled = subtitleAvailable
-        findViewByTag<View>("reiflix_audio_bottom")?.isEnabled = audioAvailable
     }
 
     private fun updateProgressUi() {

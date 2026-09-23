@@ -6,7 +6,9 @@ import android.provider.Settings
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -38,7 +40,7 @@ class BackAndSettingsReturnInstrumentedTest {
         awaitState("MainActivity must actually leave RESUMED while Android Settings is visible") {
             scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
         }
-        waitForExternalUiSettle()
+        waitForExternalPackage("com.android.settings")
         pressBackAcrossApplicationBoundary()
         awaitState("Closing All Files Settings surface must return to MainActivity") {
             scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
@@ -59,7 +61,7 @@ class BackAndSettingsReturnInstrumentedTest {
         awaitState("MainActivity must leave RESUMED while App Info is visible") {
             scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
         }
-        waitForExternalUiSettle()
+        waitForExternalPackage("com.android.settings")
         pressBackAcrossApplicationBoundary()
         awaitState("Closing App Info Settings surface must return to MainActivity") {
             scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
@@ -77,7 +79,7 @@ class BackAndSettingsReturnInstrumentedTest {
         awaitState("MainActivity must leave RESUMED while DocumentsUI is visible") {
             scenario.state != androidx.lifecycle.Lifecycle.State.RESUMED
         }
-        waitForExternalUiSettle()
+        waitForExternalPackage("com.android.documentsui", "com.google.android.documentsui")
         pressBackAcrossApplicationBoundary()
         awaitState("Closing SAF picker must return to MainActivity") {
             scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED
@@ -131,8 +133,19 @@ class BackAndSettingsReturnInstrumentedTest {
         SystemClock.sleep(750L)
     }
 
-    private fun waitForExternalUiSettle() {
-        SystemClock.sleep(750L)
+    private fun waitForExternalPackage(vararg packages: String) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val device = UiDevice.getInstance(instrumentation)
+        val visible = packages.any { packageName ->
+            device.wait(
+                Until.hasObject(By.pkg(packageName)),
+                5_000L,
+            )
+        }
+        assertTrue(
+            "Expected external Android surface to become visible: " + packages.joinToString(),
+            visible,
+        )
     }
 
     private fun awaitState(description: String, timeoutMs: Long = 15_000L, condition: () -> Boolean) {

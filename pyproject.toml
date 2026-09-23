@@ -18,4 +18,5 @@ company = "ReiFlix"
 "android.permission.MANAGE_EXTERNAL_STORAGE" = true
 
 [tool.flet.android]
+min_sdk_version = 23
 target_sdk_version = 36

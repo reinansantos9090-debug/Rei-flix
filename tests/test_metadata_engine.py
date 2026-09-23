@@ -241,6 +241,7 @@ class ProfessionalMetadataTests(unittest.TestCase):
 
     def test_first_hydration_resolves_local_title_and_caches_cover(self):
         anime = self._anime('Attack on Titan', 'attack on titan')
+        self.store.upsert_episode(anime, 'content://hydrate/1', 'Attack on Titan S01E01.mkv', 1, 1)
         cover = __import__('pathlib').Path(self.tmp.name) / 'cover.jpg'
         cover.write_bytes(b'cover')
         media = {'id': 16498, 'title': {'english': 'Attack on Titan', 'romaji': 'Shingeki no Kyojin'},
@@ -272,6 +273,7 @@ class ProfessionalMetadataTests(unittest.TestCase):
 
     def test_missing_cover_is_retried_only_after_existing_artwork_backoff(self):
         anime = self._anime('Attack on Titan', 'attack on titan')
+        self.store.upsert_episode(anime, 'content://hydrate/2', 'Attack on Titan S01E02.mkv', 1, 2)
         now = time.time()
         with self.store._conn() as con:
             con.execute(

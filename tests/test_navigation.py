@@ -51,7 +51,7 @@ class NavigationControllerTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
         self.assertIn('def navigate_back(source="unknown")', source)
         self.assertIn("BACK_DEBOUNCE_SECONDS = 0.30", source)
-        self.assertIn('"duplicate BACK suppressed', source)
+        self.assertIn("duplicate BACK suppressed", source)
         self.assertIn('"[NAV] DIALOG_BACK', source)
         self.assertIn('"[NAV] NAVIGATE_BACK', source)
 

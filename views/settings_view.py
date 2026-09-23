@@ -390,6 +390,7 @@ class SettingsView:
             try:
                 await on_login()
             except Exception:
+                logger.exception("Settings Google login failed")
                 notice("Não foi possível iniciar o login Google.", error=True)
             finally:
                 busy["login"] = False; account_button.disabled = False; safe_update()

@@ -168,6 +168,10 @@ class DetailView:
                 pin_button.tooltip = "Desafixar anime" if pinned[0] else "Fixar anime"
                 page.update()
             except Exception:
+                DetailView._logger.exception(
+                    "Failed to toggle pin",
+                    extra={"screen":"details","requestId":"-","library_items":1},
+                )
                 page.snack_bar = ft.SnackBar(ft.Text("Não foi possível alterar o pin.")); page.snack_bar.open = True; page.update()
         pin_button.on_click = toggle_pin
 

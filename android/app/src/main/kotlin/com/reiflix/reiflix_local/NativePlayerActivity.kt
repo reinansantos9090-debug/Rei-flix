@@ -443,7 +443,7 @@ class NativePlayerActivity : ComponentActivity() {
         controls.addView(topBar, topParams)
 
         val back = actionButton("‹", 44) {
-            logPlayer("BACK_BUTTON_TOUCH requestId=" + requestId.ifEmpty { "-" })
+            logPlayer("PLAYER_BACK BACK_BUTTON_TOUCH requestId=" + requestId.ifEmpty { "-" })
             finishPlayer("back_button")
         }
         back.tag = "reiflix_back_button"
@@ -696,7 +696,7 @@ class NativePlayerActivity : ComponentActivity() {
             this,
             object : androidx.activity.OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    logPlayer("ANDROID_BACK requestId=" + requestId.ifEmpty { "-" })
+                    logPlayer("PLAYER_BACK ANDROID_BACK requestId=" + requestId.ifEmpty { "-" })
                     finishPlayer("android_back")
                 }
             },

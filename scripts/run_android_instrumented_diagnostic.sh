@@ -141,128 +141,158 @@ reset_device_state() {
     fi
 }
 
-run_case() {
+
+run_diagnostic_case() {
     local selector="$1"
     local label="$2"
     local timeout_seconds="$3"
     local safe_label
-    safe_label="$(printf '%s' "${label}" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9._-' '_')"
+    safe_label="$(printf '%s' "$label" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9._-' '_')"
+    local case_dir="$DIAG_ROOT/$safe_label"
+    mkdir -p "$case_dir"
 
-    printf '\n=== CASE %s ===\n' "${label}"
-    printf 'selector=%s\n' "${selector}"
-
+    GRADLE_INVOCATIONS=$((GRADLE_INVOCATIONS + 1))
+    printf 'DIAGNOSTIC_GRADLE_INVOCATION=%s label=%s selector=%s\n' "$GRADLE_INVOCATIONS" "$label" "$selector" | tee -a "$DIAG_ROOT/summary.txt"
     reset_device_state
-    local case_dir="${DIAG_ROOT}/${safe_label}"
-    mkdir -p "${case_dir}"
-    snapshot_device "${case_dir}/before"
+    snapshot_device "$case_dir/before"
+
     local watch_pid=""
-    watch_case "${case_dir}" &
+    watch_case "$case_dir" &
     watch_pid="$!"
     local status=0
-    if [[ -n "${selector}" ]]; then
-        if timeout --foreground --signal=TERM --kill-after=30s "${timeout_seconds}s" \
+    set +e
+    if [[ -n "$selector" ]]; then
+        timeout --foreground --signal=TERM --kill-after=30s "$timeout_seconds"s \
             ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace \
-            "-Pandroid.testInstrumentationRunnerArguments.class=${selector}"; then
-            status=0
-        else
-            status=$?
-        fi
+            "-Pandroid.testInstrumentationRunnerArguments.class=$selector" \
+            > "$case_dir/gradle.log" 2>&1
     else
-        if timeout --foreground --signal=TERM --kill-after=30s "${timeout_seconds}s" \
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace; then
-            status=0
-        else
-            status=$?
-        fi
+        timeout --foreground --signal=TERM --kill-after=30s "$timeout_seconds"s \
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace \
+            > "$case_dir/gradle.log" 2>&1
     fi
+    status=$?
+    set -e
 
-    stop_case_watch "${watch_pid}"
-    snapshot_device "${case_dir}/after"
+    stop_case_watch "$watch_pid"
+    snapshot_device "$case_dir/after"
     if (( status != 0 )); then
-        printf 'CASE_FAILED label=%s selector=%s exit=%s\n' "${label}" "${selector}" "${status}" | tee -a "${DIAG_ROOT}/summary.txt"
-        collect_diagnostics "${safe_label}"
+        printf 'CASE_FAILED label=%s selector=%s exit=%s\n' "$label" "$selector" "$status" | tee -a "$DIAG_ROOT/summary.txt"
+        collect_diagnostics "$safe_label"
     else
-        printf 'CASE_PASS label=%s selector=%s exit=%s\n' "${label}" "${selector}" "${status}" | tee -a "${DIAG_ROOT}/summary.txt"
+        printf 'CASE_PASS label=%s selector=%s exit=%s\n' "$label" "$selector" "$status" | tee -a "$DIAG_ROOT/summary.txt"
     fi
-
     reset_device_state
-    return "${status}"
 }
 
-declare -a classes=(
-    "back-settings|com.reiflix.reiflix_local.BackAndSettingsReturnInstrumentedTest"
-    "device-flow|com.reiflix.reiflix_local.DeviceFlowInstrumentedTest"
-    "native-index|com.reiflix.reiflix_local.NativeIndexInstrumentedTest"
-    "native-mailbox|com.reiflix.reiflix_local.NativeMailboxInstrumentedTest"
-    "native-player|com.reiflix.reiflix_local.NativePlayerPlaybackInstrumentedTest"
-)
+discover_failed_tests() {
+    local output="$1"
+    python - "$output" <<'PY'
+from pathlib import Path
+import sys
+import xml.etree.ElementTree as ET
 
-overall_status=0
-failed_classes=()
+out = Path(sys.argv[1])
+seen = set()
 
-for entry in "${classes[@]}"; do
-    label="${entry%%|*}"
-    selector="${entry#*|}"
-    if ! run_case "${selector}" "${label}" "${CLASS_TIMEOUT_SECONDS}"; then
-        overall_status=1
-        failed_classes+=( "${label}" )
-    fi
-done
+for root in (Path("app/build/outputs/androidTest-results"), Path("app/build/outputs"), Path("build")):
+    if not root.exists():
+        continue
+    for path in root.rglob("*.xml"):
+        text = path.as_posix()
+        if "androidTest" not in text and "connected" not in text:
+            continue
+        try:
+            tree = ET.parse(path)
+        except (ET.ParseError, OSError):
+            continue
+        for testcase in tree.getroot().iter("testcase"):
+            failed = any(child.tag.rsplit("}", 1)[-1] in {"failure", "error"} for child in testcase)
+            if not failed:
+                continue
+            classname = testcase.attrib.get("classname", "").strip()
+            method = testcase.attrib.get("name", "").strip()
+            if classname:
+                seen.add((classname, method))
 
-run_failed_class_methods() {
-    local label="$1"
-    local class_name=""
-    local methods=()
+for classname, method in sorted(seen):
+    print(f"{classname}|{method}")
+PY
+}
 
-    case "${label}" in
-        back-settings)
-            class_name="com.reiflix.reiflix_local.BackAndSettingsReturnInstrumentedTest"
-            methods=(
-                "allFilesSettingsBackReturnsToMainActivity"
-                "appInfoSettingsBackReturnsToMainActivity"
-                "safPickerBackReturnsToMainActivityAndReleasesPendingState"
-            )
-            ;;
-        device-flow)
-            class_name="com.reiflix.reiflix_local.DeviceFlowInstrumentedTest"
-            methods=(
-                "runtimeApiAndNativeBatchContract"
-                "cancelledGenerationPreservesCommittedSnapshot"
-            )
-            ;;
-        native-index)
-            class_name="com.reiflix.reiflix_local.NativeIndexInstrumentedTest"
-            methods=("partialScanKeepsCommittedSnapshot")
-            ;;
-        native-mailbox)
-            class_name="com.reiflix.reiflix_local.NativeMailboxInstrumentedTest"
-            methods=("mailbox_write_is_atomic_envelope_and_leaves_no_temp_file")
-            ;;
-        native-player)
-            class_name="com.reiflix.reiflix_local.NativePlayerPlaybackInstrumentedTest"
-            methods=("localMediaStoreFixture_reachesReadyAndPlays_inImmersivePlayer")
-            ;;
-    esac
-
-    for method in "${methods[@]}"; do
-        if ! run_case "${class_name}#${method}" "${label}__${method}" "${METHOD_TIMEOUT_SECONDS}"; then
-            overall_status=1
+extract_failed_classes_from_log() {
+    local log="$1"
+    local output="$2"
+    : > "$output"
+    for class_name in \
+        "BackAndSettingsReturnInstrumentedTest" \
+        "DeviceFlowInstrumentedTest" \
+        "NativeIndexInstrumentedTest" \
+        "NativeMailboxInstrumentedTest" \
+        "NativePlayerPlaybackInstrumentedTest"; do
+        if grep -Eq "$class_name.*(FAILED|FAILURE)|FAILURE.*$class_name|$class_name#.*FAILED" "$log"; then
+            printf 'com.reiflix.reiflix_local.%s|\n' "$class_name" >> "$output"
         fi
     done
 }
 
-for label in "${failed_classes[@]}"; do
-    printf 'ISOLATING_FAILED_CLASS=%s\n' "${label}" | tee -a "${DIAG_ROOT}/summary.txt"
-    run_failed_class_methods "${label}"
-done
+GRADLE_INVOCATIONS=1
+FULL_LOG="$DIAG_ROOT/full-suite.log"
+FULL_STATUS=0
 
-if (( ${overall_status} == 0 )); then
-    if ! run_case "" "api36-full-suite" "${FULL_TIMEOUT_SECONDS}"; then
-        overall_status=1
-    fi
-else
-    printf 'FULL_SUITE_SKIPPED_DURING_DIAGNOSTIC_FAILURE: fix isolated case before certification.\n' | tee -a "${DIAG_ROOT}/summary.txt"
+printf 'NORMAL_SUITE=./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace\n' | tee -a "$DIAG_ROOT/summary.txt"
+printf 'GRADLE_INVOCATION=1 label=full-suite selector=<all>\n' | tee -a "$DIAG_ROOT/summary.txt"
+reset_device_state
+
+set +e
+./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee "$FULL_LOG"
+FULL_STATUS=${PIPESTATUS[0]}
+set -e
+
+printf 'FULL_SUITE_EXIT=%s\n' "$FULL_STATUS" | tee -a "$DIAG_ROOT/summary.txt"
+printf 'CONNECTED_DEBUG_ANDROID_TEST_INVOCATIONS=%s\n' "$GRADLE_INVOCATIONS" | tee -a "$DIAG_ROOT/summary.txt"
+
+if (( FULL_STATUS == 0 )); then
+    printf 'NORMAL_SUITE_PASS=1\n' | tee -a "$DIAG_ROOT/summary.txt"
+    printf 'DIAGNOSTIC_NOT_REQUIRED=1\n' | tee -a "$DIAG_ROOT/summary.txt"
+    exit 0
 fi
 
-printf 'DIAGNOSTIC_EXIT=%s\n' "${overall_status}" | tee -a "${DIAG_ROOT}/summary.txt"
-exit "${overall_status}"
+printf 'NORMAL_SUITE_FAIL=1\n' | tee -a "$DIAG_ROOT/summary.txt"
+printf 'DIAGNOSTIC_REQUIRED=1\n' | tee -a "$DIAG_ROOT/summary.txt"
+
+collect_diagnostics "full-suite-failure"
+snapshot_device "$DIAG_ROOT/failure"
+
+FAILED_TESTS_RAW="$DIAG_ROOT/failed-tests.raw"
+FAILED_TESTS="$DIAG_ROOT/failed-tests.txt"
+discover_failed_tests "$FAILED_TESTS_RAW"
+if [[ ! -s "$FAILED_TESTS_RAW" ]]; then
+    extract_failed_classes_from_log "$FULL_LOG" "$FAILED_TESTS_RAW"
+fi
+sort -u "$FAILED_TESTS_RAW" > "$FAILED_TESTS"
+
+if [[ -s "$FAILED_TESTS" ]]; then
+    printf 'FAILED_TESTS_IDENTIFIED=1\n' | tee -a "$DIAG_ROOT/summary.txt"
+    cat "$FAILED_TESTS" | tee -a "$DIAG_ROOT/summary.txt"
+else
+    printf 'FAILED_TESTS_IDENTIFIED=0\n' | tee -a "$DIAG_ROOT/summary.txt"
+fi
+
+cut -d'|' -f1 "$FAILED_TESTS" | sed '/^$/d' | sort -u |
+while IFS= read -r class_name; do
+    [[ -n "$class_name" ]] || continue
+    run_diagnostic_case "$class_name" "$class_name" "$CLASS_TIMEOUT_SECONDS"
+done
+
+while IFS='|' read -r class_name method_name; do
+    [[ -n "$class_name" && -n "$method_name" ]] || continue
+    safe_method="$(printf '%s' "$class_name#$method_name" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9._-' '_')"
+    run_diagnostic_case "$class_name#$method_name" "$safe_method" "$METHOD_TIMEOUT_SECONDS"
+done < "$FAILED_TESTS"
+
+printf 'CONNECTED_DEBUG_ANDROID_TEST_INVOCATIONS=%s\n' "$GRADLE_INVOCATIONS" | tee -a "$DIAG_ROOT/summary.txt"
+printf 'DIAGNOSTIC_COMPLETE=1\n' | tee -a "$DIAG_ROOT/summary.txt"
+printf 'DIAGNOSTIC_PRESERVED_FAILURE_EXIT=%s\n' "$FULL_STATUS" | tee -a "$DIAG_ROOT/summary.txt"
+
+exit "$FULL_STATUS"

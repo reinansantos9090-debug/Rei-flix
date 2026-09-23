@@ -163,12 +163,16 @@ run_diagnostic_case() {
     set +e
     if [[ -n "$selector" ]]; then
         timeout --foreground --signal=TERM --kill-after=30s "$timeout_seconds"s \
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace \
+            # The normal suite already ran once. Diagnostic isolation reuses the Gradle daemon\
+            # so a failure does not pay a fresh Gradle JVM/configuration cost per class.\
+            ./gradlew :app:connectedDebugAndroidTest --stacktrace \
             "-Pandroid.testInstrumentationRunnerArguments.class=$selector" \
             > "$case_dir/gradle.log" 2>&1
     else
         timeout --foreground --signal=TERM --kill-after=30s "$timeout_seconds"s \
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace \
+            # The normal suite already ran once. Diagnostic isolation reuses the Gradle daemon\
+            # so a failure does not pay a fresh Gradle JVM/configuration cost per class.\
+            ./gradlew :app:connectedDebugAndroidTest --stacktrace \
             > "$case_dir/gradle.log" 2>&1
     fi
     status=$?
@@ -284,13 +288,7 @@ while IFS= read -r class_name; do
     run_diagnostic_case "$class_name" "$class_name" "$CLASS_TIMEOUT_SECONDS"
 done < <(cut -d'|' -f1 "$FAILED_TESTS" | sed '/^$/d' | sort -u)
 
-while IFS='|' read -r class_name method_name; do
-    [[ -n "$class_name" && -n "$method_name" ]] || continue
-    safe_method="$(printf '%s' "$class_name#$method_name" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9._-' '_')"
-    run_diagnostic_case "$class_name#$method_name" "$safe_method" "$METHOD_TIMEOUT_SECONDS"
-done < "$FAILED_TESTS"
-
-printf 'CONNECTED_DEBUG_ANDROID_TEST_INVOCATIONS=%s\n' "$GRADLE_INVOCATIONS" | tee -a "$DIAG_ROOT/summary.txt"
+# Do not replay every failed method after replaying its class. That multiplies\n# emulator/instrumentation startup and was the direct source of the 30-60 minute\n# failure runs seen in CI. The failed class already gives deterministic per-test\n# results in its Gradle/XML output; the full-suite log and collected device state\n# remain available for deeper diagnosis.\nprintf 'METHOD_LEVEL_REPLAY_SKIPPED=1\\n' | tee -a "$DIAG_ROOT/summary.txt"\n\nprintf 'CONNECTED_DEBUG_ANDROID_TEST_INVOCATIONS=%s\n' "$GRADLE_INVOCATIONS" | tee -a "$DIAG_ROOT/summary.txt"
 printf 'DIAGNOSTIC_COMPLETE=1\n' | tee -a "$DIAG_ROOT/summary.txt"
 printf 'DIAGNOSTIC_PRESERVED_FAILURE_EXIT=%s\n' "$FULL_STATUS" | tee -a "$DIAG_ROOT/summary.txt"
 

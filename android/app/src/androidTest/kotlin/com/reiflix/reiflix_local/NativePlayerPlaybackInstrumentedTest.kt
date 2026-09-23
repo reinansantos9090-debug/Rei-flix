@@ -219,6 +219,20 @@ class NativePlayerPlaybackInstrumentedTest {
         assertTrue("Visual Back control must be clickable", onMain { back.performClick() })
         await("Visual Back must finish the native player Activity") { activity!!.isFinishing }
 
+        val secondIntent = Intent(target, NativePlayerActivity::class.java)
+            .putExtra("requestId", "instrumented-player-android-back")
+            .putExtra("uri", fixtureUri!!.toString())
+            .putExtra("title", "Fixture local")
+            .putExtra("positionMs", 0L)
+            .putExtra("canNext", false)
+            .putExtra("canPrevious", false)
+            .putExtra("autoplay", false)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        activity = InstrumentationRegistry.getInstrumentation().startActivitySync(secondIntent) as NativePlayerActivity
+        awaitView<View>("reiflix_back_button")
+        onMain { activity!!.onBackPressedDispatcher.onBackPressed() }
+        await("Android Back must finish the native player Activity") { activity!!.isFinishing }
+
         pinch(gestureLayer, zoom = true)
         await("Pinch out must select ZOOM") {
             playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -266,8 +280,6 @@ class NativePlayerPlaybackInstrumentedTest {
             onMain { controls.isShown },
         )
 
-        // Android Back is covered by the dedicated dispatcher contract after
-        // the visual Back path; both routes converge on finishPlayer().
     }
 
     private fun grantMediaReadPermission() {

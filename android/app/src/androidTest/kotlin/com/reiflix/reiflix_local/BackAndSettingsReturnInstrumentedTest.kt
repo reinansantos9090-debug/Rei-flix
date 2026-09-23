@@ -6,6 +6,7 @@ import android.provider.Settings
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -122,13 +123,11 @@ class BackAndSettingsReturnInstrumentedTest {
 
     private fun pressBackAcrossApplicationBoundary() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        // "adb shell input keyevent 4" targets the focused system window,
-        // so it exercises the real Android Back boundary without requiring
-        // UiAutomation.performGlobalAction() to synchronously coordinate with
-        // DocumentsUI.
-        instrumentation.uiAutomation.executeShellCommand("input keyevent 4").use {
-            // The command itself is the assertion boundary; state is verified below.
-        }
+        val device = UiDevice.getInstance(instrumentation)
+        assertTrue(
+            "UiDevice.pressBack() must dispatch the supported system Back action",
+            device.pressBack(),
+        )
         SystemClock.sleep(750L)
     }
 

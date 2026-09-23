@@ -484,20 +484,11 @@ class SettingsView:
                 ft.Row([add_folder_button, scan_button], wrap=True),
                 ft.Text(diagnostic, color="#AAA7B6", size=11),
             ], spacing=8)),
-            section("DIAGNÓSTICOS DE ARMAZENAMENTO", ft.Icons.STORAGE_OUTLINED, diagnostics_content),
-            section("ESTATÍSTICAS OFFLINE", ft.Icons.INSIGHTS_OUTLINED, ft.Column([
-                ft.Text(stats_text, color="#C7C5D0", size=12),
-                ft.Text("“Registrado” representa a posição atual salva nos episódios disponíveis; não é tempo histórico assistido.", color=TEXT_MUTED, size=10),
-                ft.Text(diagnostic, color="#AAA7B6", size=11),
-            ], spacing=7)),
             section("REPRODUÇÃO", ft.Icons.PLAY_CIRCLE_OUTLINE, ft.Column([
                 resume_switch,
                 ft.Text("O próximo episódio continua sendo uma ação explícita no player local.", color="#AAA7B6", size=11),
             ], spacing=4)),
             section("APARÊNCIA", ft.Icons.DARK_MODE_OUTLINED, ft.Text("Tema escuro Rei-flix ativo.", color="#C7C5D0", size=12)),
-            section("ANILIST", ft.Icons.MANAGE_SEARCH_OUTLINED, ft.Column(pending_content + [
-                ft.Text("Associações confirmadas ficam salvas localmente e serão reutilizadas nas próximas varreduras.", color=TEXT_MUTED, size=11),
-            ], spacing=8)),
             section("DADOS", ft.Icons.STORAGE_OUTLINED, ft.Column([
                 ft.Text(f"{summary['folders']} pasta(s) • {summary['history']} item(ns) no histórico", color="#C7C5D0", size=12),
                 ft.Row([backup_button, restore_button], wrap=True, spacing=8),
@@ -505,6 +496,15 @@ class SettingsView:
                 ft.Text("Backup local protege SQLite e artwork gerenciado; restaurar não depende de internet e não cria outro banco.", color="#AAA7B6", size=11),
                 ft.Text("Limpar cache não remove associações AniList confirmadas nem arquivos da biblioteca.", color="#AAA7B6", size=11),
             ], spacing=8)),
+            section("ANILIST", ft.Icons.MANAGE_SEARCH_OUTLINED, ft.Column(pending_content + [
+                ft.Text("Associações confirmadas ficam salvas localmente e serão reutilizadas nas próximas varreduras.", color=TEXT_MUTED, size=11),
+            ], spacing=8)),
+            section("ESTATÍSTICAS OFFLINE", ft.Icons.INSIGHTS_OUTLINED, ft.Column([
+                ft.Text(stats_text, color="#C7C5D0", size=12),
+                ft.Text("“Registrado” representa a posição atual salva nos episódios disponíveis; não é tempo histórico assistido.", color=TEXT_MUTED, size=10),
+                ft.Text(diagnostic, color="#AAA7B6", size=11),
+            ], spacing=7)),
+            section("AVANÇADO / DIAGNÓSTICOS", ft.Icons.STORAGE_OUTLINED, diagnostics_content),
             section("SOBRE", ft.Icons.INFO_OUTLINE, ft.Column([
                 ft.Text("Rei-flix Local 0.2.0", color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD),
                 ft.Text("Biblioteca local com SQLite, Android SAF e player nativo. Vídeos nunca são enviados.", color="#AAA7B6", size=11),

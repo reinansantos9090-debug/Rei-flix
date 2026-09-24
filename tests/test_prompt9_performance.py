@@ -64,10 +64,14 @@ class Prompt9StorePaginationTests(unittest.TestCase):
     def test_paged_states_follow_consumption_completion_ratio(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)
+            completed_path = '/library/completed.mkv'
             completed = store.upsert_anime('completed', {'title': 'Completed', 'genres': '[]'})
-            store.upsert_episode(completed, '/library/completed.mkv', 'Completed', 1, 1, duration=100, progress=95, watched=0)
+            store.upsert_episode(completed, completed_path, 'Completed', 1, 1)
+            store.save_progress(completed_path, 95, 100)
+            active_path = '/library/active.mkv'
             active = store.upsert_anime('active', {'title': 'Active', 'genres': '[]'})
-            store.upsert_episode(active, '/library/active.mkv', 'Active', 1, 1, duration=100, progress=50, watched=0)
+            store.upsert_episode(active, active_path, 'Active', 1, 1)
+            store.save_progress(active_path, 50, 100)
             result = store.catalog_page(page=0, page_size=12, state='Concluídos')
             active_result = store.catalog_page(page=0, page_size=12, state='Em andamento')
             self.assertEqual([item['main_title'] for item in result['items']], ['Completed'])

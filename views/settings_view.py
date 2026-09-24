@@ -27,6 +27,8 @@ class SettingsView:
         account_state="disconnected", folder_selection_pending=lambda: False,
         on_resolve_match=lambda _lookup, _id: None, storage_snapshot=None,
         scan_snapshot=None, settings: SettingsStore | None = None,
+        on_create_backup=None, on_inspect_backup=None, on_restore_backup=None,
+        on_export_diagnostics=None, on_integrity_check=None,
     ):
         settings = settings or SettingsStore(store)
         busy = {"scan": False, "folder": False, "permission": False, "cache": False}
@@ -364,6 +366,127 @@ class SettingsView:
                 logger.exception("settings import failed")
                 notice("Não foi possível importar as configurações.", True)
 
+        async def call_callback(callback, *args):
+            if callback is None:
+                raise RuntimeError("Operação não disponível nesta versão.")
+            result = callback(*args)
+            if inspect.isawaitable(result):
+                return await result
+            return result
+
+        async def create_backup_file(_):
+            try:
+                raw = await call_callback(on_create_backup)
+                if not raw:
+                    raise RuntimeError("Backup vazio.")
+                stamp = __import__("time").strftime("%Y%m%d-%H%M%S")
+                path = await ft.FilePicker().save_file(
+                    dialog_title="Salvar backup Rei-Flix",
+                    file_name=f"reiflix-backup-{stamp}.zip",
+                    file_type=ft.FilePickerFileType.CUSTOM,
+                    allowed_extensions=["zip"],
+                    src_bytes=raw,
+                )
+                notice("Backup concluído e validado." if path else "Backup cancelado.")
+            except Exception:
+                logger.exception("backup export failed")
+                notice("Não foi possível concluir o backup.", True)
+
+        async def restore_backup_file(_):
+            try:
+                files = await ft.FilePicker().pick_files(
+                    dialog_title="Selecionar backup Rei-Flix",
+                    allow_multiple=False,
+                    with_data=True,
+                    file_type=ft.FilePickerFileType.CUSTOM,
+                    allowed_extensions=["zip"],
+                )
+                if not files:
+                    notice("Restore cancelado.")
+                    return
+                raw = files[0].bytes or b""
+                preview = await call_callback(on_inspect_backup, raw)
+                counts = preview.get("counts") or {}
+                content = ft.Column([
+                    ft.Text(f"Data: {preview.get('created_at') or 'desconhecida'}", color=TEXT, size=11),
+                    ft.Text(f"Versão: formato {preview.get('format_version')} • app {preview.get('app_version')} • schema {preview.get('schema_version')}", color=TEXT_MUTED, size=10),
+                    ft.Text(
+                        f"Animes: {counts.get('anime', 0)} • Episódios: {counts.get('episodes', 0)} • Favoritos: {counts.get('favorites', 0)} • Tags: {counts.get('tags', 0)} • Notas: {counts.get('notes', 0)}",
+                        color=TEXT_MUTED, size=10,
+                    ),
+                    ft.Text(
+                        f"Progresso: {counts.get('progress', 0)} • Missing: {counts.get('missing_files', 0)} • AniList: {counts.get('anilist_matches', 0)} • Artwork refs: {counts.get('artwork_references', 0)}",
+                        color=TEXT_MUTED, size=10,
+                    ),
+                    ft.Text(f"Integridade: {preview.get('integrity')}", color=TEXT, size=11),
+                    ft.Text("Antes do restore será criado um snapshot de segurança. Autenticação Google não é restaurada.", color=TEXT_MUTED, size=10),
+                ], tight=True, spacing=6, scroll=ft.ScrollMode.AUTO)
+                async def confirm_restore(_event):
+                    page.pop_dialog()
+                    try:
+                        result = await call_callback(on_restore_backup, raw)
+                        report = result.get("report") or {}
+                        notice(
+                            f"Restore concluído. {report.get('missing_files', 0)} arquivo(s) permaneceram como missing."
+                        )
+                        on_catalog_changed()
+                        rebuild()
+                    except Exception:
+                        logger.exception("backup restore failed")
+                        notice("Restore recusado ou falhou; o estado anterior foi preservado.", True)
+                page.show_dialog(ft.AlertDialog(
+                    modal=True,
+                    title=ft.Text("Restaurar backup?"),
+                    content=content,
+                    actions=[
+                        ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
+                        ft.FilledButton("Restaurar", on_click=confirm_restore),
+                    ],
+                ))
+                safe_update()
+            except Exception:
+                logger.exception("backup restore preview failed")
+                notice("O backup selecionado é inválido ou incompatível.", True)
+
+        async def export_diagnostic(_):
+            try:
+                raw = await call_callback(on_export_diagnostics)
+                stamp = __import__("time").strftime("%Y%m%d-%H%M%S")
+                path = await ft.FilePicker().save_file(
+                    dialog_title="Exportar diagnóstico",
+                    file_name=f"reiflix-diagnostic-{stamp}.json",
+                    file_type=ft.FilePickerFileType.CUSTOM,
+                    allowed_extensions=["json"],
+                    src_bytes=raw,
+                )
+                notice("Diagnóstico exportado." if path else "Exportação cancelada.")
+            except Exception:
+                logger.exception("diagnostic export failed")
+                notice("Não foi possível exportar o diagnóstico.", True)
+
+        async def verify_integrity(_):
+            try:
+                report = await call_callback(on_integrity_check)
+                db = report.get("database") or {}
+                text = (
+                    f"Estado: {report.get('overall')}\n"
+                    f"SQLite: {db.get('quick_check')}\n"
+                    f"Foreign keys: {'OK' if db.get('foreign_key_ok') else 'ERRO'}\n"
+                    f"Missing files: {(report.get('files') or {}).get('missing', 0)}\n"
+                    f"Duplicidades: {report.get('duplicates')}\n"
+                    f"Órfãos: {report.get('orphans')}"
+                )
+                page.show_dialog(ft.AlertDialog(
+                    modal=True,
+                    title=ft.Text("Verificação de integridade"),
+                    content=ft.Text(text, color=TEXT_MUTED, size=11),
+                    actions=[ft.TextButton("Fechar", on_click=lambda _: page.pop_dialog())],
+                ))
+                safe_update()
+            except Exception:
+                logger.exception("integrity check failed")
+                notice("Não foi possível verificar a integridade.", True)
+
         def build_sections():
             items = []
             connected = bool(account.get("email"))
@@ -519,7 +642,31 @@ class SettingsView:
                     ft.OutlinedButton("Importar configurações", icon=ft.Icons.DOWNLOAD, on_click=lambda e: page.run_task(import_settings, e)),
                 ], wrap=True, spacing=8),
                 action_row("Restaurar configurações", "Reseta somente Settings; não é backup/restore completo.", "Restaurar", reset_all),
-            ], ("dados","cache","reset","exportar","importar","backup de configurações")))
+            ], ("dados","cache","reset","exportar","importar")))
+
+            items.append(section("Backup & Restore", ft.Icons.SECURITY_OUTLINED, [
+                ft.Text(
+                    "Backup v1 guarda o estado lógico do SQLite, preferências suportadas e referências de mídia. "
+                    "Vídeos, autenticação, tokens, credenciais e identificadores do dispositivo não entram no arquivo.",
+                    color=TEXT, size=11,
+                ),
+                ft.Row([
+                    ft.OutlinedButton("Fazer backup", icon=ft.Icons.BACKUP_OUTLINED, on_click=lambda e: page.run_task(create_backup_file, e)),
+                    ft.OutlinedButton("Restaurar backup", icon=ft.Icons.RESTORE_OUTLINED, on_click=lambda e: page.run_task(restore_backup_file, e)),
+                    ft.OutlinedButton("Verificar integridade", icon=ft.Icons.VERIFIED_OUTLINED, on_click=lambda e: page.run_task(verify_integrity, e)),
+                    ft.OutlinedButton("Exportar diagnóstico", icon=ft.Icons.BUG_REPORT_OUTLINED, on_click=lambda e: page.run_task(export_diagnostic, e)),
+                ], wrap=True, spacing=8),
+                ft.Text(
+                    "Restore: valida formato, schema, SHA-256, tabelas, referências e foreign keys antes de alterar o banco. "
+                    "Missing file nunca apaga a entidade lógica. Restore não inicia full scan; a reconciliação posterior usa o ScanCoordinator existente.",
+                    color=TEXT_MUTED, size=10,
+                ),
+                ft.Text(
+                    "Migração: registry de formato v1; o repositório atual só possui o schema SQLite 29/backup v1. "
+                    "Versões incompatíveis são rejeitadas explicitamente, sem inventar migrações inexistentes.",
+                    color=TEXT_MUTED, size=10,
+                ),
+            ], ("backup","restore","migração","integridade","checksum","diagnóstico","recovery","offline")))
 
             items.append(section("Privacidade", ft.Icons.PRIVACY_TIP_OUTLINED, [
                 ft.Text("Biblioteca, histórico e caminhos locais permanecem locais.", color=TEXT, size=12),

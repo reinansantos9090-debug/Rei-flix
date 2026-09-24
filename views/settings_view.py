@@ -168,8 +168,9 @@ class SettingsView:
                 padding=14, bgcolor=SURFACE, border_radius=RADIUS,
             )
             item_terms = " ".join(str(getattr(item, "data", "")) for item in items)
-            container.data = " ".join((title, *tags, item_terms)).casefold()
-            container.data_label = title
+            container.data = " ".join(
+                (f"__category:{title.casefold()}__", title, *tags, item_terms)
+            ).casefold()
             return container
 
         section_cache = []
@@ -227,27 +228,29 @@ class SettingsView:
         def render_settings(_=None):
             query = (search.value or "").strip().casefold()
             if active_category[0] is None:
-                labels = []
-                for item in section_cache:
-                    label = getattr(item, "data_label", "")
-                    if label and label not in labels:
-                        labels.append(label)
+                labels = [
+                    label for label in category_meta
+                    if any(
+                        f"__category:{label.casefold()}__" in str(getattr(item, "data", ""))
+                        for item in section_cache
+                    )
+                ]
                 controls = [
                     build_category_tile(label)
                     for label in labels
                     if not query
                     or query in label.casefold()
                     or query in str(category_meta.get(label, ("", None))[0]).casefold()
-                    or query in str(getattr(
-                        next((item for item in section_cache if getattr(item, "data_label", "") == label), None),
-                        "data",
-                        "",
-                    ))
+                    or any(
+                        query in str(getattr(item, "data", ""))
+                        for item in section_cache
+                        if f"__category:{label.casefold()}__" in str(getattr(item, "data", ""))
+                    )
                 ]
             else:
                 controls = [
                     item for item in section_cache
-                    if str(getattr(item, "data_label", "")).casefold() == str(active_category[0]).casefold()
+                    if f"__category:{str(active_category[0]).casefold()}__" in str(getattr(item, "data", ""))
                     and (not query or query in getattr(item, "data", ""))
                 ]
             sections_host.controls = controls or [

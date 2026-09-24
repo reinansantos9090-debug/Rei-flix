@@ -359,7 +359,7 @@ class HomeView:
             tags = options.get("tags") or []
             seasons = options.get("seasons") or []
             episode_types = options.get("episode_types") or []
-            genres = sorted({str(genre) for anime in catalog for genre in anime.get("genres", []) if genre}, key=str.casefold)
+            genres = [str(value) for value in (options.get("genres") or []) if value]
             tag.options = [ft.dropdown.Option("Todos", "Todos"), ft.dropdown.Option("Sem etiqueta", "Sem etiqueta")] + [ft.dropdown.Option(v, v) for v in tags]
             season.options = [ft.dropdown.Option("Todos", "Todos")] + [ft.dropdown.Option(str(v), f"Temporada {v}") for v in seasons]
             episode_type.options = [ft.dropdown.Option("Todos", "Todos")] + [ft.dropdown.Option(v, v) for v in episode_types]
@@ -438,7 +438,7 @@ class HomeView:
                 results = await asyncio.to_thread(library.hydrate_catalog_metadata, items)
                 if token != render_generation[0]:
                     return
-                by_id = {int(item.get('id')): item for item in catalog if item.get('id') is not None}
+                by_id = {int(item.get('id')): item for item in items if item.get('id') is not None}
                 updated = 0
                 for result in results or []:
                     item_id = result.get('id')

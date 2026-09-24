@@ -218,7 +218,7 @@ class SettingsStore:
         normalized = {}
         unknown = []
         for key, value in settings.items():
-            if key not in SettingsDefaults.BY_KEY:
+            if key not in SettingsDefaults.EXPORT_KEYS:
                 unknown.append(str(key))
                 continue
             normalized[key] = self._coerce(SettingsDefaults.BY_KEY[key], value)

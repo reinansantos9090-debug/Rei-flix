@@ -354,6 +354,7 @@ class NativePlayerActivity : ComponentActivity() {
                 " positionMs=" + if (::player.isInitialized) player.currentPosition else 0L)
             when (state) {
                 Player.STATE_READY -> {
+                    retryCount = 0
                     // READY means the media is prepared, but keep the preparation
                     // indicator until Media3 actually renders the first frame.
                     if (!openedReported) {
@@ -416,13 +417,23 @@ class NativePlayerActivity : ComponentActivity() {
             reason: Int,
         ) {
             if (reason == Player.DISCONTINUITY_REASON_SEEK ||
-                reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
+                reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT
+            ) {
+                logPlayer(
+                    "PLAYER_SEEK requestId=" + requestId.ifEmpty { "-" } +
+                        " positionMs=" + newPosition.positionMs,
+                )
                 saveProgress("player_progress", force = true)
             }
             updateProgressUi()
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            logPlayer(
+                "PLAYER_TRACK_CHANGE requestId=" + requestId.ifEmpty { "-" } +
+                    " audio=" + tracks.groups.count { it.type == C.TRACK_TYPE_AUDIO && it.isSupported } +
+                    " text=" + tracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported },
+            )
             updateTrackButtons()
         }
 
@@ -631,13 +642,22 @@ class NativePlayerActivity : ComponentActivity() {
         }, LinearLayout.LayoutParams(dp(320), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(8)
         })
+        val errorRetry = actionButton("Tentar novamente", 170) {
+            retryCurrentMedia()
+        }
+        errorRetry.tag = "reiflix_error_retry"
+        errorPanel.addView(errorRetry, LinearLayout.LayoutParams(dp(190), dp(48)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = dp(14)
+        })
+
         val errorBack = actionButton("Voltar ao Rei-Flix", 170) {
             finishPlayer("player_error_back")
         }
         errorBack.tag = "reiflix_error_back"
         errorPanel.addView(errorBack, LinearLayout.LayoutParams(dp(190), dp(48)).apply {
             gravity = Gravity.CENTER_HORIZONTAL
-            topMargin = dp(14)
+            topMargin = dp(8)
         })
         controls.addView(errorPanel, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -845,13 +865,16 @@ class NativePlayerActivity : ComponentActivity() {
                 // item, so tapping it must explicitly rewind before playback.
                 player.seekTo(0L)
                 player.play()
+                logPlayer("PLAYER_PLAY requestId=" + requestId.ifEmpty { "-" } + " reason=replay")
             }
             player.isPlaying -> {
                 player.pause()
+                logPlayer("PLAYER_PAUSE requestId=" + requestId.ifEmpty { "-" })
                 saveProgress("player_paused", force = true)
             }
             else -> {
                 player.play()
+                logPlayer("PLAYER_PLAY requestId=" + requestId.ifEmpty { "-" })
             }
         }
         touchControls()
@@ -1013,6 +1036,27 @@ class NativePlayerActivity : ComponentActivity() {
         touchControls()
     }
 
+    private fun retryCurrentMedia() {
+        if (retryCount >= MAX_RETRY_ATTEMPTS) {
+            showFeedback("Limite de tentativas atingido", 1400L)
+            return
+        }
+        retryCount += 1
+        errorVisible = false
+        moreVisible = false
+        findViewByTag<View>("reiflix_error_panel")?.visibility = View.GONE
+        findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
+        if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
+        logPlayer(
+            "PLAYER_RETRY requestId=" + requestId.ifEmpty { "-" } +
+                " attempt=" + retryCount,
+        )
+        prepareCurrentMedia(
+            "retry",
+            playWhenReadyOverride = intent.getBooleanExtra("autoplay", true),
+        )
+    }
+
     private fun showPlayerError(
         message: String,
         reason: String,
@@ -1171,7 +1215,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        logPlayer("onPictureInPictureModeChanged inPip=" + isInPictureInPictureMode)
+        logPlayer("PLAYER_PIP inPip=" + isInPictureInPictureMode + " requestId=" + requestId.ifEmpty { "-" })
         if (isInPictureInPictureMode) {
             handler.removeCallbacks(controlsHider)
             setControlsVisible(false)
@@ -1676,5 +1720,6 @@ class NativePlayerActivity : ComponentActivity() {
         private const val MIN_ZOOM = 1f
         private const val MAX_ZOOM = 4f
         private const val ZOOM_SNAP_THRESHOLD = 1.07f
+        private const val MAX_RETRY_ATTEMPTS = 2
     }
 }

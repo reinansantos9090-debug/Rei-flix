@@ -107,6 +107,11 @@ class TestPrompt4StoragePermissionFlow(unittest.TestCase):
         self.assertIn("READ_MEDIA_VISUAL_USER_SELECTED", source)
         self.assertIn("MANAGE_EXTERNAL_STORAGE", source)
 
+    def test_coordinator_preserves_partial_child_status_until_logical_finish(self):
+        source = (ROOT / "core/scan_coordinator.py").read_text(encoding="utf-8")
+        self.assertIn("_child_statuses", source)
+        self.assertIn("ScanState.PARTIAL.value in statuses", source)
+        self.assertIn("ScanState.FAILED.value in statuses", source)
 
 if __name__ == "__main__":
     unittest.main()

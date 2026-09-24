@@ -269,7 +269,6 @@ class SettingsView:
         search.on_change = render_settings
 
         normalized = normalize_storage_snapshot(storage_snapshot)
-        normalized = normalize_storage_snapshot(storage_snapshot)
         snap = normalized.as_mapping()
         media_state = str(snap.get("mediaReadState", "denied")).casefold()
         broad_state = str(snap.get("broadStorageState", "unavailable")).casefold()

@@ -234,12 +234,18 @@ class OrganizeView:
                             ]
                         ),
                         ft.Text(
-                            state_prefix + (anime.get("main_title") or "Anime local"),
+                            anime.get("main_title") or "Anime local",
                             size=13,
                             weight=ft.FontWeight.BOLD,
                             color="#F7F5FA",
                             max_lines=2,
                             overflow=ft.TextOverflow.ELLIPSIS,
+                        ),
+                        ft.Text(
+                            "Não identificado",
+                            size=10,
+                            color="#F2B84B",
+                            visible=not identified,
                         ),
                         ft.Text(
                             f"{watched}/{available_count} assistidos" if available_count else subtitle,

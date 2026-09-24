@@ -235,8 +235,9 @@ class Prompt15BackupRestoreTests(unittest.TestCase):
         original = self.store._reconcile_restored_files_locked
         self.store._reconcile_restored_files_locked = lambda con: (_ for _ in ()).throw(RuntimeError("forced failure"))
         try:
-            with self.assertRaises(BackupValidationError) if False else self.assertRaises(RuntimeError):
+            with self.assertRaises(Exception) as ctx:
                 service.restore_bytes(raw)
+            self.assertEqual("RESTORE_TRANSACTION_FAILED", getattr(ctx.exception, "code", None))
         finally:
             self.store._reconcile_restored_files_locked = original
         self.assertEqual("state-before-rollback", self.store.anime_metadata("acao")["title"])

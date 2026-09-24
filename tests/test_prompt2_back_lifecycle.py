@@ -70,6 +70,28 @@ class Prompt2BackLifecycleTests(unittest.TestCase):
         self.assertNotIn("finishAffinity(", activity)
         self.assertEqual(source.count("page.on_view_pop = handle_flet_view_pop"), 1)
 
+    def test_navigation_lifecycle_state_is_reconstructible_without_android_objects(self):
+        source = self.read(MAIN)
+        navigation = self.read(ROOT / "core" / "navigation.py")
+        self.assertIn("navigation_state.json", source)
+        self.assertIn("navigation.snapshot()", source)
+        self.assertIn("navigation.restore(", source)
+        self.assertIn("asyncio.to_thread(", source)
+        self.assertIn("def snapshot(self)", navigation)
+        self.assertIn("def restore(self, state", navigation)
+        self.assertNotIn("Activity", navigation)
+
+    def test_android_host_uses_one_lifecycle_back_callback_and_reapplies_ui_without_resetting_python_stack(self):
+        activity = self.read(MAIN_ACTIVITY)
+        manifest = self.read(MANIFEST)
+        self.assertEqual(activity.count("onBackPressedDispatcher.addCallback"), 1)
+        self.assertIn("override fun onResume()", activity)
+        self.assertIn("override fun onDestroy()", activity)
+        self.assertNotIn("finishAffinity(", activity)
+        self.assertIn('android:launchMode="singleTask"', manifest)
+        self.assertIn('android:documentLaunchMode="never"', manifest)
+        self.assertIn('android:enableOnBackInvokedCallback="true"', manifest)
+
     def test_player_launch_is_single_flight(self):
         source = self.read(MAIN_ACTIVITY)
         self.assertIn("previousActiveRequestId", source)

@@ -44,8 +44,17 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
 
     def test_progress_boundaries_and_zero_duration_are_safe(self):
         path = self.episode("content://cycle/boundary", 1, 2)
-        for position, expected in ((0, "unwatched"), (89, "in_progress"),
-                                   (90, "watched"), (99, "watched"), (100, "watched")):
+        for position, expected in (
+            (0, "unwatched"),
+            (1, "in_progress"),
+            (10, "in_progress"),
+            (50, "in_progress"),
+            (89, "in_progress"),
+            (90, "watched"),
+            (91, "watched"),
+            (99, "watched"),
+            (100, "watched"),
+        ):
             self.store.save_progress(path, position, 100)
             self.assertEqual(expected, self.store.consumption_state(self.store.physical_row(path)))
 

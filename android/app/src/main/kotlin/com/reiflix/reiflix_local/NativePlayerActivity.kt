@@ -1526,6 +1526,11 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun diagnosticPayload(): JSONObject = JSONObject()
+        .put("timestamp", System.currentTimeMillis())
+        .put("mediaId", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("mediaId").orEmpty())
+        .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
+        .put("playerState", if (::player.isInitialized) player.playbackStateLabel() else "STATE_IDLE")
+        .put("isPlaying", if (::player.isInitialized) player.isPlaying else false)
         .put("displayName", mediaDisplayName.orEmpty())
         .put("mimeType", contentMimeType.orEmpty())
         .put("sizeBytes", mediaSizeBytes ?: JSONObject.NULL)
@@ -1538,6 +1543,14 @@ class NativePlayerActivity : ComponentActivity() {
         .put("audioTrackCount", if (::player.isInitialized) player.currentTracks.groups.count { it.type == C.TRACK_TYPE_AUDIO && it.isSupported } else 0)
         .put("subtitleTrackCount", if (::player.isInitialized) player.currentTracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported } else 0)
         .put("durationMs", if (::player.isInitialized) player.duration.coerceAtLeast(0L) else 0L)
+
+    private fun ExoPlayer.playbackStateLabel(): String = when (playbackState) {
+        Player.STATE_IDLE -> "STATE_IDLE"
+        Player.STATE_BUFFERING -> "STATE_BUFFERING"
+        Player.STATE_READY -> "STATE_READY"
+        Player.STATE_ENDED -> "STATE_ENDED"
+        else -> "STATE_UNKNOWN"
+    }
 
     private fun buildTechnicalInfo(): String {
         if (!::player.isInitialized) return "Player ainda não foi inicializado."
@@ -1912,8 +1925,13 @@ class NativePlayerActivity : ComponentActivity() {
                 .put(
                     "payload",
                     JSONObject().put("uri", uri.toString())
+                        .put("mediaId", uri.toString())
+                        .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
                         .put("positionMs", position)
-                        .put("durationMs", duration),
+                        .put("durationMs", duration)
+                        .put("playerState", if (::player.isInitialized) player.playbackStateLabel() else "STATE_IDLE")
+                        .put("isPlaying", if (::player.isInitialized) player.isPlaying else false)
+                        .put("playbackSpeed", if (::player.isInitialized) player.playbackParameters.speed else 1f),
                 ),
         )
         if (!ok) logPlayer("FAILED_TO_PUBLISH " + eventType + " requestId=" + requestId.ifEmpty { "-" })

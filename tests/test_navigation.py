@@ -54,13 +54,13 @@ class NavigationControllerTests(unittest.TestCase):
         self.assertEqual(self.navigation.settings_path, ())
         self.assertEqual(self.navigation.back(), "prompt_exit")
 
-    def test_leaving_settings_clears_nested_settings_path(self):
+    def test_switching_top_level_screen_clears_nested_settings_path(self):
         self.navigation.push("settings")
         self.navigation.push_settings("Aparência")
-        self.assertEqual(self.navigation.back(), "settings_inner")
-        self.navigation.push_settings("Aparência")
-        self.assertEqual(self.navigation.back(), "settings_inner")
-        self.assertEqual(self.navigation.back(), "prompt_exit")
+        self.navigation.push("organize")
+        self.assertEqual(self.navigation.settings_path, ())
+        self.assertEqual(self.navigation.back(), "previous")
+        self.assertEqual(self.navigation.current, "home")
 
     def test_invalid_top_level_route_cannot_enter_navigation_stack(self):
         with self.assertRaises(ValueError):
@@ -80,6 +80,8 @@ class NavigationControllerTests(unittest.TestCase):
         self.assertIn('"[NAV] DIALOG_BACK', source)
         self.assertIn('"[NAV] NAVIGATE_BACK', source)
         self.assertNotIn("settings_system_back", source)
+        self.assertIn("def close_home_search():", source)
+        self.assertIn('"[NAV] SEARCH_BACK consumed on Home"', source)
 
     def test_visual_back_callbacks_identify_their_origin_screen(self):
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")

@@ -64,13 +64,14 @@ class Prompt1RegressionBaselineTests(unittest.TestCase):
         self.assertIn("cache_cover",anilist)
         self.assertIn("class ArtworkEngine",artwork)
 
-    def test_player_contracts_and_horizontal_seek_are_present(self):
+    def test_player_contracts_and_horizontal_seek_are_removed(self):
         player=self.read("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt")
         main=self.read("main.py")
-        for token in ("player_error","player_exited","HORIZONTAL_SEEK","GestureMode.HORIZONTAL_SEEK"):
-            self.assertIn(token,player)
         for token in ("player_error","player_exited"):
+            self.assertIn(token,player)
             self.assertIn(token,main)
+        for token in ("HORIZONTAL_SEEK","GestureMode.HORIZONTAL_SEEK","PLAYER_DOUBLE_TAP","handleDoubleTap"):
+            self.assertNotIn(token,player)
 
     def test_existing_ui_async_guardrails_are_present(self):
         home=self.read("views/home_view.py")

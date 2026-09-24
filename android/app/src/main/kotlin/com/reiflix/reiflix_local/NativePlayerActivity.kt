@@ -104,6 +104,9 @@ class NativePlayerActivity : ComponentActivity() {
     private var autoHideTimeoutMs = CONTROL_TIMEOUT_MS
     private var immersiveSetting = "always"
     private var pipEnabled = true
+    private var preferredAudioLanguage = ""
+    private var preferredSubtitleLanguage = ""
+    private var subtitleMode = "auto"
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastSavedPosition = -1L
@@ -196,6 +199,9 @@ class NativePlayerActivity : ComponentActivity() {
         autoHideTimeoutMs = intent.getIntExtra("setting_player_auto_hide_seconds", 5)
             .coerceIn(0, 300) * 1000L
         pipEnabled = intent.getBooleanExtra("setting_player_pip", true)
+        preferredAudioLanguage = intent.getStringExtra("setting_audio_preferred_language")?.trim().orEmpty()
+        preferredSubtitleLanguage = intent.getStringExtra("setting_audio_preferred_subtitle_language")?.trim().orEmpty()
+        subtitleMode = intent.getStringExtra("setting_audio_subtitles") ?: "auto"
         locked = savedInstanceState?.getBoolean("lock_mode", false)
             ?: gesturePreferences.getBoolean(PREF_LOCK_MODE, false)
         controlsVisible = savedInstanceState?.getBoolean("controls_visible", true) ?: true
@@ -282,6 +288,7 @@ class NativePlayerActivity : ComponentActivity() {
                     .onSuccess { player.trackSelectionParameters = it }
                     .onFailure { error -> logPlayer("TRACK_SELECTION_RESTORE_FAILED " + error) }
             }
+            applyGlobalTrackPreferences()
             autoplayNext = savedInstanceState?.takeIf { it.containsKey("autoplay_next") }?.getBoolean("autoplay_next")
                 ?: intent.getBooleanExtra("autoplay", true)
 
@@ -731,6 +738,36 @@ class NativePlayerActivity : ComponentActivity() {
         logPlayer("PLAYER_GENERATION_START generation=$generation reason=$reason requestId=" + requestId.ifEmpty { "-" })
     }
 
+
+    private fun applyGlobalTrackPreferences() {
+        if (!::player.isInitialized) return
+        val builder = player.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setPreferredAudioLanguage(preferredAudioLanguage.takeIf { it.isNotBlank() })
+        when (subtitleMode) {
+            "never" -> builder
+                .setPreferredTextLanguage(null)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .setSelectTextByDefault(false)
+            "always" -> builder
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .setPreferredTextLanguage(preferredSubtitleLanguage.takeIf { it.isNotBlank() })
+                .setSelectTextByDefault(true)
+                .setSelectUndeterminedTextLanguage(true)
+            else -> builder
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .setPreferredTextLanguage(preferredSubtitleLanguage.takeIf { it.isNotBlank() })
+                .setSelectTextByDefault(false)
+        }
+        player.trackSelectionParameters = builder.build()
+        logPlayer(
+            "GLOBAL_TRACK_PREFS audio=" + preferredAudioLanguage.ifBlank { "auto" } +
+                " subtitle=" + preferredSubtitleLanguage.ifBlank { "auto" } +
+                " mode=" + subtitleMode
+        )
+    }
+
     private fun configureWindow() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -743,7 +780,8 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun canEnterPictureInPicture(): Boolean {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+        return pipEnabled &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
     }
 

@@ -502,6 +502,14 @@ class NativePlayerActivity : ComponentActivity() {
             }
         }
 
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (!isCurrent()) return
+            logPlayer(
+                "MEDIA_ITEM_TRANSITION generation=$generation reason=$reason mediaId=" +
+                    mediaItem?.mediaId.orEmpty(),
+            )
+        }
+
         override fun onPlaybackStateChanged(state: Int) {
             if (!isCurrent()) return
             val label = when (state) {
@@ -593,11 +601,16 @@ class NativePlayerActivity : ComponentActivity() {
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
             if (!isCurrent()) return
+            val videoGroups = tracks.groups.count { it.type == C.TRACK_TYPE_VIDEO && it.isSupported }
+            val audioGroups = tracks.groups.count { it.type == C.TRACK_TYPE_AUDIO && it.isSupported }
+            val textGroups = tracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported }
             logPlayer(
                 "PLAYER_TRACK_CHANGE requestId=" + requestId.ifEmpty { "-" } +
-                    " audio=" + tracks.groups.count { it.type == C.TRACK_TYPE_AUDIO && it.isSupported } +
-                    " text=" + tracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported },
+                    " video=" + videoGroups + " audio=" + audioGroups + " text=" + textGroups,
             )
+            if (audioGroups == 0) logPlayer("TRACKS_NO_AUDIO requestId=" + requestId.ifEmpty { "-" })
+            if (textGroups == 0) logPlayer("TRACKS_NO_SUBTITLE requestId=" + requestId.ifEmpty { "-" })
+            captureTrackFormatSummaries()
             updateTrackButtons()
         }
 
@@ -606,6 +619,14 @@ class NativePlayerActivity : ComponentActivity() {
             val code = error.errorCodeName.orEmpty()
             val technicalCode = "media3:" + code
             val detail = error.message?.trim().orEmpty()
+            val category = PlayerMediaPolicy.classifyError(
+                code,
+                listOfNotNull(
+                    error.cause?.javaClass?.simpleName,
+                    error.cause?.cause?.javaClass?.simpleName,
+                ),
+            )
+            currentErrorCategory = category
             logPlayer(
                 "PlaybackException requestId=" + requestId.ifEmpty { "-" } +
                     " code=" + code + " detail=" + detail +
@@ -615,27 +636,75 @@ class NativePlayerActivity : ComponentActivity() {
             saveProgress("player_progress", force = true)
             player.pause()
             showPlayerError(
-                "Não foi possível reproduzir este arquivo neste dispositivo.",
+                when (category) {
+                    PlayerMediaPolicy.ErrorCategory.DECODER_UNSUPPORTED ->
+                        "Este dispositivo não possui um decoder compatível com este vídeo."
+                    PlayerMediaPolicy.ErrorCategory.SOURCE_UNAVAILABLE ->
+                        "O arquivo deste episódio não está disponível para leitura."
+                    else ->
+                        "Não foi possível reproduzir este arquivo neste dispositivo."
+                },
                 technicalCode,
-                JSONObject()
+                diagnosticPayload()
                     .put("uri", uri.toString())
                     .put("errorCode", technicalCode)
                     .put("detail", detail)
                     .put("cause", error.cause?.javaClass?.simpleName ?: ""),
+                category,
             )
         }
     }
 
+    private fun createAnalyticsListener(generation: Long): AnalyticsListener =
+        object : AnalyticsListener {
+            private fun isCurrent(): Boolean =
+                generation == playerGeneration && sessionState == SessionState.ACTIVE
+
+            override fun onVideoDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                if (!isCurrent()) return
+                decoderVideoName = decoderName
+                logPlayer(
+                    "VIDEO_DECODER_INITIALIZED generation=$generation decoder=$decoderName " +
+                        "durationMs=$initializationDurationMs",
+                )
+            }
+
+            override fun onAudioDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                if (!isCurrent()) return
+                decoderAudioName = decoderName
+                logPlayer(
+                    "AUDIO_DECODER_INITIALIZED generation=$generation decoder=$decoderName " +
+                        "durationMs=$initializationDurationMs",
+                )
+            }
+        }
+
     private fun beginPlayerGeneration(reason: String) {
         if (!::player.isInitialized || sessionState == SessionState.DESTROYED) return
         activePlayerListener?.let { player.removeListener(it) }
+        activeAnalyticsListener?.let { player.removeAnalyticsListener(it) }
+        activePlayerListener = null
+        activeAnalyticsListener = null
+        pendingPreparation?.cancel(true)
         playerGeneration += 1L
         errorPublishedForGeneration = false
         openedReported = false
         lastSavedPosition = -1L
         val generation = playerGeneration
         activePlayerListener = createPlayerListener(generation)
+        activeAnalyticsListener = createAnalyticsListener(generation)
         player.addListener(activePlayerListener!!)
+        player.addAnalyticsListener(activeAnalyticsListener!!)
         logPlayer("PLAYER_GENERATION_START generation=$generation reason=$reason requestId=" + requestId.ifEmpty { "-" })
     }
 

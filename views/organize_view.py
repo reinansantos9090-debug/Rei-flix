@@ -349,7 +349,7 @@ class OrganizeView:
             cover = item.get("cover")
 
             async def handle(_event):
-                selected_genre[0] = label
+                selected_genre[0] = item.get("id") or label
                 selected_state[0] = "Todos"
                 mode[0] = "collection"
                 save_view_state()
@@ -558,19 +558,27 @@ class OrganizeView:
                     ),
                 ]
             )
-            if summary.get("genres"):
+            try:
+                registry_genres = library.genre_options(include_unused=False)
+                covers = {}
+                for anime in catalog:
+                    cover = (anime.get("meta") or {}).get("cover_cache") or (anime.get("meta") or {}).get("cover_url")
+                    for genre_id in anime.get("genre_ids") or []:
+                        if cover and genre_id not in covers:
+                            covers[genre_id] = cover
+                registry_genres = [
+                    {**item, "cover": covers.get(item["id"], "")}
+                    for item in registry_genres
+                ]
+            except Exception:
+                logger.exception("Genre Registry overview failed")
+                registry_genres = summary.get("genres") or []
+            if registry_genres:
                 content.controls.extend(
                     [
                         section_title("Gêneros", ft.Icons.LOCAL_OFFER_OUTLINED),
-                        ft.Row(
-                            [
-                                genre_card(item)
-                                for item in summary["genres"]
-                            ],
-                            wrap=True,
-                            spacing=12,
-                            run_spacing=12,
-                        ),
+                        ft.Row([genre_card(item) for item in registry_genres],
+                               wrap=True, spacing=12, run_spacing=12),
                     ]
                 )
             else:

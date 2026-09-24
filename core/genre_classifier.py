@@ -24,4 +24,4 @@ class GenreClassifier:
     def classify(cls, title: str) -> list[str]:
         normalized = re.sub(r"[^a-z0-9 ]", " ", title.lower())
         genres = [genre for genre, terms in cls.RULES.items() if any(term in normalized for term in terms)]
-        return genres or ["Minha biblioteca"]
+        return genres

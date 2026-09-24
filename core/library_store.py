@@ -14,7 +14,7 @@ from core.consumption import consumption_state, is_completed, is_in_progress, is
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 26
+    SCHEMA_VERSION = 27
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -111,6 +111,25 @@ class LibraryStore:
             CREATE TABLE IF NOT EXISTS pending_matches (lookup_title TEXT PRIMARY KEY, display_title TEXT NOT NULL, candidates TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS account (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS genres (
+              id TEXT PRIMARY KEY, canonical_name TEXT NOT NULL, normalized_name TEXT NOT NULL UNIQUE,
+              source TEXT NOT NULL DEFAULT 'local', is_system INTEGER NOT NULL DEFAULT 0,
+              is_custom INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, updated_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS genre_aliases (
+              id INTEGER PRIMARY KEY, genre_id TEXT NOT NULL REFERENCES genres(id) ON DELETE CASCADE,
+              alias TEXT NOT NULL, normalized_alias TEXT NOT NULL UNIQUE, source TEXT NOT NULL DEFAULT 'system',
+              created_at REAL NOT NULL, updated_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS anime_genres (
+              anime_id INTEGER NOT NULL REFERENCES anime(id) ON DELETE CASCADE,
+              genre_id TEXT NOT NULL REFERENCES genres(id) ON DELETE CASCADE,
+              source TEXT NOT NULL DEFAULT 'local', created_at REAL NOT NULL, updated_at REAL NOT NULL,
+              PRIMARY KEY(anime_id, genre_id, source)
+            );
+            CREATE INDEX IF NOT EXISTS idx_genre_aliases_genre ON genre_aliases(genre_id);
+            CREATE INDEX IF NOT EXISTS idx_anime_genres_genre ON anime_genres(genre_id, anime_id);
+            CREATE INDEX IF NOT EXISTS idx_anime_genres_anime ON anime_genres(anime_id, genre_id);
             CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS scan_runs (
               id INTEGER PRIMARY KEY, started_at REAL NOT NULL, finished_at REAL, status TEXT NOT NULL DEFAULT 'running', folders INTEGER DEFAULT 0,
@@ -400,7 +419,7 @@ class LibraryStore:
             )}
             required = {
                 "folders", "anime", "episodes", "artwork", "associations",
-                "pending_matches", "account", "preferences", "schema_migrations", "scan_runs",
+                "pending_matches", "account", "preferences", "schema_migrations", "scan_runs", "genres", "genre_aliases", "anime_genres",
             }
             if not required.issubset(tables):
                 missing = ", ".join(sorted(required - tables))
@@ -865,7 +884,7 @@ class LibraryStore:
         if incoming_kind not in {"series", "movie", "unknown"}:
             incoming_kind = "series"
         source = str(source or metadata.get("metadata_source") or "local").casefold()
-        if source not in {"local", "anilist", "manual", "unknown"}:
+        if source not in {"local", "anilist", "manual", "classifier", "user", "system", "unknown"}:
             source = "unknown"
         confidence = str(confidence or metadata.get("metadata_confidence") or ("high" if source == "manual" else "low")).casefold()
         status = str(status or metadata.get("metadata_status") or ("manual" if source == "manual" else "available" if source == "anilist" else "unresolved")).casefold()
@@ -1538,6 +1557,14 @@ class LibraryStore:
                 for row in c.execute("SELECT path, kind FROM folders")
                 if row["path"]
             }
+            genre_rows = c.execute(
+                "SELECT ag.anime_id,g.id,g.canonical_name FROM anime_genres ag JOIN genres g ON g.id=ag.genre_id ORDER BY g.normalized_name"
+            ).fetchall()
+            genres_by_anime = {}
+            for genre_row in genre_rows:
+                genres_by_anime.setdefault(int(genre_row["anime_id"]), []).append(
+                    (str(genre_row["id"]), str(genre_row["canonical_name"]))
+                )
             artwork_rows = c.execute(
                 "SELECT entity_type, entity_id, local_path FROM artwork WHERE status != 'failed'"
             ).fetchall()
@@ -1584,10 +1611,16 @@ class LibraryStore:
                 seasons = {}
                 for ep in regulars:
                     seasons.setdefault(ep["season"], []).append(ep)
-                try:
-                    genres = json.loads(a["genres"] or "[]")
-                except (TypeError, json.JSONDecodeError):
-                    genres = []
+                registered_genres = genres_by_anime.get(int(a["id"]), [])
+                if registered_genres:
+                    genre_ids = [item[0] for item in registered_genres]
+                    genres = [item[1] for item in registered_genres]
+                else:
+                    try:
+                        genres = json.loads(a["genres"] or "[]")
+                    except (TypeError, json.JSONDecodeError):
+                        genres = []
+                    genre_ids = []
                 ordered_seasons = []
                 for season, values in sorted(seasons.items(), key=lambda item: item[0] if item[0] is not None else -1):
                     values = sorted(values, key=lambda e: (e["number"] if e["number"] is not None else -1, e["file_name"].casefold(), e["path"].casefold()))
@@ -1624,7 +1657,7 @@ class LibraryStore:
                     "id": a["id"], "main_title": a["title"], "meta": dict(a),
                     "favorite": bool(a["favorite"]), "is_pinned": bool(a["is_pinned"]),
                     "user_tags": self._decode_tags(a["user_tags"]),
-                    "personal_note": a["personal_note"], "genres": genres,
+                    "personal_note": a["personal_note"], "genres": genres, "genre_ids": genre_ids,
                     "seasons": ordered_seasons,
                     "specials": [{"season_name": "Especiais", "season": None, "folder_path": "",
                                   "episodes": sorted(special_eps, key=lambda e: (e["number"] if e["number"] is not None else -1, e["file_name"].casefold()))}],

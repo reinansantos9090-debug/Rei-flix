@@ -136,6 +136,7 @@ def _search_values(anime: dict) -> list[str]:
         meta.get("romaji"), meta.get("english"), meta.get("native"),
         meta.get("description"), meta.get("studio"),
         *(_as_list(anime.get("genres"))),
+        *(_as_list(anime.get("genre_aliases"))),
         *(_as_list(anime.get("user_tags"))),
         anime.get("personal_note"),
     ]
@@ -217,6 +218,7 @@ class SearchFilterSort:
     season: int | str | None = None
     episode_type: str = "Todos"
     genre: str = "Todos"
+    genre_id: str | None = None
     tag: str = "Todos"
     source_kind: str = "Todos"
     availability: str = "Todos"
@@ -278,9 +280,13 @@ class SearchFilterSort:
             if not any(str(e.get("episode_type") or "regular").casefold() == wanted_type for e in episodes):
                 return False
 
-        if self.genre not in ("Todos", "", None):
+        if self.genre_id:
+            if self.genre_id not in {str(value) for value in _as_list(anime.get("genre_ids"))}:
+                return False
+        elif self.genre not in ("Todos", "", None):
             wanted_genre = normalize_text(self.genre)
-            if not any(normalize_text(g) == wanted_genre for g in _as_list(anime.get("genres"))):
+            aliases = _as_list(anime.get("genre_aliases"))
+            if not any(normalize_text(g) == wanted_genre for g in _as_list(anime.get("genres")) + aliases):
                 return False
 
         tags = {normalize_text(t) for t in _as_list(anime.get("user_tags"))}

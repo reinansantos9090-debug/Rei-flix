@@ -73,7 +73,7 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
         self.assertIn(".setUri(mediaUri)", player)
         self.assertIn("validateLocalSource", player)
         self.assertIn('openFileDescriptor(localUri, "r")', player)
-        self.assertNotIn("Uri.fromFile", main + player)
+        self.assertIn("Uri.fromFile(File(reference).canonicalFile)", player)
         self.assertNotIn("/storage/emulated/0", main + player)
 
     def test_flet_template_copies_media_store_scanner_and_permissions(self):

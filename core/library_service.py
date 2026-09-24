@@ -15,7 +15,7 @@ from core.artwork import ArtworkEngine
 from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
 from core.media_identity import identity_from_document
 from core.organizer_ai import AnimeOrganizer
-from core.search_engine import LibrarySearchEngine
+from core.search_engine import LibrarySearchEngine, normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -932,7 +932,7 @@ class LibraryService:
                 label = str(genre or "").strip()
                 if not label:
                     continue
-                key = " ".join(label.casefold().split())
+                key = normalize_text(label)
                 entry = genres.setdefault(
                     key,
                     {"name": label, "count": 0, "cover": cover or ""},

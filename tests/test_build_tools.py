@@ -343,7 +343,7 @@ E: manifest
         self.assertIn("RESIZE_MODE_ZOOM", player)
         self.assertIn("RESIZE_MODE_FIT", player)
         self.assertIn("showAspectSelection", player)
-        self.assertIn('arrayOf("Ajustar", "Preencher")', player)
+        self.assertIn('arrayOf("Ajustar", "Preencher", "Zoom")', player)
         self.assertIn('screen_attr: "fullSensor"', template)
         self.assertTrue((ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/VideoThumbnailExtractor.kt").is_file())
 
@@ -462,18 +462,30 @@ E: manifest
         self.assertIn("if (brightnessGesturesEnabled)", player)
         self.assertIn("if (volumeGesturesEnabled)", player)
 
-    def test_settings_inner_back_is_not_duplicated(self):
+    def test_settings_nested_back_uses_navigation_controller_contract(self):
         main = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertEqual(main.count("SETTINGS_INNER_BACK"), 1)
-        self.assertEqual(main.count('if route_before == "settings":'), 1)
+        navigation = (ROOT / "core" / "navigation.py").read_text(encoding="utf-8")
+        self.assertIn("def navigate_settings_category(label):", main)
+        self.assertIn("navigation.push_settings(label)", main)
+        self.assertIn('if action in {"previous", "settings_inner"}:', main)
+        self.assertIn('if action == "settings_inner":', main)
+        self.assertEqual(navigation.count('return "settings_inner"'), 1)
+        self.assertNotIn("SETTINGS_INNER_BACK", main)
+        self.assertNotIn("settings_system_back", main)
 
-    def test_settings_inner_back_is_registered_with_host_navigation(self):
+    def test_settings_back_is_not_registered_as_a_second_back_system(self):
         settings = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
         main = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn("def handle_system_back()", settings)
-        self.assertIn("on_register_system_back", settings)
-        self.assertIn("settings_system_back = [None]", main)
-        self.assertIn("SETTINGS_INNER_BACK", main)
+        navigation = (ROOT / "core" / "navigation.py").read_text(encoding="utf-8")
+        self.assertIn("on_open_settings_category=navigate_settings_category", main)
+        self.assertIn("settings_path_provider=lambda: navigation.settings_path", main)
+        self.assertIn("def back_to_categories", settings)
+        self.assertNotIn("def handle_system_back()", settings)
+        self.assertNotIn("on_register_system_back", settings)
+        self.assertNotIn("settings_system_back", main)
+        self.assertNotIn("SETTINGS_INNER_BACK", main)
+        self.assertIn("def back(self) -> str:", navigation)
+        self.assertIn('return "settings_inner"', navigation)
 
     def test_native_host_and_player_use_immersive_system_bars(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

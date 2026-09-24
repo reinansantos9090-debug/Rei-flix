@@ -54,8 +54,9 @@ class Prompt3PlayerReconstructionTests(unittest.TestCase):
         self.assertIn("private const val MAX_ZOOM = 3f", self.player)
         self.assertIn("scaleX = zoomScale", self.player)
         self.assertIn("scaleY = zoomScale", self.player)
-        self.assertIn("zoomTranslationX = zoomTranslationX.coerceIn(-maxTx, maxTx)", self.player)
-        self.assertIn("zoomTranslationY = zoomTranslationY.coerceIn(-maxTy, maxTy)", self.player)
+        self.assertIn("PlayerGesturePolicy.clampZoom", self.player)
+        self.assertIn("PlayerGesturePolicy.clampTranslation", self.player)
+        self.assertIn("val bounds = calculatePanBounds()", self.player)
         self.assertIn("resetZoomToFit", self.player)
 
     def test_resize_modes_expose_fit_fill_and_zoom_without_stretch(self):
@@ -104,11 +105,11 @@ class Prompt3PlayerReconstructionTests(unittest.TestCase):
             self.assertIn(token, self.player)
 
     def test_disabled_vertical_gestures_are_silent(self):
-        self.assertIn("if (brightnessGesturesEnabled)", self.player)
-        self.assertIn("if (volumeGesturesEnabled)", self.player)
-        self.assertIn("Disabled gestures are deliberately silent", self.player)
-        self.assertNotIn("Gesto de volume desligado", self.player[self.player.index("private inner class GestureLayer"):])
-        self.assertNotIn("Gesto de brilho desligado", self.player[self.player.index("private inner class GestureLayer"):])
+        gesture_layer = self.player[self.player.index("private inner class GestureLayer"):]
+        self.assertNotIn("Gesto de volume desligado", gesture_layer)
+        self.assertNotIn("Gesto de brilho desligado", gesture_layer)
+        self.assertIn("if (brightnessGesturesEnabled)", gesture_layer)
+        self.assertIn("if (volumeGesturesEnabled)", gesture_layer)
 
     def test_touch_targets_and_accessibility_contract(self):
         self.assertIn("minHeight = dp(44)", self.player)

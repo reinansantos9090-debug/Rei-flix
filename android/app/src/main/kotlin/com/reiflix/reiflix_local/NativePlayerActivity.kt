@@ -25,7 +25,6 @@ import android.provider.MediaStore
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
-import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewGroup
 import android.view.ScaleGestureDetector
@@ -999,6 +998,7 @@ class NativePlayerActivity : ComponentActivity() {
         topBar.addView(lockButton, weightParams(48))
 
         val moreButton = actionButton("⋮", 48) {
+            findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
             moreVisible = !moreVisible
             findViewByTag<View>("reiflix_more_panel")?.visibility = if (moreVisible) View.VISIBLE else View.GONE
             touchControls()
@@ -1403,6 +1403,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun showSpeedSelection(button: TextView) {
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         if (!::player.isInitialized) return
         val speeds = floatArrayOf(.5f, .75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
         val labels = speeds.map { String.format(java.util.Locale.US, "%.2fx", it) }.toTypedArray()
@@ -1423,6 +1424,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun showAspectSelection(button: TextView) {
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         val labels = arrayOf("Ajustar", "Preencher", "Zoom")
         val current = when (button.text.toString()) {
             in labels -> button.text.toString()
@@ -1565,6 +1567,7 @@ class NativePlayerActivity : ComponentActivity() {
             .show()
     }
     private fun showTrackSelection(trackType: Int, label: String) {
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         if (!::player.isInitialized) return
         if (!player.currentTracks.groups.any { it.type == trackType && it.isSupported }) {
             showFeedback("Nenhuma faixa disponível")
@@ -1579,7 +1582,11 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun seekBy(deltaMs: Long, feedbackText: String) {
         if (!::player.isInitialized || player.duration <= 0L) return
-        val target = (player.currentPosition + deltaMs).coerceIn(0L, player.duration)
+        val target = PlayerGesturePolicy.seekTarget(
+            currentPositionMs = player.currentPosition,
+            deltaMs = deltaMs,
+            durationMs = player.duration,
+        )
         player.seekTo(target)
         saveProgress("player_progress", force = true)
         showFeedback(feedbackText)
@@ -1936,6 +1943,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         saveProgress("player_progress", force = true)
         logPlayer("onStop finishing=" + isFinishing + " changingConfig=" + isChangingConfigurations)
         super.onStop()
@@ -1970,6 +1978,7 @@ class NativePlayerActivity : ComponentActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         logPlayer("onConfigurationChanged orientation=" + newConfig.orientation)
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         ViewCompat.requestApplyInsets(root)
         applyImmersiveAfterLayout()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.refreshZoomForLayout()
@@ -2268,14 +2277,26 @@ class NativePlayerActivity : ComponentActivity() {
 
     /**
      * Single owner for player touch arbitration. The order is:
-     * tap/double-tap -> single-finger swipe -> two-finger zoom/pan.
-     * A pending single tap is delayed so a second tap can cancel it, matching
-     * the interaction model used by CloudStream's PlayerGestureHelper.
+     * pinch/multi-touch -> pan while zoomed -> directional swipe -> tap/double-tap.
+     * Controls remain outside this layer and therefore consume their own touches.
+     *
+     * Double-tap seeking intentionally stays separate from pinch. A second tap is
+     * consumed by GestureDetector, while a drag crossing touchSlop cancels the
+     * detector before it can be interpreted as a tap.
      */
+    private enum class GestureMode {
+        IDLE,
+        DOUBLE_TAP,
+        PINCH,
+        PAN,
+        HORIZONTAL,
+        VERTICAL,
+    }
+
     private inner class GestureLayer(context: Context) : View(context) {
         private val touchConfig = ViewConfiguration.get(context)
         private val touchSlop = touchConfig.scaledTouchSlop.toFloat()
-        private val minFlingVelocity = touchConfig.scaledMinimumFlingVelocity.toFloat()
+
         private val scaleDetector = ScaleGestureDetector(
             context,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -2284,12 +2305,14 @@ class NativePlayerActivity : ComponentActivity() {
                         return false
                     }
                     pinchActive = true
+                    gestureMode = GestureMode.PINCH
                     gestureConsumed = true
+                    restoreLongPressSpeed()
                     cancelGestureDetector()
                     lastPanX = detector.focusX
                     lastPanY = detector.focusY
-                    logPlayer("GESTURE_START type=pinch requestId=" + requestId.ifEmpty { "-" })
                     touchControls()
+                    logPlayer("GESTURE_START type=pinch requestId=" + requestId.ifEmpty { "-" })
                     return true
                 }
 
@@ -2299,30 +2322,51 @@ class NativePlayerActivity : ComponentActivity() {
                     if (!rawFactor.isFinite() || rawFactor <= 0f) return true
 
                     val previousScale = zoomScale
-                    val nextScale = (previousScale * rawFactor).coerceIn(MIN_ZOOM, MAX_ZOOM)
-                    val effectiveFactor = if (previousScale <= 0f) 1f else nextScale / previousScale
+                    val nextScale = PlayerGesturePolicy.clampZoom(
+                        previousScale * rawFactor,
+                        MIN_ZOOM,
+                        MAX_ZOOM,
+                    )
+                    val effectiveFactor = if (previousScale > 0f) {
+                        nextScale / previousScale
+                    } else {
+                        1f
+                    }
+
                     val pivotX = detector.focusX - width * 0.5f
                     val pivotY = detector.focusY - height * 0.5f
+                    var nextTranslationX =
+                        zoomTranslationX + (1f - effectiveFactor) * (pivotX - zoomTranslationX)
+                    var nextTranslationY =
+                        zoomTranslationY + (1f - effectiveFactor) * (pivotY - zoomTranslationY)
 
-                    zoomTranslationX += (1f - effectiveFactor) * (pivotX - zoomTranslationX)
-                    zoomTranslationY += (1f - effectiveFactor) * (pivotY - zoomTranslationY)
                     zoomScale = nextScale
+                    val bounds = calculatePanBounds()
+                    val clamped = PlayerGesturePolicy.clampTranslation(
+                        nextTranslationX,
+                        nextTranslationY,
+                        bounds,
+                    )
+                    nextTranslationX = clamped.first
+                    nextTranslationY = clamped.second
+                    zoomTranslationX = nextTranslationX
+                    zoomTranslationY = nextTranslationY
+
                     playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     applyZoomTransform()
+                    updateAspectButtonFromZoom()
 
-                    val label = if (zoomScale <= 1.02f) "FIT" else "ZOOM " +
-                        String.format(java.util.Locale.US, "%.1fx", zoomScale)
-                    findViewByTag<TextView>("reiflix_aspect_button")?.apply {
-                        text = if (zoomScale <= 1.02f) "Ajustar" else "Zoom"
-                        isSelected = zoomScale > 1.02f
+                    val label = if (zoomScale <= ZOOM_SNAP_THRESHOLD) {
+                        "FIT"
+                    } else {
+                        "ZOOM " + String.format(java.util.Locale.US, "%.1fx", zoomScale)
                     }
                     showFeedback(label, 250L)
                     return true
                 }
 
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
-                    if (!pinchActive) return
-                    finishPinchGesture()
+                    finishPinchGesture(cancelled = false)
                 }
             },
         )
@@ -2333,33 +2377,42 @@ class NativePlayerActivity : ComponentActivity() {
                 override fun onDown(event: MotionEvent): Boolean = true
 
                 override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
-                    if (!gestureInteractionAllowed() || gestureConsumed || systemGestureEdge) return true
+                    if (!gestureInteractionAllowed() || gestureConsumed || systemGestureEdge) {
+                        return true
+                    }
                     handleTap()
                     return true
                 }
 
                 override fun onDoubleTap(event: MotionEvent): Boolean {
-                    if (!gestureInteractionAllowed() || !doubleTapEnabled || gestureConsumed || systemGestureEdge) {
+                    if (!gestureInteractionAllowed() || !doubleTapEnabled || systemGestureEdge) {
                         return true
                     }
+
                     gestureConsumed = true
-                    val side = PlayerGesturePolicy.side(event.x, width)
-                    when (side) {
+                    gestureMode = GestureMode.DOUBLE_TAP
+                    when (PlayerGesturePolicy.side(event.x, width)) {
                         PlayerGesturePolicy.Side.LEFT -> {
                             logPlayer("PLAYER_DOUBLE_TAP side=left requestId=" + requestId.ifEmpty { "-" })
                             seekBy(-doubleTapSeekMs, "−" + (doubleTapSeekMs / 1000L) + "s")
                         }
+
                         PlayerGesturePolicy.Side.RIGHT -> {
                             logPlayer("PLAYER_DOUBLE_TAP side=right requestId=" + requestId.ifEmpty { "-" })
                             seekBy(doubleTapSeekMs, "+" + (doubleTapSeekMs / 1000L) + "s")
                         }
-                        PlayerGesturePolicy.Side.CENTER -> showFeedback("Double tap ignorado", 500L)
+
+                        PlayerGesturePolicy.Side.CENTER -> {
+                            logPlayer("PLAYER_DOUBLE_TAP side=center_ignored requestId=" + requestId.ifEmpty { "-" })
+                        }
                     }
                     return true
                 }
 
                 override fun onLongPress(event: MotionEvent) {
-                    if (!gestureInteractionAllowed() || !longPressEnabled || gestureConsumed || systemGestureEdge) return
+                    if (!gestureInteractionAllowed() || !longPressEnabled || gestureConsumed || systemGestureEdge) {
+                        return
+                    }
                     previousSpeedForLongPress = player.playbackParameters.speed
                     longPressActive = true
                     player.setPlaybackSpeed(longPressSpeed)
@@ -2373,58 +2426,64 @@ class NativePlayerActivity : ComponentActivity() {
         private var downX = 0f
         private var downY = 0f
         private var gestureConsumed = false
-        private var verticalGesture = false
-        private var horizontalGesture = false
         private var systemGestureEdge = false
         private var pinchActive = false
+        private var lastVerticalY: Float? = null
         private var lastPanX: Float? = null
         private var lastPanY: Float? = null
         private var zoomScale = 1f
         private var zoomTranslationX = 0f
         private var zoomTranslationY = 0f
         private var zoomAnimator: ValueAnimator? = null
-        private var velocityTracker: VelocityTracker? = null
         private var longPressActive = false
         private var previousSpeedForLongPress = 1f
-        private var lastTapUpTime = 0L
-        private var lastTapX = 0f
-        private var lastTapY = 0f
-        private var manualDoubleTap = false
+        private var gestureMode = GestureMode.IDLE
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (inPictureInPicture) return true
             scaleDetector.onTouchEvent(event)
 
-            if (pinchActive || event.pointerCount > 1) {
+            if (event.pointerCount > 1 || pinchActive || gestureMode == GestureMode.PINCH) {
                 when (event.actionMasked) {
                     MotionEvent.ACTION_POINTER_DOWN -> {
                         gestureConsumed = true
+                        gestureMode = GestureMode.PINCH
+                        restoreLongPressSpeed()
                         cancelGestureDetector(event)
                         lastPanX = pointerCenterX(event)
                         lastPanY = pointerCenterY(event)
                     }
+
                     MotionEvent.ACTION_MOVE -> {
-                        if (event.pointerCount >= 2) {
+                        if (pinchActive && event.pointerCount >= 2) {
                             val centerX = pointerCenterX(event)
                             val centerY = pointerCenterY(event)
                             val previousX = lastPanX
                             val previousY = lastPanY
                             if (previousX != null && previousY != null && zoomScale > 1.01f) {
-                                zoomTranslationX += centerX - previousX
-                                zoomTranslationY += centerY - previousY
-                                applyZoomTransform()
+                                applyPanDelta(centerX - previousX, centerY - previousY)
                             }
                             lastPanX = centerX
                             lastPanY = centerY
                         }
                     }
-                    MotionEvent.ACTION_POINTER_UP -> if (event.pointerCount <= 2) {
+
+                    MotionEvent.ACTION_POINTER_UP -> {
                         lastPanX = null
                         lastPanY = null
                     }
-                    MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> finishPinchGesture()
+
+                    MotionEvent.ACTION_UP -> {
+                        if (pinchActive) finishPinchGesture(cancelled = false)
+                        resetTransientState()
+                    }
+
+                    MotionEvent.ACTION_CANCEL -> {
+                        if (pinchActive) finishPinchGesture(cancelled = true)
+                        cancelGestureDetector(event)
+                        resetTransientState()
+                    }
                 }
-                finishTouchVelocity(event)
                 return true
             }
 
@@ -2433,116 +2492,141 @@ class NativePlayerActivity : ComponentActivity() {
                     downX = event.x
                     downY = event.y
                     gestureConsumed = false
-                    verticalGesture = false
-                    horizontalGesture = false
-                    manualDoubleTap = false
                     systemGestureEdge = isSystemGestureEdge(event.x, event.y)
-                    velocityTracker?.recycle()
-                    velocityTracker = VelocityTracker.obtain().apply { addMovement(event) }
-
-                    val doubleTapDistance = max(touchSlop * 2f, dp(24).toFloat())
-                    val withinDoubleTapWindow =
-                        doubleTapEnabled &&
-                            lastTapUpTime > 0L &&
-                            event.eventTime - lastTapUpTime <= ViewConfiguration.getDoubleTapTimeout()
-                    val nearPreviousTap =
-                        abs(event.x - lastTapX) <= doubleTapDistance &&
-                            abs(event.y - lastTapY) <= doubleTapDistance
-
-                    if (withinDoubleTapWindow && nearPreviousTap && !systemGestureEdge && gestureInteractionAllowed()) {
-                        manualDoubleTap = true
-                        gestureConsumed = true
-                        cancelGestureDetector(event)
-                    } else if (systemGestureEdge || !gestureInteractionAllowed()) {
+                    lastVerticalY = null
+                    gestureMode = GestureMode.IDLE
+                    if (systemGestureEdge || !gestureInteractionAllowed()) {
                         gestureConsumed = true
                         cancelGestureDetector(event)
                     } else {
                         gestureDetector.onTouchEvent(event)
                     }
                 }
+
                 MotionEvent.ACTION_MOVE -> {
-                    velocityTracker?.addMovement(event)
                     if (gestureConsumed || systemGestureEdge) return true
+
                     val dx = event.x - downX
                     val dy = event.y - downY
-                    when (PlayerGesturePolicy.direction(dx, dy, touchSlop)) {
-                        PlayerGesturePolicy.Direction.VERTICAL -> {
-                            if (!verticalGesture) {
-                                verticalGesture = true
-                                gestureConsumed = true
-                                cancelGestureDetector(event)
-                                logPlayer("GESTURE_START type=vertical side=" +
-                                    PlayerGesturePolicy.side(downX, width).name.lowercase() +
-                                    " requestId=" + requestId.ifEmpty { "-" })
-                            }
+
+                    if (zoomScale > 1.01f && PlayerGesturePolicy.isMeaningfulMovement(
+                            dx,
+                            dy,
+                            touchSlop,
+                        )) {
+                        if (gestureMode != GestureMode.PAN) {
+                            gestureMode = GestureMode.PAN
+                            gestureConsumed = true
+                            cancelGestureDetector(event)
+                            restoreLongPressSpeed()
+                            lastPanX = event.x
+                            lastPanY = event.y
+                            touchControls()
+                            logPlayer("GESTURE_START type=pan requestId=" + requestId.ifEmpty { "-" })
                         }
-                        PlayerGesturePolicy.Direction.HORIZONTAL -> {
-                            if (!horizontalGesture) {
-                                horizontalGesture = true
-                                gestureConsumed = true
-                                cancelGestureDetector(event)
-                                logPlayer("GESTURE_START type=horizontal_ignored requestId=" + requestId.ifEmpty { "-" })
-                            }
+                        val previousX = lastPanX
+                        val previousY = lastPanY
+                        if (previousX != null && previousY != null) {
+                            applyPanDelta(event.x - previousX, event.y - previousY)
                         }
-                        PlayerGesturePolicy.Direction.NONE -> Unit
-                    }
-                }
-                MotionEvent.ACTION_UP -> {
-                    velocityTracker?.addMovement(event)
-                    if (manualDoubleTap && gestureInteractionAllowed()) {
-                        val side = PlayerGesturePolicy.side(event.x, width)
-                        when (side) {
-                            PlayerGesturePolicy.Side.LEFT -> {
-                                logPlayer("PLAYER_DOUBLE_TAP side=left requestId=" + requestId.ifEmpty { "-" })
-                                seekBy(-doubleTapSeekMs, "−" + (doubleTapSeekMs / 1000L) + "s")
-                            }
-                            PlayerGesturePolicy.Side.RIGHT -> {
-                                logPlayer("PLAYER_DOUBLE_TAP side=right requestId=" + requestId.ifEmpty { "-" })
-                                seekBy(doubleTapSeekMs, "+" + (doubleTapSeekMs / 1000L) + "s")
-                            }
-                            PlayerGesturePolicy.Side.CENTER -> showFeedback("Double tap ignorado", 500L)
-                        }
-                        lastTapUpTime = 0L
-                        manualDoubleTap = false
-                        restoreLongPressSpeed()
-                        finishTouchVelocity(event)
+                        lastPanX = event.x
+                        lastPanY = event.y
                         return true
                     }
 
-                    if (verticalGesture && gestureInteractionAllowed()) {
-                        val velocityY = velocityTracker?.run {
-                            computeCurrentVelocity(1000)
-                            yVelocity
-                        } ?: 0f
-                        val dy = event.y - downY
-                        val distanceRatio = (abs(dy) / height.coerceAtLeast(1).toFloat()).coerceIn(0f, 0.75f)
-                        val strongEnough = abs(dy) >= max(touchSlop * 2f, dp(48).toFloat()) ||
-                            abs(velocityY) >= minFlingVelocity * 0.5f
-                        if (strongEnough) {
-                            handleVerticalGesture(downX, dy, distanceRatio)
+                    when (PlayerGesturePolicy.direction(dx, dy, touchSlop)) {
+                        PlayerGesturePolicy.Direction.VERTICAL -> {
+                            if (gestureMode == GestureMode.IDLE) {
+                                gestureConsumed = true
+                                gestureMode = GestureMode.VERTICAL
+                                lastVerticalY = event.y
+                                handleVerticalGestureDelta(downX, event.y - downY)
+                                cancelGestureDetector(event)
+                                restoreLongPressSpeed()
+                                logPlayer(
+                                    "GESTURE_START type=vertical side=" +
+                                        PlayerGesturePolicy.side(downX, width).name.lowercase() +
+                                        " requestId=" + requestId.ifEmpty { "-" },
+                                )
+                            } else if (gestureMode == GestureMode.VERTICAL) {
+                                val previousY = lastVerticalY
+                                if (previousY != null) {
+                                    handleVerticalGestureDelta(downX, event.y - previousY)
+                                }
+                                lastVerticalY = event.y
+                            }
                         }
-                        logPlayer("GESTURE_END type=vertical_ignored_or_applied requestId=" + requestId.ifEmpty { "-" })
-                    } else if (horizontalGesture) {
-                        logPlayer("GESTURE_END type=horizontal_ignored requestId=" + requestId.ifEmpty { "-" })
+
+                        PlayerGesturePolicy.Direction.HORIZONTAL -> {
+                            if (gestureMode == GestureMode.IDLE) {
+                                gestureConsumed = true
+                                gestureMode = GestureMode.HORIZONTAL
+                                cancelGestureDetector(event)
+                                restoreLongPressSpeed()
+                                logPlayer(
+                                    "GESTURE_START type=horizontal_ignored requestId=" +
+                                        requestId.ifEmpty { "-" },
+                                )
+                            }
+                        }
+
+                        PlayerGesturePolicy.Direction.NONE -> Unit
                     }
-                    restoreLongPressSpeed()
-                    if (!gestureConsumed && gestureInteractionAllowed() && !systemGestureEdge) {
-                        lastTapUpTime = event.eventTime
-                        lastTapX = event.x
-                        lastTapY = event.y
-                    }
-                    gestureDetector.onTouchEvent(event)
-                    finishTouchVelocity(event)
                 }
+
+                MotionEvent.ACTION_UP -> {
+                    when (gestureMode) {
+                        GestureMode.VERTICAL -> {
+                            logPlayer(
+                                "GESTURE_END type=vertical_ignored_or_applied requestId=" +
+                                    requestId.ifEmpty { "-" },
+                            )
+                            touchControls()
+                            resetTransientState()
+                            return true
+                        }
+
+                        GestureMode.HORIZONTAL -> {
+                            logPlayer(
+                                "GESTURE_END type=horizontal_ignored requestId=" +
+                                    requestId.ifEmpty { "-" },
+                            )
+                            touchControls()
+                            resetTransientState()
+                            return true
+                        }
+
+                        GestureMode.PAN -> {
+                            applyZoomTransform()
+                            logPlayer("GESTURE_END type=pan requestId=" + requestId.ifEmpty { "-" })
+                            touchControls()
+                            resetTransientState()
+                            return true
+                        }
+
+                        GestureMode.DOUBLE_TAP -> {
+                            resetTransientState()
+                            return true
+                        }
+
+                        else -> Unit
+                    }
+
+                    if (!gestureConsumed && gestureInteractionAllowed() && !systemGestureEdge) {
+                        gestureDetector.onTouchEvent(event)
+                    }
+                    resetTransientState()
+                }
+
                 MotionEvent.ACTION_CANCEL -> {
                     restoreLongPressSpeed()
+                    if (pinchActive) finishPinchGesture(cancelled = true)
                     cancelGestureDetector(event)
-                    finishTouchVelocity(event)
-                    logPlayer("GESTURE_END type=cancel requestId=" + requestId.ifEmpty { "-" })
-                    gestureConsumed = true
-                    verticalGesture = false
-                    horizontalGesture = false
-                    systemGestureEdge = false
+                    resetTransientState()
+                    logPlayer(
+                        "GESTURE_END type=cancel requestId=" +
+                            requestId.ifEmpty { "-" },
+                    )
                 }
             }
             return true
@@ -2557,29 +2641,25 @@ class NativePlayerActivity : ComponentActivity() {
                 y < gestureSafeTop ||
                 y > height - gestureSafeBottom
 
-        private fun handleVerticalGesture(startX: Float, dy: Float, distanceRatio: Float) {
-            val side = PlayerGesturePolicy.side(startX, width)
-            val directionUp = dy < 0f
-            val fraction = max(0.06f, distanceRatio * 0.6f)
-            when (side) {
+        private fun handleVerticalGestureDelta(startX: Float, deltaY: Float) {
+            if (height <= 0) return
+            val fraction = PlayerGesturePolicy.verticalDeltaFraction(deltaY, height)
+            if (fraction == 0f) return
+
+            when (PlayerGesturePolicy.side(startX, width)) {
                 PlayerGesturePolicy.Side.LEFT -> {
                     if (brightnessGesturesEnabled) {
-                        adjustBrightness(if (directionUp) fraction else -fraction)
-                    } else {
-                        // Disabled gestures are deliberately silent. Do not surface
-                        // a toast/overlay/snackbar for an opt-out preference.
+                        adjustBrightness(fraction)
                     }
                 }
+
                 PlayerGesturePolicy.Side.RIGHT -> {
                     if (volumeGesturesEnabled) {
-                        adjustVolumeByFraction(if (directionUp) fraction else -fraction)
-                    } else {
-                        // Disabled gestures are deliberately silent.
+                        adjustVolumeByFraction(fraction)
                     }
                 }
-                PlayerGesturePolicy.Side.CENTER -> {
-                    // A vertical swipe in the center has no player action.
-                }
+
+                PlayerGesturePolicy.Side.CENTER -> Unit
             }
         }
 
@@ -2592,13 +2672,6 @@ class NativePlayerActivity : ComponentActivity() {
             }
             gestureDetector.onTouchEvent(cancel)
             cancel.recycle()
-        }
-
-        private fun finishTouchVelocity(event: MotionEvent) {
-            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                velocityTracker?.recycle()
-                velocityTracker = null
-            }
         }
 
         private fun restoreLongPressSpeed() {
@@ -2621,10 +2694,7 @@ class NativePlayerActivity : ComponentActivity() {
             zoomTranslationY = 0f
             playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             applyZoomTransform()
-            findViewByTag<TextView>("reiflix_aspect_button")?.apply {
-                text = "Zoom"
-                isSelected = true
-            }
+            updateAspectButtonFromZoom()
         }
 
         fun refreshZoomForLayout() {
@@ -2649,13 +2719,12 @@ class NativePlayerActivity : ComponentActivity() {
         }
 
         fun cancelInteractions() {
+            if (pinchActive) finishPinchGesture(cancelled = true)
             gestureConsumed = true
-            verticalGesture = false
-            horizontalGesture = false
+            gestureMode = GestureMode.IDLE
+            lastVerticalY = null
             systemGestureEdge = false
             restoreLongPressSpeed()
-            velocityTracker?.recycle()
-            velocityTracker = null
             cancelGestureDetector()
             lastPanX = null
             lastPanY = null
@@ -2676,10 +2745,6 @@ class NativePlayerActivity : ComponentActivity() {
             zoomTranslationY = 0f
             if (::playerView.isInitialized) {
                 playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                findViewByTag<TextView>("reiflix_aspect_button")?.apply {
-                    text = "Ajustar"
-                    isSelected = false
-                }
                 val video = playerView.videoSurfaceView
                 if (video is TextureView) {
                     video.setTransform(Matrix())
@@ -2691,32 +2756,35 @@ class NativePlayerActivity : ComponentActivity() {
                         translationY = 0f
                     }
                 }
+                updateAspectButtonFromZoom()
             }
         }
 
-        private fun finishPinchGesture() {
+        private fun finishPinchGesture(cancelled: Boolean) {
             if (!pinchActive) return
             pinchActive = false
             gestureConsumed = true
-            logPlayer("GESTURE_END type=pinch requestId=" + requestId.ifEmpty { "-" })
+            gestureMode = GestureMode.PINCH
             lastPanX = null
             lastPanY = null
 
-            if (zoomScale <= ZOOM_SNAP_THRESHOLD) {
-                animateZoomToFit()
-            } else {
-                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                findViewByTag<TextView>("reiflix_aspect_button")?.apply {
-                    text = "Zoom"
-                    isSelected = true
+            if (!cancelled) {
+                logPlayer("GESTURE_END type=pinch requestId=" + requestId.ifEmpty { "-" })
+                if (zoomScale <= ZOOM_SNAP_THRESHOLD) {
+                    animateZoomToFit()
+                } else {
+                    playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    updateAspectButtonFromZoom()
+                    applyZoomTransform()
+                    showFeedback(
+                        "ZOOM " + String.format(java.util.Locale.US, "%.1fx", zoomScale),
+                        900L,
+                    )
                 }
-                applyZoomTransform()
-                showFeedback(
-                    "ZOOM " + String.format(java.util.Locale.US, "%.1fx", zoomScale),
-                    900L,
-                )
+                touchControls()
+            } else {
+                logPlayer("GESTURE_CANCEL type=pinch requestId=" + requestId.ifEmpty { "-" })
             }
-            touchControls()
         }
 
         private fun animateZoomToFit() {
@@ -2763,16 +2831,110 @@ class NativePlayerActivity : ComponentActivity() {
         private fun pointerCenterY(event: MotionEvent): Float =
             if (event.pointerCount >= 2) (event.getY(0) + event.getY(1)) * 0.5f else event.y
 
+        private fun applyPanDelta(deltaX: Float, deltaY: Float) {
+            zoomTranslationX += deltaX
+            zoomTranslationY += deltaY
+            val bounds = calculatePanBounds()
+            val clamped = PlayerGesturePolicy.clampTranslation(
+                zoomTranslationX,
+                zoomTranslationY,
+                bounds,
+            )
+            zoomTranslationX = clamped.first
+            zoomTranslationY = clamped.second
+            applyZoomTransform()
+        }
+
+        private fun calculatePanBounds(): PlayerGesturePolicy.PanBounds {
+            val (baseWidth, baseHeight) = displayedVideoSize()
+            return PlayerGesturePolicy.panBounds(
+                displayedWidth = baseWidth * zoomScale,
+                displayedHeight = baseHeight * zoomScale,
+                viewportWidth = width.toFloat(),
+                viewportHeight = height.toFloat(),
+            )
+        }
+
+        private fun displayedVideoSize(): Pair<Float, Float> {
+            val viewportWidth = width.toFloat()
+            val viewportHeight = height.toFloat()
+            if (viewportWidth <= 1f || viewportHeight <= 1f) {
+                return Pair(viewportWidth.coerceAtLeast(1f), viewportHeight.coerceAtLeast(1f))
+            }
+
+            val video = player.videoSize
+            if (video.width <= 0 || video.height <= 0) {
+                val surface = playerView.videoSurfaceView
+                return Pair(
+                    surface?.width?.toFloat()?.coerceAtLeast(1f) ?: viewportWidth,
+                    surface?.height?.toFloat()?.coerceAtLeast(1f) ?: viewportHeight,
+                )
+            }
+
+            val pixelRatio = video.pixelWidthHeightRatio.takeIf { it.isFinite() && it > 0f } ?: 1f
+            val contentWidth = video.width.toFloat() * pixelRatio
+            val contentHeight = video.height.toFloat()
+            val contentAspect = contentWidth / contentHeight
+            if (!contentAspect.isFinite() || contentAspect <= 0f) {
+                return Pair(viewportWidth, viewportHeight)
+            }
+
+            val fitScale = min(
+                viewportWidth / contentWidth,
+                viewportHeight / contentHeight,
+            )
+            val zoomedScale = max(
+                viewportWidth / contentWidth,
+                viewportHeight / contentHeight,
+            )
+            val baseScale = if (
+                playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            ) {
+                zoomedScale
+            } else {
+                fitScale
+            }
+            return Pair(
+                contentWidth * baseScale,
+                contentHeight * baseScale,
+            )
+        }
+
+        private fun updateAspectButtonFromZoom() {
+            val button = findViewByTag<TextView>("reiflix_aspect_button") ?: return
+            if (zoomScale <= ZOOM_SNAP_THRESHOLD) {
+                if (button.text.toString() == "Zoom") {
+                    button.text = "Ajustar"
+                    button.isSelected = false
+                }
+            } else {
+                button.text = "Zoom"
+                button.isSelected = true
+            }
+        }
+
+        private fun resetTransientState() {
+            gestureMode = GestureMode.IDLE
+            lastPanX = null
+            lastPanY = null
+            lastVerticalY = null
+            systemGestureEdge = false
+        }
+
         private fun applyZoomTransform() {
             val video = playerView.videoSurfaceView ?: return
+            val bounds = calculatePanBounds()
+            val clamped = PlayerGesturePolicy.clampTranslation(
+                zoomTranslationX,
+                zoomTranslationY,
+                bounds,
+            )
+            zoomTranslationX = clamped.first
+            zoomTranslationY = clamped.second
 
             if (video is TextureView) {
                 val matrix = Matrix()
                 if (video.width > 1 && video.height > 1 && width > 1 && height > 1) {
-                    val maxTx = ((video.width * zoomScale) - width).coerceAtLeast(0f) * 0.5f
-                    val maxTy = ((video.height * zoomScale) - height).coerceAtLeast(0f) * 0.5f
-                    zoomTranslationX = zoomTranslationX.coerceIn(-maxTx, maxTx)
-                    zoomTranslationY = zoomTranslationY.coerceIn(-maxTy, maxTy)
                     matrix.setScale(
                         zoomScale,
                         zoomScale,
@@ -2790,10 +2952,6 @@ class NativePlayerActivity : ComponentActivity() {
                     video.post { applyZoomTransform() }
                     return
                 }
-                val maxTx = ((video.width * zoomScale) - width).coerceAtLeast(0f) * 0.5f
-                val maxTy = ((video.height * zoomScale) - height).coerceAtLeast(0f) * 0.5f
-                zoomTranslationX = zoomTranslationX.coerceIn(-maxTx, maxTx)
-                zoomTranslationY = zoomTranslationY.coerceIn(-maxTy, maxTy)
                 video.pivotX = video.width * 0.5f
                 video.pivotY = video.height * 0.5f
                 video.scaleX = zoomScale
@@ -2808,6 +2966,11 @@ class NativePlayerActivity : ComponentActivity() {
     internal object PlayerGesturePolicy {
         enum class Direction { NONE, HORIZONTAL, VERTICAL }
         enum class Side { LEFT, CENTER, RIGHT }
+
+        data class PanBounds(
+            val maxX: Float,
+            val maxY: Float,
+        )
 
         fun direction(dx: Float, dy: Float, touchSlop: Float, dominance: Float = 1.15f): Direction {
             val ax = abs(dx)
@@ -2829,9 +2992,48 @@ class NativePlayerActivity : ComponentActivity() {
                 else -> Side.CENTER
             }
         }
+
+        fun isMeaningfulMovement(dx: Float, dy: Float, touchSlop: Float): Boolean =
+            max(abs(dx), abs(dy)) >= touchSlop
+
+        fun clampZoom(scale: Float, minZoom: Float, maxZoom: Float): Float =
+            scale.coerceIn(minZoom, maxZoom)
+
+        fun panBounds(
+            displayedWidth: Float,
+            displayedHeight: Float,
+            viewportWidth: Float,
+            viewportHeight: Float,
+        ): PanBounds =
+            PanBounds(
+                maxX = max(0f, (displayedWidth - viewportWidth) * 0.5f),
+                maxY = max(0f, (displayedHeight - viewportHeight) * 0.5f),
+            )
+
+        fun clampTranslation(
+            translationX: Float,
+            translationY: Float,
+            bounds: PanBounds,
+        ): Pair<Float, Float> =
+            Pair(
+                translationX.coerceIn(-bounds.maxX, bounds.maxX),
+                translationY.coerceIn(-bounds.maxY, bounds.maxY),
+            )
+
+        fun seekTarget(currentPositionMs: Long, deltaMs: Long, durationMs: Long): Long =
+            if (durationMs <= 0L) {
+                currentPositionMs.coerceAtLeast(0L)
+            } else {
+                (currentPositionMs + deltaMs).coerceIn(0L, durationMs)
+            }
+
+        fun verticalDeltaFraction(deltaY: Float, viewportHeight: Int): Float =
+            if (viewportHeight <= 0) {
+                0f
+            } else {
+                (-(deltaY / viewportHeight.toFloat()) * 0.6f).coerceIn(-0.12f, 0.12f)
+            }
     }
-
-
 
     private enum class SessionState { ACTIVE, EXITING, DESTROYED }
 

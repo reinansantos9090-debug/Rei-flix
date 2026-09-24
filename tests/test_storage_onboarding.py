@@ -447,8 +447,10 @@ class TestAuthorizedStorageDiscovery(unittest.TestCase):
         self.assertIn('"STARTUP"', resume)
         self.assertNotIn("scanMediaStore(null)", resume)
         self.assertNotIn("scanAllStorage(null)", resume)
-        self.assertIn("persistedSafTreeUris().forEach", resume)
-        self.assertIn("NativeScanController.isRunning", resume)
+        self.assertIn("startupDiscoveryTriggered", resume)
+        self.assertIn("publishScanRequest(", resume)
+        self.assertIn('"STARTUP"', resume)
+        self.assertNotIn("persistedSafTreeUris().forEach", resume)
 
     def test_media_permission_transition_and_existing_access_converge_to_scan(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
@@ -475,7 +477,8 @@ class TestAndroidMediaLifecycle(unittest.TestCase):
         receiver = source[source.index("private val storageReceiver"):source.index("private fun registerStorageReceiver", source.index("private val storageReceiver"))]
         self.assertIn("Intent.ACTION_MEDIA_MOUNTED", receiver)
         self.assertIn("Intent.ACTION_MEDIA_SCANNER_FINISHED", receiver)
-        self.assertIn("scheduleMediaStoreIncrementalRescan()", receiver)
+        self.assertIn("publishScanRequest(", receiver)
+        self.assertIn('"VOLUME_MOUNT"', receiver)
         self.assertIn("publishScanRequest(", receiver)
         self.assertNotIn("scanAllStorage(null)", receiver)
         self.assertIn("activityResumed", receiver)

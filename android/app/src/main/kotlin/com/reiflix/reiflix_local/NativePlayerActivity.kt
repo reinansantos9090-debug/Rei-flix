@@ -98,7 +98,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var gestureSafeBottom = 0
     private var volumeGesturesEnabled = false
     private var brightnessGesturesEnabled = false
-    private var doubleTapEnabled = false
+    private var doubleTapEnabled = true
     private var longPressEnabled = false
     private var windowBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
     private var autoHideTimeoutMs = CONTROL_TIMEOUT_MS
@@ -118,6 +118,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastSavedPosition = -1L
+    private var lastProgressPersistAt = 0L
     private var suppressExitEvent = false
     private var exitReported = false
     private var initialSeekApplied = false
@@ -181,7 +182,11 @@ class NativePlayerActivity : ComponentActivity() {
 
     private val progressReporter = object : Runnable {
         override fun run() {
-            saveProgress("player_progress")
+            val now = System.currentTimeMillis()
+            if (now - lastProgressPersistAt >= PROGRESS_PERSIST_INTERVAL_MS) {
+                saveProgress("player_progress")
+                lastProgressPersistAt = now
+            }
             updateProgressUi()
             if (::player.isInitialized && player.playbackState != Player.STATE_ENDED) {
                 handler.postDelayed(this, PROGRESS_INTERVAL_MS)
@@ -200,7 +205,7 @@ class NativePlayerActivity : ComponentActivity() {
         brightnessGesturesEnabled = intent.getBooleanExtra("setting_gestures_brightness",
             gesturePreferences.getBoolean(PREF_GESTURES_BRIGHTNESS, false))
         doubleTapEnabled = intent.getBooleanExtra("setting_gestures_double_tap",
-            gesturePreferences.getBoolean(PREF_GESTURES_DOUBLE_TAP, false))
+            gesturePreferences.getBoolean(PREF_GESTURES_DOUBLE_TAP, true))
         longPressEnabled = intent.getBooleanExtra("setting_gestures_long_press",
             gesturePreferences.getBoolean(PREF_GESTURES_LONG_PRESS, false))
         immersiveSetting = intent.getStringExtra("setting_player_immersive") ?: "always"
@@ -629,6 +634,9 @@ class NativePlayerActivity : ComponentActivity() {
                 }
                 Player.STATE_BUFFERING -> {
                     updatePlayPauseButton()
+                    if (::preparingIndicator.isInitialized && !errorVisible) {
+                        preparingIndicator.visibility = View.VISIBLE
+                    }
                     if (!errorVisible) scheduleControlsHide()
                 }
                 Player.STATE_ENDED -> {
@@ -645,6 +653,11 @@ class NativePlayerActivity : ComponentActivity() {
 
         override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
             if (!isCurrent()) return
+            val speedLabel = String.format(Locale.US, "%.2fx", playbackParameters.speed)
+            findViewByTag<TextView>("reiflix_speed_button")?.apply {
+                text = speedLabel
+                isSelected = true
+            }
             logPlayer(
                 "PLAYBACK_SPEED_CHANGED generation=$generation speed=" +
                     playbackParameters.speed + " pitch=" + playbackParameters.pitch,
@@ -1186,8 +1199,9 @@ class NativePlayerActivity : ComponentActivity() {
         val subtitle = actionButton("Legenda", 92) { showTrackSelection(C.TRACK_TYPE_TEXT, "Legendas") }.apply {
             tag = "reiflix_subtitle_button"
         }
-        val speed = actionButton("Velocidade", 92) { button -> showSpeedSelection(button) }.apply {
+        val speed = actionButton("1.0x", 92) { button -> showSpeedSelection(button) }.apply {
             tag = "reiflix_speed_button"
+            contentDescription = "Velocidade de reprodução"
         }
         val aspect = actionButton("Aspecto", 92) { button -> showAspectSelection(button) }.apply {
             text = aspectModeLabel
@@ -1363,7 +1377,7 @@ class NativePlayerActivity : ComponentActivity() {
         val subtitleCount = if (::player.isInitialized) {
             player.currentTracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported }
         } else 0
-        val audioAvailable = audioCount > 1
+        val audioAvailable = audioCount > 0
         val subtitleAvailable = subtitleCount > 0
         findViewByTag<View>("reiflix_audio_button")?.isEnabled = audioAvailable
         findViewByTag<View>("reiflix_subtitle_button")?.isEnabled = subtitleAvailable
@@ -1399,6 +1413,7 @@ class NativePlayerActivity : ComponentActivity() {
             .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
                 player.setPlaybackSpeed(speeds[which])
                 button.text = labels[which]
+                button.isSelected = true
                 showFeedback(labels[which])
                 touchControls()
                 dialog.dismiss()
@@ -1408,10 +1423,10 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun showAspectSelection(button: TextView) {
-        val labels = arrayOf("Ajustar", "Preencher")
+        val labels = arrayOf("Ajustar", "Preencher", "Zoom")
         val current = when (button.text.toString()) {
             in labels -> button.text.toString()
-            "Original", "Auto", "Zoom" -> "Ajustar"
+            "Original", "Auto" -> "Ajustar"
             else -> "Ajustar"
         }
         val currentIndex = labels.indexOf(current).coerceAtLeast(0)
@@ -1430,10 +1445,14 @@ class NativePlayerActivity : ComponentActivity() {
         if (!::playerView.isInitialized) return
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.resetZoomToFit()
         playerView.resizeMode = when (mode) {
-            "Preencher" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            "Preencher", "Zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
         button.text = mode
+        button.isSelected = mode != "Ajustar"
+        if (mode == "Zoom") {
+            findViewByTag<GestureLayer>("reiflix_gesture_layer")?.enterManualZoomMode()
+        }
         showFeedback(mode)
         touchControls()
         playerView.requestLayout()
@@ -2293,6 +2312,10 @@ class NativePlayerActivity : ComponentActivity() {
 
                     val label = if (zoomScale <= 1.02f) "FIT" else "ZOOM " +
                         String.format(java.util.Locale.US, "%.1fx", zoomScale)
+                    findViewByTag<TextView>("reiflix_aspect_button")?.apply {
+                        text = if (zoomScale <= 1.02f) "Ajustar" else "Zoom"
+                        isSelected = zoomScale > 1.02f
+                    }
                     showFeedback(label, 250L)
                     return true
                 }
@@ -2590,6 +2613,20 @@ class NativePlayerActivity : ComponentActivity() {
             logPlayer("PLAYER_LONG_PRESS_END speed=" + restore + " requestId=" + requestId.ifEmpty { "-" })
         }
 
+        fun enterManualZoomMode() {
+            zoomAnimator?.cancel()
+            zoomAnimator = null
+            zoomScale = 1.15f
+            zoomTranslationX = 0f
+            zoomTranslationY = 0f
+            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            applyZoomTransform()
+            findViewByTag<TextView>("reiflix_aspect_button")?.apply {
+                text = "Zoom"
+                isSelected = true
+            }
+        }
+
         fun refreshZoomForLayout() {
             if (zoomScale > 1.01f) {
                 applyZoomTransform()
@@ -2639,6 +2676,10 @@ class NativePlayerActivity : ComponentActivity() {
             zoomTranslationY = 0f
             if (::playerView.isInitialized) {
                 playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                findViewByTag<TextView>("reiflix_aspect_button")?.apply {
+                    text = "Ajustar"
+                    isSelected = false
+                }
                 val video = playerView.videoSurfaceView
                 if (video is TextureView) {
                     video.setTransform(Matrix())
@@ -2665,6 +2706,10 @@ class NativePlayerActivity : ComponentActivity() {
                 animateZoomToFit()
             } else {
                 playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                findViewByTag<TextView>("reiflix_aspect_button")?.apply {
+                    text = "Zoom"
+                    isSelected = true
+                }
                 applyZoomTransform()
                 showFeedback(
                     "ZOOM " + String.format(java.util.Locale.US, "%.1fx", zoomScale),
@@ -2694,6 +2739,10 @@ class NativePlayerActivity : ComponentActivity() {
                         zoomTranslationX = 0f
                         zoomTranslationY = 0f
                         playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        findViewByTag<TextView>("reiflix_aspect_button")?.apply {
+                            text = "Ajustar"
+                            isSelected = false
+                        }
                         applyZoomTransform()
                         showFeedback("FIT", 900L)
                         zoomAnimator = null
@@ -2793,11 +2842,12 @@ class NativePlayerActivity : ComponentActivity() {
         private const val PREF_GESTURES_LONG_PRESS = "gesture_long_press"
         private const val PREF_LOCK_MODE = "player_lock_mode"
         private const val TAG = "[REIFLIX][PLAYER]"
-        private const val PROGRESS_INTERVAL_MS = 15_000L
+        private const val PROGRESS_INTERVAL_MS = 250L
+        private const val PROGRESS_PERSIST_INTERVAL_MS = 15_000L
         private const val CONTROL_TIMEOUT_MS = 3_500L
         private const val SEEK_PROGRESS_MAX = 1000
         private const val MIN_ZOOM = 1f
-        private const val MAX_ZOOM = 4f
+        private const val MAX_ZOOM = 3f
         private const val ZOOM_SNAP_THRESHOLD = 1.07f
         private const val MAX_RETRY_ATTEMPTS = 2
     }

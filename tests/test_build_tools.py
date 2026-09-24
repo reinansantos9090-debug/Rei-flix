@@ -615,6 +615,12 @@ E: manifest
         self.assertIn("android.software.picture_in_picture", template)
         self.assertIn('pip_feature.set("{" + ANDROID + "}required", "false")', template)
 
+    def test_native_player_uses_only_supported_media3_track_selection_apis(self):
+        player = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
+        self.assertNotIn("setSelectTextByDefault(", player)
+        self.assertIn("setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)", player)
+        self.assertIn("setPreferredTextLanguage(", player)
+
     def test_packaged_manifest_verifier_checks_native_player_pip_contract(self):
         verifier = (ROOT / "scripts/verify_apk_manifest.py").read_text(encoding="utf-8")
         self.assertIn("PLAYER_ACTIVITY", verifier)

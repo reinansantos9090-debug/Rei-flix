@@ -77,6 +77,7 @@ class Prompt141SettingsContractTests(unittest.TestCase):
         settings = self.read(SETTINGS)
         view = self.read(SETTINGS_VIEW)
         main = self.read(MAIN)
+        main_activity = self.read(MAIN_ACTIVITY)
         home = self.read(HOME)
         for key in (
             "player.double_tap_seek_seconds",
@@ -95,9 +96,12 @@ class Prompt141SettingsContractTests(unittest.TestCase):
         ):
             self.assertIn(f'"{key}"', settings)
             self.assertIn(key, view)
-        self.assertIn("setting_player_double_tap_seek_seconds", main)
-        self.assertIn("setting_player_long_press_speed", main)
-        self.assertIn("setting_player_max_video_resolution", main)
+        self.assertIn('"player.double_tap_seek_seconds": settings.get("player.double_tap_seek_seconds")', main)
+        self.assertIn('"player.long_press_speed": settings.get("player.long_press_speed")', main)
+        self.assertIn('"player.max_video_resolution": settings.get("player.max_video_resolution")', main)
+        self.assertIn("setting_player_double_tap_seek_seconds", main_activity)
+        self.assertIn("setting_player_long_press_speed", main_activity)
+        self.assertIn("setting_player_max_video_resolution", main_activity)
         self.assertIn("settings.get(\"library.page_size\")", home)
         self.assertNotIn('"privacy.external_sync"', settings)
         self.assertNotIn('"artwork.offline_cache"', settings)

@@ -255,6 +255,13 @@ class Prompt15BackupRestoreTests(unittest.TestCase):
         self.assertEqual("BACKUP_CHECKSUM_MISMATCH", ctx.exception.code)
         self.assertEqual("before-corruption", self.store.anime_metadata("acao")["title"])
 
+    def test_truncated_backup_is_rejected_with_controlled_error(self):
+        service, raw, _ = self._backup()
+        truncated = raw[:-32]
+        with self.assertRaises(BackupValidationError) as ctx:
+            service.inspect_bytes(truncated)
+        self.assertEqual("BACKUP_INVALID", ctx.exception.code)
+
     def test_restore_rollback_preserves_previous_state_on_transaction_failure(self):
         service, raw, _ = self._backup()
         with self.store._conn() as con:

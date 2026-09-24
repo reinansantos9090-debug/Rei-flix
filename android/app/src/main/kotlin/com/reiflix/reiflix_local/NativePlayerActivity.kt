@@ -101,6 +101,9 @@ class NativePlayerActivity : ComponentActivity() {
     private var doubleTapEnabled = false
     private var longPressEnabled = false
     private var windowBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+    private var autoHideTimeoutMs = CONTROL_TIMEOUT_MS
+    private var immersiveSetting = "always"
+    private var pipEnabled = true
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastSavedPosition = -1L
@@ -145,7 +148,7 @@ class NativePlayerActivity : ComponentActivity() {
         override fun run() {
             if (controlsVisible && !errorVisible) {
                 val elapsed = System.currentTimeMillis() - lastControlsInteraction
-                if (elapsed >= CONTROL_TIMEOUT_MS) {
+                if (autoHideTimeoutMs > 0L && elapsed >= autoHideTimeoutMs) {
                     setControlsVisible(false)
                 } else {
                     handler.postDelayed(this, CONTROL_TIMEOUT_MS - elapsed)
@@ -181,23 +184,33 @@ class NativePlayerActivity : ComponentActivity() {
         requestId = intent.getStringExtra("requestId")?.trim().orEmpty()
         sessionState = SessionState.ACTIVE
         gesturePreferences = getSharedPreferences("reiflix_player_preferences", Context.MODE_PRIVATE)
-        volumeGesturesEnabled = gesturePreferences.getBoolean(PREF_GESTURES_VOLUME, false)
-        brightnessGesturesEnabled = gesturePreferences.getBoolean(PREF_GESTURES_BRIGHTNESS, false)
-        doubleTapEnabled = gesturePreferences.getBoolean(PREF_GESTURES_DOUBLE_TAP, false)
-        longPressEnabled = gesturePreferences.getBoolean(PREF_GESTURES_LONG_PRESS, false)
+        volumeGesturesEnabled = intent.getBooleanExtra("setting_gestures_volume",
+            gesturePreferences.getBoolean(PREF_GESTURES_VOLUME, false))
+        brightnessGesturesEnabled = intent.getBooleanExtra("setting_gestures_brightness",
+            gesturePreferences.getBoolean(PREF_GESTURES_BRIGHTNESS, false))
+        doubleTapEnabled = intent.getBooleanExtra("setting_gestures_double_tap",
+            gesturePreferences.getBoolean(PREF_GESTURES_DOUBLE_TAP, false))
+        longPressEnabled = intent.getBooleanExtra("setting_gestures_long_press",
+            gesturePreferences.getBoolean(PREF_GESTURES_LONG_PRESS, false))
+        immersiveSetting = intent.getStringExtra("setting_player_immersive") ?: "always"
+        autoHideTimeoutMs = intent.getIntExtra("setting_player_auto_hide_seconds", 5)
+            .coerceIn(0, 300) * 1000L
+        pipEnabled = intent.getBooleanExtra("setting_player_pip", true)
         locked = savedInstanceState?.getBoolean("lock_mode", false)
             ?: gesturePreferences.getBoolean(PREF_LOCK_MODE, false)
         controlsVisible = savedInstanceState?.getBoolean("controls_visible", true) ?: true
         controlsRestoredFromState = savedInstanceState?.containsKey("controls_visible") == true
         logPlayer("onCreate requestId=" + requestId.ifEmpty { "-" } + " task=" + taskId)
 
-        enterImmersiveMode()
+        applyConfiguredRotation()
+        if (shouldUseImmersive()) enterImmersiveMode() else restoreSystemUiBeforeExit()
         configureWindow()
         savedInstanceState?.getFloat("window_brightness", WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
             ?.takeIf { it.isFinite() && it >= 0f && it <= 1f }
             ?.let { setWindowBrightness(it) }
         restoredPositionMs = savedInstanceState?.takeIf { it.containsKey("position_ms") }?.getLong("position_ms")
-        aspectModeLabel = savedInstanceState?.getString("aspect_mode_label") ?: "Ajustar"
+        aspectModeLabel = savedInstanceState?.getString("aspect_mode_label")
+            ?: aspectLabelFromSetting(intent.getStringExtra("setting_player_aspect_ratio"))
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             clipChildren = false
@@ -273,14 +286,15 @@ class NativePlayerActivity : ComponentActivity() {
                 ?: intent.getBooleanExtra("autoplay", true)
 
             val savedSpeed = savedInstanceState?.takeIf { it.containsKey("playback_speed") }
-                ?.getFloat("playback_speed") ?: 1f
+                ?.getFloat("playback_speed")
+                ?: intent.getFloatExtra("setting_player_default_speed", 1f)
             if (savedSpeed > 0f && savedSpeed.isFinite()) {
                 player.setPlaybackSpeed(savedSpeed)
             }
 
             val savedResize = savedInstanceState?.takeIf { it.containsKey("resize_mode") }
                 ?.getInt("resize_mode", AspectRatioFrameLayout.RESIZE_MODE_FIT)
-                ?: AspectRatioFrameLayout.RESIZE_MODE_FIT
+                ?: resizeModeFromSetting(intent.getStringExtra("setting_player_aspect_ratio"))
             playerView.resizeMode = savedResize
 
             prepareCurrentMedia("initial", savedInstanceState?.takeIf { it.containsKey("play_when_ready") }?.getBoolean("play_when_ready"))
@@ -1490,7 +1504,7 @@ class NativePlayerActivity : ComponentActivity() {
         lastControlsInteraction = System.currentTimeMillis()
         handler.removeCallbacks(controlsHider)
         if (::player.isInitialized && player.isPlaying && !errorVisible) {
-            handler.postDelayed(controlsHider, CONTROL_TIMEOUT_MS)
+            if (autoHideTimeoutMs > 0L) handler.postDelayed(controlsHider, autoHideTimeoutMs)
         }
     }
 
@@ -1759,7 +1773,7 @@ class NativePlayerActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         logPlayer("onStart requestId=" + requestId.ifEmpty { "-" })
-        if (!inPictureInPicture) enterImmersiveMode()
+        if (!inPictureInPicture && shouldUseImmersive()) enterImmersiveMode()
     }
 
     override fun onResume() {
@@ -1868,6 +1882,35 @@ class NativePlayerActivity : ComponentActivity() {
         logPlayer("onDestroy finishing=" + isFinishing + " changingConfig=" + isChangingConfigurations)
         sessionState = SessionState.DESTROYED
         super.onDestroy()
+    }
+
+    private fun shouldUseImmersive(): Boolean =
+        when (immersiveSetting) {
+            "never" -> false
+            "landscape" -> resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            else -> true
+        }
+
+    private fun applyConfiguredRotation() {
+        requestedOrientation = when (intent.getStringExtra("setting_player_rotation") ?: "auto") {
+            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            "landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        }
+    }
+
+    private fun aspectLabelFromSetting(value: String?): String = when (value) {
+        "auto" -> "Auto"
+        "fill" -> "Preencher"
+        "zoom" -> "Zoom"
+        "original" -> "Original"
+        else -> "Ajustar"
+    }
+
+    private fun resizeModeFromSetting(value: String?): Int = when (value) {
+        "fill" -> AspectRatioFrameLayout.RESIZE_MODE_FIT // custom crop-free Fill is applied by PlayerView
+        "zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
     }
 
     private fun enterImmersiveMode() {

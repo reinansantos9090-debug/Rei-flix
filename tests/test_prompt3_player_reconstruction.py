@@ -106,9 +106,12 @@ class Prompt3PlayerReconstructionTests(unittest.TestCase):
     def test_disabled_vertical_gestures_are_silent(self):
         self.assertIn("if (brightnessGesturesEnabled)", self.player)
         self.assertIn("if (volumeGesturesEnabled)", self.player)
-        self.assertIn("Disabled gestures are deliberately silent", self.player)
         self.assertNotIn("Gesto de volume desligado", self.player[self.player.index("private inner class GestureLayer"):])
-        self.assertNotIn("Gesto de brilho desligado", self.player[self.player.index("private inner class GestureLayer"):])
+        gesture_layer = self.player[self.player.index("private inner class GestureLayer"):]
+        self.assertNotIn("Gesto de volume desligado", gesture_layer)
+        self.assertNotIn("Gesto de brilho desligado", gesture_layer)
+        self.assertIn("if (brightnessGesturesEnabled)", gesture_layer)
+        self.assertIn("if (volumeGesturesEnabled)", gesture_layer)
 
     def test_touch_targets_and_accessibility_contract(self):
         self.assertIn("minHeight = dp(44)", self.player)

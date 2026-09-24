@@ -126,6 +126,7 @@ class LibraryService:
         """Return local/cached metadata without making the library depend on network."""
         allow_network = bool(allow_network and self._setting("metadata.anilist_enabled", True))
         cached = self.store.anime_metadata(lookup_title)
+        cached_id = cached.get("anilist_id") if cached else None
         match_state = self.store.anilist_match(lookup_title) or {}
         associated_id = match_state.get("anilist_id") or self.store.association(lookup_title)
         if cached:

@@ -1026,7 +1026,12 @@ class LibraryService:
         self.store.clear_anilist_match(lookup_title)
         logger.info("ANILIST_MATCH_UNLINK title=%s", lookup_title)
         return True
-    def catalog(self, favorites_only=False): return self.genre_registry.enrich_catalog(self.store.catalog(favorites_only))
+    def catalog(self, favorites_only=False):
+        return self.genre_registry.enrich_catalog(self.store.catalog(favorites_only))
+
+    def catalog_by_ids(self, anime_ids):
+        """Return a bounded projection for selected anime IDs using the canonical store."""
+        return self.genre_registry.enrich_catalog(self.store.catalog(anime_ids=anime_ids))
 
     def catalog_page(self, **filters):
         """Return a bounded local catalog page while preserving GenreRegistry enrichment."""

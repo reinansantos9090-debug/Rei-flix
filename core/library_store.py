@@ -24,7 +24,14 @@ class LibraryStore:
         os.makedirs(self.cache_dir, exist_ok=True)
         os.makedirs(self.backup_dir, exist_ok=True)
         self._last_playback_event_at = {}
-        self._init()
+        self.recovery_error = None
+        try:
+            self._init()
+        except Exception as exc:
+            # A corrupt SQLite file must not be replaced or deleted implicitly.
+            # Keep the store object constructible so the explicit Recovery Mode
+            # can diagnose and offer a validated, user-confirmed restore.
+            self.recovery_error = str(exc)
 
     @staticmethod
     def _row_factory(cursor, row):

@@ -50,10 +50,11 @@ class Prompt2BackLifecycleTests(unittest.TestCase):
 
     def test_player_launch_is_single_flight(self):
         source = self.read(MAIN_ACTIVITY)
-        self.assertIn("if (activePlayerRequestId != null)", source)
-        self.assertIn("PLAY_HANDOFF_BUSY", source)
+        self.assertIn("previousActiveRequestId", source)
+        self.assertIn("reusingPlayerActivity", source)
         self.assertIn("PLAY_HANDOFF_DUPLICATE", source)
         self.assertIn("activePlayerRequestId = requestId.takeIf { it.isNotBlank() }", source)
+        self.assertIn("FLAG_ACTIVITY_REORDER_TO_FRONT", source)
 
     def test_main_resume_discovery_is_not_unconditional(self):
         source = self.read(MAIN_ACTIVITY)

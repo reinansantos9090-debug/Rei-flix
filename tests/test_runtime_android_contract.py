@@ -133,7 +133,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             'tag = "reiflix_gesture_brightness"',
             'tag = "reiflix_gesture_double_tap"',
             'tag = "reiflix_gesture_long_press"',
-            'arrayOf("Ajustar", "Preencher")',
+            'arrayOf("Ajustar", "Preencher", "Zoom")',
         ):
             self.assertIn(token, source)
         for token in (

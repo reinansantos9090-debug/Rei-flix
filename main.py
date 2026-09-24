@@ -134,29 +134,10 @@ async def main(page: ft.Page):
         )
         safe_update()
 
-    scan_coordinator = ScanCoordinator(
-        bridge,
-        store,
-        _authorized_scan_targets,
-        on_state=_scan_coordinator_state_changed,
-    )
-    pending_folder_removals=set()
-    # View-local query/filter state survives Details/Player round-trips while
-    # the catalog itself is still read afresh from SQLite on each view entry.
-    home_state = {}
-    organize_state = {}
-    navigation = NavigationController()
-    saf_selection = SafSelectionState()
-    # One Python navigation stack, one persistent Flet host, and cached
-    # top-level screens. Returning to a screen must not destroy its scroll,
-    # search, filter or focus state.
-    screen_cache = {}
-    # Flet's page.views is the navigation surface consumed by the Android/system
-    # Back dispatcher. The existing NavigationController remains the single
-    # logical source of truth; page.views mirrors its stack without introducing
-    # a second navigation model.
-    # Runtime snapshots are deliberately not stored in SQLite: only Android is
-    # proof of a current grant.  ``dismissed`` prevents an automatic onboarding loop.
+    # Resolve the callback and its runtime capability state before constructing
+    # ScanCoordinator. Python binds function definitions as local names only when
+    # execution reaches the definition; constructing the coordinator first caused
+    # startup-time UnboundLocalError before the storage UI could render.
     storage_onboarding = {"dismissed": False, "dialog_open": False, "waiting_for_result": False}
     storage_capabilities = [StorageCapabilities.unknown()]
 
@@ -180,6 +161,30 @@ async def main(page: ft.Page):
                 if not scope_ref or root == scope_ref:
                     targets.append(ScanTarget("saf", root))
         return targets
+
+    scan_coordinator = ScanCoordinator(
+        bridge,
+        store,
+        _authorized_scan_targets,
+        on_state=_scan_coordinator_state_changed,
+    )
+    pending_folder_removals=set()
+    # View-local query/filter state survives Details/Player round-trips while
+    # the catalog itself is still read afresh from SQLite on each view entry.
+    home_state = {}
+    organize_state = {}
+    navigation = NavigationController()
+    saf_selection = SafSelectionState()
+    # One Python navigation stack, one persistent Flet host, and cached
+    # top-level screens. Returning to a screen must not destroy its scroll,
+    # search, filter or focus state.
+    screen_cache = {}
+    # Flet's page.views is the navigation surface consumed by the Android/system
+    # Back dispatcher. The existing NavigationController remains the single
+    # logical source of truth; page.views mirrors its stack without introducing
+    # a second navigation model.
+    # Runtime snapshots are deliberately not stored in SQLite: only Android is
+    # proof of a current grant. ``dismissed`` prevents an automatic onboarding loop.
     processed_native_operations = set()
     back_state = {"last_at": 0.0, "last_action": None}
     BACK_DEBOUNCE_SECONDS = 0.30

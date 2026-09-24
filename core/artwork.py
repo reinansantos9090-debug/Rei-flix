@@ -1,4 +1,4 @@
-"""Persistent, local-first artwork engine for Rei-Flix.
+"""Persistent, local-first Artwork Engine 2.0 for Rei-Flix.
 
 Artwork is an enrichment layer.  The local catalog, NativeIndex/scanners and
 AniList matching remain authoritative for their own domains.  This module only

@@ -56,11 +56,13 @@ class RecoveryModeTests(unittest.TestCase):
             self.assertEqual("keep@example.invalid", restored.account().get("email"))
 
     def test_recovery_refuses_restore_if_authentication_cannot_be_read(self):
-        with tempfile.TemporaryDirectory() as root:
+        with tempfile.TemporaryDirectory() as source_root, tempfile.TemporaryDirectory() as root:
+            source = LibraryStore(source_root)
+            raw = open(source.create_backup(), "rb").read()
             store = LibraryStore(root)
             with open(store.db_path, "r+b") as handle:
                 handle.seek(0)
                 handle.write(b"not-a-sqlite-database")
             with self.assertRaises(RecoveryError) as ctx:
-                RecoveryService(store).restore_backup(b"invalid")
-            self.assertEqual("RECOVERY_BACKUP_INVALID", ctx.exception.code)
+                RecoveryService(store).restore_backup(raw)
+            self.assertEqual("RECOVERY_AUTH_PRESERVATION_FAILED", ctx.exception.code)

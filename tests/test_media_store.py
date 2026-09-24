@@ -67,7 +67,8 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn(".setUri(uri)", player)
-        self.assertIn("contentResolver.openFileDescriptor(localUri, \"r\")", player)
+        self.assertIn("validateLocalSource", player)
+        self.assertIn('openFileDescriptor(uri, "r")', player)
         self.assertNotIn("Uri.fromFile", main)
         self.assertNotIn("/storage/emulated/0", main)
 

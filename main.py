@@ -1496,11 +1496,6 @@ async def main(page: ft.Page):
                                     else:
                                         store.update_folder_status(tree_uri, 'unavailable', event.get('message', 'Não foi possível acessar a pasta.'))
                                         store.mark_source_unavailable(tree_uri, 'saf_scan_error')
-                                # A re-scan has no successful result event to clear
-                                # its lock.  Without this, Settings can remain on its
-                                # disabled loading button after one revoked grant.
-                                if scan_in_progress[0]:
-
                             if event_type == 'google_error':
                                 code = str(event.get('code') or 'credential_error')
                                 account_state[0] = 'configuration_required' if code == 'configuration_required' else 'error'

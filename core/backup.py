@@ -544,10 +544,11 @@ class BackupService:
         try:
             extracted, mappings, created_assets, tempdir = self._prepare_restore(backup_path)
             self.store.restore_backup_transaction(extracted, artwork_mappings=mappings)
+            actual = self._database_counts(self.store.db_path)
             return {
                 "preview": preview,
                 "safety_backup": safety,
-                "report": self._restore_report(preview, mappings),
+                "report": self._restore_report(preview, mappings, actual_counts=actual),
             }
         except Exception as exc:
             for path in created_assets:
@@ -572,15 +573,20 @@ class BackupService:
             return self.restore_file(path)
 
     @staticmethod
-    def _restore_report(preview: dict[str, Any], mappings: list[tuple[str, str]]) -> dict[str, Any]:
+    def _restore_report(
+        preview: dict[str, Any],
+        mappings: list[tuple[str, str]],
+        *,
+        actual_counts: dict[str, int] | None = None,
+    ) -> dict[str, Any]:
         counts = preview.get("counts") or {}
-        missing = int(counts.get("missing_files", 0))
+        actual = actual_counts or counts
         return {
-            "imported": int(counts.get("anime", 0)) + int(counts.get("episodes", 0)),
+            "imported": int(actual.get("anime", 0)) + int(actual.get("episodes", 0)),
             "merged": 0,
             "updated": 0,
             "ignored": 0,
-            "missing_files": missing,
+            "missing_files": int(actual.get("missing_files", 0)),
             "conflicts": 0,
             "warnings": [
                 "Autenticação Google não foi restaurada.",

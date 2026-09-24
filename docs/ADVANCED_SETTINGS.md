@@ -4,9 +4,9 @@
 
 O Prompt 17 usa CloudStream, Nova Video Player e Animiru/AnIyomi somente como referências de comportamento e de organização de opções. Nenhum branding, tela ou código desses projetos foi copiado.
 
-CloudStream mantém um player configurável, mas seu projeto é GPL-3.0 e seu foco inclui extensões/fontes/streaming; essas partes não foram incorporadas ao Rei-Flix. citeturn662287search2  
-Nova Video Player documenta gestos, velocidade, aspect ratio e modos de reprodução para mídia local; seu repositório é Apache-2.0. citeturn526005search0turn526005search1turn526005search12  
-Aniyomi/Animiru documentam categorias de player para controles, gestos, decoder, legendas, áudio e configurações avançadas; Aniyomi é Apache-2.0. citeturn434000search0turn434000search4turn434000search6turn434000search11turn918538search4  
+CloudStream mantém um player configurável, mas seu projeto é GPL-3.0 e seu foco inclui extensões/fontes/streaming; essas partes não foram incorporadas ao Rei-Flix.  
+Nova Video Player documenta gestos, velocidade, aspect ratio e modos de reprodução para mídia local; seu repositório é Apache-2.0.  
+Aniyomi/Animiru documentam categorias de player para controles, gestos, decoder, legendas, áudio e configurações avançadas; Aniyomi é Apache-2.0.  
 A implementação do Rei-Flix continua própria e usa SettingsStore, LibraryService, ArtworkEngine e NativePlayerActivity existentes.
 
 ## Matriz de auditoria
@@ -73,7 +73,7 @@ A implementação do Rei-Flix continua própria e usa SettingsStore, LibraryServ
 | Artwork remoto | Artwork | true | bloqueia/permite downloads remotos pelo ArtworkEngine |
 | Limite do cache de artwork | Artwork/Desempenho | 128 MB | altera o limite do único ArtworkEngine |
 
-Media3 permite alterar TrackSelectionParameters antes e durante a reprodução, inclusive por restrições de seleção. citeturn434000search11
+Media3 permite alterar TrackSelectionParameters antes e durante a reprodução, inclusive por restrições de seleção.
 
 ## Configurações removidas por falta de efeito real
 
@@ -104,26 +104,26 @@ Não foi implementado um seletor de decoder alternativo, filtros de vídeo, dela
 
 ### CloudStream
 - Repositório: https://github.com/recloudstream/cloudstream
-- Licença indicada pelo repositório: GPL-3.0. citeturn662287search2
+- Licença indicada pelo repositório: GPL-3.0.
 
 ### Nova Player
-- FAQ sobre aspect ratio e playback speed: https://github.com/nova-video-player/aos-AVP/blob/nova/faq/index.html citeturn526005search0
-- FAQ sobre touch zones e gestures: https://github.com/nova-video-player/aos-AVP/blob/nova/faq/faq.md citeturn526005search1
-- Repositório e licença: https://github.com/nova-video-player/aos-AVP citeturn526005search12
+- FAQ sobre aspect ratio e playback speed: https://github.com/nova-video-player/aos-AVP/blob/nova/faq/index.html
+- FAQ sobre touch zones e gestures: https://github.com/nova-video-player/aos-AVP/blob/nova/faq/faq.md
+- Repositório e licença: https://github.com/nova-video-player/aos-AVP
 
 ### Animiru / Aniyomi
-- Aniyomi player settings: https://aniyomi.org/docs/guides/player-settings/ citeturn434000search0
-- Gestures: https://aniyomi.org/docs/guides/player-settings/gestures citeturn434000search4
-- Internal player: https://aniyomi.org/docs/guides/player-settings/internal-player-settings citeturn434000search6
-- Decoder: https://aniyomi.org/docs/guides/player-settings/decoder citeturn434000search1
-- Audio: https://aniyomi.org/docs/guides/player-settings/audio citeturn434000search2
-- Subtitles: https://aniyomi.org/docs/guides/player-settings/subtitles citeturn434000search5
-- Advanced: https://aniyomi.org/docs/guides/player-settings/advanced citeturn434000search3
+- Aniyomi player settings: https://aniyomi.org/docs/guides/player-settings/
+- Gestures: https://aniyomi.org/docs/guides/player-settings/gestures
+- Internal player: https://aniyomi.org/docs/guides/player-settings/internal-player-settings
+- Decoder: https://aniyomi.org/docs/guides/player-settings/decoder
+- Audio: https://aniyomi.org/docs/guides/player-settings/audio
+- Subtitles: https://aniyomi.org/docs/guides/player-settings/subtitles
+- Advanced: https://aniyomi.org/docs/guides/player-settings/advanced
 
-Animiru forks of the Aniyomi lineage document a configurable mpv-based player and local watching, but that player engine was not copied into Rei-Flix. citeturn918538search1turn918538search2
+Animiru forks of the Aniyomi lineage document a configurable mpv-based player and local watching, but that player engine was not copied into Rei-Flix.
 
 ### Android / Media3
-- Track selection parameters: https://developer.android.com/media/media3/exoplayer/track-selection citeturn434000search11
+- Track selection parameters: https://developer.android.com/media/media3/exoplayer/track-selection
 - SubtitleView APIs used by this phase: AndroidX Media3 SubtitleView documentation was consulted for embedded styles, fractional text size and bottom padding.
 
 ## Validation status

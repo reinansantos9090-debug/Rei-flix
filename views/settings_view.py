@@ -790,7 +790,8 @@ class SettingsView:
                     ft.OutlinedButton("Atualizar biblioteca", icon=ft.Icons.REFRESH, on_click=refresh),
                 ], wrap=True),
                 ft.Row([
-                    ft.OutlinedButton("Verificar permissão de vídeos", on_click=permission),
+                    ft.OutlinedButton("Verificar permissão de vídeos", on_click=verify_permission),
+                    ft.OutlinedButton("Solicitar permissão de vídeos", on_click=request_permission),
                     ft.OutlinedButton("Armazenamento amplo", on_click=broad),
                 ], wrap=True),
             ], ("storage","armazenamento","permission","saf","mediastore","scan")))

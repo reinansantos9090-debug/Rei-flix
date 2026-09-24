@@ -464,11 +464,11 @@ class NativePlayerActivity : ComponentActivity() {
         }
 
         override fun onPositionDiscontinuity(
-            if (!isCurrent()) return
             oldPosition: Player.PositionInfo,
             newPosition: Player.PositionInfo,
             reason: Int,
         ) {
+            if (!isCurrent()) return
             if (reason == Player.DISCONTINUITY_REASON_SEEK ||
                 reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT
             ) {

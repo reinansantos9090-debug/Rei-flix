@@ -1032,11 +1032,22 @@ class LibraryService:
         return self.artwork.clear()
 
     def clear_anilist_cache(self):
-        """Compatibility facade: clear refreshable artwork only."""
+        """Compatibility facade for Settings: clear refreshable artwork safely."""
         removed = self.clear_artwork_cache()
+        # Prompt-1..7 stored AniList covers directly in store.cache_dir.
+        # Keep that legacy cache migration-safe: only files in the dedicated
+        # covers root are removed; the new artwork/ subdirectory is owned by
+        # ArtworkEngine and was already cleared above.
+        legacy_removed = 0
+        try:
+            for entry in os.scandir(self.store.cache_dir):
+                if entry.is_file():
+                    os.unlink(entry.path)
+                    legacy_removed += 1
+        except OSError as exc:
+            raise RuntimeError("Não foi possível limpar o cache de capas.") from exc
         self.store.clear_anilist_metadata_cache()
-        return removed
-
+        return removed + legacy_removed
     @staticmethod
     def organize_summary(catalog):
         """Build Organize categories from the same search/filter policy used by collections.

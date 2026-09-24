@@ -462,6 +462,11 @@ E: manifest
         self.assertIn("if (brightnessGesturesEnabled)", player)
         self.assertIn("if (volumeGesturesEnabled)", player)
 
+    def test_settings_inner_back_is_not_duplicated(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertEqual(main.count("SETTINGS_INNER_BACK"), 1)
+        self.assertEqual(main.count('if route_before == "settings":'), 1)
+
     def test_settings_inner_back_is_registered_with_host_navigation(self):
         settings = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
         main = (ROOT / "main.py").read_text(encoding="utf-8")

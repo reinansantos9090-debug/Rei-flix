@@ -252,7 +252,8 @@ class ProfessionalMetadataTests(unittest.TestCase):
         self.assertEqual(len(result), 1)
         row = self.store.anime_metadata('attack on titan')
         self.assertEqual(row['anilist_id'], 16498)
-        self.assertEqual(row['cover_cache'], str(cover))
+        self.assertNotEqual(row['cover_cache'], str(cover))
+        self.assertTrue(Path(row['cover_cache']).is_file())
         self.assertEqual(self.store.association('attack on titan'), 16498)
         artwork_downloader.assert_called_once_with('https://img.example/a.jpg')
 

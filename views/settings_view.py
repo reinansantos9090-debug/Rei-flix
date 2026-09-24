@@ -435,6 +435,9 @@ class SettingsView:
                             f"Restore concluído. {report.get('missing_files', 0)} arquivo(s) permaneceram como missing."
                         )
                         rebuild()
+                    except BackupError as exc:
+                        logger.exception("backup restore failed: %s", getattr(exc, "code", "RESTORE_FAILED"))
+                        notice(str(exc), True)
                     except Exception:
                         logger.exception("backup restore failed")
                         notice("Restore recusado ou falhou; o estado anterior foi preservado.", True)

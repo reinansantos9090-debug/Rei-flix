@@ -250,6 +250,7 @@ class BackupService:
         stored_entries = integrity.get("entries") or {}
         actual_entries: dict[str, dict[str, Any]] = {}
         by_name = {self._safe_member_name(info.filename): info for info in infos}
+        by_name.pop("manifest.json", None)
         for name, info in by_name.items():
             with archive.open(info, "r") as stream:
                 digest, size = self._sha256_stream(stream)

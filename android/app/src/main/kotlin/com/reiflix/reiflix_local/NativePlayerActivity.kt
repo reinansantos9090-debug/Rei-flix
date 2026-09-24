@@ -232,22 +232,26 @@ class NativePlayerActivity : ComponentActivity() {
 
         val rawUri = newIntent.getStringExtra("uri")
         if (rawUri.isNullOrBlank()) {
+            episodeChangePending = false
             showPlayerError("Arquivo local inválido.", "missing_uri_on_reuse")
             return
         }
         val normalized = normalizeLocalReference(rawUri)
         if (normalized == null) {
+            episodeChangePending = false
             showPlayerError("Referência local inválida.", "invalid_uri_on_reuse")
             return
         }
         val preflightError = validateLocalSource(normalized)
         if (preflightError != null) {
+            episodeChangePending = false
             showPlayerError(preflightError, "preflight_on_reuse")
             return
         }
 
         uri = normalized
         requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
+        episodeChangePending = false
         restoredPositionMs = null
         initialSeekApplied = false
         completionReported = false
@@ -1079,26 +1083,21 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun requestEpisode(eventType: String) {
-        if (!::player.isInitialized) return
+        if (!::player.isInitialized || episodeChangePending || errorVisible) return
         if (!completionReported) saveProgress("player_progress", force = true)
-        suppressExitEvent = true
+        episodeChangePending = true
         val payload = JSONObject()
             .put("uri", uri.toString())
             .put("requestId", requestId)
+            .put("positionMs", player.currentPosition.coerceAtLeast(0L))
+            .put("durationMs", player.duration.coerceAtLeast(0L))
         NativeMailbox.write(
             this,
             JSONObject().put("type", eventType)
                 .put("requestId", requestId)
                 .put("payload", payload)
         )
-        logPlayer(eventType + " requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri)
-        setResult(
-            RESULT_OK,
-            Intent()
-                .putExtra("requestId", requestId)
-                .putExtra("reason", eventType),
-        )
-        finish()
+        logPlayer(eventType + " requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri + " keepActivity=true")
     }
 
     private fun seekToSavedPosition(savedPositionMs: Long) {

@@ -1588,6 +1588,9 @@ class MainActivity : FlutterFragmentActivity() {
                 .putExtra("setting_gestures_brightness", source.getQueryParameter("setting_gestures_brightness")?.toBooleanStrictOrNull() ?: false)
                 .putExtra("setting_gestures_double_tap", source.getQueryParameter("setting_gestures_double_tap")?.toBooleanStrictOrNull() ?: false)
                 .putExtra("setting_gestures_long_press", source.getQueryParameter("setting_gestures_long_press")?.toBooleanStrictOrNull() ?: false)
+                .putExtra("setting_audio_preferred_language", source.getQueryParameter("setting_audio_preferred_language").orEmpty())
+                .putExtra("setting_audio_preferred_subtitle_language", source.getQueryParameter("setting_audio_preferred_subtitle_language").orEmpty())
+                .putExtra("setting_audio_subtitles", source.getQueryParameter("setting_audio_subtitles") ?: "auto")
 
             Log.i(tag, "PLAY_HANDOFF_START requestId=" + requestId.ifEmpty { "-" } + " component=" + intent.component)
 

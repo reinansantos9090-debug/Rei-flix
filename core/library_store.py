@@ -14,7 +14,7 @@ from core.consumption import consumption_state, is_completed, is_in_progress, is
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 28
+    SCHEMA_VERSION = 29
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -101,6 +101,16 @@ class LibraryStore:
               priority INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ready',
               discovered_at REAL NOT NULL, updated_at REAL NOT NULL, last_attempt_at REAL,
               failure_count INTEGER NOT NULL DEFAULT 0,
+              artwork_key TEXT,
+              variant TEXT NOT NULL DEFAULT 'default',
+              byte_size INTEGER,
+              width INTEGER,
+              height INTEGER,
+              checksum TEXT,
+              content_type TEXT,
+              last_access REAL,
+              next_retry_at REAL,
+              http_status INTEGER,
               UNIQUE(entity_type, entity_id, artwork_type, source_ref)
             );
             CREATE INDEX IF NOT EXISTS idx_artwork_entity
@@ -188,6 +198,24 @@ class LibraryStore:
             c.execute("CREATE INDEX IF NOT EXISTS idx_scan_runs_status ON scan_runs(status, started_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_anime_anilist_match ON anime(anilist_id, anilist_match_status, anilist_match_manual)")
             c.execute("UPDATE anime SET anilist_match_status=CASE WHEN metadata_status='manual' AND anilist_id IS NOT NULL THEN 'manual' WHEN anilist_id IS NOT NULL THEN 'matched' ELSE COALESCE(NULLIF(anilist_match_status,''),'unmatched') END WHERE anilist_id IS NOT NULL OR anilist_match_status IS NULL")
+            artwork_columns = {r[1] for r in c.execute("PRAGMA table_info(artwork)")}
+            for column, definition in {
+                "artwork_key": "TEXT",
+                "variant": "TEXT NOT NULL DEFAULT 'default'",
+                "byte_size": "INTEGER",
+                "width": "INTEGER",
+                "height": "INTEGER",
+                "checksum": "TEXT",
+                "content_type": "TEXT",
+                "last_access": "REAL",
+                "next_retry_at": "REAL",
+                "http_status": "INTEGER",
+            }.items():
+                if column not in artwork_columns:
+                    c.execute(f"ALTER TABLE artwork ADD COLUMN {column} {definition}")
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_artwork_key ON artwork(artwork_key) WHERE artwork_key IS NOT NULL")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_artwork_last_access ON artwork(last_access)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_artwork_retry ON artwork(status, next_retry_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_anime_pinned ON anime(is_pinned, added_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_anime_media_kind ON anime(media_kind, added_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_hierarchy ON episodes(anime_id, episode_type, season, number, absolute_number)")

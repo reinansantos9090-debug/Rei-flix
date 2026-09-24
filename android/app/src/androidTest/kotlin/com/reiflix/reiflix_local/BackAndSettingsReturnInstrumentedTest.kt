@@ -76,7 +76,15 @@ class BackAndSettingsReturnInstrumentedTest {
     }
 
     @Test
-    fun appSystemBackIsHandledInsideReiFlix() {
+    fun appSystemBackFromChildActivityReturnsToReiFlix() {
+        val intent = Intent(target, NativePlayerActivity::class.java)
+            .putExtra("requestId", "instrumented-system-back")
+            .putExtra("uri", "content://invalid/reiflix-system-back")
+            .putExtra("title", "Invalid fixture")
+            .putExtra("autoplay", false)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        InstrumentationRegistry.getInstrumentation().startActivitySync(intent)
+        waitForForegroundPackage(target.packageName)
         assertTrue(
             "UiDevice.pressBack() must dispatch the supported system Back action",
             device.pressBack(),

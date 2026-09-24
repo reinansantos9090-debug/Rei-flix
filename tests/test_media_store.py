@@ -72,7 +72,7 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
         self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", player)
         self.assertIn(".setUri(mediaUri)", player)
         self.assertIn("validateLocalSource", player)
-        self.assertIn('openFileDescriptor(uri, "r")', player)
+        self.assertIn('openFileDescriptor(localUri, "r")', player)
         self.assertNotIn("Uri.fromFile", main + player)
         self.assertNotIn("/storage/emulated/0", main + player)
 

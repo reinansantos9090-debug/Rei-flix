@@ -22,7 +22,7 @@ The inspected HEAD contains NativeMailbox, NativeIndex, LibraryStore, LibrarySer
 | RF-005 | AniList/artwork | LibraryService already owns AniListClient and ArtworkEngine; cover_url/cover_cache and SQLite artwork persistence exist. | EXISTE / PARCIAL | Prompts 7-8 |
 | RF-006 | Navigation lag | Home/Organize already use asyncio.to_thread/page.run_task in relevant paths; full attribution requires runtime profiling. | PARCIAL / INCONCLUSIVO | Prompt 9 |
 | RF-007 | Player | Media3 NativePlayerActivity, player_error/player_exited contracts and Python event handling already exist. | EXISTE / PARCIAL | Prompts 11-13 |
-| RF-008 | Horizontal seek | NativePlayerActivity explicitly has GestureMode.HORIZONTAL_SEEK and a horizontal-drag path. | REGRESSÃO CONFIRMADA POR ANÁLISE ESTÁTICA | Prompt 12 |
+| RF-008 | Horizontal seek | Prompt 12 removed horizontal swipe-to-seek; the current GestureLayer classifies horizontal movement and explicitly ignores it. | CORRIGIDO POR ANÁLISE ESTÁTICA | Prompt 12 |
 | RF-009 | Player/lifecycle coupling | MainActivity and NativePlayerActivity have lifecycle handling; MainActivity also has resume discovery and storage/media observer scan paths. | REGRESSÃO POTENCIAL / INCONCLUSIVO | Prompt 3 |
 
 ## Key findings
@@ -47,7 +47,7 @@ There are two concepts: local GenreClassifier.RULES and AniList metadata genres.
 Artwork is not missing. ArtworkEngine exists and is connected to LibraryService; LibraryStore has artwork persistence and a covers cache. Prompt 1 therefore does not create another artwork subsystem.
 
 ### Player
-Media3 remains the player engine. NativePlayerActivity already has player_error/player_exited contracts, immersive handling, gesture code, aspect-ratio support and track UI. Horizontal seek is still explicitly implemented and is a concrete target for Prompt 12.
+Media3 remains the player engine. NativePlayerActivity already has player_error/player_exited contracts, immersive handling, gesture code, aspect-ratio support and track UI. Prompt 12 now removes horizontal swipe-to-seek and keeps seek on explicit controls/seekbar; vertical gestures are optional and touch-arbitrated.
 
 ## External references
 

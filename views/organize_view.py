@@ -569,6 +569,7 @@ class OrganizeView:
             collection_summary.value = f'{total_matches[0]} anime(s) • {suffix}'
             page_loading[0] = False
             page.update()
+            await restore_scroll_position()
 
         def on_collection_scroll(event):
             try:

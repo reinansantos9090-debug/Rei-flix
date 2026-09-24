@@ -463,6 +463,9 @@ class HomeView:
             except Exception:
                 logger.exception('Home metadata/artwork hydration failed', extra={'screen':'home','requestId':'-','library_items':len(items)})
 
+        async def retry_load_catalog(_event=None):
+            await load_catalog()
+
         async def load_catalog():
             status.visible = True
             status.controls = [
@@ -479,7 +482,7 @@ class HomeView:
                 status.controls = [
                     ft.Icon(ft.Icons.ERROR_OUTLINE, color='#FFB4AB', size=18),
                     ft.Text('Não foi possível ler a biblioteca local agora.', color='#FFB4AB', size=12),
-                    ft.TextButton('Tentar novamente', on_click=lambda _: page.run_task(load_catalog)),
+                    ft.TextButton('Tentar novamente', on_click=retry_load_catalog),
                 ]
                 status.visible = True
                 page.update()

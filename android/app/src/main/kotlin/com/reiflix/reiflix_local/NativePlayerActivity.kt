@@ -2051,19 +2051,20 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun restoreSystemUiBeforeExit() {
         runCatching {
-            if (Build.VERSION.SDK_INT < 35) {
-                WindowCompat.setDecorFitsSystemWindows(window, true)
-            }
+            // Do not reveal the Android bars during the hand-off back to MainActivity.
+            // MainActivity owns the app-level edge-to-edge policy and will re-apply it
+            // in onResume. Keeping this transition hidden avoids a visible bar flash.
+            WindowCompat.setDecorFitsSystemWindows(window, false)
             WindowInsetsControllerCompat(window, window.decorView).apply {
                 isAppearanceLightStatusBars = false
                 isAppearanceLightNavigationBars = false
                 systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                show(WindowInsetsCompat.Type.systemBars())
+                hide(WindowInsetsCompat.Type.systemBars())
             }
             ViewCompat.requestApplyInsets(window.decorView)
-            logPlayer("PLAYER_IMMERSIVE restored requestId=" + requestId.ifEmpty { "-" })
+            logPlayer("PLAYER_IMMERSIVE kept_hidden_for_exit requestId=" + requestId.ifEmpty { "-" })
         }.onFailure { error ->
-            logPlayer("PLAYER_IMMERSIVE_RESTORE_IGNORED", error)
+            logPlayer("PLAYER_IMMERSIVE_EXIT_POLICY_FAILED", error)
         }
     }
 
@@ -2542,18 +2543,19 @@ class NativePlayerActivity : ComponentActivity() {
                     if (brightnessGesturesEnabled) {
                         adjustBrightness(if (directionUp) fraction else -fraction)
                     } else {
-                        showFeedback("Gesto de brilho desligado", 650L)
+                        // Disabled gestures are deliberately silent. Do not surface
+                        // a toast/overlay/snackbar for an opt-out preference.
                     }
                 }
                 PlayerGesturePolicy.Side.RIGHT -> {
                     if (volumeGesturesEnabled) {
                         adjustVolumeByFraction(if (directionUp) fraction else -fraction)
                     } else {
-                        showFeedback("Gesto de volume desligado", 650L)
+                        // Disabled gestures are deliberately silent.
                     }
                 }
                 PlayerGesturePolicy.Side.CENTER -> {
-                    showFeedback("Gesto vertical ignorado", 500L)
+                    // A vertical swipe in the center has no player action.
                 }
             }
         }

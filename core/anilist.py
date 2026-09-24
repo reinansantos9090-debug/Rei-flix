@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 class AniListClient:
     endpoint='https://graphql.anilist.co'
     media_fields='''id title{romaji english native} synonyms description(asHtml:false) coverImage{extraLarge large} bannerImage genres seasonYear season status episodes duration averageScore format studios(isMain:true){nodes{name}}'''
-    query=f'''query($search:String){{Page(perPage:5){{media(search:$search,type:ANIME){{{media_fields}}}}}}}'''
+    query=f'''query($search:String){{Page(perPage:10){{media(search:$search,type:ANIME){{{media_fields}}}}}}}'''
     by_id_query=f'''query($id:Int){{Media(id:$id,type:ANIME){{{media_fields}}}}}'''
     def __init__(self, cache_dir):
         self.cache_dir = cache_dir
@@ -19,6 +19,7 @@ class AniListClient:
         self._rate_reset = None
         self._transport_backoff_until = 0.0
         self._transport_failures = 0
+        self._last_request_status = "idle"
 
     @staticmethod
     def _header(headers, name):
@@ -81,11 +82,13 @@ class AniListClient:
         except (TypeError, ValueError): pass
         return 0.0
     def _request(self, query, variables):
+        self._last_request_status = "pending"
         data = json.dumps({'query': query, 'variables': variables}).encode()
         req = urllib.request.Request(self.endpoint, data=data, headers={'Content-Type':'application/json','Accept':'application/json','User-Agent':'ReiFlix/1.0'})
         with self._rate_lock:
             if time.monotonic() < self._transport_backoff_until:
                 logger.info("AniList request skipped during transport backoff.")
+                self._last_request_status = "network_error"
                 return None
         self._pace_request()
         try:
@@ -110,42 +113,62 @@ class AniListClient:
                         payload = json.loads(raw)
                     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as retry_exc:
                         logger.warning('AniList indisponível após rate limit: %s', retry_exc)
+                        self._last_request_status = "rate_limited"
                         return None
                     except Exception as retry_exc:
                         logger.warning('Falha inesperada após rate limit do AniList: %s', retry_exc)
+                        self._last_request_status = "network_error"
                         return None
                 else:
                     logger.warning('AniList retornou HTTP 429 sem um atraso utilizável.')
+                    self._last_request_status = "rate_limited"
                     return None
             else:
+                self._last_request_status = "rate_limited" if exc.code == 429 else ("network_error" if exc.code >= 500 else "http_error")
                 logger.warning('AniList indisponível: HTTP %s', exc.code)
                 if exc.code >= 500:
                     self._transport_failure()
                 return None
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             self._transport_failure()
+            self._last_request_status = "network_error"
             logger.warning('AniList indisponível: %s', exc)
             return None
         except json.JSONDecodeError as exc:
+            self._last_request_status = "invalid_response"
             logger.warning('AniList retornou JSON inválido: %s', exc)
             return None
         except Exception as exc:
+            self._last_request_status = "network_error"
             logger.warning('Falha inesperada na comunicação com AniList: %s', exc)
             return None
         if not isinstance(payload, dict):
+            self._last_request_status = "invalid_response"
             logger.warning("AniList retornou uma resposta inválida.")
             return None
         if payload.get('errors'):
+            self._last_request_status = "invalid_response"
             logger.warning("AniList retornou erro GraphQL: %s", payload.get('errors'))
             return None
         data = payload.get('data')
         if not isinstance(data, dict):
+            self._last_request_status = "invalid_response"
             logger.warning("AniList não retornou dados GraphQL válidos.")
             return None
+        self._last_request_status = "ok"
         return data
+    @property
+    def last_request_status(self):
+        return self._last_request_status
+    def search_detailed(self, title):
+        data = self._request(self.query, {'search': title})
+        results = ((data or {}).get('Page') or {}).get('media') or []
+        if self._last_request_status == 'pending':
+            self._last_request_status = 'ok'
+        return {"status": "ok" if self._last_request_status == "ok" else self._last_request_status,
+                "results": [item for item in results if isinstance(item, dict)]}
     def search(self,title):
-        data=self._request(self.query, {'search':title})
-        return ((data or {}).get('Page') or {}).get('media') or []
+        return self.search_detailed(title)["results"]
     def by_id(self, anilist_id):
         data=self._request(self.by_id_query, {'id':anilist_id})
         return (data or {}).get('Media')

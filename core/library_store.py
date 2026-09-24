@@ -14,7 +14,7 @@ from core.consumption import consumption_state, is_completed, is_in_progress, is
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 27
+    SCHEMA_VERSION = 28
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -150,7 +150,7 @@ class LibraryStore:
                 if column not in existing:
                     c.execute(f"ALTER TABLE folders ADD COLUMN {column} {definition}")
             anime_columns = {r[1] for r in c.execute("PRAGMA table_info(anime)")}
-            for column, definition in {"aliases": "TEXT DEFAULT '[]'", "score": "INTEGER", "format": "TEXT", "metadata_updated_at": "REAL", "metadata_fetched_at": "REAL", "metadata_source": "TEXT NOT NULL DEFAULT 'unknown'", "metadata_confidence": "TEXT NOT NULL DEFAULT 'low'", "metadata_status": "TEXT NOT NULL DEFAULT 'unresolved'", "metadata_manual_fields": "TEXT NOT NULL DEFAULT '[]'", "media_kind": "TEXT NOT NULL DEFAULT 'series'", "favorite": "INTEGER NOT NULL DEFAULT 0", "user_tags": "TEXT NOT NULL DEFAULT '[]'", "is_pinned": "INTEGER NOT NULL DEFAULT 0", "personal_note": "TEXT"}.items():
+            for column, definition in {"aliases": "TEXT DEFAULT '[]'", "score": "INTEGER", "format": "TEXT", "metadata_updated_at": "REAL", "metadata_fetched_at": "REAL", "metadata_source": "TEXT NOT NULL DEFAULT 'unknown'", "metadata_confidence": "TEXT NOT NULL DEFAULT 'low'", "metadata_status": "TEXT NOT NULL DEFAULT 'unresolved'", "metadata_manual_fields": "TEXT NOT NULL DEFAULT '[]'", "media_kind": "TEXT NOT NULL DEFAULT 'series'", "anilist_match_status": "TEXT NOT NULL DEFAULT 'unmatched'", "anilist_match_score": "REAL", "anilist_match_margin": "REAL", "anilist_match_manual": "INTEGER NOT NULL DEFAULT 0", "favorite": "INTEGER NOT NULL DEFAULT 0", "user_tags": "TEXT NOT NULL DEFAULT '[]'", "is_pinned": "INTEGER NOT NULL DEFAULT 0", "personal_note": "TEXT"}.items():
                 if column not in anime_columns:
                     c.execute(f"ALTER TABLE anime ADD COLUMN {column} {definition}")
             episode_columns = {r[1] for r in c.execute("PRAGMA table_info(episodes)")}
@@ -186,6 +186,8 @@ class LibraryStore:
                     c.execute(f"ALTER TABLE scan_runs ADD COLUMN {column} {definition}")
             c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_scan_runs_scan_id ON scan_runs(scan_id) WHERE scan_id IS NOT NULL")
             c.execute("CREATE INDEX IF NOT EXISTS idx_scan_runs_status ON scan_runs(status, started_at)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_anime_anilist_match ON anime(anilist_id, anilist_match_status, anilist_match_manual)")
+            c.execute("UPDATE anime SET anilist_match_status=CASE WHEN metadata_status='manual' AND anilist_id IS NOT NULL THEN 'manual' WHEN anilist_id IS NOT NULL THEN 'matched' ELSE COALESCE(NULLIF(anilist_match_status,''),'unmatched') END WHERE anilist_id IS NOT NULL OR anilist_match_status IS NULL")
             c.execute("CREATE INDEX IF NOT EXISTS idx_anime_pinned ON anime(is_pinned, added_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_anime_media_kind ON anime(media_kind, added_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_hierarchy ON episodes(anime_id, episode_type, season, number, absolute_number)")
@@ -809,6 +811,49 @@ class LibraryStore:
             )
             return len(rows)
 
+    def anilist_match(self, lookup):
+        with self._conn() as c:
+            row = c.execute(
+                """SELECT id,anilist_id,anilist_match_status,anilist_match_score,
+                          anilist_match_margin,anilist_match_manual,metadata_status
+                   FROM anime WHERE lookup_title=?""",
+                (lookup,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def set_anilist_match(self, lookup, anilist_id, *, status="matched", score=None, margin=None, manual=False):
+        with self._conn() as c:
+            row = c.execute("SELECT id FROM anime WHERE lookup_title=?", (lookup,)).fetchone()
+            if not row:
+                raise ValueError("Obra local não encontrada.")
+            c.execute(
+                """UPDATE anime SET anilist_id=?,anilist_match_status=?,
+                                   anilist_match_score=?,anilist_match_margin=?,
+                                   anilist_match_manual=? WHERE id=?""",
+                (anilist_id, str(status or "unmatched"), score, margin, int(bool(manual)), row["id"]),
+            )
+            if anilist_id is not None:
+                c.execute("INSERT OR REPLACE INTO associations VALUES (?,?)", (lookup, anilist_id))
+            else:
+                c.execute("DELETE FROM associations WHERE lookup_title=?", (lookup,))
+            return True
+
+    def clear_anilist_match(self, lookup):
+        with self._conn() as c:
+            row = c.execute("SELECT id FROM anime WHERE lookup_title=?", (lookup,)).fetchone()
+            if not row:
+                raise ValueError("Obra local não encontrada.")
+            c.execute(
+                """UPDATE anime SET anilist_id=NULL,anilist_match_status='unmatched',
+                                   anilist_match_score=NULL,anilist_match_margin=NULL,
+                                   anilist_match_manual=0,metadata_status='unresolved',
+                                   metadata_source='local',metadata_updated_at=NULL,
+                                   metadata_fetched_at=NULL WHERE id=?""",
+                (row["id"],),
+            )
+            c.execute("DELETE FROM associations WHERE lookup_title=?", (lookup,))
+            c.execute("DELETE FROM pending_matches WHERE lookup_title=?", (lookup,))
+            return True
     def association(self, lookup):
         with self._conn() as c:
             r = c.execute("SELECT anilist_id FROM associations WHERE lookup_title=?", (lookup,)).fetchone()

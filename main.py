@@ -1006,7 +1006,7 @@ async def main(page: ft.Page):
                             else:
                                 store.update_folder_status('broad-storage', 'unavailable', message)
                                 store.mark_source_unavailable('broad-storage', 'broad_scan_failed')
- page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; safe_update()
+                             page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; safe_update()
                             refresh_settings_if_active()
                         elif event_type == 'mediastore_scan_progress':
                             files = int(payload.get('files') or 0)

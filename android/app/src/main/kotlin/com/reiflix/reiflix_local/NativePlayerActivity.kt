@@ -6,18 +6,22 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Typeface
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewGroup
 import android.view.ScaleGestureDetector
@@ -37,6 +41,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -72,6 +77,24 @@ class NativePlayerActivity : ComponentActivity() {
     private lateinit var feedback: TextView
     private lateinit var errorPanel: LinearLayout
     private lateinit var preparingIndicator: ProgressBar
+    private lateinit var lockButton: TextView
+    private lateinit var gesturePreferences: SharedPreferences
+
+    private var locked = false
+    private var inPictureInPicture = false
+    private var sessionState = SessionState.ACTIVE
+    private var playerGeneration = 0L
+    private var activePlayerListener: Player.Listener? = null
+    private var errorPublishedForGeneration = false
+    private var gestureSafeLeft = 0
+    private var gestureSafeTop = 0
+    private var gestureSafeRight = 0
+    private var gestureSafeBottom = 0
+    private var volumeGesturesEnabled = false
+    private var brightnessGesturesEnabled = false
+    private var doubleTapEnabled = false
+    private var longPressEnabled = false
+    private var windowBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastSavedPosition = -1L
@@ -135,10 +158,21 @@ class NativePlayerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         requestId = intent.getStringExtra("requestId")?.trim().orEmpty()
+        sessionState = SessionState.ACTIVE
+        gesturePreferences = getSharedPreferences("reiflix_player_preferences", Context.MODE_PRIVATE)
+        volumeGesturesEnabled = gesturePreferences.getBoolean(PREF_GESTURES_VOLUME, false)
+        brightnessGesturesEnabled = gesturePreferences.getBoolean(PREF_GESTURES_BRIGHTNESS, false)
+        doubleTapEnabled = gesturePreferences.getBoolean(PREF_GESTURES_DOUBLE_TAP, false)
+        longPressEnabled = gesturePreferences.getBoolean(PREF_GESTURES_LONG_PRESS, false)
+        locked = savedInstanceState?.getBoolean("lock_mode", false)
+            ?: gesturePreferences.getBoolean(PREF_LOCK_MODE, false)
         logPlayer("onCreate requestId=" + requestId.ifEmpty { "-" } + " task=" + taskId)
 
         enterImmersiveMode()
         configureWindow()
+        savedInstanceState?.getFloat("window_brightness", WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
+            ?.takeIf { it.isFinite() && it >= 0f && it <= 1f }
+            ?.let { setWindowBrightness(it) }
         restoredPositionMs = savedInstanceState?.takeIf { it.containsKey("position_ms") }?.getLong("position_ms")
         aspectModeLabel = savedInstanceState?.getString("aspect_mode_label") ?: "Ajustar"
         root = FrameLayout(this).apply {
@@ -150,6 +184,7 @@ class NativePlayerActivity : ComponentActivity() {
         installBasePlayerView()
         installGestureLayer()
         installControls()
+        setLocked(locked, persist = false, announce = false)
         installBackHandler()
         configurePictureInPicture()
         ViewCompat.getRootWindowInsets(window.decorView)?.let { applyRootInsets(it) }
@@ -188,6 +223,13 @@ class NativePlayerActivity : ComponentActivity() {
         try {
             logPlayer("EXOPLAYER_CREATE requestId=" + requestId.ifEmpty { "-" })
             player = ExoPlayer.Builder(this).build()
+            player.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .setUsage(C.USAGE_MEDIA)
+                    .build(),
+                true,
+            )
             // PlayerView owns the video surface/subtitle rendering. Attach the
             // real ExoPlayer before assigning media or preparing it.
             playerView.player = player
@@ -203,8 +245,6 @@ class NativePlayerActivity : ComponentActivity() {
             }
             autoplayNext = savedInstanceState?.takeIf { it.containsKey("autoplay_next") }?.getBoolean("autoplay_next")
                 ?: intent.getBooleanExtra("autoplay", true)
-
-            player.addListener(playerListener)
 
             val savedSpeed = savedInstanceState?.takeIf { it.containsKey("playback_speed") }
                 ?.getFloat("playback_speed") ?: 1f
@@ -254,7 +294,10 @@ class NativePlayerActivity : ComponentActivity() {
 
         uri = normalized
         requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
+        sessionState = SessionState.ACTIVE
         episodeChangePending = false
+        lastSavedPosition = -1L
+        errorPublishedForGeneration = false
         restoredPositionMs = null
         initialSeekApplied = false
         completionReported = false
@@ -305,7 +348,8 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun prepareCurrentMedia(reason: String, playWhenReadyOverride: Boolean? = null) {
-        if (!::player.isInitialized) return
+        if (!::player.isInitialized || sessionState == SessionState.DESTROYED) return
+        beginPlayerGeneration(reason)
         initialSeekApplied = false
         completionReported = false
         firstFrameRenderedForTesting = false
@@ -335,8 +379,11 @@ class NativePlayerActivity : ComponentActivity() {
         updateProgressUi()
     }
 
-    private val playerListener = object : Player.Listener {
+    private fun createPlayerListener(generation: Long): Player.Listener = object : Player.Listener {
+        private fun isCurrent(): Boolean =
+            generation == playerGeneration && sessionState == SessionState.ACTIVE
         override fun onEvents(player: Player, events: Player.Events) {
+            if (!isCurrent()) return
             if (events.contains(Player.EVENT_RENDERED_FIRST_FRAME)) {
                 firstFrameRenderedForTesting = true
                 if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
@@ -346,6 +393,7 @@ class NativePlayerActivity : ComponentActivity() {
         }
 
         override fun onPlaybackStateChanged(state: Int) {
+            if (!isCurrent()) return
             val label = when (state) {
                 Player.STATE_IDLE -> "STATE_IDLE"
                 Player.STATE_BUFFERING -> "STATE_BUFFERING"
@@ -407,6 +455,7 @@ class NativePlayerActivity : ComponentActivity() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (!isCurrent()) return
             logPlayer("IS_PLAYING_CHANGED=" + isPlaying)
             updatePlayPauseButton()
             if (!errorVisible) {
@@ -415,6 +464,7 @@ class NativePlayerActivity : ComponentActivity() {
         }
 
         override fun onPositionDiscontinuity(
+            if (!isCurrent()) return
             oldPosition: Player.PositionInfo,
             newPosition: Player.PositionInfo,
             reason: Int,
@@ -432,6 +482,7 @@ class NativePlayerActivity : ComponentActivity() {
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            if (!isCurrent()) return
             logPlayer(
                 "PLAYER_TRACK_CHANGE requestId=" + requestId.ifEmpty { "-" } +
                     " audio=" + tracks.groups.count { it.type == C.TRACK_TYPE_AUDIO && it.isSupported } +
@@ -441,6 +492,7 @@ class NativePlayerActivity : ComponentActivity() {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            if (!isCurrent()) return
             val code = error.errorCodeName.orEmpty()
             val technicalCode = "media3:" + code
             val detail = error.message?.trim().orEmpty()
@@ -462,6 +514,19 @@ class NativePlayerActivity : ComponentActivity() {
                     .put("cause", error.cause?.javaClass?.simpleName ?: ""),
             )
         }
+    }
+
+    private fun beginPlayerGeneration(reason: String) {
+        if (!::player.isInitialized || sessionState == SessionState.DESTROYED) return
+        activePlayerListener?.let { player.removeListener(it) }
+        playerGeneration += 1L
+        errorPublishedForGeneration = false
+        openedReported = false
+        lastSavedPosition = -1L
+        val generation = playerGeneration
+        activePlayerListener = createPlayerListener(generation)
+        player.addListener(activePlayerListener!!)
+        logPlayer("PLAYER_GENERATION_START generation=$generation reason=$reason requestId=" + requestId.ifEmpty { "-" })
     }
 
     private fun configureWindow() {
@@ -581,7 +646,13 @@ class NativePlayerActivity : ComponentActivity() {
         }
         topBar.addView(title, LinearLayout.LayoutParams(0, dp(48), 1f))
 
-
+        lockButton = actionButton(if (locked) "🔒" else "🔓", 48) {
+            setLocked(!locked)
+        }.apply {
+            tag = "reiflix_lock_button"
+            contentDescription = if (locked) "Desbloquear controles" else "Bloquear controles"
+        }
+        topBar.addView(lockButton, weightParams(48))
 
         val moreButton = actionButton("⋮", 48) {
             moreVisible = !moreVisible
@@ -613,7 +684,7 @@ class NativePlayerActivity : ComponentActivity() {
             visibility = View.GONE
             isClickable = false
         }
-        controls.addView(feedback, FrameLayout.LayoutParams(
+        root.addView(feedback, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,
         ).apply {
@@ -806,6 +877,37 @@ class NativePlayerActivity : ComponentActivity() {
             )
             showFeedback(if (autoplayNext) "Autoplay ligado" else "Autoplay desligado")
         })
+
+        val volumeGestureButton = actionButton(gestureSettingLabel("Volume", volumeGesturesEnabled), 120) { button ->
+            volumeGesturesEnabled = !volumeGesturesEnabled
+            gesturePreferences.edit().putBoolean(PREF_GESTURES_VOLUME, volumeGesturesEnabled).apply()
+            button.text = gestureSettingLabel("Volume", volumeGesturesEnabled)
+            showFeedback(if (volumeGesturesEnabled) "Gesto de volume ligado" else "Gesto de volume desligado")
+            touchControls()
+        }
+        val brightnessGestureButton = actionButton(gestureSettingLabel("Brilho", brightnessGesturesEnabled), 120) { button ->
+            brightnessGesturesEnabled = !brightnessGesturesEnabled
+            gesturePreferences.edit().putBoolean(PREF_GESTURES_BRIGHTNESS, brightnessGesturesEnabled).apply()
+            button.text = gestureSettingLabel("Brilho", brightnessGesturesEnabled)
+            showFeedback(if (brightnessGesturesEnabled) "Gesto de brilho ligado" else "Gesto de brilho desligado")
+            touchControls()
+        }
+        val doubleTapButton = actionButton(gestureSettingLabel("Double tap", doubleTapEnabled), 120) { button ->
+            doubleTapEnabled = !doubleTapEnabled
+            gesturePreferences.edit().putBoolean(PREF_GESTURES_DOUBLE_TAP, doubleTapEnabled).apply()
+            button.text = gestureSettingLabel("Double tap", doubleTapEnabled)
+            showFeedback(if (doubleTapEnabled) "Double tap ligado" else "Double tap desligado")
+            touchControls()
+        }
+        val longPressButton = actionButton(gestureSettingLabel("Pressão", longPressEnabled), 120) { button ->
+            longPressEnabled = !longPressEnabled
+            gesturePreferences.edit().putBoolean(PREF_GESTURES_LONG_PRESS, longPressEnabled).apply()
+            button.text = gestureSettingLabel("Pressão", longPressEnabled)
+            showFeedback(if (longPressEnabled) "Pressão longa ligada" else "Pressão longa desligada")
+            touchControls()
+        }
+        addMoreRow(volumeGestureButton, brightnessGestureButton)
+        addMoreRow(doubleTapButton, longPressButton)
         if (canEnterPictureInPicture()) {
             val pip = actionButton("PIP", 92) { enterPictureInPictureMode() }
             pip.contentDescription = "Picture in Picture"
@@ -819,6 +921,7 @@ class NativePlayerActivity : ComponentActivity() {
             topMargin = dp(56)
             rightMargin = dp(8)
         })
+        controls.bringToFront()
     }
     private fun installBackHandler() {
         onBackPressedDispatcher.addCallback(
@@ -839,23 +942,30 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun applyRootInsets(insets: WindowInsetsCompat) {
-        // System bars remain hidden. Reserve only physical display-cutout
-        // safe insets so immersive mode never creates artificial gaps.
-        val safe = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+        val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
+        val cutout = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.displayCutout())
+        val mandatoryGestures = insets.getInsetsIgnoringVisibility(
+            WindowInsetsCompat.Type.mandatorySystemGestures(),
+        )
+        gestureSafeLeft = maxOf(bars.left, cutout.left, mandatoryGestures.left)
+        gestureSafeTop = maxOf(bars.top, cutout.top, mandatoryGestures.top)
+        gestureSafeRight = maxOf(bars.right, cutout.right, mandatoryGestures.right)
+        gestureSafeBottom = maxOf(bars.bottom, cutout.bottom, mandatoryGestures.bottom)
+
         val topParams = topBar.layoutParams as? FrameLayout.LayoutParams
         if (topParams != null) {
-            topParams.topMargin = max(dp(4), safe.top)
+            topParams.topMargin = max(dp(4), gestureSafeTop)
             topBar.layoutParams = topParams
         }
         val bottomParams = bottomBar.layoutParams as? FrameLayout.LayoutParams
         if (bottomParams != null) {
-            bottomParams.bottomMargin = max(dp(4), safe.bottom)
+            bottomParams.bottomMargin = max(dp(4), gestureSafeBottom)
             bottomBar.layoutParams = bottomParams
         }
         controls.setPadding(
-            max(dp(4), safe.left),
+            max(dp(4), gestureSafeLeft),
             0,
-            max(dp(4), safe.right),
+            max(dp(4), gestureSafeRight),
             0,
         )
     }
@@ -1016,7 +1126,23 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun setControlsVisible(visible: Boolean) {
         controlsVisible = visible
-        controls.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+        if (locked) {
+            controls.visibility = View.VISIBLE
+            topBar.visibility = View.VISIBLE
+            bottomBar.visibility = View.GONE
+            centerControls.visibility = View.GONE
+            findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
+            findViewByTag<View>("reiflix_back_button")?.visibility = View.GONE
+            findViewByTag<View>("reiflix_more_button")?.visibility = View.GONE
+            return
+        }
+
+        controls.visibility = if (visible || errorVisible) View.VISIBLE else View.INVISIBLE
+        topBar.visibility = if (visible || errorVisible) View.VISIBLE else View.GONE
+        bottomBar.visibility = if (visible || errorVisible) View.VISIBLE else View.GONE
+        centerControls.visibility = if (visible || errorVisible) View.VISIBLE else View.GONE
+        findViewByTag<View>("reiflix_back_button")?.visibility = View.VISIBLE
+        findViewByTag<View>("reiflix_more_button")?.visibility = View.VISIBLE
         if (visible) {
             touchControls()
         } else {
@@ -1026,8 +1152,16 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun touchControls() {
+        if (locked) {
+            handler.removeCallbacks(controlsHider)
+            setControlsVisible(true)
+            return
+        }
         controlsVisible = true
         controls.visibility = View.VISIBLE
+        topBar.visibility = View.VISIBLE
+        bottomBar.visibility = View.VISIBLE
+        centerControls.visibility = View.VISIBLE
         lastControlsInteraction = System.currentTimeMillis()
         handler.removeCallbacks(controlsHider)
         if (::player.isInitialized && player.isPlaying && !errorVisible) {
@@ -1036,7 +1170,89 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun scheduleControlsHide() {
-        touchControls()
+        if (!locked) touchControls()
+    }
+
+    private fun setLocked(value: Boolean, persist: Boolean = true, announce: Boolean = true) {
+        locked = value
+        if (persist) {
+            gesturePreferences.edit().putBoolean(PREF_LOCK_MODE, locked).apply()
+        }
+        findViewByTag<View>("reiflix_gesture_layer")?.let {
+            (it as? GestureLayer)?.cancelInteractions()
+        }
+        if (locked) {
+            handler.removeCallbacks(controlsHider)
+            moreVisible = false
+            findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
+            findViewByTag<View>("reiflix_back_button")?.visibility = View.GONE
+            findViewByTag<View>("reiflix_more_button")?.visibility = View.GONE
+            controls.visibility = View.VISIBLE
+            topBar.visibility = View.VISIBLE
+            centerControls.visibility = View.GONE
+            bottomBar.visibility = View.GONE
+            if (::feedback.isInitialized) feedback.visibility = View.GONE
+        } else {
+            findViewByTag<View>("reiflix_back_button")?.visibility = View.VISIBLE
+            findViewByTag<View>("reiflix_more_button")?.visibility = View.VISIBLE
+            setControlsVisible(true)
+        }
+        updateLockUi()
+        if (announce) showFeedback(if (locked) "Player bloqueado" else "Player desbloqueado")
+    }
+
+    private fun updateLockUi() {
+        if (!::lockButton.isInitialized) return
+        lockButton.text = if (locked) "🔒" else "🔓"
+        lockButton.contentDescription = if (locked) "Desbloquear controles" else "Bloquear controles"
+    }
+
+    private fun gestureSettingLabel(label: String, enabled: Boolean): String =
+        label + " " + if (enabled) "ON" else "OFF"
+
+    private fun setWindowBrightness(value: Float) {
+        val safe = value.coerceIn(0f, 1f)
+        val attrs = window.attributes
+        attrs.screenBrightness = safe
+        window.attributes = attrs
+        windowBrightness = safe
+    }
+
+    private fun adjustBrightness(delta: Float) {
+        runCatching {
+            var current = window.attributes.screenBrightness
+            if (!current.isFinite() || current == WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
+                current = 0.5f
+            }
+            setWindowBrightness((current + delta).coerceIn(0f, 1f))
+            val percent = (windowBrightness * 100f).roundToInt().coerceIn(0, 100)
+            showFeedback("Brilho $percent%", 900L)
+        }.onFailure { error ->
+            logPlayer("GESTURE_BRIGHTNESS_IGNORED", error)
+        }
+    }
+
+    private fun adjustVolumeByFraction(deltaFraction: Float) {
+        runCatching {
+            val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val maxVolume = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val currentVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+            if (maxVolume <= 0) return@runCatching
+            val deltaSteps = max(
+                1,
+                (maxVolume * abs(deltaFraction)).roundToInt(),
+            )
+            val target = if (deltaFraction >= 0f) {
+                (currentVolume + deltaSteps).coerceAtMost(maxVolume)
+            } else {
+                (currentVolume - deltaSteps).coerceAtLeast(0)
+            }
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+            val percent = (target.toFloat() / maxVolume.toFloat() * 100f).roundToInt()
+            showFeedback("Volume $percent%", 900L)
+        }.onFailure { error ->
+            logPlayer("GESTURE_VOLUME_IGNORED", error)
+        }
     }
 
     private fun retryCurrentMedia() {
@@ -1069,6 +1285,7 @@ class NativePlayerActivity : ComponentActivity() {
         reason: String,
         payload: JSONObject = JSONObject(),
     ) {
+        setLocked(false, persist = true, announce = false)
         errorVisible = true
         if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
         if (::player.isInitialized) player.pause()
@@ -1087,6 +1304,8 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun publishPlayerError(message: String, payload: JSONObject = JSONObject()) {
+        if (errorPublishedForGeneration) return
+        errorPublishedForGeneration = true
         val ok = NativeMailbox.write(
             this,
             JSONObject()
@@ -1100,7 +1319,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun reportPlayerExit(reason: String) {
-        if (exitReported) return
+        if (sessionState == SessionState.DESTROYED || exitReported) return
         exitReported = true
         suppressExitEvent = true
         val currentPosition = if (::player.isInitialized) player.currentPosition.coerceAtLeast(0L) else 0L
@@ -1125,6 +1344,12 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun finishPlayer(reason: String) {
+        if (sessionState == SessionState.DESTROYED) return
+        sessionState = SessionState.EXITING
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
+        handler.removeCallbacks(controlsHider)
+        handler.removeCallbacks(feedbackHider)
+        restoreSystemUiBeforeExit()
         reportPlayerExit(reason)
         setResult(
             RESULT_OK,
@@ -1189,13 +1414,13 @@ class NativePlayerActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         logPlayer("onStart requestId=" + requestId.ifEmpty { "-" })
-        enterImmersiveMode()
+        if (!inPictureInPicture) enterImmersiveMode()
     }
 
     override fun onResume() {
         super.onResume()
         logPlayer("onResume requestId=" + requestId.ifEmpty { "-" })
-        enterImmersiveMode()
+        if (!inPictureInPicture) enterImmersiveMode()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.refreshZoomForLayout()
         if (::player.isInitialized && !errorVisible) {
             updateProgressUi()
@@ -1219,14 +1444,16 @@ class NativePlayerActivity : ComponentActivity() {
         super.onWindowFocusChanged(hasFocus)
         logPlayer("onWindowFocusChanged hasFocus=" + hasFocus +
             " finishing=" + isFinishing + " resumed=" + !isFinishing)
-        if (hasFocus) enterImmersiveMode()
+        if (hasFocus && !inPictureInPicture) enterImmersiveMode()
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         logPlayer("PLAYER_PIP inPip=" + isInPictureInPictureMode + " requestId=" + requestId.ifEmpty { "-" })
+        inPictureInPicture = isInPictureInPictureMode
         if (isInPictureInPictureMode) {
             handler.removeCallbacks(controlsHider)
+            findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
             setControlsVisible(false)
         } else {
             enterImmersiveMode()
@@ -1246,7 +1473,10 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putLong("player_generation", playerGeneration)
         if (::player.isInitialized) {
+            outState.putString("session_request_id", requestId)
+            outState.putString("session_uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
             outState.putLong("position_ms", player.currentPosition.coerceAtLeast(0L))
             outState.putLong("duration_ms", player.duration.coerceAtLeast(0L))
             outState.putFloat("playback_speed", player.playbackParameters.speed)
@@ -1257,6 +1487,8 @@ class NativePlayerActivity : ComponentActivity() {
             outState.putInt("resize_mode", playerView.resizeMode)
         }
         outState.putBoolean("autoplay_next", autoplayNext)
+        outState.putBoolean("lock_mode", locked)
+        outState.putFloat("window_brightness", window.attributes.screenBrightness)
         outState.putString("aspect_mode_label", findViewByTag<TextView>("reiflix_aspect_button")?.text?.toString() ?: "Ajustar")
         super.onSaveInstanceState(outState)
     }
@@ -1267,10 +1499,13 @@ class NativePlayerActivity : ComponentActivity() {
         handler.removeCallbacks(progressReporter)
         handler.removeCallbacks(controlsHider)
         handler.removeCallbacks(feedbackHider)
+        restoreSystemUiBeforeExit()
         if (::player.isInitialized) {
             if (isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations) {
                 reportPlayerExit("activity_finish")
             }
+            activePlayerListener?.let { player.removeListener(it) }
+            activePlayerListener = null
             if (::playerView.isInitialized && playerView.player === player) {
                 playerView.player = null
                 logPlayer("PLAYER_VIEW_DETACHED requestId=" + requestId.ifEmpty { "-" })
@@ -1281,16 +1516,36 @@ class NativePlayerActivity : ComponentActivity() {
             reportPlayerExit("activity_finish_without_player")
         }
         logPlayer("onDestroy finishing=" + isFinishing + " changingConfig=" + isChangingConfigurations)
+        sessionState = SessionState.DESTROYED
         super.onDestroy()
     }
 
     private fun enterImmersiveMode() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
         }
         ViewCompat.requestApplyInsets(window.decorView)
+        logPlayer("PLAYER_IMMERSIVE applied requestId=" + requestId.ifEmpty { "-" })
+    }
+
+    private fun restoreSystemUiBeforeExit() {
+        runCatching {
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+            WindowInsetsControllerCompat(window, window.decorView).apply {
+                isAppearanceLightStatusBars = false
+                isAppearanceLightNavigationBars = false
+                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                show(WindowInsetsCompat.Type.systemBars())
+            }
+            ViewCompat.requestApplyInsets(window.decorView)
+            logPlayer("PLAYER_IMMERSIVE restored requestId=" + requestId.ifEmpty { "-" })
+        }.onFailure { error ->
+            logPlayer("PLAYER_IMMERSIVE_RESTORE_IGNORED", error)
+        }
     }
 
     private fun applyImmersiveAfterLayout() {
@@ -1438,23 +1693,28 @@ class NativePlayerActivity : ComponentActivity() {
      * the interaction model used by CloudStream's PlayerGestureHelper.
      */
     private inner class GestureLayer(context: Context) : View(context) {
+        private val touchConfig = ViewConfiguration.get(context)
+        private val touchSlop = touchConfig.scaledTouchSlop.toFloat()
+        private val minFlingVelocity = touchConfig.scaledMinimumFlingVelocity.toFloat()
         private val scaleDetector = ScaleGestureDetector(
             context,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-                    if (errorVisible || !::playerView.isInitialized || !::player.isInitialized) {
+                    if (!gestureInteractionAllowed() || !::playerView.isInitialized || !::player.isInitialized) {
                         return false
                     }
                     pinchActive = true
-                            logPlayer("GESTURE_START type=pinch requestId=" + requestId.ifEmpty { "-" })
-                                    touchControls()
-                    lastPanX = (detector.focusX)
+                    gestureConsumed = true
+                    cancelGestureDetector()
+                    lastPanX = detector.focusX
                     lastPanY = detector.focusY
+                    logPlayer("GESTURE_START type=pinch requestId=" + requestId.ifEmpty { "-" })
+                    touchControls()
                     return true
                 }
 
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
-                    if (!pinchActive || errorVisible) return true
+                    if (!pinchActive || !gestureInteractionAllowed()) return true
                     val rawFactor = detector.scaleFactor
                     if (!rawFactor.isFinite() || rawFactor <= 0f) return true
 
@@ -1483,24 +1743,74 @@ class NativePlayerActivity : ComponentActivity() {
             },
         )
 
+        private val gestureDetector = GestureDetector(
+            context,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(event: MotionEvent): Boolean = true
+
+                override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
+                    if (!gestureInteractionAllowed() || gestureConsumed || systemGestureEdge) return true
+                    handleTap()
+                    return true
+                }
+
+                override fun onDoubleTap(event: MotionEvent): Boolean {
+                    if (!gestureInteractionAllowed() || !doubleTapEnabled || gestureConsumed || systemGestureEdge) {
+                        return true
+                    }
+                    gestureConsumed = true
+                    val side = PlayerGesturePolicy.side(event.x, width)
+                    when (side) {
+                        PlayerGesturePolicy.Side.LEFT -> {
+                            logPlayer("PLAYER_DOUBLE_TAP side=left requestId=" + requestId.ifEmpty { "-" })
+                            seekBy(-10_000L, "−10s")
+                        }
+                        PlayerGesturePolicy.Side.RIGHT -> {
+                            logPlayer("PLAYER_DOUBLE_TAP side=right requestId=" + requestId.ifEmpty { "-" })
+                            seekBy(10_000L, "+10s")
+                        }
+                        PlayerGesturePolicy.Side.CENTER -> showFeedback("Double tap ignorado", 500L)
+                    }
+                    return true
+                }
+
+                override fun onLongPress(event: MotionEvent) {
+                    if (!gestureInteractionAllowed() || !longPressEnabled || gestureConsumed || systemGestureEdge) return
+                    previousSpeedForLongPress = player.playbackParameters.speed
+                    longPressActive = true
+                    player.setPlaybackSpeed(2f)
+                    showFeedback("2.0x", 8_000L)
+                    logPlayer("PLAYER_LONG_PRESS speed=2.0x requestId=" + requestId.ifEmpty { "-" })
+                }
+            },
+        )
+
         private var downX = 0f
         private var downY = 0f
+        private var gestureConsumed = false
+        private var verticalGesture = false
+        private var horizontalGesture = false
+        private var systemGestureEdge = false
         private var pinchActive = false
-        private var wasPinchGesture = false
         private var lastPanX: Float? = null
         private var lastPanY: Float? = null
         private var zoomScale = 1f
         private var zoomTranslationX = 0f
         private var zoomTranslationY = 0f
         private var zoomAnimator: ValueAnimator? = null
-        private var ignoredVerticalGesture = false
+        private var velocityTracker: VelocityTracker? = null
+        private var longPressActive = false
+        private var previousSpeedForLongPress = 1f
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
+            if (inPictureInPicture) return true
             scaleDetector.onTouchEvent(event)
 
             if (pinchActive || event.pointerCount > 1) {
                 when (event.actionMasked) {
                     MotionEvent.ACTION_POINTER_DOWN -> {
+                        gestureConsumed = true
+                        cancelGestureDetector(event)
                         lastPanX = pointerCenterX(event)
                         lastPanY = pointerCenterY(event)
                     }
@@ -1525,6 +1835,7 @@ class NativePlayerActivity : ComponentActivity() {
                     }
                     MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> finishPinchGesture()
                 }
+                finishTouchVelocity(event)
                 return true
             }
 
@@ -1532,32 +1843,144 @@ class NativePlayerActivity : ComponentActivity() {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.x
                     downY = event.y
-                    ignoredVerticalGesture = false
+                    gestureConsumed = false
+                    verticalGesture = false
+                    horizontalGesture = false
+                    systemGestureEdge = isSystemGestureEdge(event.x, event.y)
+                    velocityTracker?.recycle()
+                    velocityTracker = VelocityTracker.obtain().apply { addMovement(event) }
+                    if (systemGestureEdge || !gestureInteractionAllowed()) {
+                        gestureConsumed = true
+                        cancelGestureDetector(event)
+                    } else {
+                        gestureDetector.onTouchEvent(event)
+                    }
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (errorVisible) return true
+                    velocityTracker?.addMovement(event)
+                    if (gestureConsumed || systemGestureEdge) return true
                     val dx = event.x - downX
                     val dy = event.y - downY
-                    if (!ignoredVerticalGesture && abs(dy) > dp(24) && abs(dy) > abs(dx) * 1.15f) {
-                        ignoredVerticalGesture = true
-                        logPlayer("GESTURE_START type=vertical_ignored requestId=" + requestId.ifEmpty { "-" })
+                    when (PlayerGesturePolicy.direction(dx, dy, touchSlop)) {
+                        PlayerGesturePolicy.Direction.VERTICAL -> {
+                            if (!verticalGesture) {
+                                verticalGesture = true
+                                gestureConsumed = true
+                                cancelGestureDetector(event)
+                                logPlayer("GESTURE_START type=vertical side=" +
+                                    PlayerGesturePolicy.side(downX, width).name.lowercase() +
+                                    " requestId=" + requestId.ifEmpty { "-" })
+                            }
+                        }
+                        PlayerGesturePolicy.Direction.HORIZONTAL -> {
+                            if (!horizontalGesture) {
+                                horizontalGesture = true
+                                gestureConsumed = true
+                                cancelGestureDetector(event)
+                                logPlayer("GESTURE_START type=horizontal_ignored requestId=" + requestId.ifEmpty { "-" })
+                            }
+                        }
+                        PlayerGesturePolicy.Direction.NONE -> Unit
                     }
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (ignoredVerticalGesture) {
-                        logPlayer("GESTURE_END type=vertical_ignored requestId=" + requestId.ifEmpty { "-" })
-                    } else if (!wasPinchGesture && !errorVisible) {
-                        handleTap()
+                    velocityTracker?.addMovement(event)
+                    if (verticalGesture && gestureInteractionAllowed()) {
+                        val velocityY = velocityTracker?.run {
+                            computeCurrentVelocity(1000)
+                            yVelocity
+                        } ?: 0f
+                        val dy = event.y - downY
+                        val distanceRatio = (abs(dy) / height.coerceAtLeast(1).toFloat()).coerceIn(0f, 0.75f)
+                        val strongEnough = abs(dy) >= max(touchSlop * 2f, dp(48).toFloat()) ||
+                            abs(velocityY) >= minFlingVelocity * 0.5f
+                        if (strongEnough) {
+                            handleVerticalGesture(downX, dy, distanceRatio)
+                        }
+                        logPlayer("GESTURE_END type=vertical_ignored_or_applied requestId=" + requestId.ifEmpty { "-" })
+                    } else if (horizontalGesture) {
+                        logPlayer("GESTURE_END type=horizontal_ignored requestId=" + requestId.ifEmpty { "-" })
                     }
-                    wasPinchGesture = false
-                    ignoredVerticalGesture = false
+                    restoreLongPressSpeed()
+                    gestureDetector.onTouchEvent(event)
+                    finishTouchVelocity(event)
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    restoreLongPressSpeed()
+                    cancelGestureDetector(event)
+                    finishTouchVelocity(event)
                     logPlayer("GESTURE_END type=cancel requestId=" + requestId.ifEmpty { "-" })
-                    ignoredVerticalGesture = false
+                    gestureConsumed = true
+                    verticalGesture = false
+                    horizontalGesture = false
+                    systemGestureEdge = false
                 }
             }
             return true
+        }
+
+        private fun gestureInteractionAllowed(): Boolean =
+            !locked && !inPictureInPicture && !errorVisible && ::player.isInitialized
+
+        private fun isSystemGestureEdge(x: Float, y: Float): Boolean =
+            x < gestureSafeLeft ||
+                x > width - gestureSafeRight ||
+                y < gestureSafeTop ||
+                y > height - gestureSafeBottom
+
+        private fun handleVerticalGesture(startX: Float, dy: Float, distanceRatio: Float) {
+            val side = PlayerGesturePolicy.side(startX, width)
+            val directionUp = dy < 0f
+            val fraction = max(0.06f, distanceRatio * 0.6f)
+            when (side) {
+                PlayerGesturePolicy.Side.LEFT -> {
+                    if (brightnessGesturesEnabled) {
+                        adjustBrightness(if (directionUp) fraction else -fraction)
+                    } else {
+                        showFeedback("Gesto de brilho desligado", 650L)
+                    }
+                }
+                PlayerGesturePolicy.Side.RIGHT -> {
+                    if (volumeGesturesEnabled) {
+                        adjustVolumeByFraction(if (directionUp) fraction else -fraction)
+                    } else {
+                        showFeedback("Gesto de volume desligado", 650L)
+                    }
+                }
+                PlayerGesturePolicy.Side.CENTER -> {
+                    showFeedback("Gesto vertical ignorado", 500L)
+                }
+            }
+        }
+
+        private fun cancelGestureDetector(event: MotionEvent? = null) {
+            val cancel = if (event != null) {
+                MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+            } else {
+                val now = android.os.SystemClock.uptimeMillis()
+                MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0f, 0f, 0)
+            }
+            gestureDetector.onTouchEvent(cancel)
+            cancel.recycle()
+        }
+
+        private fun finishTouchVelocity(event: MotionEvent) {
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                velocityTracker?.recycle()
+                velocityTracker = null
+            }
+        }
+
+        private fun restoreLongPressSpeed() {
+            if (!longPressActive || !::player.isInitialized) return
+            val restore = previousSpeedForLongPress.takeIf { it > 0f && it.isFinite() } ?: 1f
+            player.setPlaybackSpeed(restore)
+            longPressActive = false
+            showFeedback(
+                String.format(java.util.Locale.US, "%.2fx", restore),
+                500L,
+            )
+            logPlayer("PLAYER_LONG_PRESS_END speed=" + restore + " requestId=" + requestId.ifEmpty { "-" })
         }
 
         fun refreshZoomForLayout() {
@@ -1581,13 +2004,24 @@ class NativePlayerActivity : ComponentActivity() {
             }
         }
 
-        fun dispose() {
-            zoomAnimator?.cancel()
-            zoomAnimator = null
+        fun cancelInteractions() {
+            gestureConsumed = true
+            verticalGesture = false
+            horizontalGesture = false
+            systemGestureEdge = false
+            restoreLongPressSpeed()
+            velocityTracker?.recycle()
+            velocityTracker = null
+            cancelGestureDetector()
             lastPanX = null
             lastPanY = null
             pinchActive = false
-            wasPinchGesture = false
+        }
+
+        fun dispose() {
+            zoomAnimator?.cancel()
+            zoomAnimator = null
+            cancelInteractions()
         }
 
         fun resetZoomToFit() {
@@ -1615,7 +2049,7 @@ class NativePlayerActivity : ComponentActivity() {
         private fun finishPinchGesture() {
             if (!pinchActive) return
             pinchActive = false
-            wasPinchGesture = true
+            gestureConsumed = true
             logPlayer("GESTURE_END type=pinch requestId=" + requestId.ifEmpty { "-" })
             lastPanX = null
             lastPanY = null
@@ -1691,9 +2125,6 @@ class NativePlayerActivity : ComponentActivity() {
                     )
                     matrix.postTranslate(zoomTranslationX, zoomTranslationY)
                 } else {
-                    // Until the TextureView has real dimensions, keep the
-                    // surface at identity. Applying a scaled origin here can
-                    // place the first frame off-center and look distorted.
                     matrix.reset()
                 }
                 video.isOpaque = false
@@ -1716,12 +2147,44 @@ class NativePlayerActivity : ComponentActivity() {
             }
             video.invalidate()
         }
+    }
 
+    internal object PlayerGesturePolicy {
+        enum class Direction { NONE, HORIZONTAL, VERTICAL }
+        enum class Side { LEFT, CENTER, RIGHT }
 
+        fun direction(dx: Float, dy: Float, touchSlop: Float, dominance: Float = 1.15f): Direction {
+            val ax = abs(dx)
+            val ay = abs(dy)
+            if (max(ax, ay) < touchSlop) return Direction.NONE
+            return when {
+                ax > ay * dominance -> Direction.HORIZONTAL
+                ay > ax * dominance -> Direction.VERTICAL
+                else -> Direction.NONE
+            }
+        }
+
+        fun side(x: Float, width: Int): Side {
+            if (width <= 0) return Side.CENTER
+            val fraction = (x / width.toFloat()).coerceIn(0f, 1f)
+            return when {
+                fraction < 0.40f -> Side.LEFT
+                fraction > 0.60f -> Side.RIGHT
+                else -> Side.CENTER
+            }
+        }
     }
 
 
+
+    private enum class SessionState { ACTIVE, EXITING, DESTROYED }
+
     companion object {
+        private const val PREF_GESTURES_VOLUME = "gesture_volume"
+        private const val PREF_GESTURES_BRIGHTNESS = "gesture_brightness"
+        private const val PREF_GESTURES_DOUBLE_TAP = "gesture_double_tap"
+        private const val PREF_GESTURES_LONG_PRESS = "gesture_long_press"
+        private const val PREF_LOCK_MODE = "player_lock_mode"
         private const val TAG = "[REIFLIX][PLAYER]"
         private const val PROGRESS_INTERVAL_MS = 15_000L
         private const val CONTROL_TIMEOUT_MS = 3_500L

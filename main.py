@@ -565,18 +565,6 @@ async def main(page: ft.Page):
             return
 
         # Settings owns a small inner category state. Let it consume Back
-        # before the top-level navigation stack changes, so Settings/Aparência
-        # returns to Settings instead of jumping to the previous screen.
-        if route_before == "settings":
-            inner_back = settings_system_back[0]
-            if callable(inner_back):
-                try:
-                    if inner_back():
-                        logger.info("[NAV] SETTINGS_INNER_BACK source=%s", source)
-                        return
-                except Exception:
-                    logger.exception("[NAV] settings inner Back handler failed")
-        # Settings owns a small inner category state. Let it consume Back
         # before the top-level navigation stack changes.
         if route_before == "settings":
             inner_back = settings_system_back[0]

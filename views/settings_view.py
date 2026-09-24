@@ -179,6 +179,9 @@ class SettingsView:
         saf_roots = tuple(snap.get("safRoots", ()) or ())
         volumes = tuple(snap.get("removableVolumes", ()) or ())
         scan = scan_snapshot or {}
+        runtime_status = str(scan.get("state") or "IDLE").upper()
+        running_scan = runtime_status in {"CHECKING", "SCANNING", "WAITING_FOR_MEDIASTORE"}
+        last_scan = store.last_scan()
         folders = store.folders()
         summary = store.library_summary()
 
@@ -424,7 +427,7 @@ class SettingsView:
                     ),
                     ft.Text(f"Integridade: {preview.get('integrity')}", color=TEXT, size=11),
                     ft.Text("Antes do restore será criado um snapshot de segurança. Autenticação Google não é restaurada.", color=TEXT_MUTED, size=10),
-                ], tight=True, spacing=6, scroll=ft.ScrollMode.AUTO)
+                ], tight=True, spacing=6)
                 async def confirm_restore(_event):
                     page.pop_dialog()
                     try:
@@ -697,6 +700,12 @@ class SettingsView:
 
             database_ok, database_detail = store.database_check() if hasattr(store, "database_check") else (False, "não disponível")
             database_label = "OK" if database_ok else f"ERRO ({database_detail})"
+            items.append(section("Varredura", ft.Icons.REFRESH_OUTLINED, [
+                ft.Text("Varredura em andamento:" if running_scan else "Nenhuma varredura em andamento.", color=TEXT if running_scan else TEXT_MUTED, size=11),
+                ft.Text(f"Status: {runtime_status}", color=TEXT_MUTED, size=11),
+                ft.Text(f"Última varredura: {(last_scan or {}).get("status") or "nenhuma"}", color=TEXT_MUTED, size=10),
+            ], ("scan", "varredura", "status", "biblioteca")))
+
             items.append(section("Diagnóstico", ft.Icons.BUG_REPORT_OUTLINED, [
                 ft.Text(f"Database: {database_label} • Schema SQLite: {getattr(store, 'SCHEMA_VERSION', '—')}", color=TEXT if database_ok else "#FFB4AB", size=11),
                 ft.Text(f"Scan: {scan.get('state') or 'IDLE'} • encontrados: {int(scan.get('found') or 0)} • arquivos: {int(scan.get('files') or 0)}", color=TEXT_MUTED, size=11),

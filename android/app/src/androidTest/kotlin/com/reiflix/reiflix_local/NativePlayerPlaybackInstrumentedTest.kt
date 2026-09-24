@@ -235,7 +235,7 @@ class NativePlayerPlaybackInstrumentedTest {
         SystemClock.sleep(120L)
         assertTrue(
             "Enabled left vertical gesture must expose brightness feedback",
-            onMain { feedback.text?.contains("BRILHO") == true },
+            onMain { feedback.text?.contains("brilho", ignoreCase = true) == true },
         )
 
         swipe(
@@ -248,7 +248,7 @@ class NativePlayerPlaybackInstrumentedTest {
         SystemClock.sleep(120L)
         assertTrue(
             "Enabled right vertical gesture must expose volume feedback",
-            onMain { feedback.text?.contains("VOLUME") == true },
+            onMain { feedback.text?.contains("volume", ignoreCase = true) == true },
         )
 
         onMain { player.seekTo(3_000L) }

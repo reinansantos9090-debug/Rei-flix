@@ -8,9 +8,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import logging
 import re
 import time
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SettingDefinition:
@@ -199,7 +202,7 @@ class SettingsStore:
             try:
                 self._write(key, raw)
             except Exception:
-                pass
+                logger.exception("Could not normalize legacy aspect setting")
         try:
             return self._coerce(definition, raw)
         except (ValueError, TypeError, SettingsValidationError):

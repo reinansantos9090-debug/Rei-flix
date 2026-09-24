@@ -116,6 +116,7 @@ class NativePlayerActivity : ComponentActivity() {
     internal var firstFrameRenderedForTesting = false
         private set
     private var feedbackHideAt = 0L
+    private var controlsRestoredFromState = false
 
     private val titleValue: String
         get() = intent.getStringExtra("title") ?: "Episódio"
@@ -166,6 +167,8 @@ class NativePlayerActivity : ComponentActivity() {
         longPressEnabled = gesturePreferences.getBoolean(PREF_GESTURES_LONG_PRESS, false)
         locked = savedInstanceState?.getBoolean("lock_mode", false)
             ?: gesturePreferences.getBoolean(PREF_LOCK_MODE, false)
+        controlsVisible = savedInstanceState?.getBoolean("controls_visible", true) ?: true
+        controlsRestoredFromState = savedInstanceState?.containsKey("controls_visible") == true
         logPlayer("onCreate requestId=" + requestId.ifEmpty { "-" } + " task=" + taskId)
 
         enterImmersiveMode()
@@ -185,6 +188,9 @@ class NativePlayerActivity : ComponentActivity() {
         installGestureLayer()
         installControls()
         setLocked(locked, persist = false, announce = false)
+        if (controlsRestoredFromState && !locked) {
+            setControlsVisible(controlsVisible, fromRestore = true)
+        }
         installBackHandler()
         configurePictureInPicture()
         ViewCompat.getRootWindowInsets(window.decorView)?.let { applyRootInsets(it) }
@@ -742,11 +748,14 @@ class NativePlayerActivity : ComponentActivity() {
             rightMargin = dp(18)
         })
 
-        val previousButton = actionButton("−10", 70) { seekBy(-10_000L, "−10s") }
+        val previousButton = actionButton("−10", 70) { seekBy(-10_000L, "−10s") }.apply {
+            contentDescription = "Voltar 10 segundos"
+        }
         previousButton.tag = "reiflix_seek_back"
         centerControls.addView(previousButton, weightParams(70))
 
         playPauseButton = actionButton("▶", 84) { togglePlayPause() }.apply {
+            contentDescription = "Reproduzir ou pausar"
             textSize = 26f
             tag = "reiflix_play_pause"
             minHeight = dp(72)
@@ -754,7 +763,9 @@ class NativePlayerActivity : ComponentActivity() {
         }
         centerControls.addView(playPauseButton, weightParams(84))
 
-        val nextButton = actionButton("+10", 70) { seekBy(10_000L, "+10s") }
+        val nextButton = actionButton("+10", 70) { seekBy(10_000L, "+10s") }.apply {
+            contentDescription = "Avançar 10 segundos"
+        }
         nextButton.tag = "reiflix_seek_forward"
         centerControls.addView(nextButton, weightParams(70))
 
@@ -1136,8 +1147,18 @@ class NativePlayerActivity : ComponentActivity() {
         handler.post(feedbackHider)
     }
 
-    private fun setControlsVisible(visible: Boolean) {
+    private fun setControlsVisible(visible: Boolean, fromRestore: Boolean = false) {
         controlsVisible = visible
+        if (inPictureInPicture) {
+            handler.removeCallbacks(controlsHider)
+            moreVisible = false
+            findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
+            controls.visibility = View.INVISIBLE
+            topBar.visibility = View.GONE
+            centerControls.visibility = View.GONE
+            bottomBar.visibility = View.GONE
+            return
+        }
         if (locked) {
             controls.visibility = View.VISIBLE
             topBar.visibility = View.VISIBLE
@@ -1500,6 +1521,7 @@ class NativePlayerActivity : ComponentActivity() {
         }
         outState.putBoolean("autoplay_next", autoplayNext)
         outState.putBoolean("lock_mode", locked)
+        outState.putBoolean("controls_visible", controlsVisible)
         outState.putFloat("window_brightness", window.attributes.screenBrightness)
         outState.putString("aspect_mode_label", findViewByTag<TextView>("reiflix_aspect_button")?.text?.toString() ?: "Ajustar")
         super.onSaveInstanceState(outState)
@@ -1592,6 +1614,7 @@ class NativePlayerActivity : ComponentActivity() {
     private fun actionButton(label: String, widthDp: Int, action: (TextView) -> Unit): TextView {
         return TextView(this).apply {
             text = label
+            contentDescription = label
             textSize = 11f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER

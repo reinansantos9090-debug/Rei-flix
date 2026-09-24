@@ -51,7 +51,8 @@ class MatchContext:
 
 def normalize(value: str) -> str:
     """Normalize matching text without destroying non-Latin scripts."""
-    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    text = unicodedata.normalize("NFKD", str(value or "")).casefold()
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
     text = text.replace("&", " and ")
     text = re.sub(r"^\s*\[[^\]]{1,120}\]\s*", " ", text)
     text = re.sub(r"\[[^\]]{0,120}\]", " ", text)
@@ -67,7 +68,8 @@ def normalize(value: str) -> str:
 
 
 def _base_normalize(value: str) -> str:
-    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    text = unicodedata.normalize("NFKD", str(value or "")).casefold()
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
     text = re.sub(r"^\s*\[[^\]]{1,120}\]\s*", " ", text)
     text = re.sub(r"\[[^\]]{0,120}\]", " ", text)
     text = _EPISODE_RE.sub(" ", text)

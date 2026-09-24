@@ -97,7 +97,8 @@ class LibraryService:
     def _identify(self, lookup_title, display_title, on_status=lambda _ : None, *, allow_network=True):
         """Return local/cached metadata without making the library depend on network."""
         cached = self.store.anime_metadata(lookup_title)
-        associated_id = self.store.association(lookup_title)
+        match_state = self.store.anilist_match(lookup_title) or {}
+        associated_id = match_state.get("anilist_id") or self.store.association(lookup_title)
         if cached:
             if associated_id and cached.get("anilist_id") != associated_id:
                 # Keep the durable association authoritative, but do not fetch during scan.
@@ -256,18 +257,23 @@ class LibraryService:
                         return cached
                     local = {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "ambiguous", "metadata_confidence": "low"}
                     self.store.upsert_anime(lookup_title, local, source="local", confidence="low", status="ambiguous")
+                    self.store.set_anilist_match(lookup_title, None, status="ambiguous", score=best_score, margin=round(best_score - second_score, 3))
                     row = self.store.anime_metadata(lookup_title)
                     if row:
                         self.artwork.sync_anime_metadata(row["id"], row)
-                    return local
+                    return self.store.anime_metadata(lookup_title) or local
                 if cached:
                     self.store.set_metadata_status(lookup_title, "unresolved", confidence="low")
+                    self.store.set_anilist_match(lookup_title, None, status="not_found")
+                    logger.info("ANILIST_MATCH_NOT_FOUND title=%s", display_title)
                     return cached
                 local = {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "unresolved", "metadata_confidence": "low"}
                 self.store.upsert_anime(lookup_title, local, source="local", confidence="low", status="unresolved")
+                self.store.set_anilist_match(lookup_title, None, status="not_found")
                 row = self.store.anime_metadata(lookup_title)
                 if row:
                     self.artwork.sync_anime_metadata(row["id"], row)
+                logger.info("ANILIST_MATCH_NOT_FOUND title=%s", display_title)
                 return self.store.anime_metadata(lookup_title) or local
             except Exception as exc:
                 logger.warning("Metadata AniList indisponível para %s: %s", display_title, exc)

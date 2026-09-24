@@ -207,6 +207,26 @@ class ArtworkEngineTests(unittest.TestCase):
         )
         self.assertLessEqual(len(futures), 100)
 
+    def test_url_change_keeps_old_artwork_until_new_download(self):
+        anime = self._media()
+        old = Path(self.tmp.name) / "old.jpg"
+        old.write_bytes(JPEG)
+        self.engine.sync_anime_metadata(
+            anime,
+            {"anilist_id": 16498, "cover_url": "https://example/old.jpg", "cover_cache": str(old)},
+        )
+        self.engine.sync_anime_metadata(
+            anime,
+            {"anilist_id": 16498, "cover_url": "https://example/new.jpg"},
+        )
+        before = self.engine.resolve("anime", anime, "poster", allow_network=False)
+        self.assertEqual(before["local_path"], str(old))
+        self.engine._downloader = lambda url: (JPEG + b"new", "image/jpeg", 200)
+        self.engine.request("anime", anime, "poster", blocking=True)
+        after = self.engine.resolve("anime", anime, "poster", allow_network=False)
+        self.assertNotEqual(after["local_path"], str(old))
+        self.assertTrue(Path(after["local_path"]).is_file())
+
     def test_corrupt_cache_is_repaired(self):
         anime = self._media()
         bad = Path(self.tmp.name) / "bad.jpg"

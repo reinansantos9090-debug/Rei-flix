@@ -55,6 +55,37 @@ class NavigationController:
         self._settings_path.clear()
         self._exit_requested_at = None
 
+    def snapshot(self) -> dict:
+        """Return only reconstructible navigation state."""
+        return {
+            "stack": list(self._stack),
+            "settings_path": list(self._settings_path),
+        }
+
+    def restore(self, state: object) -> bool:
+        """Restore a validated snapshot; invalid state leaves navigation unchanged."""
+        if not isinstance(state, dict):
+            return False
+        raw_stack = state.get("stack")
+        raw_settings = state.get("settings_path", [])
+        if not isinstance(raw_stack, list) or not raw_stack:
+            return False
+        stack = [str(item).strip() for item in raw_stack]
+        if any(item not in self.TOP_LEVEL_SCREENS for item in stack):
+            return False
+        if stack[0] != self.ROOT:
+            return False
+        if not isinstance(raw_settings, list) or any(
+            not isinstance(item, str) or not item.strip() for item in raw_settings
+        ):
+            return False
+        if raw_settings and stack[-1] != "settings":
+            return False
+        self._stack = stack
+        self._settings_path = [item.strip() for item in raw_settings]
+        self._exit_requested_at = None
+        return True
+
     def push_settings(self, level: str) -> None:
         """Push one Settings level while keeping it under the same Back authority."""
         if self.current != "settings":

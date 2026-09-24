@@ -54,6 +54,12 @@ class Prompt2BackLifecycleTests(unittest.TestCase):
         self.assertIn("player.release()", source)
         self.assertIn("setResult(", source)
 
+    def test_legacy_back_overrides_are_absent_from_both_activities(self):
+        for path in (MAIN_ACTIVITY, PLAYER_ACTIVITY):
+            source = self.read(path)
+            self.assertNotIn("override fun onBackPressed()", source)
+            self.assertNotIn("KEYCODE_BACK", source)
+
     def test_settings_is_nested_under_the_same_navigation_controller(self):
         source = self.read(MAIN)
         settings = self.read(ROOT / "views/settings_view.py")

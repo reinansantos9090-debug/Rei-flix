@@ -275,13 +275,39 @@ class DiagnosticsService:
         return {"last_error": errors[-1] if errors else None, "recent_errors": errors[-5:]}
 
     def _storage_report(self, storage_snapshot=None, scan_snapshot=None) -> dict[str, Any]:
-        capabilities = {}
+        raw = {}
         if storage_snapshot is not None:
             try:
-                capabilities = storage_snapshot.as_mapping()
+                raw = storage_snapshot.as_mapping()
             except AttributeError:
-                capabilities = dict(storage_snapshot) if isinstance(storage_snapshot, dict) else {}
-        return {"capabilities": capabilities, "scan": dict(scan_snapshot or {})}
+                raw = dict(storage_snapshot) if isinstance(storage_snapshot, dict) else {}
+        safe = {}
+        for key, value in raw.items():
+            normalized = str(key)
+            if normalized.casefold() in {"safroots", "saf_roots"} and isinstance(value, (list, tuple)):
+                safe[normalized] = [self._redact_path(item) for item in value]
+                safe[f"{normalized}_count"] = len(value)
+                continue
+            if normalized.casefold() in {"removablevolumes", "removable_volumes"} and isinstance(value, (list, tuple)):
+                safe[normalized] = [
+                    {"state": self._redact_text(item.get("state")) if isinstance(item, dict) else None}
+                    for item in value
+                ]
+                safe[f"{normalized}_count"] = len(value)
+                continue
+            if isinstance(value, str):
+                safe[normalized] = self._redact_text(value)
+            elif isinstance(value, (int, float, bool)) or value is None:
+                safe[normalized] = value
+            elif isinstance(value, (list, tuple)):
+                safe[normalized] = [self._redact_text(item) if isinstance(item, str) else item for item in value]
+            else:
+                safe[normalized] = self._redact_text(value)
+        scan = dict(scan_snapshot or {})
+        for key in ("volume", "volumeId", "scope", "scope_ref"):
+            if key in scan and scan[key]:
+                scan[key] = self._redact_text(scan[key])
+        return {"capabilities": safe, "scan": scan}
 
     def report(self, *, storage_snapshot=None, scan_snapshot=None) -> dict[str, Any]:
         database = self._db_report()

@@ -12,6 +12,7 @@ from pathlib import Path
 from core.backup import BackupError, BackupMigrationRegistry, BackupService, BackupValidationError
 from core.diagnostic_service import DiagnosticsService
 from core.library_store import LibraryStore
+from core.scan_coordinator import ScanOrigin
 from core.settings import SettingsStore
 
 
@@ -273,6 +274,11 @@ class Prompt15BackupRestoreTests(unittest.TestCase):
             self.assertEqual(1, con.execute("SELECT COUNT(*) FROM episodes").fetchone()[0])
             self.assertEqual(1, con.execute("SELECT COUNT(*) FROM artwork").fetchone()[0])
             self.assertEqual(1, con.execute("SELECT COUNT(*) FROM anime_genres").fetchone()[0])
+
+    def test_restore_reconciliation_is_distinct_from_startup_or_full_rescan(self):
+        self.assertEqual("RESTORE_RECONCILIATION", ScanOrigin.RESTORE_RECONCILIATION.value)
+        self.assertNotEqual(ScanOrigin.RESTORE_RECONCILIATION, ScanOrigin.STARTUP)
+        self.assertNotEqual(ScanOrigin.RESTORE_RECONCILIATION, ScanOrigin.EXPLICIT_FULL_RESCAN)
 
     def test_future_backup_version_is_rejected_and_migration_registry_is_explicit(self):
         self.assertTrue(BackupMigrationRegistry.can_migrate(1, 1))

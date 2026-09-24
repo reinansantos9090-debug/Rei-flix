@@ -167,7 +167,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("ActivityLifecycleMonitorRegistry", source)
         self.assertIn("Stage.RESUMED", source)
         self.assertIn("safPickerPending", source)
-        self.assertIn("appSystemBackIsHandledInsideReiFlix", source)
+        self.assertIn("appSystemBackFromChildActivityReturnsToReiFlix", source)
         self.assertIn("runOnMainBounded", source)
         self.assertNotIn("runOnMainSync", source)
         self.assertNotIn("executeShellCommand", source)

@@ -157,14 +157,15 @@ class FinalRegressionTests(unittest.TestCase):
         main = Path("android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         player = Path("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertNotIn("media_is_partial", settings)
-        self.assertIn("media_partial", settings)
+        self.assertIn("MediaAccessLevel.PARTIAL", settings)
         self.assertIn("fun roots(context: Context): List<StorageRoot>", broad)
         self.assertNotIn("return found.values.toList()", broad[:broad.index("    fun roots(context: Context):")])
         self.assertNotIn("nomediaDirectories++", broad)
         self.assertIn("private var mediaPermissionRequestPending = false", main)
         self.assertIn("import android.os.Build", main)
         self.assertIn("AspectRatioFrameLayout.RESIZE_MODE_FIT", player)
-        self.assertIn("TrackSelectionDialogBuilder", player)
+        self.assertIn("applyGlobalTrackPreferences()", player)
+        self.assertIn("updateTrackButtons()", player)
 
 
 if __name__ == "__main__":

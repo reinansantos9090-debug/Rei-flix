@@ -238,7 +238,7 @@ async def main(page: ft.Page):
         )
         return state
 
-    navigation_persist = {"pending": False, "running": False}
+    navigation_persist = {"pending": False, "running": False, "closing": False}
 
     def _navigation_state_payload():
         return {
@@ -274,7 +274,7 @@ async def main(page: ft.Page):
     async def _flush_navigation_state():
         navigation_persist["running"] = True
         try:
-            while navigation_persist["pending"]:
+            while navigation_persist["pending"] and not navigation_persist["closing"]:
                 navigation_persist["pending"] = False
                 await asyncio.to_thread(
                     _write_navigation_state,
@@ -282,15 +282,18 @@ async def main(page: ft.Page):
                 )
         finally:
             navigation_persist["running"] = False
-            if navigation_persist["pending"]:
+            if navigation_persist["pending"] and not navigation_persist["closing"]:
                 page.run_task(_flush_navigation_state)
 
     def persist_navigation_state():
+        if navigation_persist["closing"]:
+            return
         navigation_persist["pending"] = True
         if not navigation_persist["running"]:
             page.run_task(_flush_navigation_state)
 
     def clear_persisted_navigation_state():
+        navigation_persist["closing"] = True
         navigation_persist["pending"] = False
         try:
             os.unlink(navigation_state_path)

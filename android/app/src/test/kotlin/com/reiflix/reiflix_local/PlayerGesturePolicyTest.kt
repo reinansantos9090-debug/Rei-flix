@@ -118,7 +118,7 @@ class PlayerGesturePolicyTest {
     }
 
     @Test
-    fun movementAndVerticalDistanceUseRelativeViewportValues() {
+    fun movementAndVerticalDeltaUseRelativeViewportValues() {
         assertEquals(
             true,
             NativePlayerActivity.PlayerGesturePolicy.isMeaningfulMovement(
@@ -136,13 +136,13 @@ class PlayerGesturePolicyTest {
             ),
         )
         assertEquals(
-            0.5f,
-            NativePlayerActivity.PlayerGesturePolicy.distanceRatio(500f, 1000),
+            0.12f,
+            NativePlayerActivity.PlayerGesturePolicy.verticalDeltaFraction(-400f, 2000),
             0.0001f,
         )
         assertEquals(
-            0.75f,
-            NativePlayerActivity.PlayerGesturePolicy.distanceRatio(1200f, 1000),
+            -0.12f,
+            NativePlayerActivity.PlayerGesturePolicy.verticalDeltaFraction(400f, 2000),
             0.0001f,
         )
     }

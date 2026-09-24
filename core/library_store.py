@@ -1807,7 +1807,7 @@ class LibraryStore:
         """Return one bounded catalog page directly from SQLite."""
         try: page = max(0, int(page))
         except (TypeError, ValueError): page = 0
-        try: page_size = min(100, max(12, int(page_size)))
+        try: page_size = min(100, max(1, int(page_size)))
         except (TypeError, ValueError): page_size = 36
         where = ["EXISTS (SELECT 1 FROM episodes e0 WHERE e0.anime_id=a.id)"]
         params = []

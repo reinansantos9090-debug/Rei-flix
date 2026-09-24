@@ -407,6 +407,33 @@ class HomeView:
             page.pop_dialog()
             await load_library_page(reset=True)
 
+        async def clear_filters(_=None):
+            selected_state[0] = "Todos"
+            selected_genre[0] = "Todos"
+            selected_sort[0] = "Mais recentes"
+            selected_media_type[0] = "Todos"
+            selected_tag[0] = "Todos"
+            selected_season[0] = "Todos"
+            selected_episode_type[0] = "Todos"
+            selected_availability[0] = "Todos"
+            selected_metadata[0] = "Todos"
+            selected_artwork[0] = "Todos"
+            state_filter.value = "Todos"
+            genre_filter.value = "Todos"
+            sort.value = "Mais recentes"
+            media_type.value = "Todos"
+            tag.value = "Todos"
+            season.value = "Todos"
+            episode_type.value = "Todos"
+            availability.value = "Todos"
+            metadata_filter.value = "Todos"
+            artwork_filter.value = "Todos"
+            search.value = ""
+            search_generation[0] += 1
+            save_view_state()
+            page.pop_dialog()
+            await load_library_page(reset=True)
+
         def open_filters(_=None):
             dialog = ft.AlertDialog(
                 modal=True, title=ft.Text("Filtros da biblioteca"),
@@ -417,7 +444,11 @@ class HomeView:
                     ft.Row([availability, metadata_filter], wrap=True),
                     artwork_filter,
                 ], tight=True, width=470),
-                actions=[ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()), ft.FilledButton("Aplicar", on_click=apply_filters)],
+                actions=[
+                    ft.TextButton("Limpar", icon=ft.Icons.CLEAR_ALL, on_click=lambda _: page.run_task(clear_filters)),
+                    ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
+                    ft.FilledButton("Aplicar", on_click=apply_filters),
+                ],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
             page.show_dialog(dialog)

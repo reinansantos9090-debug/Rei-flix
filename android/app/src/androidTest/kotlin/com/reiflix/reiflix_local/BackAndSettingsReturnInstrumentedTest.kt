@@ -166,10 +166,11 @@ class BackAndSettingsReturnInstrumentedTest {
     }
 
     private fun pressBackAcrossApplicationBoundary() {
-        assertTrue(
-            "UiDevice.pressBack() must dispatch the supported system Back action",
-            device.pressBack(),
-        )
+        // UiDevice.pressBack() may return false on newer emulator images even
+        // when the back key event is dispatched and the foreground activity
+        // changes. The assertions below verify the actual foreground result.
+        device.pressBack()
+        SystemClock.sleep(250L)
     }
 
     private fun waitForForegroundPackage(vararg packages: String, timeoutMs: Long = 15_000L) {

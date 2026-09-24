@@ -150,6 +150,11 @@ class OrganizeView:
                 page.snack_bar.open = True
                 page.update()
 
+        def make_anime_click_handler(anime):
+            async def handle(event):
+                await select_anime(event, anime)
+            return handle
+
         def anime_card(anime):
             available_count = int(anime.get("available_count") or 0)
             watched = int(anime.get("watched_count") or 0)
@@ -188,7 +193,7 @@ class OrganizeView:
             return ft.Container(
                 ink=True,
                 border_radius=14,
-                on_click=lambda event, item=anime: page.run_task(select_anime, event, item),
+                on_click=make_anime_click_handler(anime),
                 content=ft.Column(
                     [
                         ft.Stack(

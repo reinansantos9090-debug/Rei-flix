@@ -86,8 +86,8 @@ class StorageOnboardingTests(unittest.TestCase):
         request_block = source.split("private fun requestMediaAccess()", 1)[1].split("private fun publishStorageStatus()", 1)[0]
         self.assertIn('val currentAccess = MediaStoreScanner.accessLevel(this)', request_block)
         self.assertIn('if (currentAccess != "denied")', request_block)
-        self.assertLess(request_block.index('put("type", "mediastore_permission")'), request_block.index("scanMediaStore(requestId)"))
-        self.assertIn("Existing access must converge to the same permission -> scan -> index -> mailbox path.", request_block)
+        self.assertLess(request_block.index('put("type", "mediastore_permission")'), request_block.index('publishScanRequest("PERMISSION_CHANGE"'))
+        self.assertIn("publishScanRequest", request_block)
 
     def test_saf_picker_is_lifecycle_gated_and_single_shot(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
@@ -291,11 +291,9 @@ class StorageOnboardingTests(unittest.TestCase):
     def test_broad_scanner_is_guarded_in_python_refresh_flow(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         refresh = source[source.index("    async def refresh_library"):source.index("    async def login", source.index("    async def refresh_library"))]
-        self.assertIn("if broad_granted:", refresh)
-        broad_call = refresh.find("await bridge.scan_all_storage()")
-        guard = refresh.rfind("if broad_granted:", 0, broad_call)
-        self.assertGreaterEqual(broad_call, 0)
-        self.assertGreater(guard, -1)
+        self.assertIn("scan_coordinator.request(", refresh)
+        self.assertIn("ScanOrigin.USER_REFRESH", refresh)
+        self.assertNotIn("await bridge.scan_all_storage()", refresh)
 
     def test_native_scan_controller_is_process_wide_and_source_scoped(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeScanController.kt").read_text(encoding="utf-8")
@@ -445,8 +443,10 @@ class TestAuthorizedStorageDiscovery(unittest.TestCase):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         resume = source[source.index("override fun onResume()"):source.index("override fun onPause()", source.index("override fun onResume()"))]
         self.assertIn("startupDiscoveryTriggered", resume)
-        self.assertIn("scanMediaStore(null)", resume)
-        self.assertIn("scanAllStorage(null)", resume)
+        self.assertIn("publishScanRequest(", resume)
+        self.assertIn('"STARTUP"', resume)
+        self.assertNotIn("scanMediaStore(null)", resume)
+        self.assertNotIn("scanAllStorage(null)", resume)
         self.assertIn("persistedSafTreeUris().forEach", resume)
         self.assertIn("NativeScanController.isRunning", resume)
 
@@ -475,7 +475,8 @@ class TestAndroidMediaLifecycle(unittest.TestCase):
         self.assertIn("Intent.ACTION_MEDIA_MOUNTED", receiver)
         self.assertIn("Intent.ACTION_MEDIA_SCANNER_FINISHED", receiver)
         self.assertIn("scheduleMediaStoreIncrementalRescan()", receiver)
-        self.assertIn("scanAllStorage(null)", receiver)
+        self.assertIn("publishScanRequest(", receiver)
+        self.assertNotIn("scanAllStorage(null)", receiver)
         self.assertIn("activityResumed", receiver)
 
     def test_storage_receiver_does_not_launch_permission_ui(self):

@@ -17,7 +17,8 @@ class TestSafProfessionalContract(unittest.TestCase):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
         self.assertIn("result.resultCode != RESULT_OK || uri == null", source)
         self.assertIn("SafScanner.persistPermission(this, uri, flags)", source)
-        self.assertIn("scanTree(uri.toString(), requestId)", source)
+        self.assertIn('publishScanRequest("PERMISSION_CHANGE"', source)
+        self.assertNotIn("scanTree(uri.toString(), requestId)", source)
 
     def test_picker_uses_persistable_read_grant(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")

@@ -61,9 +61,11 @@ class Prompt2BackLifecycleTests(unittest.TestCase):
         end = source.index("override fun onPause()", start)
         resume = source[start:end]
         self.assertIn("val shouldDiscover = !startupDiscoveryTriggered", resume)
-        self.assertIn("if (shouldDiscover || mediaAccessChangedToUsable)", resume)
-        self.assertIn("if (shouldDiscover || broadBecameAvailable)", resume)
-        self.assertIn("if (shouldDiscover)", resume)
+        self.assertIn('publishScanRequest(', resume)
+        self.assertIn('"STARTUP"', resume)
+        self.assertNotIn("scanMediaStore(null)", resume)
+        self.assertNotIn("scanAllStorage(null)", resume)
+        self.assertNotIn("scanTree(tree, null)", resume)
 
 
 if __name__ == "__main__":

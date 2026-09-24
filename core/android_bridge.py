@@ -68,19 +68,20 @@ class AndroidBridge:
         # custom scheme as an external app intent. Keep the URL launch compatible
         # with the real API and let Android's resolver handle the native intent.
         await self.page.launch_url(url)
+        return request_id
 
-    async def select_tree(self): await self._launch("select_tree")
-    async def rescan_tree(self, tree_uri: str): await self._launch("scan_tree", tree_uri=tree_uri)
-    async def scan_media_store(self): await self._launch("scan_media_store")
-    async def request_media_access(self): await self._launch("request_media_access")
-    async def check_storage_access(self): await self._launch("check_storage_access")
-    async def open_broad_storage_settings(self): await self._launch("open_broad_storage_settings")
-    async def scan_all_storage(self): await self._launch("scan_all_storage")
-    async def request_thumbnail(self, uri: str, size: int = 0, modified_at: int = 0): await self._launch("extract_thumbnail", uri=uri, size=max(0, int(size)), modified_at=max(0, int(modified_at)))
-    async def cancel_scans(self): await self._launch("cancel_scan")
-    async def verify_tree(self, tree_uri: str): await self._launch("verify_tree", tree_uri=tree_uri)
-    async def release_tree(self, tree_uri: str): await self._launch("release_tree", tree_uri=tree_uri)
-    async def sign_in(self, server_client_id: str): await self._launch("google_sign_in", server_client_id=server_client_id)
+    async def select_tree(self): return await self._launch("select_tree")
+    async def rescan_tree(self, tree_uri: str): return await self._launch("scan_tree", tree_uri=tree_uri)
+    async def scan_media_store(self): return await self._launch("scan_media_store")
+    async def request_media_access(self): return await self._launch("request_media_access")
+    async def check_storage_access(self): return await self._launch("check_storage_access")
+    async def open_broad_storage_settings(self): return await self._launch("open_broad_storage_settings")
+    async def scan_all_storage(self): return await self._launch("scan_all_storage")
+    async def request_thumbnail(self, uri: str, size: int = 0, modified_at: int = 0): return await self._launch("extract_thumbnail", uri=uri, size=max(0, int(size)), modified_at=max(0, int(modified_at)))
+    async def cancel_scans(self): return await self._launch("cancel_scan")
+    async def verify_tree(self, tree_uri: str): return await self._launch("verify_tree", tree_uri=tree_uri)
+    async def release_tree(self, tree_uri: str): return await self._launch("release_tree", tree_uri=tree_uri)
+    async def sign_in(self, server_client_id: str): return await self._launch("google_sign_in", server_client_id=server_client_id)
 
     async def play(self, uri: str, title: str, position_ms: int = 0, *, can_next=False,
                    can_previous=False, autoplay=False):

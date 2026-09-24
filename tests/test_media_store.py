@@ -126,8 +126,10 @@ class TestMediaStorePersistence(unittest.TestCase):
         bridge = (ROOT / "core" / "android_bridge.py").read_text(encoding="utf-8")
         main = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("async def scan_media_store(self)", bridge)
-        self.assertIn('await bridge.scan_media_store()', main)
-        self.assertIn("pending_native_scans[0] += 1", main)
+        self.assertIn('scan_coordinator.request(', main)
+        self.assertIn("ScanOrigin.USER_REFRESH", main)
+        self.assertNotIn('await bridge.scan_media_store()', main)
+        self.assertNotIn("pending_native_scans", main)
         self.assertIn("mediastore_scan", main)
         self.assertIn("source_kind='mediastore'", main)
 

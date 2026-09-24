@@ -150,7 +150,7 @@ class ArtworkEngine:
                     con.execute(f"ALTER TABLE artwork ADD COLUMN {column} {definition}")
             con.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_artwork_key "
-                "ON artwork(artwork_key) WHERE artwork_key IS NOT NULL"
+                "ON artwork(entity_type, entity_id, artwork_key) WHERE artwork_key IS NOT NULL"
             )
             con.execute(
                 "CREATE INDEX IF NOT EXISTS idx_artwork_last_access "

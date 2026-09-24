@@ -150,10 +150,10 @@ def _candidate_score(local_title: str, candidate: dict, context: MatchContext) -
         if score > best:
             best = score
             best_kind = kind
-    if best >= 0.999:
-        reasons.append("title_exact")
-    elif best_kind == "synonym" and best >= 0.90:
+    if best_kind == "synonym" and best >= 0.90:
         reasons.append("synonym_match")
+    elif best >= 0.999:
+        reasons.append("title_exact")
     elif best >= 0.82:
         reasons.append("title_similarity")
 

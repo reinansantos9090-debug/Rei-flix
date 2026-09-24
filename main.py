@@ -199,6 +199,10 @@ async def main(page: ft.Page):
     # top-level screens. Returning to a screen must not destroy its scroll,
     # search, filter or focus state.
     screen_cache = {}
+    # Settings has an inner category state that is intentionally not a second
+    # navigation stack. Android Back must close that category before the
+    # top-level NavigationController is asked to leave Settings.
+    settings_system_back = [None]
     # Flet's page.views is the navigation surface consumed by the Android/system
     # Back dispatcher. The existing NavigationController remains the single
     # logical source of truth; page.views mirrors its stack without introducing
@@ -267,6 +271,7 @@ async def main(page: ft.Page):
                 on_integrity_check=integrity_check,
                 on_reconcile_after_restore=request_restore_reconciliation,
                 on_settings_changed=apply_settings_runtime,
+                on_register_system_back=lambda handler: settings_system_back.__setitem__(0, handler),
             )
         else:
             raise RuntimeError(f"Unknown navigation route: {route}")
@@ -559,6 +564,18 @@ async def main(page: ft.Page):
             safe_update()
             return
 
+        # Settings owns a small inner category state. Let it consume Back
+        # before the top-level navigation stack changes, so Settings/Aparência
+        # returns to Settings instead of jumping to the previous screen.
+        if route_before == "settings":
+            inner_back = settings_system_back[0]
+            if callable(inner_back):
+                try:
+                    if inner_back():
+                        logger.info("[NAV] SETTINGS_INNER_BACK source=%s", source)
+                        return
+                except Exception:
+                    logger.exception("[NAV] settings inner Back handler failed")
         action = navigation.back()
         logger.info(
             "[NAV] NAVIGATE_BACK source=%s from=%s action=%s to=%s",

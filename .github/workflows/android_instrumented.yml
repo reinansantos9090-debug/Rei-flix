@@ -1,8 +1,6 @@
 name: ReiFlix Android Instrumented Tests
 
 on:
-  push:
-    branches: [tmp/final-instrumented-validation]
   workflow_dispatch:
 
 concurrency:

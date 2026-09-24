@@ -130,9 +130,10 @@ class HomeView:
                 width=width, height=height, border_radius=RADIUS, bgcolor="#2D2A3B",
                 alignment=ft.Alignment(0, 0),
             )
-            if item.get("id") is not None:
-                binding_entity = "movie" if item.get("media_kind") == "movie" and entity == "anime" else entity
-                artwork_bindings.setdefault((binding_entity, int(item.get("id")), kind), []).append((holder, width, height))
+            binding_entity = "movie" if item.get("media_kind") == "movie" and entity == "anime" else entity
+            binding_id = item.get("anime_id") if binding_entity == "anime" and item.get("anime_id") is not None else item.get("id")
+            if binding_id is not None:
+                artwork_bindings.setdefault((binding_entity, int(binding_id), kind), []).append((holder, width, height))
 
             def apply_source(path):
                 if not isinstance(path, str):
@@ -159,7 +160,7 @@ class HomeView:
             if apply_source(candidate_source):
                 return holder
 
-            item_id = item.get("id")
+            item_id = item.get("anime_id") if entity == "anime" and item.get("anime_id") is not None else item.get("id")
             if item_id is not None and library is not None:
                 key = (entity, int(item_id), kind, width, height)
                 if key not in artwork_tasks:
@@ -403,7 +404,6 @@ class HomeView:
             for item in continuing[:6]:
                 progress = ratio(item)
                 label = "FILME" if item.get("episode_type") == "movie" else f"T{item.get('season', 1)} • E{item.get('number', '—')}"
-                owner = {anime.get("id"): anime for anime in catalog}.get(item.get("anime_id"))
                 card_control = ft.Container(
                     width=258, bgcolor=SURFACE, border_radius=RADIUS, padding=9, ink=True,
                     on_click=lambda _, entry=item: play_continuation(entry),

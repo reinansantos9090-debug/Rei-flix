@@ -1397,10 +1397,10 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun showAspectSelection(button: TextView) {
-        val labels = arrayOf("Ajustar", "Preencher", "Zoom")
+        val labels = arrayOf("Ajustar", "Preencher")
         val current = when (button.text.toString()) {
             in labels -> button.text.toString()
-            "Original", "Auto" -> "Ajustar"
+            "Original", "Auto", "Zoom" -> "Ajustar"
             else -> "Ajustar"
         }
         val currentIndex = labels.indexOf(current).coerceAtLeast(0)
@@ -1419,8 +1419,7 @@ class NativePlayerActivity : ComponentActivity() {
         if (!::playerView.isInitialized) return
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.resetZoomToFit()
         playerView.resizeMode = when (mode) {
-            "Preencher" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-            "Zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            "Preencher" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
         button.text = mode
@@ -2012,17 +2011,11 @@ class NativePlayerActivity : ComponentActivity() {
         }
     }
 
-    private fun aspectLabelFromSetting(value: String?): String = when (value) {
-        "auto" -> "Auto"
-        "fill" -> "Preencher"
-        "zoom" -> "Zoom"
-        "original" -> "Original"
-        else -> "Ajustar"
-    }
+    private fun aspectLabelFromSetting(value: String?): String =
+        if (value == "fill") "Preencher" else "Ajustar"
 
     private fun resizeModeFromSetting(value: String?): Int = when (value) {
-        "fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-        "zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        "fill" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
         else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
     }
 

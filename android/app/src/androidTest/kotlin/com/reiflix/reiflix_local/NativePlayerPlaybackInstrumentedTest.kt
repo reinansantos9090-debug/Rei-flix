@@ -61,6 +61,10 @@ class NativePlayerPlaybackInstrumentedTest {
     @Test
     fun localMediaStoreFixture_reachesReadyAndPlays_inImmersivePlayer() {
         logStage("MEDIASTORE_FIXTURE_START")
+        // Launch the player from a real Rei-Flix task so Back is tested as it
+        // is in production (Player -> MainActivity), rather than with the
+        // launcher underneath a standalone test Activity.
+        launchMainActivityForPlayer()
         val uri = insertFixtureIntoMediaStore()
         fixtureUri = uri
 
@@ -349,6 +353,19 @@ class NativePlayerPlaybackInstrumentedTest {
         await("Android Back must finish the native player Activity") { activity!!.isFinishing }
         waitForReiFlixMainActivityForeground()
 
+    }
+
+    private fun launchMainActivityForPlayer() {
+        val intent = Intent(target, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        InstrumentationRegistry.getInstrumentation().startActivitySync(intent)
+        val deadline = SystemClock.uptimeMillis() + 10_000L
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (device.currentPackageName == target.packageName) return
+            SystemClock.sleep(100L)
+        }
+        assertEquals(target.packageName, device.currentPackageName)
     }
 
     private fun waitForForegroundPackage(expected: String, timeoutMs: Long = 15_000L) {

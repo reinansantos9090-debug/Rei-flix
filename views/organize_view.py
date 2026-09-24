@@ -128,6 +128,11 @@ class OrganizeView:
             ],
             spacing=8,
         )
+        collection_grid = ft.Row(wrap=True, spacing=14, run_spacing=20)
+        collection_summary = ft.Text("", color=TEXT_MUTED, size=12)
+        collection_search = None
+        collection_genre = None
+        collection_sort = None
 
         def artwork(source, height, icon_size=28, width=None):
             return media_artwork(source, height, width=width, icon_size=icon_size)
@@ -474,43 +479,105 @@ class OrganizeView:
                 selected_genre[0] = genre
             if state is not None:
                 selected_state[0] = state
-            mode[0] = "collection"
+            mode[0] = 'collection'
             save_view_state()
-            await render()
+            await render_collection(reset=True)
 
         async def back_to_overview(_event=None):
-            mode[0] = "overview"
+            mode[0] = 'overview'
             save_view_state()
             await render()
 
         async def clear_filters(_event=None):
-            selected_genre[0] = "Todos"
-            selected_state[0] = "Todos"
-            selected_sort[0] = "Mais recentes"
-            query[0] = ""
-            mode[0] = "collection"
+            selected_genre[0] = 'Todos'
+            selected_state[0] = 'Todos'
+            selected_sort[0] = 'Mais recentes'
+            query[0] = ''
+            mode[0] = 'collection'
             save_view_state()
-            await render()
+            await render_collection(reset=True)
 
         async def on_search(event):
-            query[0] = event.control.value or ""
+            query[0] = event.control.value or ''
             save_view_state()
-            await render_collection_only()
+            search_generation[0] += 1
+            token = search_generation[0]
+            await asyncio.sleep(0.18)
+            if token != search_generation[0]:
+                return
+            await render_collection(reset=True)
 
         async def on_sort(event):
-            selected_sort[0] = event.control.value or "Mais recentes"
+            selected_sort[0] = event.control.value or 'Mais recentes'
             save_view_state()
-            await render_collection_only()
+            await render_collection(reset=True)
 
         async def on_genre_change(event):
-            selected_genre[0] = event.control.value or "Todos"
-            selected_state[0] = "Todos"
+            selected_genre[0] = event.control.value or 'Todos'
+            selected_state[0] = 'Todos'
             save_view_state()
-            await render_collection_only()
+            await render_collection(reset=True)
 
+        async def load_collection_page(*, reset=False):
+            if page_loading[0] or (not reset and not has_more[0]):
+                return
+            if reset:
+                render_generation[0] += 1
+                current_page[0] = 0
+                has_more[0] = True
+                total_matches[0] = 0
+                catalog.clear()
+                collection_grid.controls.clear()
+            page_loading[0] = True
+            token = render_generation[0]
+            target_page = 0 if reset else current_page[0] + 1
+            try:
+                result = await asyncio.to_thread(
+                    library.browse_catalog_page,
+                    page=target_page, page_size=36,
+                    query=query[0], state=selected_state[0], genre=selected_genre[0],
+                    sort=selected_sort[0],
+                )
+            except Exception:
+                logger.exception('Organize paged query failed', extra={'screen':'organize','page':target_page})
+                page_loading[0] = False
+                if reset:
+                    collection_grid.controls.clear()
+                    collection_summary.value = 'Não foi possível aplicar os filtros.'
+                page.update()
+                return
+            if token != render_generation[0]:
+                page_loading[0] = False
+                return
+            items = result.get('items') or []
+            existing_ids = {int(item.get('id')) for item in catalog if item.get('id') is not None}
+            fresh = [item for item in items if item.get('id') is None or int(item.get('id')) not in existing_ids]
+            catalog.extend(fresh)
+            current_page[0] = int(result.get('page') or target_page)
+            total_matches[0] = int(result.get('total') or 0)
+            has_more[0] = bool(result.get('has_more'))
+            collection_grid.controls.extend(anime_card(item) for item in fresh)
+            description = []
+            if query[0].strip(): description.append(f'busca "{query[0].strip()}"')
+            if selected_genre[0] != 'Todos': description.append(f'gênero {selected_genre[0]}')
+            if selected_state[0] != 'Todos': description.append(selected_state[0].lower())
+            if selected_sort[0] != 'Mais recentes': description.append(selected_sort[0].lower())
+            suffix = ' • '.join(description) if description else 'Todos os itens da biblioteca'
+            collection_summary.value = f'{total_matches[0]} anime(s) • {suffix}'
+            page_loading[0] = False
+            page.update()
+
+        def on_collection_scroll(event):
+            try:
+                view_state['scroll_position'] = float(event.pixels)
+                remaining = float(event.max_scroll_extent - event.pixels)
+            except (TypeError, ValueError, AttributeError):
+                return
+            if remaining < 800 and has_more[0] and not page_loading[0] and mode[0] == 'collection':
+                page.run_task(lambda: load_collection_page(reset=False))
         def render_overview():
             try:
-                summary = library.organize_summary(list(catalog))
+                summary = library.organize_summary_bounded()
             except Exception:
                 logger.exception(
                     "Organize summary failed",
@@ -567,13 +634,11 @@ class OrganizeView:
             try:
                 registry_genres = library.genre_options(include_unused=False)
                 covers = {}
-                for anime in catalog:
-                    cover = (anime.get("meta") or {}).get("cover_cache") or (anime.get("meta") or {}).get("cover_url")
-                    for genre_id in anime.get("genre_ids") or []:
-                        if cover and genre_id not in covers:
-                            covers[genre_id] = cover
+                for item in registry_genres:
+                    if item.get('cover'):
+                        covers[item['id']] = item['cover']
                 registry_genres = [
-                    {**item, "cover": covers.get(item["id"], "")}
+                    {**item, "cover": covers.get(item["id"], item.get("cover", ""))}
                     for item in registry_genres
                 ]
             except Exception:

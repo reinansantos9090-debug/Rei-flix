@@ -319,6 +319,7 @@ class SettingsView:
         async def export_settings(_):
             try:
                 raw = settings.export_json().encode("utf-8")
+                notice("Backup validado. Escolha o local de destino…")
                 path = await ft.FilePicker().save_file(
                     dialog_title="Exportar configurações",
                     file_name="reiflix-settings.json",
@@ -377,6 +378,7 @@ class SettingsView:
 
         async def create_backup_file(_):
             try:
+                notice("Preparando backup…")
                 raw = await call_callback(on_create_backup)
                 if not raw:
                     raise RuntimeError("Backup vazio.")
@@ -395,6 +397,7 @@ class SettingsView:
 
         async def restore_backup_file(_):
             try:
+                notice("Selecione o backup para validar…")
                 files = await ft.FilePicker().pick_files(
                     dialog_title="Selecionar backup Rei-Flix",
                     allow_multiple=False,
@@ -406,6 +409,7 @@ class SettingsView:
                     notice("Restore cancelado.")
                     return
                 raw = files[0].bytes or b""
+                notice("Validando formato, checksum e schema…")
                 preview = await call_callback(on_inspect_backup, raw)
                 counts = preview.get("counts") or {}
                 content = ft.Column([
@@ -425,6 +429,7 @@ class SettingsView:
                 async def confirm_restore(_event):
                     page.pop_dialog()
                     try:
+                        notice("Preparando snapshot de segurança e restore…")
                         result = await call_callback(on_restore_backup, raw)
                         report = result.get("report") or {}
                         notice(
@@ -462,6 +467,7 @@ class SettingsView:
 
         async def export_diagnostic(_):
             try:
+                notice("Gerando diagnóstico técnico…")
                 raw = await call_callback(on_export_diagnostics)
                 stamp = __import__("time").strftime("%Y%m%d-%H%M%S")
                 path = await ft.FilePicker().save_file(
@@ -478,6 +484,7 @@ class SettingsView:
 
         async def verify_integrity(_):
             try:
+                notice("Verificando SQLite, foreign keys e inconsistências…")
                 report = await call_callback(on_integrity_check)
                 db = report.get("database") or {}
                 text = (

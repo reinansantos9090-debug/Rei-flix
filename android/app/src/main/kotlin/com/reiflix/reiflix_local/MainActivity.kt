@@ -1677,7 +1677,6 @@ class MainActivity : FlutterFragmentActivity() {
             Log.i(tag, "PLAY_HANDOFF_START requestId=" + requestId.ifEmpty { "-" } + " component=" + intent.component)
 
             if (reusingPlayerActivity) {
-            if (reusingPlayerActivity) {
                 startActivity(
                     intent.addFlags(
                         Intent.FLAG_ACTIVITY_SINGLE_TOP or

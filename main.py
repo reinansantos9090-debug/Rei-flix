@@ -83,7 +83,10 @@ async def main(page: ft.Page):
     # top-level screens. Returning to a screen must not destroy its scroll,
     # search, filter or focus state.
     screen_cache = {}
-    view_host = ft.Container(expand=True, bgcolor=page.bgcolor)
+    # Flet's page.views is the navigation surface consumed by the Android/system
+    # Back dispatcher. The existing NavigationController remains the single
+    # logical source of truth; page.views mirrors its stack without introducing
+    # a second navigation model.
     # Runtime snapshots are deliberately not stored in SQLite: only Android is
     # proof of a current grant.  ``dismissed`` prevents an automatic onboarding loop.
     storage_onboarding = {"dismissed": False, "dialog_open": False, "waiting_for_result": False}
@@ -91,16 +94,83 @@ async def main(page: ft.Page):
     processed_native_operations = set()
     back_state = {"last_at": 0.0, "last_action": None}
     BACK_DEBOUNCE_SECONDS = 0.30
-    page.add(view_host)
 
-    def show(control):
-        if view_host.content is control:
-            return
-        view_host.content = control
-        safe_update()
+    def _route_for_screen(screen):
+        return {
+            "home": "/",
+            "organize": "/organize",
+            "details": "/details",
+            "settings": "/settings",
+        }.get(screen, "/" + str(screen))
+
+    def _build_screen(route, *, force=False):
+        if force:
+            screen_cache.pop(route, None)
+        control = screen_cache.get(route)
+        if control is not None:
+            return control
+        if route == "home":
+            control = HomeView.build(
+                page, library, navigate_details, navigate_settings, play_episode,
+                navigate_organize, view_state=home_state,
+                on_request_thumbnail=request_missing_thumbnail,
+            )
+        elif route == "organize":
+            control = OrganizeView.build(
+                page, library, navigate_details,
+                lambda: navigate_back("visual:organize"), navigate_settings,
+                on_request_storage_access=open_broad_storage_access,
+                on_scan_storage=refresh_library,
+                on_request_video_access=request_video_access,
+                on_add_folder=add_folder,
+                view_state=organize_state,
+            )
+        elif route == "details":
+            control = DetailView.build(
+                page, current[0], play_episode,
+                lambda: navigate_back("visual:details"),
+                store.toggle_favorite, library.playback_target,
+                library.set_user_tags, library.toggle_pinned, library.set_personal_note,
+                store.set_episode_identification, refresh_current_details,
+                refresh_current_metadata, library.resolve_artwork,
+            )
+        elif route == "settings":
+            control = SettingsView.build(
+                page, store, library,
+                lambda: navigate_back("visual:settings"),
+                on_catalog_changed, add_folder, remove_folder, refresh_library,
+                request_video_access, open_broad_storage_access, login, logout,
+                account(), account_state[0],
+                folder_selection_pending=lambda: saf_selection.pending,
+                on_resolve_match=resolve_match,
+                on_create_backup=create_backup, on_restore_backup=restore_backup,
+                storage_snapshot=storage_capabilities[0], scan_snapshot=scan_state[0],
+            )
+        else:
+            raise RuntimeError(f"Unknown navigation route: {route}")
+        screen_cache[route] = control
+        return control
 
     def render_current(force=False):
-        route = navigation.current
+        # page.views mirrors NavigationController exactly. The native player is
+        # intentionally absent: it is a separate Activity, so Back there never
+        # mutates the Flet navigation stack.
+        views = []
+        for index, route in enumerate(navigation.stack):
+            control = _build_screen(route, force=force and route == navigation.current)
+            views.append(
+                ft.View(
+                    route=_route_for_screen(route),
+                    controls=[control],
+                    padding=0,
+                )
+            )
+        page.views.clear()
+        page.views.extend(views)
+        safe_update()
+
+    def handle_flet_view_pop(_event):
+        navigate_back("flet_view_pop")
         if force:
             screen_cache.pop(route, None)
         control = screen_cache.get(route)
@@ -290,6 +360,7 @@ async def main(page: ft.Page):
         elif action == "exit":
             logger.info("[NAV] NAVIGATE_BACK exit source=%s", source)
             page.window.close()
+    page.on_view_pop = handle_flet_view_pop
     def refresh_settings_if_active():
         if navigation.current == "settings":
             render_current(force=True)
@@ -1462,8 +1533,6 @@ async def main(page: ft.Page):
                                     message = event.get('message', 'O login Google não pôde ser concluído.')
                                 page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; safe_update()
                             if event_type == 'saf_error': refresh_settings_if_active()
-                        elif event_type == 'android_back':
-                            navigate_back('android_back')
                         if operation_key:
                             processed_native_operations.add(operation_key)
                         if event_id:

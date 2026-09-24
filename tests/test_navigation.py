@@ -62,11 +62,18 @@ class NavigationControllerTests(unittest.TestCase):
         self.assertIn('lambda: navigate_back("visual:settings")', source)
 
 
-    def test_main_uses_one_persistent_view_host(self):
+    def test_main_uses_flet_views_as_the_system_navigation_surface(self):
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
-        self.assertIn("view_host = ft.Container", source)
-        self.assertIn("screen_cache = {}", source)
+        self.assertIn("page.views.clear()", source)
+        self.assertIn("page.views.extend(views)", source)
+        self.assertIn("page.on_view_pop = handle_flet_view_pop", source)
+        self.assertIn("NavigationController", source)
         self.assertNotIn("page.clean()", source)
+
+    def test_main_does_not_route_android_back_through_native_mailbox(self):
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        self.assertNotIn("event_type == 'android_back'", source)
+        self.assertNotIn('navigate_back("android_back")', source)
 
     def test_multiple_back_events_never_underflow_history(self):
         self.navigation.push("organize")

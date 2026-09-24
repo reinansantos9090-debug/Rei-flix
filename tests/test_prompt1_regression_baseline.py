@@ -22,14 +22,13 @@ class Prompt1RegressionBaselineTests(unittest.TestCase):
         ):
             self.assertTrue((ROOT / path).is_file(), path)
 
-    def test_android_back_currently_crosses_mailbox_to_python_navigation(self):
+    def test_android_back_is_owned_by_flet_navigation_not_native_mailbox(self):
         main=self.read("main.py")
         activity=self.read("android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt")
-        self.assertIn('put("type", "android_back")',activity)
-        self.assertIn('put("action", "back")',activity)
-        self.assertIn("NativeMailbox.write(",activity)
-        self.assertIn("event_type == 'android_back'",main)
-        self.assertIn("navigate_back('android_back')",main)
+        self.assertIn("page.on_view_pop = handle_flet_view_pop",main)
+        self.assertIn("page.views.clear()",main)
+        self.assertNotIn('put("type", "android_back")',activity)
+        self.assertNotIn("event_type == 'android_back'",main)
 
     def test_on_resume_contains_authorized_discovery_scan_triggers(self):
         source=self.read("android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt")

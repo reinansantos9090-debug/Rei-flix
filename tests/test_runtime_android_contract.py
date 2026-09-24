@@ -158,7 +158,6 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "player_exited",
             "restoreSystemUiBeforeExit",
             "WindowCompat.setDecorFitsSystemWindows(window, false)",
-            "show(WindowInsetsCompat.Type.systemBars())",
             "hide(WindowInsetsCompat.Type.systemBars())",
             "getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())",
             "mandatorySystemGestures()",
@@ -203,13 +202,14 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         ):
             self.assertIn(token, player)
 
-    def test_host_activity_restores_normal_system_bars(self):
+    def test_host_activity_keeps_primary_system_bars_hidden(self):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")
         system_ui = SYSTEM_UI.read_text(encoding="utf-8")
         self.assertIn("applyNormalSystemUi()", main)
         self.assertIn("applyNormal()", system_ui)
-        self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, true)", system_ui)
-        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", system_ui)
+        self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", system_ui)
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", system_ui)
+        self.assertNotIn("show(WindowInsetsCompat.Type.systemBars())", system_ui)
 
     def test_native_player_primary_surface_does_not_expose_secondary_controls(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")

@@ -463,7 +463,13 @@ class HomeView:
             except Exception:
                 logger.exception('Home metadata/artwork hydration failed', extra={'screen':'home','requestId':'-','library_items':len(items)})
 
+        async def refresh_from_catalog():
+            save_view_state()
+            await load_library_page(reset=True)
+
         async def retry_load_catalog(_event=None):
+            await load_catalog()
+
             await load_catalog()
 
         async def load_catalog():
@@ -553,6 +559,7 @@ class HomeView:
             except Exception:
                 logger.debug("Home scroll restoration unavailable", exc_info=True)
 
+        view_state['_refresh_from_catalog'] = refresh_from_catalog
         status.visible = True
         page.run_task(load_catalog)
         return ft.Container(

@@ -181,43 +181,22 @@ class NativePlayerPlaybackInstrumentedTest {
             player.pause()
             player.seekTo(3_000L)
         }
-        await("Gesture seek precondition must be reachable") { player.currentPosition >= 2_500L }
+        await("Gesture precondition must be reachable") { player.currentPosition >= 2_500L }
 
         val controls = awaitView<View>("reiflix_controls_root")
-        val controlsBefore = onMain { controls.visibility }
         val gestureSize = onMain { gestureLayer.width to gestureLayer.height }
+        val controlsBefore = onMain { controls.visibility }
 
-        // A single tap is deliberately delayed for the double-tap window. This
-        // prevents the first tap from firing a UI toggle before a second tap
-        // can be recognized as the CloudStream-style double tap.
         tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
-        SystemClock.sleep(80L)
-        assertTrue(
-            "First tap must not toggle controls before the double-tap window expires",
-            onMain { controls.visibility == controlsBefore },
-        )
+        await("Single tap must toggle controls without a double-tap delay") {
+            controls.visibility != controlsBefore
+        }
 
         onMain {
             player.pause()
-            player.seekTo(3_000L)
+            player.seekTo(0L)
         }
-        await("Seek position must be restored for left double tap") { player.currentPosition >= 2_500L }
-        doubleTap(gestureLayer, gestureSize.first * 0.12f, gestureSize.second * 0.5f)
-        await("Left double tap must seek backward") { player.currentPosition <= 1_000L }
-
-        doubleTap(gestureLayer, gestureSize.first * 0.88f, gestureSize.second * 0.5f)
-        await("Right double tap must seek forward") { player.currentPosition >= 2_000L }
-
-        // After the double-tap sequence a normal single tap is still allowed
-        // to toggle the custom controls once the debounce window expires.
-        val afterDouble = onMain { controls.visibility }
-        tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
-        await("Single tap must toggle controls after the debounce window") {
-            controls.visibility != afterDouble
-        }
-
-        onMain { player.seekTo(0L) }
-        await("Horizontal gesture precondition") { player.currentPosition <= 500L }
+        await("Horizontal no-seek precondition") { player.currentPosition <= 500L }
         swipe(
             gestureLayer,
             gestureSize.first * 0.25f,
@@ -225,9 +204,11 @@ class NativePlayerPlaybackInstrumentedTest {
             gestureSize.first * 0.65f,
             gestureSize.second * 0.5f,
         )
-        await("Horizontal swipe must commit one coherent seek on ACTION_UP") {
-            player.currentPosition > 500L
-        }
+        SystemClock.sleep(250L)
+        assertTrue(
+            "Horizontal swipe must not seek; seekbar/buttons are the only seek surfaces",
+            onMain { player.currentPosition <= 750L },
+        )
 
         val feedback = awaitView<TextView>("reiflix_feedback")
         val systemAudio = target.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
@@ -446,15 +427,6 @@ class NativePlayerPlaybackInstrumentedTest {
         val down = SystemClock.uptimeMillis()
         dispatchEvent(view, MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, x, y, 0))
         dispatchEvent(view, MotionEvent.obtain(down, down + 70L, MotionEvent.ACTION_UP, x, y, 0))
-    }
-
-    private fun doubleTap(view: View, x: Float, y: Float) {
-        val first = SystemClock.uptimeMillis()
-        dispatchEvent(view, MotionEvent.obtain(first, first, MotionEvent.ACTION_DOWN, x, y, 0))
-        dispatchEvent(view, MotionEvent.obtain(first, first + 60L, MotionEvent.ACTION_UP, x, y, 0))
-        val second = first + 120L
-        dispatchEvent(view, MotionEvent.obtain(first, second, MotionEvent.ACTION_DOWN, x, y, 0))
-        dispatchEvent(view, MotionEvent.obtain(first, second + 60L, MotionEvent.ACTION_UP, x, y, 0))
     }
 
     private fun swipe(view: View, startX: Float, startY: Float, endX: Float, endY: Float) {

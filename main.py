@@ -985,7 +985,7 @@ async def main(page: ft.Page):
                                     storage_onboarding["dismissed"] = True
                                 store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento ainda não foi concedido.')
                                 store.mark_source_unavailable('broad-storage', 'broad_access_denied')
-                                finish_native_scan()
+
                             refresh_settings_if_active()
                             maybe_show_storage_onboarding()
                         elif event_type == 'broad_storage_error':
@@ -1005,7 +1005,7 @@ async def main(page: ft.Page):
                             videos = int(payload.get('videos') or 0)
                             phase = payload.get('phase') or 'scanning'
                             if phase == 'already_running':
-                                finish_native_scan()
+
                                 text = 'A varredura dos vídeos do dispositivo já está em andamento.'
                             else:
                                 text = 'Preparando vídeos do dispositivo…' if phase == 'started' else f'Verificando vídeos do dispositivo… {files} itens, {videos} vídeos.'
@@ -1112,7 +1112,7 @@ async def main(page: ft.Page):
                             else:
                                 store.update_folder_status(source, 'unavailable', message)
                                 store.mark_source_unavailable(source, 'mediastore_scan_failed')
-                            finish_native_scan()
+
                             page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar os vídeos do dispositivo.')))
                             page.snack_bar.open = True
                             safe_update()
@@ -1500,7 +1500,7 @@ async def main(page: ft.Page):
                                 # its lock.  Without this, Settings can remain on its
                                 # disabled loading button after one revoked grant.
                                 if scan_in_progress[0]:
-                                    finish_native_scan()
+
                             if event_type == 'google_error':
                                 code = str(event.get('code') or 'credential_error')
                                 account_state[0] = 'configuration_required' if code == 'configuration_required' else 'error'

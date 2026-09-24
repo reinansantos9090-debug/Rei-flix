@@ -86,8 +86,8 @@ class StorageOnboardingTests(unittest.TestCase):
         request_block = source.split("private fun requestMediaAccess()", 1)[1].split("private fun publishStorageStatus()", 1)[0]
         self.assertIn('val currentAccess = MediaStoreScanner.accessLevel(this)', request_block)
         self.assertIn('if (currentAccess != "denied")', request_block)
-        self.assertLess(request_block.index('put("type", "mediastore_permission")'), request_block.index("scanMediaStore(requestId)"))
-        self.assertIn("Existing access must converge to the same permission -> scan -> index -> mailbox path.", request_block)
+        self.assertLess(request_block.index('put("type", "mediastore_permission")'), request_block.index('publishScanRequest("PERMISSION_CHANGE"'))
+        self.assertIn("publishScanRequest", request_block)
 
     def test_saf_picker_is_lifecycle_gated_and_single_shot(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")

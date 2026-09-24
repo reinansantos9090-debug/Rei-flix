@@ -84,6 +84,7 @@ class ArtworkEngine:
         self._lock = threading.RLock()
         self._pending: dict[str, Future] = {}
         self._sequence = 0
+        self._generation = 0
         self._queue: queue.PriorityQueue = queue.PriorityQueue()
         self._workers = []
         self._closed = False
@@ -92,6 +93,17 @@ class ArtworkEngine:
 
     def _log(self, event, **extra):
         logger.info("%s %s", _EVENT_NAMES.get(event, event), extra)
+
+    def invalidate_generation(self, reason="state_restore"):
+        """Cancel queued artwork work so stale results cannot overwrite restored state."""
+        with self._lock:
+            self._generation += 1
+            for future in tuple(self._pending.values()):
+                future.cancel()
+            self._pending.clear()
+            generation = self._generation
+        self._log("cancel", reason=reason, generation=generation)
+        return generation
 
     def _start_workers(self):
         for index in range(self.max_workers):
@@ -720,9 +732,11 @@ class ArtworkEngine:
         )
         variant = row.get("variant") or _VARIANT_PRIORITY.get(artwork_type, "default")
         self._set_status(row["id"], STATUS_QUEUED)
+        with self._lock:
+            generation = self._generation
         future = self._enqueue(
             key,
-            lambda: self._download_row(row, force=force),
+            lambda generation=generation: self._download_row(row, force=force, generation=generation),
             priority=priority,
         )
         if blocking:
@@ -747,7 +761,11 @@ class ArtworkEngine:
                 logger.exception("Artwork prefetch request failed")
         return futures
 
-    def _download_row(self, row, *, force=False):
+    def _download_row(self, row, *, force=False, generation=None):
+        with self._lock:
+            if generation is not None and generation != self._generation:
+                self._log("cancel", key=row.get("artwork_key"), reason="stale_generation")
+                return None
         row_id = int(row["id"])
         url = self._normalize_url(row.get("external_url"))
         if not url or not _safe_http_url(url):
@@ -773,6 +791,19 @@ class ArtworkEngine:
             temporary.write_bytes(payload)
             os.replace(temporary, target)
             now = time.time()
+            with self._lock:
+                stale = generation is not None and generation != self._generation
+            if stale:
+                try:
+                    temporary.unlink()
+                except FileNotFoundError:
+                    pass
+                try:
+                    target.unlink()
+                except FileNotFoundError:
+                    pass
+                self._log("cancel", key=key, reason="stale_generation_before_commit")
+                return None
             with self.store._conn() as con:
                 con.execute(
                     """UPDATE artwork SET source='cache',local_path=?,status=?,

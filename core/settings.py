@@ -55,6 +55,27 @@ class SettingsDefaults:
         SettingDefinition("privacy.external_sync", "bool", False),
     )
     BY_KEY = {item.key: item for item in DEFINITIONS}
+    EXPORT_KEYS = (
+        "app.confirm_destructive",
+        "appearance.theme",
+        "library.continue_watching",
+        "library.continue_watching_limit",
+        "player.autoplay_next",
+        "player.resume",
+        "player.default_speed",
+        "player.aspect_ratio",
+        "player.immersive",
+        "player.rotation",
+        "player.pip",
+        "player.auto_hide_seconds",
+        "gestures.volume",
+        "gestures.brightness",
+        "gestures.double_tap",
+        "gestures.long_press",
+        "audio.preferred_language",
+        "audio.preferred_subtitle_language",
+        "audio.subtitles",
+    )
 
 class SettingsValidationError(ValueError):
     pass
@@ -178,7 +199,7 @@ class SettingsStore:
         return {
             "format": self.EXPORT_FORMAT,
             "schema_version": self.SCHEMA_VERSION,
-            "settings": self.snapshot(),
+            "settings": {key: self.get(key) for key in SettingsDefaults.EXPORT_KEYS},
         }
 
     def export_json(self) -> str:

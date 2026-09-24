@@ -200,8 +200,9 @@ class GenreRegistry:
         if ids:
             marks = ",".join("?" for _ in ids)
             with self.store._conn() as c:
-                rows = c.execute(f"""SELECT DISTINCT ag.anime_id,g.id,g.canonical_name FROM anime_genres ag
-                                     JOIN genres g ON g.id=ag.genre_id WHERE ag.anime_id IN ({marks})
+                rows = c.execute(f"""SELECT DISTINCT ag.anime_id,g.id,g.canonical_name,a.alias FROM anime_genres ag
+                                     JOIN genres g ON g.id=ag.genre_id LEFT JOIN genre_aliases a ON a.genre_id=g.id
+                                     WHERE ag.anime_id IN ({marks})
                                      ORDER BY g.normalized_name""", ids).fetchall()
                 for row in rows:
                     mapping.setdefault(int(row["anime_id"]), []).append(dict(row))

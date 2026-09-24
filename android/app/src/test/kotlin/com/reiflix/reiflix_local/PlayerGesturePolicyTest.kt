@@ -148,6 +148,20 @@ class PlayerGesturePolicyTest {
     }
 
     @Test
+    fun verticalDeltaMapsUpToPositiveAndDownToNegativeAdjustments() {
+        assertEquals(
+            0.06f,
+            NativePlayerActivity.PlayerGesturePolicy.verticalDeltaFraction(-100f, 1000),
+            0.0001f,
+        )
+        assertEquals(
+            -0.06f,
+            NativePlayerActivity.PlayerGesturePolicy.verticalDeltaFraction(100f, 1000),
+            0.0001f,
+        )
+    }
+
+    @Test
     fun touchZonesUseRelativeWidth() {
         assertEquals(
             NativePlayerActivity.PlayerGesturePolicy.Side.LEFT,

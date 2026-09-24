@@ -1037,6 +1037,10 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun retryCurrentMedia() {
+        if (!::player.isInitialized) {
+            logPlayer("PLAYER_RETRY_UNAVAILABLE requestId=" + requestId.ifEmpty { "-" })
+            return
+        }
         if (retryCount >= MAX_RETRY_ATTEMPTS) {
             showFeedback("Limite de tentativas atingido", 1400L)
             return
@@ -1068,6 +1072,8 @@ class NativePlayerActivity : ComponentActivity() {
         setControlsVisible(true)
         findViewByTag<View>("reiflix_error_text")?.let { (it as TextView).text = message }
         findViewByTag<View>("reiflix_error_reason")?.let { (it as TextView).text = "Detalhe: " + reason }
+        findViewByTag<View>("reiflix_error_retry")?.visibility =
+            if (::player.isInitialized) View.VISIBLE else View.GONE
         findViewByTag<View>("reiflix_error_panel")?.visibility = View.VISIBLE
         findViewByTag<View>("reiflix_error_back")?.requestFocus()
         if (::feedback.isInitialized) feedback.visibility = View.GONE

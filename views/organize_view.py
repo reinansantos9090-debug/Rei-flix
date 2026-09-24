@@ -550,9 +550,9 @@ class OrganizeView:
                 page_loading[0] = False
                 return
             items = result.get('items') or []
-            existing_ids = {int(item.get('id')) for item in catalog if item.get('id') is not None}
-            fresh = [item for item in items if item.get('id') is None or int(item.get('id')) not in existing_ids]
-            catalog.extend(fresh)
+            catalog.clear()
+            catalog.extend(items)
+            fresh = list(items)
             current_page[0] = int(result.get('page') or target_page)
             total_matches[0] = int(result.get('total') or 0)
             has_more[0] = bool(result.get('has_more'))
@@ -634,12 +634,9 @@ class OrganizeView:
             )
             try:
                 registry_genres = library.genre_options(include_unused=False)
-                covers = {}
-                for item in registry_genres:
-                    if item.get('cover'):
-                        covers[item['id']] = item['cover']
+                covers = {str(item.get('id')): item.get('cover', '') for item in (summary.get('genres') or [])}
                 registry_genres = [
-                    {**item, "cover": covers.get(item["id"], item.get("cover", ""))}
+                    {**item, "cover": covers.get(str(item.get("id")), item.get("cover", ""))}
                     for item in registry_genres
                 ]
             except Exception:
@@ -753,10 +750,22 @@ class OrganizeView:
                 ]
             await render()
         content.on_scroll = on_collection_scroll
+        async def restore_scroll_position():
+            stored = view_state.get('scroll_position')
+            if stored is None:
+                return
+            try:
+                result = content.scroll_to(offset=float(stored), duration=0)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.debug('Organize scroll restoration unavailable', exc_info=True)
+
         save_view_state()
         render_generation[0] += 1
         render_overview()
         page.run_task(load_catalog)
+        page.run_task(restore_scroll_position)
         return ft.Container(
             content=content,
             padding=ft.Padding(

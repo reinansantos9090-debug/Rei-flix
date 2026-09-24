@@ -168,7 +168,12 @@ class AniListClient:
         return {"status": "ok" if self._last_request_status == "ok" else self._last_request_status,
                 "results": [item for item in results if isinstance(item, dict)]}
     def search(self,title):
-        return self.search_detailed(title)["results"]
+        result = self.search_detailed(title)
+        if isinstance(result, dict):
+            self._last_request_status = str(result.get("status") or self._last_request_status or "invalid_response")
+            return result.get("results") or []
+        self._last_request_status = "invalid_response"
+        return []
     def by_id(self, anilist_id):
         data=self._request(self.by_id_query, {'id':anilist_id})
         return (data or {}).get('Media')

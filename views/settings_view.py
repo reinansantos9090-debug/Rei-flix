@@ -12,6 +12,7 @@ import logging
 import flet as ft
 
 from core.storage_access import normalize_storage_snapshot
+from core.backup import BackupError
 from core.settings import SettingsStore, SettingsValidationError
 from core.ui import BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title
 
@@ -429,7 +430,6 @@ class SettingsView:
                         notice(
                             f"Restore concluído. {report.get('missing_files', 0)} arquivo(s) permaneceram como missing."
                         )
-                        on_catalog_changed()
                         rebuild()
                     except Exception:
                         logger.exception("backup restore failed")

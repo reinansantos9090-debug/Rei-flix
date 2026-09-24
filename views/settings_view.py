@@ -556,8 +556,9 @@ class SettingsView:
                     ft.dropdown.Option("light", "Claro"),
                     ft.dropdown.Option("dark", "Escuro"),
                 ],
-                on_change=theme_changed, dense=True, width=180,
+                dense=True, width=180,
             )
+            theme.on_change = theme_changed
             items.append(section("Aparência", ft.Icons.DARK_MODE_OUTLINED, [
                 ft.Row([
                     ft.Column([

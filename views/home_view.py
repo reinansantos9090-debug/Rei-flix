@@ -559,7 +559,10 @@ class HomeView:
             except Exception:
                 logger.debug("Home scroll restoration unavailable", exc_info=True)
 
-        view_state['_refresh_from_catalog'] = refresh_from_catalog
+        def schedule_refresh_from_catalog():
+            page.run_task(refresh_from_catalog)
+
+        view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
         status.visible = True
         page.run_task(load_catalog)
         return ft.Container(

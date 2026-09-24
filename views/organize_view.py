@@ -84,6 +84,11 @@ class OrganizeView:
         query = [view_state.get("query", "")]
         mode = [view_state.get("mode", "overview")]
         render_generation = [0]
+        search_generation = [0]
+        current_page = [0]
+        has_more = [True]
+        total_matches = [0]
+        page_loading = [False]
         catalog_load_failed = [False]
         scan_active = [False]
 
@@ -115,7 +120,7 @@ class OrganizeView:
         async def handle_add_folder(_event=None):
             await _invoke_callback(on_add_folder)
 
-        content = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=14)
+        content = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=14, scroll_interval=60)
         status = ft.Row(
             [
                 ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
@@ -191,6 +196,7 @@ class OrganizeView:
                 )
 
             return ft.Container(
+                key=f"anime:{anime.get('id', '-')}",
                 ink=True,
                 border_radius=14,
                 on_click=make_anime_click_handler(anime),

@@ -349,7 +349,6 @@ class SettingsView:
             page.run_task(run)
 
         def broad(_):
-        def broad(_):
             if busy["permission"]:
                 return
             busy["permission"] = True

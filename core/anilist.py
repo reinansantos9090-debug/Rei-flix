@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 class AniListClient:
     endpoint='https://graphql.anilist.co'
     media_fields='''id title{romaji english native} synonyms description(asHtml:false) coverImage{extraLarge large} bannerImage genres seasonYear season status episodes duration averageScore format studios(isMain:true){nodes{name}}'''
-    query=f'''query($search:String){{Page(perPage:5){{media(search:$search,type:ANIME){{{media_fields}}}}}}}'''
+    query=f'''query($search:String){{Page(perPage:10){{media(search:$search,type:ANIME){{{media_fields}}}}}}}'''
     by_id_query=f'''query($id:Int){{Media(id:$id,type:ANIME){{{media_fields}}}}}'''
     def __init__(self, cache_dir):
         self.cache_dir = cache_dir
@@ -88,6 +88,7 @@ class AniListClient:
         with self._rate_lock:
             if time.monotonic() < self._transport_backoff_until:
                 logger.info("AniList request skipped during transport backoff.")
+                self._last_request_status = "network_error"
                 return None
         self._pace_request()
         try:

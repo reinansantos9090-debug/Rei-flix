@@ -1319,6 +1319,15 @@ class NativePlayerActivity : ComponentActivity() {
         }
         videoFormatSummary = videoSummary
         audioFormatSummary = audioSummary
+        subtitleFormatSummary = player.currentTracks.groups
+            .filter { it.type == C.TRACK_TYPE_TEXT && it.isSupported }
+            .flatMap { group ->
+                (0 until group.length)
+                    .filter { group.isTrackSupported(it) && group.isTrackSelected(it) }
+                    .map { group.getTrackFormat(it) }
+            }
+            .firstOrNull()
+            ?.let { formatSummary(it, true) }
     }
 
     private fun formatSummary(format: Format, selected: Boolean): String {
@@ -1366,6 +1375,8 @@ class NativePlayerActivity : ComponentActivity() {
         .put("decoderAudio", decoderAudioName.orEmpty())
         .put("video", videoFormatSummary.orEmpty())
         .put("audio", audioFormatSummary.orEmpty())
+        .put("subtitleSelected", subtitleFormatSummary.orEmpty())
+        .put("playbackSpeed", if (::player.isInitialized) player.playbackParameters.speed else 1f)
         .put("audioTrackCount", if (::player.isInitialized) player.currentTracks.groups.count { it.type == C.TRACK_TYPE_AUDIO && it.isSupported } else 0)
         .put("subtitleTrackCount", if (::player.isInitialized) player.currentTracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported } else 0)
         .put("durationMs", if (::player.isInitialized) player.duration.coerceAtLeast(0L) else 0L)
@@ -1378,11 +1389,13 @@ class NativePlayerActivity : ComponentActivity() {
             append("MIME: ").append(contentMimeType ?: "não informado").append('\n')
             mediaSizeBytes?.let { append("Tamanho: ").append(it).append(" bytes").append('\n') }
             append("Duração: ").append(formatTime(player.duration.coerceAtLeast(0L))).append('\n')
+            append("Velocidade: ").append(String.format(Locale.US, "%.2fx", player.playbackParameters.speed)).append('\n')
             append("Decodificador vídeo: ").append(decoderVideoName ?: "não informado").append('\n')
             append("Decodificador áudio: ").append(decoderAudioName ?: "não informado").append('\n')
             append("Vídeo: ").append(videoFormatSummary ?: "nenhuma faixa detectada").append('\n')
             append("Áudio: ").append(audioFormatSummary ?: "nenhuma faixa detectada").append('\n')
-            append("Legendas: ").append(player.currentTracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported })
+            append("Legenda selecionada: ").append(subtitleFormatSummary ?: "nenhuma").append('\n')
+            append("Legendas disponíveis: ").append(player.currentTracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported })
         }
     }
 

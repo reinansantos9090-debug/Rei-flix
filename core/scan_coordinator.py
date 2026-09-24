@@ -151,6 +151,8 @@ class ScanCoordinator:
         self._lock = asyncio.Lock()
         self._active_request: ScanRequest | None = None
         self._active_children: dict[str, ScanTarget] = {}
+        self._child_statuses: dict[str, str] = {}
+        self._launch_failures = 0
         self._pending: list[ScanRequest] = []
         self._cancel_requested = False
         self._last_result: str | None = None
@@ -296,6 +298,8 @@ class ScanCoordinator:
         failed_launches = []
         async with self._lock:
             self._active_children.clear()
+            self._child_statuses.clear()
+            self._launch_failures = 0
 
         for target in targets:
             try:
@@ -317,6 +321,7 @@ class ScanCoordinator:
                 self._active_children[str(child_id)] = target
                 self._emit()
 
+        self._launch_failures = len(failed_launches)
         if failed_launches and not self._active_children:
             return await self._finish_logical("FAILED", refresh_required=False)
         if failed_launches:
@@ -364,12 +369,25 @@ class ScanCoordinator:
                 self._active_children.pop(request_id, None)
             if self._active_request is None:
                 return ScanTransition(True, "ignored")
-            self._last_result = (
+            child_state = (
                 ScanState.CANCELLED.value if "CANCEL" in status else
                 ScanState.FAILED.value if "FAIL" in status or "ERROR" in event_type.upper() else
                 ScanState.PARTIAL.value if "PARTIAL" in status or "UNAVAILABLE" in status else
                 ScanState.COMPLETED.value
             )
+            if request_id:
+                self._child_statuses[request_id] = child_state
+            statuses = list(self._child_statuses.values())
+            if self._launch_failures:
+                statuses.append(ScanState.FAILED.value)
+            if ScanState.CANCELLED.value in statuses:
+                self._last_result = ScanState.CANCELLED.value
+            elif ScanState.FAILED.value in statuses:
+                self._last_result = ScanState.FAILED.value
+            elif ScanState.PARTIAL.value in statuses:
+                self._last_result = ScanState.PARTIAL.value
+            else:
+                self._last_result = ScanState.COMPLETED.value
             self._emit()
             if self._active_children:
                 return ScanTransition(True, "child_completed")
@@ -391,6 +409,8 @@ class ScanCoordinator:
             self._emit()
             self._active_request = None
             self._active_children.clear()
+            self._child_statuses.clear()
+            self._launch_failures = 0
             self._cancel_requested = False
             next_request = pending[0] if pending else None
             if pending:

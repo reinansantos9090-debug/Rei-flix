@@ -18,7 +18,7 @@ class Prompt141SettingsContractTests(unittest.TestCase):
     def test_settings_export_import_contract_exists(self):
         settings = self.read(SETTINGS)
         view = self.read(SETTINGS_VIEW)
-        self.assertIn("EXPORT_FORMAT = "reiflix-settings"", settings)
+        self.assertIn('EXPORT_FORMAT = "reiflix-settings"', settings)
         self.assertIn("def export_json", settings)
         self.assertIn("def import_json", settings)
         self.assertIn("schema_version", settings)

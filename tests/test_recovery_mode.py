@@ -34,10 +34,10 @@ class RecoveryModeTests(unittest.TestCase):
     def test_recovery_restore_is_explicit_and_preserves_account_when_readable(self):
         with tempfile.TemporaryDirectory() as source_root, tempfile.TemporaryDirectory() as target_root:
             source = LibraryStore(source_root)
-            source.set_account({"email": "local@example.invalid", "name": "Local"})
+            source.save_account({"email": "local@example.invalid", "name": "Local"})
             backup = source.create_backup()
             target = LibraryStore(target_root)
-            target.set_account({"email": "keep@example.invalid", "name": "Keep"})
+            target.save_account({"email": "keep@example.invalid", "name": "Keep"})
             service = RecoveryService(target)
             result = service.restore_backup(open(backup, "rb").read())
             self.assertTrue(result["restart_required"])

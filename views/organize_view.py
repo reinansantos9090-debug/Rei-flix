@@ -151,8 +151,8 @@ class OrganizeView:
                 page.update()
 
         def make_anime_click_handler(anime):
-            async def handle(event):
-                await select_anime(event, anime)
+            def handle(event):
+                page.run_task(lambda: select_anime(event, anime))
             return handle
 
         def anime_card(anime):
@@ -804,6 +804,7 @@ class OrganizeView:
 
         save_view_state()
         render_generation[0] += 1
+        render_overview()
         page.run_task(load_catalog)
         return ft.Container(
             content=content,

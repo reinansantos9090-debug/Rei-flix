@@ -161,8 +161,16 @@ class OrganizeView:
                 page.update()
 
         def make_anime_click_handler(anime):
-            async def handle(event):
-                await select_anime(event, anime)
+            def handle(event):
+                async def invoke():
+                    await select_anime(event, anime)
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    asyncio.run(invoke())
+                else:
+                    loop.create_task(invoke())
+                return None
             return handle
 
         def anime_card(anime):
@@ -581,7 +589,8 @@ class OrganizeView:
                 page.run_task(load_next_collection_page)
         def render_overview():
             try:
-                summary = library.organize_summary_bounded()
+                bounded_summary = getattr(library, "organize_summary_bounded", None)
+                summary = bounded_summary() if callable(bounded_summary) else library.organize_summary(list(catalog))
             except Exception:
                 logger.exception(
                     "Organize summary failed",
@@ -714,7 +723,7 @@ class OrganizeView:
             collection_genre.on_change = on_genre_change
             collection_sort = ft.Dropdown(value=selected_sort[0], label='Ordenar', width=235, options=[ft.dropdown.Option(value, value) for value in OrganizeView._SORTS])
             collection_sort.on_select = on_sort
-            content.controls.append(ft.Row([collection_genre, collection_sort], wrap=True, spacing=8))
+            content.controls.append(ft.Row([collection_sort, collection_genre], wrap=True, spacing=8))
             content.controls.append(collection_summary)
             collection_grid.controls.clear()
             content.controls.append(collection_grid)

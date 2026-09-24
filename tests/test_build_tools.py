@@ -343,7 +343,7 @@ E: manifest
         self.assertIn("RESIZE_MODE_ZOOM", player)
         self.assertIn("RESIZE_MODE_FIT", player)
         self.assertIn("showAspectSelection", player)
-        self.assertIn('arrayOf("Ajustar", "Preencher")', player)
+        self.assertIn('arrayOf("Ajustar", "Preencher", "Zoom")', player)
         self.assertIn('screen_attr: "fullSensor"', template)
         self.assertTrue((ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/VideoThumbnailExtractor.kt").is_file())
 

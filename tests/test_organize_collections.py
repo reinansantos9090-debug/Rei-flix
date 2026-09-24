@@ -201,7 +201,9 @@ class OrganizeHandlerContractTests(unittest.TestCase):
         source = MAIN.read_text(encoding="utf-8")
         self.assertIn('if navigation.current == "organize":', source)
         self.assertIn('screen_cache.pop("organize", None)', source)
-        back_block = source[source.index('if action == "previous":'):source.index('elif action == "prompt_exit":', source.index('if action == "previous":'))]
+        back_block = source[source.index('if action in {"previous", "settings_inner"}:'):source.index('elif action == "prompt_exit":', source.index('if action in {"previous", "settings_inner"}:'))]
+        self.assertIn('if navigation.current == "organize":', back_block)
+        self.assertIn('screen_cache.pop("organize", None)', back_block)
         self.assertNotIn("refresh_library(", back_block)
 
 

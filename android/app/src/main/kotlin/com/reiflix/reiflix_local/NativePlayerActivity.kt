@@ -2362,6 +2362,10 @@ class NativePlayerActivity : ComponentActivity() {
         private var velocityTracker: VelocityTracker? = null
         private var longPressActive = false
         private var previousSpeedForLongPress = 1f
+        private var lastTapUpTime = 0L
+        private var lastTapX = 0f
+        private var lastTapY = 0f
+        private var manualDoubleTap = false
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (inPictureInPicture) return true
@@ -2407,10 +2411,25 @@ class NativePlayerActivity : ComponentActivity() {
                     gestureConsumed = false
                     verticalGesture = false
                     horizontalGesture = false
+                    manualDoubleTap = false
                     systemGestureEdge = isSystemGestureEdge(event.x, event.y)
                     velocityTracker?.recycle()
                     velocityTracker = VelocityTracker.obtain().apply { addMovement(event) }
-                    if (systemGestureEdge || !gestureInteractionAllowed()) {
+
+                    val doubleTapDistance = max(touchSlop * 2f, dp(24).toFloat())
+                    val withinDoubleTapWindow =
+                        doubleTapEnabled &&
+                            lastTapUpTime > 0L &&
+                            event.eventTime - lastTapUpTime <= ViewConfiguration.getDoubleTapTimeout()
+                    val nearPreviousTap =
+                        abs(event.x - lastTapX) <= doubleTapDistance &&
+                            abs(event.y - lastTapY) <= doubleTapDistance
+
+                    if (withinDoubleTapWindow && nearPreviousTap && !systemGestureEdge && gestureInteractionAllowed()) {
+                        manualDoubleTap = true
+                        gestureConsumed = true
+                        cancelGestureDetector(event)
+                    } else if (systemGestureEdge || !gestureInteractionAllowed()) {
                         gestureConsumed = true
                         cancelGestureDetector(event)
                     } else {
@@ -2446,6 +2465,26 @@ class NativePlayerActivity : ComponentActivity() {
                 }
                 MotionEvent.ACTION_UP -> {
                     velocityTracker?.addMovement(event)
+                    if (manualDoubleTap && gestureInteractionAllowed()) {
+                        val side = PlayerGesturePolicy.side(event.x, width)
+                        when (side) {
+                            PlayerGesturePolicy.Side.LEFT -> {
+                                logPlayer("PLAYER_DOUBLE_TAP side=left requestId=" + requestId.ifEmpty { "-" })
+                                seekBy(-doubleTapSeekMs, "−" + (doubleTapSeekMs / 1000L) + "s")
+                            }
+                            PlayerGesturePolicy.Side.RIGHT -> {
+                                logPlayer("PLAYER_DOUBLE_TAP side=right requestId=" + requestId.ifEmpty { "-" })
+                                seekBy(doubleTapSeekMs, "+" + (doubleTapSeekMs / 1000L) + "s")
+                            }
+                            PlayerGesturePolicy.Side.CENTER -> showFeedback("Double tap ignorado", 500L)
+                        }
+                        lastTapUpTime = 0L
+                        manualDoubleTap = false
+                        restoreLongPressSpeed()
+                        finishTouchVelocity(event)
+                        return true
+                    }
+
                     if (verticalGesture && gestureInteractionAllowed()) {
                         val velocityY = velocityTracker?.run {
                             computeCurrentVelocity(1000)
@@ -2463,6 +2502,11 @@ class NativePlayerActivity : ComponentActivity() {
                         logPlayer("GESTURE_END type=horizontal_ignored requestId=" + requestId.ifEmpty { "-" })
                     }
                     restoreLongPressSpeed()
+                    if (!gestureConsumed && gestureInteractionAllowed() && !systemGestureEdge) {
+                        lastTapUpTime = event.eventTime
+                        lastTapX = event.x
+                        lastTapY = event.y
+                    }
                     gestureDetector.onTouchEvent(event)
                     finishTouchVelocity(event)
                 }

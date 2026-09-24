@@ -56,6 +56,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
 import org.json.JSONObject
@@ -107,6 +108,14 @@ class NativePlayerActivity : ComponentActivity() {
     private var preferredAudioLanguage = ""
     private var preferredSubtitleLanguage = ""
     private var subtitleMode = "auto"
+    private var doubleTapSeekMs = 10_000L
+    private var longPressSpeed = 2f
+    private var maxVideoResolution = "auto"
+    private var maxVideoFrameRate = 0
+    private var maxAudioChannels = 0
+    private var subtitleScale = 1f
+    private var subtitleBottomPaddingPercent = 8
+    private var subtitleEmbeddedStyle = true
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastSavedPosition = -1L
@@ -202,6 +211,18 @@ class NativePlayerActivity : ComponentActivity() {
         preferredAudioLanguage = intent.getStringExtra("setting_audio_preferred_language")?.trim().orEmpty()
         preferredSubtitleLanguage = intent.getStringExtra("setting_audio_preferred_subtitle_language")?.trim().orEmpty()
         subtitleMode = intent.getStringExtra("setting_audio_subtitles") ?: "auto"
+        doubleTapSeekMs = intent.getLongExtra("setting_player_double_tap_seek_seconds", 10L)
+            .coerceIn(1L, 120L) * 1000L
+        longPressSpeed = intent.getFloatExtra("setting_player_long_press_speed", 2f)
+            .coerceIn(1f, 3f)
+        maxVideoResolution = intent.getStringExtra("setting_player_max_video_resolution") ?: "auto"
+        maxVideoFrameRate = intent.getIntExtra("setting_player_max_video_frame_rate", 0).coerceAtLeast(0)
+        maxAudioChannels = intent.getIntExtra("setting_player_max_audio_channels", 0).coerceAtLeast(0)
+        subtitleScale = intent.getFloatExtra("setting_audio_subtitle_scale", 1f)
+            .coerceIn(0.5f, 2f)
+        subtitleBottomPaddingPercent = intent.getIntExtra("setting_audio_subtitle_bottom_padding", 8)
+            .coerceIn(0, 50)
+        subtitleEmbeddedStyle = intent.getBooleanExtra("setting_audio_subtitle_embedded_style", true)
         locked = savedInstanceState?.getBoolean("lock_mode", false)
             ?: gesturePreferences.getBoolean(PREF_LOCK_MODE, false)
         controlsVisible = savedInstanceState?.getBoolean("controls_visible", true) ?: true
@@ -289,6 +310,8 @@ class NativePlayerActivity : ComponentActivity() {
                     .onFailure { error -> logPlayer("TRACK_SELECTION_RESTORE_FAILED " + error) }
             }
             applyGlobalTrackPreferences()
+            applyAdvancedTrackConstraints()
+            applySubtitlePreferences()
             autoplayNext = savedInstanceState?.takeIf { it.containsKey("autoplay_next") }?.getBoolean("autoplay_next")
                 ?: intent.getBooleanExtra("autoplay", true)
 
@@ -352,6 +375,22 @@ class NativePlayerActivity : ComponentActivity() {
         exitReported = false
         suppressExitEvent = false
         errorVisible = false
+        doubleTapSeekMs = newIntent.getLongExtra("setting_player_double_tap_seek_seconds", doubleTapSeekMs / 1000L)
+            .coerceIn(1L, 120L) * 1000L
+        longPressSpeed = newIntent.getFloatExtra("setting_player_long_press_speed", longPressSpeed)
+            .coerceIn(1f, 3f)
+        maxVideoResolution = newIntent.getStringExtra("setting_player_max_video_resolution") ?: maxVideoResolution
+        maxVideoFrameRate = newIntent.getIntExtra("setting_player_max_video_frame_rate", maxVideoFrameRate).coerceAtLeast(0)
+        maxAudioChannels = newIntent.getIntExtra("setting_player_max_audio_channels", maxAudioChannels).coerceAtLeast(0)
+        subtitleScale = newIntent.getFloatExtra("setting_audio_subtitle_scale", subtitleScale).coerceIn(0.5f, 2f)
+        subtitleBottomPaddingPercent = newIntent.getIntExtra("setting_audio_subtitle_bottom_padding", subtitleBottomPaddingPercent).coerceIn(0, 50)
+        subtitleEmbeddedStyle = newIntent.getBooleanExtra("setting_audio_subtitle_embedded_style", subtitleEmbeddedStyle)
+        preferredAudioLanguage = newIntent.getStringExtra("setting_audio_preferred_language")?.trim().orEmpty()
+        preferredSubtitleLanguage = newIntent.getStringExtra("setting_audio_preferred_subtitle_language")?.trim().orEmpty()
+        subtitleMode = newIntent.getStringExtra("setting_audio_subtitles") ?: subtitleMode
+        applyGlobalTrackPreferences()
+        applyAdvancedTrackConstraints()
+        applySubtitlePreferences()
         aspectModeLabel = findViewByTag<TextView>("reiflix_aspect_button")?.text?.toString() ?: aspectModeLabel
 
         findViewByTag<TextView>("reiflix_player_title")?.text =
@@ -749,20 +788,74 @@ class NativePlayerActivity : ComponentActivity() {
             "never" -> builder
                 .setPreferredTextLanguage(null)
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                            "always" -> builder
+            "always" -> builder
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .setPreferredTextLanguage(preferredSubtitleLanguage.takeIf { it.isNotBlank() })
-                                .setSelectUndeterminedTextLanguage(true)
+                .setSelectUndeterminedTextLanguage(true)
             else -> builder
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .setPreferredTextLanguage(preferredSubtitleLanguage.takeIf { it.isNotBlank() })
-                        }
+        }
         player.trackSelectionParameters = builder.build()
         logPlayer(
             "GLOBAL_TRACK_PREFS audio=" + preferredAudioLanguage.ifBlank { "auto" } +
                 " subtitle=" + preferredSubtitleLanguage.ifBlank { "auto" } +
                 " mode=" + subtitleMode
         )
+    }
+
+    private fun applyAdvancedTrackConstraints() {
+        if (!::player.isInitialized) return
+        val builder = player.trackSelectionParameters.buildUpon()
+        when (maxVideoResolution) {
+            "480p" -> builder.setMaxVideoSize(854, 480)
+            "720p" -> builder.setMaxVideoSize(1280, 720)
+            "1080p" -> builder.setMaxVideoSize(1920, 1080)
+            "1440p" -> builder.setMaxVideoSize(2560, 1440)
+            "2160p" -> builder.setMaxVideoSize(3840, 2160)
+            else -> builder.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+        }
+        builder.setMaxVideoFrameRate(
+            if (maxVideoFrameRate > 0) maxVideoFrameRate else Int.MAX_VALUE,
+        )
+        builder.setMaxAudioChannelCount(
+            if (maxAudioChannels > 0) maxAudioChannels else Int.MAX_VALUE,
+        )
+        player.trackSelectionParameters = builder.build()
+        logPlayer(
+            "ADVANCED_TRACK_CONSTRAINTS resolution=" + maxVideoResolution +
+                " fps=" + maxVideoFrameRate +
+                " audioChannels=" + maxAudioChannels,
+        )
+    }
+
+    private fun applySubtitlePreferences() {
+        if (!::playerView.isInitialized) return
+        playerView.subtitleView?.apply {
+            setFractionalTextSize((SubtitleViewFraction.DEFAULT * subtitleScale).coerceIn(0.02f, 0.12f))
+            setBottomPaddingFraction((subtitleBottomPaddingPercent / 100f).coerceIn(0f, 0.5f))
+            setApplyEmbeddedStyles(subtitleEmbeddedStyle)
+            setApplyEmbeddedFontSizes(subtitleEmbeddedStyle)
+            setStyle(
+                CaptionStyleCompat(
+                    Color.WHITE,
+                    Color.TRANSPARENT,
+                    Color.TRANSPARENT,
+                    CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                    Color.BLACK,
+                    Typeface.DEFAULT,
+                ),
+            )
+        }
+        logPlayer(
+            "SUBTITLE_PREFS scale=" + subtitleScale +
+                " padding=" + subtitleBottomPaddingPercent +
+                " embedded=" + subtitleEmbeddedStyle,
+        )
+    }
+
+    private object SubtitleViewFraction {
+        const val DEFAULT = 0.0533f
     }
 
     private fun configureWindow() {
@@ -1943,7 +2036,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun resizeModeFromSetting(value: String?): Int = when (value) {
-        "fill", "zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        "fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
         "zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
         else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
     }
@@ -2232,11 +2325,11 @@ class NativePlayerActivity : ComponentActivity() {
                     when (side) {
                         PlayerGesturePolicy.Side.LEFT -> {
                             logPlayer("PLAYER_DOUBLE_TAP side=left requestId=" + requestId.ifEmpty { "-" })
-                            seekBy(-10_000L, "−10s")
+                            seekBy(-doubleTapSeekMs, "−" + (doubleTapSeekMs / 1000L) + "s")
                         }
                         PlayerGesturePolicy.Side.RIGHT -> {
                             logPlayer("PLAYER_DOUBLE_TAP side=right requestId=" + requestId.ifEmpty { "-" })
-                            seekBy(10_000L, "+10s")
+                            seekBy(doubleTapSeekMs, "+" + (doubleTapSeekMs / 1000L) + "s")
                         }
                         PlayerGesturePolicy.Side.CENTER -> showFeedback("Double tap ignorado", 500L)
                     }
@@ -2247,9 +2340,10 @@ class NativePlayerActivity : ComponentActivity() {
                     if (!gestureInteractionAllowed() || !longPressEnabled || gestureConsumed || systemGestureEdge) return
                     previousSpeedForLongPress = player.playbackParameters.speed
                     longPressActive = true
-                    player.setPlaybackSpeed(2f)
-                    showFeedback("2.0x", 8_000L)
-                    logPlayer("PLAYER_LONG_PRESS speed=2.0x requestId=" + requestId.ifEmpty { "-" })
+                    player.setPlaybackSpeed(longPressSpeed)
+                    val speedLabel = String.format(java.util.Locale.US, "%.2fx", longPressSpeed)
+                    showFeedback(speedLabel, 8_000L)
+                    logPlayer("PLAYER_LONG_PRESS speed=" + speedLabel + " requestId=" + requestId.ifEmpty { "-" })
                 }
             },
         )

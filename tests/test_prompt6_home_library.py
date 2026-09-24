@@ -59,6 +59,18 @@ class Prompt6HomeLibraryTests(unittest.TestCase):
         self.assertIn('anime.get("is_pinned")', source)
         self.assertIn("ft.Icons.PUSH_PIN", source)
 
+    def test_episode_home_artwork_binds_to_anime_identity(self):
+        source = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'binding_id = item.get("anime_id") if binding_entity == "anime" and item.get("anime_id") is not None else item.get("id")',
+            source,
+        )
+        self.assertIn(
+            'item.get("anime_id") if entity == "anime" and item.get("anime_id") is not None else item.get("id")',
+            source,
+        )
+
     def test_continue_details_uses_existing_service_projection(self):
         source = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
 

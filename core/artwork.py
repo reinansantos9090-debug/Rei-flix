@@ -518,7 +518,8 @@ class ArtworkEngine:
 
         if cover_cache and self._is_file(cover_cache):
             key = self._make_key("anilist" if anilist_id else "cache",
-                                 anilist_id or cover_url or cover_cache, "poster", "large")
+                                 f"{anilist_id or cover_url or cover_cache}|{cover_url}",
+                                 "poster", "large")
             self._upsert(
                 entity_type=entity_type, entity_id=anime_id, artwork_type="poster",
                 source="cache", source_ref=cover_url or cover_cache,
@@ -529,7 +530,7 @@ class ArtworkEngine:
             )
         elif cover_url:
             key = self._make_key("anilist" if anilist_id else "url",
-                                 anilist_id or cover_url, "poster", "large")
+                                 f"{anilist_id or cover_url}|{cover_url}", "poster", "large")
             self._upsert(
                 entity_type=entity_type, entity_id=anime_id, artwork_type="poster",
                 source="anilist", source_ref=cover_url, external_url=cover_url,
@@ -537,7 +538,7 @@ class ArtworkEngine:
             )
         if banner_url:
             key = self._make_key("anilist" if anilist_id else "url",
-                                 anilist_id or banner_url, "backdrop", "large")
+                                 f"{anilist_id or banner_url}|{banner_url}", "backdrop", "large")
             self._upsert(
                 entity_type=entity_type, entity_id=anime_id, artwork_type="backdrop",
                 source="anilist", source_ref=banner_url, external_url=banner_url,

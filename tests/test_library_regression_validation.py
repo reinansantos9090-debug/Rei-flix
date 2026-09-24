@@ -114,7 +114,8 @@ class FinalRegressionTests(unittest.TestCase):
         self.store.remove_folder("tree")
         restored = self.store.restore_backup(backup)
 
-        self.assertEqual(os.path.abspath(backup), os.path.abspath(restored))
+        self.assertIsInstance(restored, dict)
+        self.assertTrue(restored.get("report"))
         reopened = LibraryStore(self.tmp.name)
         item = reopened.catalog()[0]
         restored_episode = reopened.physical_row("content://e1")
@@ -134,7 +135,8 @@ class FinalRegressionTests(unittest.TestCase):
         with zipfile.ZipFile(bad, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("manifest.json", json.dumps({"app": "Rei-flix", "schema": 20}))
             archive.writestr("library.sqlite3", b"not-a-sqlite-db")
-        with self.assertRaises(ValueError):
+        from core.backup import BackupValidationError
+        with self.assertRaises(BackupValidationError):
             self.store.restore_backup(bad)
 
     def test_release_identity_matches_product_source(self):

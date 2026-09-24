@@ -80,7 +80,7 @@ class OrganizeCollectionTests(unittest.TestCase):
 
     def test_main_state_categories_return_the_same_population_as_summary_counts(self):
         summary = LibraryService.organize_summary(self.catalog)
-        counts = {item["name"]: item["count"] for item in summary["states"]}
+        counts = {item["name"]: item["count"] for item in summary["collections"]}
         expected = {
             "Todos": [1, 2, 3],
             "Favoritos": [1, 3],

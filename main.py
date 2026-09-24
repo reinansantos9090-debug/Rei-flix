@@ -199,10 +199,8 @@ async def main(page: ft.Page):
     # top-level screens. Returning to a screen must not destroy its scroll,
     # search, filter or focus state.
     screen_cache = {}
-    # Settings has an inner category state that is intentionally not a second
-    # navigation stack. Android Back must close that category before the
-    # top-level NavigationController is asked to leave Settings.
-    settings_system_back = [None]
+    # Settings nested levels are part of NavigationController, so Android Back
+    # never consults a second Settings-specific navigation authority.
     # Flet's page.views is the navigation surface consumed by the Android/system
     # Back dispatcher. The existing NavigationController remains the single
     # logical source of truth; page.views mirrors its stack without introducing
@@ -271,7 +269,8 @@ async def main(page: ft.Page):
                 on_integrity_check=integrity_check,
                 on_reconcile_after_restore=request_restore_reconciliation,
                 on_settings_changed=apply_settings_runtime,
-                on_register_system_back=lambda handler: settings_system_back.__setitem__(0, handler),
+                on_open_settings_category=navigate_settings_category,
+                settings_path_provider=lambda: navigation.settings_path,
             )
         else:
             raise RuntimeError(f"Unknown navigation route: {route}")
@@ -533,10 +532,18 @@ async def main(page: ft.Page):
     def account(): return store.account()
     def navigate_settings():
         navigation.push("settings")
+        screen_cache.pop("settings", None)
         render_current()
         if bridge.available:
             diagnostics.record("PERMISSION_CHECK", source="android")
             page.run_task(bridge.check_storage_access)
+    def navigate_settings_category(label):
+        if navigation.current != "settings":
+            navigation.push("settings")
+        navigation.push_settings(label)
+        screen_cache.pop("settings", None)
+        render_current()
+
     def navigate_back(source="unknown"):
         # One user Back gesture/button owns one logical operation. This protects
         # against Android + Flutter delivering the same physical Back twice.
@@ -564,44 +571,25 @@ async def main(page: ft.Page):
             safe_update()
             return
 
-        # Settings owns a small inner category state. Let it consume Back
-        # before the top-level navigation stack changes, so Settings/Aparência
-        # returns to Settings instead of jumping to the previous screen.
-        if route_before == "settings":
-            inner_back = settings_system_back[0]
-            if callable(inner_back):
-                try:
-                    if inner_back():
-                        logger.info("[NAV] SETTINGS_INNER_BACK source=%s", source)
-                        return
-                except Exception:
-                    logger.exception("[NAV] settings inner Back handler failed")
-        # Settings owns a small inner category state. Let it consume Back
-        # before the top-level navigation stack changes.
-        if route_before == "settings":
-            inner_back = settings_system_back[0]
-            if callable(inner_back):
-                try:
-                    if inner_back():
-                        logger.info("[NAV] SETTINGS_INNER_BACK source=%s", source)
-                        return
-                except Exception:
-                    logger.exception("[NAV] settings inner Back handler failed")
         action = navigation.back()
         logger.info(
             "[NAV] NAVIGATE_BACK source=%s from=%s action=%s to=%s",
             source, route_before, action, navigation.current,
         )
-        if action == "previous":
+        if action in {"previous", "settings_inner"}:
+            # Settings content is rebuilt whenever its nested path changes, while
+            # top-level screens remain cached for scroll/filter/search continuity.
+            if action == "settings_inner":
+                screen_cache.pop("settings", None)
+            elif navigation.current == "settings":
+                screen_cache.pop("settings", None)
             # Details can mutate favorite/pin/progress state in LibraryStore while
             # Organize is cached for scroll/filter continuity. Refresh only when
             # returning to Organize so its collection reflects durable state
             # without triggering a scan or permission flow.
             if navigation.current == "organize":
                 screen_cache.pop("organize", None)
-                render_current()
-            else:
-                render_current()
+            render_current()
         elif action == "prompt_exit":
             page.snack_bar=ft.SnackBar(ft.Text("Pressione voltar novamente para sair"))
             page.snack_bar.open=True

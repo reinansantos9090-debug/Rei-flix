@@ -208,7 +208,8 @@ class GenreRegistry:
         for item in catalog:
             genres = mapping.get(int(item["id"]), []) if item.get("id") is not None else []
             item["genre_ids"] = [g["id"] for g in genres]
-            item["genres"] = [g["canonical_name"] for g in genres]
+            item["genres"] = list(dict.fromkeys(g["canonical_name"] for g in genres))
+            item["genre_aliases"] = list(dict.fromkeys(g["alias"] for g in genres if g.get("alias")))
         return catalog
 
     def list_all(self, *, include_unused=True):

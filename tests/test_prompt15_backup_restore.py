@@ -327,7 +327,7 @@ class Prompt15BackupRestoreTests(unittest.TestCase):
         self.assertNotEqual("OK", report["overall"])
         self.assertGreater(report["orphans"]["artwork_missing_anime"], 0)
         self.assertGreater(report["consumption"]["invalid_progress_rows"], 0)
-        self.assertEqual("ok", report["database"]["quick_check"].casefold())
+        self.assertEqual("ok", report["database"]["integrity_check"].casefold())
         self.assertTrue(report["privacy"]["secrets_exported"] is False)
         self.assertTrue(report["privacy"]["device_identifiers_exported"] is False)
 

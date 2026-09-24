@@ -156,6 +156,21 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         for token in ("mediaId", "episodeId", "positionMs", "durationMs", "completion", "timestamp"):
             self.assertIn(token, player)
 
+    def test_native_player_error_recovery_is_bounded_and_structured(self):
+        player = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        for token in (
+            'tag = "reiflix_error_retry"',
+            "retryCurrentMedia",
+            "MAX_RETRY_ATTEMPTS = 2",
+            "PLAYER_RETRY",
+            "PLAYER_PLAY",
+            "PLAYER_PAUSE",
+            "PLAYER_SEEK",
+            "PLAYER_TRACK_CHANGE",
+            "PLAYER_PIP",
+        ):
+            self.assertIn(token, player)
+
     def test_host_activity_restores_normal_system_bars(self):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")
         system_ui = SYSTEM_UI.read_text(encoding="utf-8")

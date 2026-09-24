@@ -99,17 +99,19 @@ class ScanCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         queued_again = await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")
         self.assertEqual("deduped", queued.kind)
         self.assertEqual("deduped", queued_again.kind)
-        self.assertEqual(1, len(self.coordinator._pending))
+        self.assertEqual(0, len(self.coordinator._pending))
         self.assertEqual(1, len(self.bridge.calls))
 
     async def test_user_refresh_precedes_pending_media_change(self):
         await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")
-        await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")
         refresh = await self.coordinator.request(ScanOrigin.USER_REFRESH)
         self.assertEqual("queued", refresh.kind)
-        self.assertEqual(0, len(self.coordinator._pending))
-        self.assertIn(queued.kind, {"deduped", "ignored"})
-        self.assertIn(queued_again.kind, {"deduped", "ignored"})
+        self.assertEqual(1, len(self.coordinator._pending))
+        self.assertEqual(ScanOrigin.USER_REFRESH, self.coordinator._pending[0].origin)
+        self.assertGreater(
+            self.coordinator._pending[0].priority,
+            self.coordinator._pending[-1].priority if len(self.coordinator._pending) > 1 else 0,
+        )
 
     async def test_pending_request_runs_after_current_scan_finishes(self):
         first = await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")

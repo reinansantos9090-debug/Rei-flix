@@ -1321,8 +1321,7 @@ async def main(page: ft.Page):
                                 "PLAYER_EXITED",
                                 request_id=event_request_id,
                                 source="native_player",
-                                result=payload.get('reason') or "exit",
-                                error=None if exit_updated else None,
+                                result=(payload.get('reason') or "exit") + (":progress_saved" if exit_updated else ":progress_not_updated"),
                             )
                             # The native player sits over the current Flet screen;
                             # there is no synthetic player route to pop.

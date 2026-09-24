@@ -7,6 +7,7 @@ import os
 import flet as ft
 
 from core.consumption import consumption_state, progress_ratio
+from core.settings import SettingsStore
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, empty_state, media_artwork, count_label
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ class HomeView:
         continuing: list[dict] = []
         home_data: dict = {}
         view_state = view_state if view_state is not None else {}
+        settings = SettingsStore(library.store)
         selected_state = [view_state.get("state", "Todos")]
         selected_genre = [view_state.get("genre", "Todos")]
         selected_sort = [view_state.get("sort", "Mais recentes")]
@@ -541,7 +543,9 @@ class HomeView:
             home_data.clear()
             home_data.update(loaded_home_data or {})
             continuing.clear()
-            continuing.extend(home_data.get('continue_watching', []))
+            if settings.get("library.continue_watching"):
+                limit = settings.get("library.continue_watching_limit")
+                continuing.extend(home_data.get('continue_watching', [])[:limit])
             refresh_filter_options(loaded_options or {})
             render_continue()
             for title, key, is_episode in (

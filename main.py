@@ -240,7 +240,7 @@ async def main(page: ft.Page):
                 on_export_diagnostics=export_diagnostics,
                 on_integrity_check=integrity_check,
                 on_reconcile_after_restore=request_restore_reconciliation,
-                on_settings_changed=lambda key, value: library.configure_settings(settings),
+                on_settings_changed=apply_settings_runtime,
             )
         else:
             raise RuntimeError(f"Unknown navigation route: {route}")
@@ -373,6 +373,14 @@ async def main(page: ft.Page):
                 return
         screen_cache.pop(navigation.current, None)
         render_current()
+
+    def apply_settings_runtime(key, _value):
+        library.configure_settings(settings)
+        if str(key).startswith(("appearance.", "library.")):
+            current_route = navigation.current
+            if current_route in {"home", "organize"}:
+                screen_cache.pop(current_route, None)
+                render_current()
     async def remove_folder(reference):
         if scan_coordinator.active or saf_selection.pending:
             page.snack_bar = ft.SnackBar(ft.Text("Aguarde a atualização ou a seleção de pasta terminar antes de remover uma pasta."))

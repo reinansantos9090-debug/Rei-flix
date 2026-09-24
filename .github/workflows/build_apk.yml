@@ -258,6 +258,20 @@ jobs:
             -v
           )
 
+          # Never package Git metadata into assets/app.zip.
+          # actions/checkout may place an ephemeral Authorization header in
+          # .git/config; packaging it would leak CI credentials and history.
+          git_backup_root="$(mktemp -d)"
+          git_backup="$git_backup_root/.git"
+          mv .git "$git_backup"
+          restore_git() {
+            if [ -d "$git_backup" ] && [ ! -e .git ]; then
+              mv "$git_backup" .git
+            fi
+            rmdir "$git_backup_root" 2>/dev/null || true
+          }
+          trap restore_git EXIT
+
           # Flet/Gradle downloads native artifacts from GitHub Releases.
           # A transient HTTP 5xx from that service must not make an otherwise
           # reproducible APK build fail before the APK exists.
@@ -308,6 +322,27 @@ jobs:
           echo "path=$published" >> "$GITHUB_OUTPUT"
           file "$published"
 
+      - name: Verify APK contains no Git metadata
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          python - <<'PY'
+          from io import BytesIO
+          from zipfile import ZipFile
+
+          apk_path = "${{ steps.apk.outputs.path }}"
+          with ZipFile(apk_path) as apk:
+              app_zip = apk.read("assets/app.zip")
+          with ZipFile(BytesIO(app_zip)) as app:
+              leaked = [
+                  name for name in app.namelist()
+                  if name == ".git" or name.startswith(".git/")
+              ]
+          if leaked:
+              print("Leaked Git metadata:")
+              print("\n".join(leaked[:30]))
+              raise SystemExit(1)
+          print("APK app.zip contains no .git metadata.")
       - name: Verify final APK permissions and target SDK
         shell: bash
         run: |

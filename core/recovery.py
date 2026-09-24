@@ -156,11 +156,12 @@ class RecoveryService:
                 try:
                     os.unlink(path)
                 except FileNotFoundError:
-                    pass
+                    continue
             try:
                 shutil.copy2(safety, self.store.db_path)
             except Exception:
-                pass
+                logger = __import__("logging").getLogger("reiflix.recovery")
+                logger.exception("recovery safety rollback failed")
             raise
         finally:
             tempdir.cleanup()

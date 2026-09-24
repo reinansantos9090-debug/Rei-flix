@@ -189,7 +189,7 @@ class NativePlayerActivity : ComponentActivity() {
         installControls()
         setLocked(locked, persist = false, announce = false)
         if (controlsRestoredFromState && !locked) {
-            setControlsVisible(controlsVisible, fromRestore = true)
+            setControlsVisible(controlsVisible)
         }
         installBackHandler()
         configurePictureInPicture()
@@ -1147,7 +1147,7 @@ class NativePlayerActivity : ComponentActivity() {
         handler.post(feedbackHider)
     }
 
-    private fun setControlsVisible(visible: Boolean, fromRestore: Boolean = false) {
+    private fun setControlsVisible(visible: Boolean) {
         controlsVisible = visible
         if (inPictureInPicture) {
             handler.removeCallbacks(controlsHider)

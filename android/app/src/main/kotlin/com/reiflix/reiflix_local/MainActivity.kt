@@ -115,6 +115,44 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_LAST_OBSERVED_BROAD_ACCESS = "reiflix.lastObservedBroadAccess"
     }
     private val activeNativeScanJobs = mutableMapOf<String, Job>()
+
+    /** Native lifecycle/observer events only request a logical scan. The Python
+     * ScanCoordinator decides whether and when a scanner actually runs. */
+    private fun publishScanRequest(
+        origin: String,
+        source: String? = null,
+        scopeRef: String? = null,
+        full: Boolean = false,
+        reason: String = "",
+        triggerRequestId: String? = null,
+    ) {
+        val requestId = UUID.randomUUID().toString()
+        NativeMailbox.write(
+            this,
+            JSONObject()
+                .put("type", "scan_request")
+                .put("requestId", requestId)
+                .put(
+                    "payload",
+                    JSONObject()
+                        .put("origin", origin)
+                        .put("source", source ?: "")
+                        .put("scopeRef", scopeRef ?: "")
+                        .put("full", full)
+                        .put("reason", reason)
+                        .put("triggerRequestId", triggerRequestId ?: ""),
+                ),
+        )
+        Log.i(
+            tag,
+            "SCAN_REQUEST requestId=" + requestId +
+                " origin=" + origin +
+                " source=" + (source ?: "all") +
+                " scopeRef=" + (scopeRef ?: "-") +
+                " full=" + full +
+                " reason=" + (reason.ifBlank { "-" }),
+        )
+    }
     private var storageReceiverRegistered = false
     private var safInventoryRunning = false
     private var lastBackEventAt = 0L
@@ -154,9 +192,13 @@ class MainActivity : FlutterFragmentActivity() {
         mediaStoreRescanHandler.postDelayed({
             mediaStoreRescanScheduled = false
             if (!activityResumed || !MediaStoreScanner.hasReadPermission(this)) return@postDelayed
-            if (NativeScanController.isRunning(MediaStoreScanner.SOURCE)) return@postDelayed
-            Log.i(tag, "MEDIASTORE_OBSERVER_RESCAN scheduled after content change")
-            scanMediaStore(null)
+            Log.i(tag, "MEDIASTORE_OBSERVER_CHANGE forwarded to ScanCoordinator")
+            publishScanRequest(
+                "MEDIASTORE_CHANGE",
+                source = "mediastore",
+                full = false,
+                reason = "content_observer_debounce",
+            )
         }, 750L)
     }
     private val storageReceiver = object : BroadcastReceiver() {
@@ -185,15 +227,12 @@ class MainActivity : FlutterFragmentActivity() {
             val discoveryEvent = action == Intent.ACTION_MEDIA_MOUNTED ||
                 action == Intent.ACTION_MEDIA_SCANNER_FINISHED
             if (discoveryEvent && activityResumed) {
-                if (MediaStoreScanner.hasReadPermission(this@MainActivity) &&
-                    !NativeScanController.isRunning(MediaStoreScanner.SOURCE)) {
-                    scheduleMediaStoreIncrementalRescan()
-                }
-                if (BroadStorageScanner.hasAccess(this@MainActivity) &&
-                    !NativeScanController.isRunning(BroadStorageScanner.SOURCE)) {
-                    Log.i(tag, "STORAGE_EVENT_BROAD_RESCAN action=" + action + " data=" + intent.data)
-                    scanAllStorage(null)
-                }
+                publishScanRequest(
+                    "VOLUME_MOUNT",
+                    source = null,
+                    full = false,
+                    reason = action,
+                )
             } else if (action == Intent.ACTION_MEDIA_UNMOUNTED ||
                 action == Intent.ACTION_MEDIA_EJECT ||
                 action == Intent.ACTION_MEDIA_REMOVED ||
@@ -249,7 +288,7 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("access", access)
                 .put("source", MediaStoreScanner.SOURCE)
                 .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REVALIDATED))))
-        if (granted) scanMediaStore(requestId) else {
+        if (granted) publishScanRequest("PERMISSION_CHANGE", "mediastore", null, false, "media_permission_granted", requestId) else {
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
                 .put("requestId", requestId ?: "")
                 .put("message", "A permissão para acessar os vídeos do dispositivo foi negada.")
@@ -319,7 +358,7 @@ class MainActivity : FlutterFragmentActivity() {
             NativeMailbox.write(this, JSONObject().put("type", "saf_permission")
                 .put("requestId", requestId ?: "")
                 .put("payload", payload))
-            scanTree(uri.toString(), requestId)
+            publishScanRequest("PERMISSION_CHANGE", "saf", uri.toString(), false, "saf_granted", requestId)
         } catch (exception: IllegalArgumentException) {
             Log.e(tag, "Invalid SAF selection", exception)
             NativeMailbox.write(this, JSONObject().put("type", "saf_error")
@@ -470,26 +509,28 @@ class MainActivity : FlutterFragmentActivity() {
 
         publishStorageStatus()
 
-        // Match Nova's local-library behavior: after a process start/resume, any
-        // storage source that is already authorized is actually indexed rather
-        // than merely reported as authorized.  Permission state remains
-        // authoritative in Android; this only starts scans for confirmed sources.
-        if (shouldDiscover || mediaAccessChangedToUsable) {
-            if (currentMediaAccess != "denied") {
-                scanMediaStore(null)
-            }
-        }
-        if (shouldDiscover || broadBecameAvailable) {
-            if (currentBroadAccess) {
-                scanAllStorage(null)
-            }
-        }
+        // Activity resume is a lifecycle signal, not a scan command. Only the
+        // first real startup or a permission transition produces a coordinator
+        // request; ordinary player/background returns do nothing.
         if (shouldDiscover) {
-            persistedSafTreeUris().forEach { tree ->
-                if (!NativeScanController.isRunning("saf:$tree")) {
-                    scanTree(tree, null)
-                }
+            publishScanRequest(
+                "STARTUP",
+                source = null,
+                full = false,
+                reason = "first_activity_resume",
+            )
+        } else if (mediaAccessChangedToUsable || broadBecameAvailable) {
+            val source = when {
+                mediaAccessChangedToUsable && broadBecameAvailable -> null
+                mediaAccessChangedToUsable -> "mediastore"
+                else -> "broad_storage"
             }
+            publishScanRequest(
+                "PERMISSION_CHANGE",
+                source = source,
+                full = false,
+                reason = "permission_available_after_resume",
+            )
         }
     }
 
@@ -930,7 +971,7 @@ class MainActivity : FlutterFragmentActivity() {
             // Existing access must converge to the same permission -> scan -> index -> mailbox path.
             val requestId = pendingMediaRequestId
             pendingMediaRequestId = null
-            scanMediaStore(requestId)
+            publishScanRequest("PERMISSION_CHANGE", "mediastore", null, false, "media_permission_already_granted", requestId)
             return
         }
         val permissions = MediaStoreScanner.requiredPermissions()
@@ -1078,7 +1119,7 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.RETURNED)))
         )
         if (granted) {
-            scanAllStorage(resolvedRequestId)
+            publishScanRequest("PERMISSION_CHANGE", "broad_storage", null, false, "broad_storage_settings_return", resolvedRequestId)
         }
         publishStorageCapabilities(StorageLifecycleState.REVALIDATED)
     }
@@ -1136,7 +1177,7 @@ class MainActivity : FlutterFragmentActivity() {
                         .put("revalidatedAfterSettings", true)
                         .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REVALIDATED)))
             )
-            scanAllStorage(requestId)
+            publishScanRequest("PERMISSION_CHANGE", "broad_storage", null, false, "broad_storage_already_granted", requestId)
             publishStorageCapabilities(StorageLifecycleState.REVALIDATED)
             return
         }
@@ -1322,8 +1363,14 @@ class MainActivity : FlutterFragmentActivity() {
                     NativeMailbox.write(appContext, JSONObject().put("type", "diagnostic")
                         .put("payload", JSONObject().put("event", "WAITING_FOR_MEDIASTORE").put("scanId", scanId).put("requestId", requestId ?: "")))
                     mediaStoreRescanHandler.postDelayed({
-                        if (activityResumed && MediaStoreScanner.hasReadPermission(this@MainActivity) && !NativeScanController.isRunning(MediaStoreScanner.SOURCE)) {
-                            scanMediaStore(requestId)
+                        if (activityResumed && MediaStoreScanner.hasReadPermission(this@MainActivity)) {
+                            publishScanRequest(
+                                "MEDIASTORE_CHANGE",
+                                source = "mediastore",
+                                full = false,
+                                reason = "media_store_indexing_completed",
+                                triggerRequestId = requestId,
+                            )
                         }
                     }, 900L)
                 }

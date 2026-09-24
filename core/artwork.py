@@ -1,16 +1,37 @@
-"""Local-first artwork discovery, persistence and deterministic resolution."""
+"""Persistent, local-first artwork engine for Rei-Flix.
+
+Artwork is an enrichment layer.  The local catalog, NativeIndex/scanners and
+AniList matching remain authoritative for their own domains.  This module only
+owns artwork discovery, persistent cache state, bounded downloads, retries,
+deduplication and lightweight UI-facing resolution.
+"""
 from __future__ import annotations
 
+import hashlib
+import logging
 import os
-import sqlite3
+import queue
+import threading
 import time
+import urllib.error
+import urllib.request
+from concurrent.futures import Future
 from pathlib import Path
 
+logger = logging.getLogger("reiflix.artwork")
 
 ARTWORK_TYPES = {"poster", "backdrop", "thumbnail", "season_poster", "episode_thumbnail"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif"}
-
+IMAGE_MIME = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/avif": ".avif",
+    "image/gif": ".gif",
+}
 _SOURCE_PRIORITY = {"manual": 500, "cache": 450, "anilist": 400, "local": 300, "generated": 50}
+_VARIANT_PRIORITY = {"poster": "large", "backdrop": "large", "thumbnail": "small",
+                    "season_poster": "large", "episode_thumbnail": "small"}
 _NAME_HINTS = {
     "poster": {"poster", "cover", "folder", "front"},
     "backdrop": {"backdrop", "fanart", "banner", "background"},
@@ -19,52 +40,140 @@ _NAME_HINTS = {
     "episode_thumbnail": {"thumbnail", "thumb", "episode"},
 }
 
+STATUS_NOT_REQUESTED = "not_requested"
+STATUS_QUEUED = "queued"
+STATUS_DOWNLOADING = "downloading"
+STATUS_READY = "ready"
+STATUS_FAILED = "failed"
+STATUS_RETRY_WAIT = "retry_wait"
+STATUS_INVALID = "invalid"
+
+_EVENT_NAMES = {
+    "request": "ARTWORK_REQUEST",
+    "hit": "ARTWORK_CACHE_HIT",
+    "miss": "ARTWORK_CACHE_MISS",
+    "start": "ARTWORK_DOWNLOAD_START",
+    "success": "ARTWORK_DOWNLOAD_SUCCESS",
+    "failure": "ARTWORK_DOWNLOAD_FAILURE",
+    "retry": "ARTWORK_RETRY",
+    "cancel": "ARTWORK_CANCEL",
+    "evict": "ARTWORK_EVICT",
+}
+
 
 class ArtworkEngine:
-    """Keeps artwork in the existing LibraryStore SQLite/cache domain.
+    """Manages artwork without making artwork a dependency of the library."""
 
-    Videos remain local-only. External artwork is accepted only from metadata
-    already resolved by the existing Metadata Engine/AniList adapter.
-    """
+    MAX_WORKERS = 3
+    MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024
+    DEFAULT_CACHE_LIMIT_BYTES = 128 * 1024 * 1024
+    MAX_RETRIES = 3
+    BASE_BACKOFF_SECONDS = 5.0
+    MAX_BACKOFF_SECONDS = 6 * 60 * 60
+    REQUEST_TIMEOUT_SECONDS = 15.0
 
-    SCHEMA_VERSION = 21
-
-    def __init__(self, store):
+    def __init__(self, store, *, downloader=None, max_workers=None,
+                 cache_limit_bytes=None, max_download_bytes=None):
         self.store = store
+        self.cache_dir = Path(store.cache_dir) / "artwork"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.max_workers = max(1, int(max_workers or self.MAX_WORKERS))
+        self.cache_limit_bytes = int(cache_limit_bytes or self.DEFAULT_CACHE_LIMIT_BYTES)
+        self.max_download_bytes = int(max_download_bytes or self.MAX_DOWNLOAD_BYTES)
+        self._downloader = downloader or self._download_url
+        self._lock = threading.RLock()
+        self._pending: dict[str, Future] = {}
+        self._sequence = 0
+        self._queue: queue.PriorityQueue = queue.PriorityQueue()
+        self._workers = []
+        self._closed = False
         self._ensure_schema()
+        self._start_workers()
+
+    def _log(self, event, **extra):
+        logger.info("%s %s", _EVENT_NAMES.get(event, event), extra)
+
+    def _start_workers(self):
+        for index in range(self.max_workers):
+            thread = threading.Thread(
+                target=self._worker,
+                name=f"reiflix-artwork-{index + 1}",
+                daemon=True,
+            )
+            thread.start()
+            self._workers.append(thread)
+
+    def _worker(self):
+        while not self._closed:
+            try:
+                priority, sequence, key, fn, future = self._queue.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            try:
+                if future.cancelled():
+                    self._log("cancel", key=key, reason="cancelled_before_start")
+                    continue
+                try:
+                    result = fn()
+                except Exception as exc:
+                    if not future.cancelled():
+                        future.set_exception(exc)
+                else:
+                    if not future.cancelled():
+                        future.set_result(result)
+            finally:
+                with self._lock:
+                    current = self._pending.get(key)
+                    if current is future:
+                        self._pending.pop(key, None)
+                self._queue.task_done()
 
     def _ensure_schema(self):
+        # LibraryStore creates the table.  Keep this additive so older databases
+        # can be opened without a destructive migration.
         with self.store._conn() as con:
+            columns = {row[1] for row in con.execute("PRAGMA table_info(artwork)")}
+            definitions = {
+                "artwork_key": "TEXT",
+                "variant": "TEXT NOT NULL DEFAULT 'default'",
+                "byte_size": "INTEGER",
+                "width": "INTEGER",
+                "height": "INTEGER",
+                "checksum": "TEXT",
+                "content_type": "TEXT",
+                "last_access": "REAL",
+                "next_retry_at": "REAL",
+                "http_status": "INTEGER",
+            }
+            for column, definition in definitions.items():
+                if column not in columns:
+                    con.execute(f"ALTER TABLE artwork ADD COLUMN {column} {definition}")
+            con.execute("DROP INDEX IF EXISTS idx_artwork_key")
             con.execute(
-                """CREATE TABLE IF NOT EXISTS artwork (
-                    id INTEGER PRIMARY KEY,
-                    entity_type TEXT NOT NULL,
-                    entity_id TEXT NOT NULL,
-                    artwork_type TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    source_ref TEXT,
-                    local_path TEXT,
-                    external_url TEXT,
-                    manual INTEGER NOT NULL DEFAULT 0,
-                    priority INTEGER NOT NULL DEFAULT 0,
-                    status TEXT NOT NULL DEFAULT 'ready',
-                    discovered_at REAL NOT NULL,
-                    updated_at REAL NOT NULL,
-                    last_attempt_at REAL,
-                    failure_count INTEGER NOT NULL DEFAULT 0,
-                    UNIQUE(entity_type, entity_id, artwork_type, source_ref)
-                )"""
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_artwork_key "
+                "ON artwork(entity_type, entity_id, artwork_key) WHERE artwork_key IS NOT NULL"
             )
             con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_artwork_entity ON artwork(entity_type, entity_id, artwork_type, priority DESC)"
+                "CREATE INDEX IF NOT EXISTS idx_artwork_last_access "
+                "ON artwork(last_access)"
             )
             con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_artwork_status ON artwork(status, last_attempt_at)"
+                "CREATE INDEX IF NOT EXISTS idx_artwork_retry "
+                "ON artwork(status, next_retry_at)"
             )
-            con.execute(
-                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-                (self.SCHEMA_VERSION, time.time()),
-            )
+
+            # Backfill deterministic keys for records created by the older
+            # Prompt-1..7 artwork implementation.
+            rows = con.execute(
+                "SELECT id,entity_type,entity_id,artwork_type,source,source_ref,variant "
+                "FROM artwork WHERE artwork_key IS NULL"
+            ).fetchall()
+            for row in rows:
+                key = self._make_key(
+                    row["source"], row["source_ref"] or row["entity_id"],
+                    row["artwork_type"], row["variant"] or "default",
+                )
+                con.execute("UPDATE artwork SET artwork_key=? WHERE id=?", (key, row["id"]))
 
     @staticmethod
     def _entity(entity_type, entity_id):
@@ -80,52 +189,142 @@ class ArtworkEngine:
             raise ValueError("tipo de artwork inválido")
         return artwork_type
 
+    @staticmethod
+    def _normalize_url(url):
+        return str(url or "").strip()
+
+    @staticmethod
+    def _make_key(provider, provider_id, artwork_type, variant="default"):
+        raw = f"{str(provider or 'unknown').strip().casefold()}|{str(provider_id or '').strip()}|{artwork_type}|{variant}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _is_file(path):
+        if not path:
+            return False
+        try:
+            return Path(path).is_file() and Path(path).stat().st_size > 0
+        except OSError:
+            return False
+
+    @staticmethod
+    def _is_valid_image_file(path):
+        if not ArtworkEngine._is_file(path):
+            return False
+        try:
+            with open(path, "rb") as handle:
+                return bool(_detect_image_extension(handle.read(32 * 1024)))
+        except OSError:
+            return False
+
+    @staticmethod
+    def _path_under(path, root):
+        try:
+            Path(path).resolve().relative_to(Path(root).resolve())
+            return True
+        except (OSError, ValueError):
+            return False
+
     def _upsert(self, *, entity_type, entity_id, artwork_type, source,
                 source_ref=None, local_path=None, external_url=None,
-                manual=False, status="ready", failure_count=0):
+                manual=False, status=STATUS_READY, failure_count=0,
+                artwork_key=None, variant="default", byte_size=None,
+                width=None, height=None, checksum=None, content_type=None,
+                next_retry_at=None, http_status=None):
+        entity_type = self._entity(entity_type, entity_id)
+        artwork_type = self._type(artwork_type)
         now = time.time()
+        source_ref = self._normalize_url(source_ref)
+        if source_ref == "":
+            source_ref = None
+        artwork_key = artwork_key or self._make_key(
+            source, source_ref or entity_id, artwork_type, variant
+        )
         priority = _SOURCE_PRIORITY.get(source, 0)
         with self.store._conn() as con:
             row = con.execute(
-                """SELECT id, discovered_at FROM artwork
-                   WHERE entity_type=? AND entity_id=? AND artwork_type=? AND source_ref IS ?""",
-                (entity_type, str(entity_id), artwork_type, source_ref),
+                "SELECT id,discovered_at FROM artwork WHERE artwork_key=?",
+                (artwork_key,),
             ).fetchone()
+            if row is None:
+                row = con.execute(
+                    """SELECT id,discovered_at FROM artwork
+                       WHERE entity_type=? AND entity_id=? AND artwork_type=?
+                         AND source_ref IS ?""",
+                    (entity_type, str(entity_id), artwork_type, source_ref),
+                ).fetchone()
+            values = (
+                source, local_path, external_url, int(manual), priority, status,
+                now, failure_count, artwork_key, variant, byte_size, width, height,
+                checksum, content_type, now if local_path else None,
+                next_retry_at, http_status, entity_type, str(entity_id),
+                artwork_type, source_ref,
+            )
             if row:
+                existing = con.execute(
+                    "SELECT status,failure_count,next_retry_at FROM artwork WHERE id=?",
+                    (row["id"],),
+                ).fetchone()
+                update_values = values
+                if (
+                    existing
+                    and status == STATUS_NOT_REQUESTED
+                    and existing["status"] in {STATUS_FAILED, STATUS_RETRY_WAIT}
+                    and not local_path
+                ):
+                    update_values = list(values)
+                    update_values[5] = existing["status"]
+                    update_values[7] = int(existing["failure_count"] or 0)
+                    update_values[16] = existing["next_retry_at"]
+                    update_values = tuple(update_values)
                 con.execute(
                     """UPDATE artwork SET source=?,local_path=?,external_url=?,manual=?,
-                       priority=?,status=?,updated_at=?,failure_count=? WHERE id=?""",
-                    (source, local_path, external_url, int(manual), priority, status,
-                     now, failure_count, row["id"]),
+                       priority=?,status=?,updated_at=?,failure_count=?,artwork_key=?,
+                       variant=?,byte_size=?,width=?,height=?,checksum=?,content_type=?,
+                       last_access=COALESCE(?,last_access),next_retry_at=?,http_status=?
+                       WHERE id=?""",
+                    update_values[:18] + (row["id"],),
                 )
-                return row["id"]
+                return int(row["id"])
             cur = con.execute(
                 """INSERT INTO artwork(entity_type,entity_id,artwork_type,source,source_ref,
                    local_path,external_url,manual,priority,status,discovered_at,updated_at,
-                   failure_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (entity_type, str(entity_id), artwork_type, source, source_ref, local_path,
-                 external_url, int(manual), priority, status, now, now, failure_count),
+                   failure_count,artwork_key,variant,byte_size,width,height,checksum,
+                   content_type,last_access,next_retry_at,http_status)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    entity_type, str(entity_id), artwork_type, source, source_ref,
+                    local_path, external_url, int(manual), priority, status, now, now,
+                    failure_count, artwork_key, variant, byte_size, width, height,
+                    checksum, content_type, now if local_path else None,
+                    next_retry_at, http_status,
+                ),
             )
-            return cur.lastrowid
+            return int(cur.lastrowid)
 
     def add_local(self, entity_type, entity_id, artwork_type, path, *, manual=False):
         artwork_type = self._type(artwork_type)
         path = os.path.abspath(os.fspath(path))
-        if not os.path.isfile(path) or Path(path).suffix.casefold() not in IMAGE_EXTENSIONS:
+        if not self._is_file(path) or Path(path).suffix.casefold() not in IMAGE_EXTENSIONS:
             return False
+        key = self._make_key(
+            "manual" if manual else "local", path.casefold(), artwork_type,
+            _VARIANT_PRIORITY.get(artwork_type, "default"),
+        )
         self._upsert(
-            entity_type=self._entity(entity_type, entity_id),
-            entity_id=entity_id,
-            artwork_type=artwork_type,
-            source="manual" if manual else "local",
-            source_ref=path.casefold(),
-            local_path=path,
-            manual=manual,
+            entity_type=entity_type, entity_id=entity_id, artwork_type=artwork_type,
+            source="manual" if manual else "local", source_ref=path.casefold(),
+            local_path=path, manual=manual, artwork_key=key,
+            variant=_VARIANT_PRIORITY.get(artwork_type, "default"),
+            byte_size=os.path.getsize(path),
+            content_type=_mime_from_path(path),
         )
         if not manual and entity_type in {"anime", "movie"} and artwork_type == "poster":
             with self.store._conn() as con:
                 protected = con.execute(
-                    "SELECT 1 FROM artwork WHERE entity_type=? AND entity_id=? AND artwork_type=? AND manual=1 LIMIT 1",
+                    """SELECT 1 FROM artwork
+                       WHERE entity_type=? AND entity_id=? AND artwork_type=?
+                         AND manual=1 LIMIT 1""",
                     (str(entity_type), str(entity_id), artwork_type),
                 ).fetchone()
                 if not protected:
@@ -133,26 +332,22 @@ class ArtworkEngine:
         return True
 
     def register_generated_thumbnail(self, media_uri, thumbnail_path, *, size=0, modified_at=0):
-        """Attach a native video-frame thumbnail to the existing episode/artwork store."""
         media_uri = str(media_uri or "").strip()
         thumbnail_path = os.path.abspath(os.fspath(thumbnail_path))
-        if not media_uri or not os.path.isfile(thumbnail_path):
+        if not media_uri or not self._is_file(thumbnail_path):
             return False
         if Path(thumbnail_path).suffix.casefold() not in IMAGE_EXTENSIONS:
             return False
-
         with self.store._conn() as con:
             rows = con.execute(
-                """SELECT DISTINCT e.id, e.anime_id, a.media_kind
-                   FROM episodes e
-                   JOIN anime a ON a.id=e.anime_id
+                """SELECT DISTINCT e.id,e.anime_id,a.media_kind
+                   FROM episodes e JOIN anime a ON a.id=e.anime_id
                    LEFT JOIN episode_observations o ON o.episode_id=e.id
                    WHERE e.path=? OR o.uri=?""",
                 (media_uri, media_uri),
             ).fetchall()
         if not rows:
             return False
-
         source_ref = f"native:{media_uri}|{int(size or 0)}|{int(modified_at or 0)}"
         for row in rows:
             episode_id = int(row["id"])
@@ -160,41 +355,39 @@ class ArtworkEngine:
             entity_type = "movie" if str(row["media_kind"] or "series").casefold() == "movie" else "anime"
             with self.store._conn() as con:
                 con.execute(
-                    "DELETE FROM artwork WHERE entity_type='episode' AND entity_id=? AND artwork_type='episode_thumbnail' AND source='generated'",
+                    """DELETE FROM artwork WHERE entity_type='episode' AND entity_id=?
+                       AND artwork_type='episode_thumbnail' AND source='generated'""",
                     (str(episode_id),),
                 )
             self._upsert(
-                entity_type="episode",
-                entity_id=episode_id,
-                artwork_type="episode_thumbnail",
-                source="generated",
-                source_ref=source_ref,
-                local_path=thumbnail_path,
-                manual=False,
+                entity_type="episode", entity_id=episode_id,
+                artwork_type="episode_thumbnail", source="generated",
+                source_ref=source_ref, local_path=thumbnail_path,
+                artwork_key=self._make_key("native", source_ref, "episode_thumbnail", "small"),
+                variant="small", byte_size=os.path.getsize(thumbnail_path),
+                content_type=_mime_from_path(thumbnail_path),
             )
             with self.store._conn() as con:
                 has_protected = con.execute(
-                    """SELECT 1 FROM artwork
-                       WHERE entity_type=? AND entity_id=? AND artwork_type='poster'
-                         AND status='ready' AND local_path IS NOT NULL
-                         AND source IN ('local','cache','anilist','manual')
-                       LIMIT 1""",
+                    """SELECT 1 FROM artwork WHERE entity_type=? AND entity_id=?
+                       AND artwork_type='poster' AND status='ready'
+                       AND local_path IS NOT NULL
+                       AND source IN ('local','cache','anilist','manual') LIMIT 1""",
                     (entity_type, str(anime_id)),
                 ).fetchone()
                 if has_protected:
                     continue
                 con.execute(
-                    "DELETE FROM artwork WHERE entity_type=? AND entity_id=? AND artwork_type='poster' AND source='generated'",
+                    """DELETE FROM artwork WHERE entity_type=? AND entity_id=?
+                       AND artwork_type='poster' AND source='generated'""",
                     (entity_type, str(anime_id)),
                 )
             self._upsert(
-                entity_type=entity_type,
-                entity_id=anime_id,
-                artwork_type="poster",
-                source="generated",
-                source_ref=source_ref,
-                local_path=thumbnail_path,
-                manual=False,
+                entity_type=entity_type, entity_id=anime_id, artwork_type="poster",
+                source="generated", source_ref=source_ref, local_path=thumbnail_path,
+                artwork_key=self._make_key("native", source_ref, "poster", "small"),
+                variant="small", byte_size=os.path.getsize(thumbnail_path),
+                content_type=_mime_from_path(thumbnail_path),
             )
             with self.store._conn() as con:
                 con.execute(
@@ -207,18 +400,18 @@ class ArtworkEngine:
         artwork_type = self._type(artwork_type)
         if path is None and not external_url:
             raise ValueError("artwork manual exige path ou external_url")
-        if path is not None and not os.path.isfile(path):
+        if path is not None and not self._is_file(path):
             raise FileNotFoundError(path)
         source_ref = os.path.abspath(path).casefold() if path else external_url
+        key = self._make_key("manual", source_ref, artwork_type, _VARIANT_PRIORITY.get(artwork_type, "default"))
         self._upsert(
-            entity_type=self._entity(entity_type, entity_id),
-            entity_id=entity_id,
-            artwork_type=artwork_type,
-            source="manual",
-            source_ref=source_ref,
+            entity_type=entity_type, entity_id=entity_id, artwork_type=artwork_type,
+            source="manual", source_ref=source_ref,
             local_path=os.path.abspath(path) if path else None,
-            external_url=external_url,
-            manual=True,
+            external_url=external_url, manual=True, artwork_key=key,
+            variant=_VARIANT_PRIORITY.get(artwork_type, "default"),
+            byte_size=os.path.getsize(path) if path else None,
+            content_type=_mime_from_path(path) if path else None,
         )
         return self.resolve(entity_type, entity_id, artwork_type, allow_network=False)
 
@@ -235,12 +428,16 @@ class ArtworkEngine:
             return []
         hints = _NAME_HINTS[artwork_type]
         wanted = []
-        for entry in sorted(directory.iterdir(), key=lambda p: p.name.casefold()):
+        try:
+            entries = directory.iterdir()
+        except OSError:
+            return []
+        for entry in sorted(entries, key=lambda p: p.name.casefold()):
             if not entry.is_file() or entry.suffix.casefold() not in IMAGE_EXTENSIONS:
                 continue
             base = entry.stem.casefold().strip()
             normalized = base.replace("_", "-").replace(" ", "-")
-            exact = stem and base == stem.casefold()
+            exact = bool(stem and base == stem.casefold())
             hinted = base in hints or normalized in hints
             if exact or hinted:
                 wanted.append((0 if exact else 1, str(entry)))
@@ -249,9 +446,7 @@ class ArtworkEngine:
     def _episode_row(self, episode_id):
         with self.store._conn() as con:
             row = con.execute("SELECT * FROM episodes WHERE id=?", (int(episode_id),)).fetchone()
-            if not row:
-                return None
-            return dict(row)
+            return dict(row) if row else None
 
     def _discover_episode_path(self, episode_id, path):
         if not isinstance(path, str) or not path.startswith("/") or not os.path.isfile(path):
@@ -273,7 +468,7 @@ class ArtworkEngine:
         with self.store._conn() as con:
             anime = con.execute("SELECT media_kind FROM anime WHERE id=?", (int(anime_id),)).fetchone()
             rows = con.execute(
-                "SELECT path,season,episode_type FROM episodes WHERE anime_id=? AND missing=0",
+                "SELECT path FROM episodes WHERE anime_id=? AND missing=0",
                 (int(anime_id),),
             ).fetchall()
         entity_type = "movie" if anime and str(anime["media_kind"] or "series").casefold() == "movie" else "anime"
@@ -303,7 +498,7 @@ class ArtworkEngine:
         entity_id = f"{anime_id}:season:{season}"
         for row in rows:
             path = row["path"]
-            if not isinstance(path, str) or not path.startswith("/") or not os.path.isfile(path):
+            if not isinstance(path, str) or not os.path.isfile(path):
                 continue
             for candidate in self._candidates("season_poster", Path(path).parent):
                 if self.add_local("season", entity_id, "season_poster", candidate):
@@ -311,31 +506,46 @@ class ArtworkEngine:
         return found
 
     def sync_anime_metadata(self, anime_id, metadata):
-        """Register AniList artwork references without creating a second cache."""
         if not metadata:
             return
-        cover_cache = (metadata.get("cover_cache") or "").strip()
-        cover_url = (metadata.get("cover_url") or "").strip()
-        banner_url = (metadata.get("banner_url") or "").strip()
+        cover_cache = str(metadata.get("cover_cache") or "").strip()
+        cover_url = self._normalize_url(metadata.get("cover_url"))
+        banner_url = self._normalize_url(metadata.get("banner_url"))
+        anilist_id = metadata.get("anilist_id")
         with self.store._conn() as con:
             row = con.execute("SELECT media_kind FROM anime WHERE id=?", (int(anime_id),)).fetchone()
         entity_type = "movie" if row and str(row["media_kind"] or "series").casefold() == "movie" else "anime"
-        if cover_cache and os.path.isfile(cover_cache):
-            self._upsert(entity_type=entity_type, entity_id=anime_id, artwork_type="poster",
-                         source="cache", source_ref=cover_url or cover_cache,
-                         local_path=cover_cache, external_url=cover_url)
+
+        if cover_cache and self._is_file(cover_cache):
+            key = self._make_key("anilist" if anilist_id else "cache",
+                                 anilist_id or cover_url or cover_cache, "poster", "large")
+            self._upsert(
+                entity_type=entity_type, entity_id=anime_id, artwork_type="poster",
+                source="cache", source_ref=cover_url or cover_cache,
+                local_path=cover_cache, external_url=cover_url,
+                status=STATUS_READY, artwork_key=key, variant="large",
+                byte_size=os.path.getsize(cover_cache),
+                content_type=_mime_from_path(cover_cache),
+            )
         elif cover_url:
-            self._upsert(entity_type=entity_type, entity_id=anime_id, artwork_type="poster",
-                         source="anilist", source_ref=cover_url, external_url=cover_url,
-                         status="available")
+            key = self._make_key("anilist" if anilist_id else "url",
+                                 anilist_id or cover_url, "poster", "large")
+            self._upsert(
+                entity_type=entity_type, entity_id=anime_id, artwork_type="poster",
+                source="anilist", source_ref=cover_url, external_url=cover_url,
+                status=STATUS_NOT_REQUESTED, artwork_key=key, variant="large",
+            )
         if banner_url:
-            self._upsert(entity_type=entity_type, entity_id=anime_id, artwork_type="backdrop",
-                         source="anilist", source_ref=banner_url, external_url=banner_url,
-                         status="available")
+            key = self._make_key("anilist" if anilist_id else "url",
+                                 anilist_id or banner_url, "backdrop", "large")
+            self._upsert(
+                entity_type=entity_type, entity_id=anime_id, artwork_type="backdrop",
+                source="anilist", source_ref=banner_url, external_url=banner_url,
+                status=STATUS_NOT_REQUESTED, artwork_key=key, variant="large",
+            )
         self.discover_anime(anime_id)
 
     def reindex_entity(self, anime_id):
-        """Discover entity/season artwork once for one source batch."""
         with self.store._conn() as con:
             anime = con.execute("SELECT media_kind FROM anime WHERE id=?", (int(anime_id),)).fetchone()
             rows = con.execute(
@@ -343,8 +553,7 @@ class ArtworkEngine:
                 (int(anime_id),),
             ).fetchall()
         entity_type = "movie" if anime and str(anime["media_kind"] or "series").casefold() == "movie" else "anime"
-        entity_dirs = set()
-        season_dirs = {}
+        entity_dirs, season_dirs = set(), {}
         for row in rows:
             path = row["path"]
             if not isinstance(path, str) or not path.startswith("/") or not os.path.isfile(path):
@@ -353,7 +562,6 @@ class ArtworkEngine:
             entity_dirs.add(directory)
             if row["season"] is not None:
                 season_dirs.setdefault(int(row["season"]), set()).add(directory)
-
         found = []
         for directory in sorted(entity_dirs, key=lambda p: str(p).casefold()):
             for kind in ("poster", "backdrop"):
@@ -391,65 +599,492 @@ class ArtworkEngine:
             where += " AND artwork_type=?"
             params.append(self._type(artwork_type))
         with self.store._conn() as con:
-            return [dict(row) for row in con.execute(
+            rows = [dict(row) for row in con.execute(
                 f"SELECT * FROM artwork WHERE {where} ORDER BY priority DESC, updated_at DESC, id DESC",
                 params,
             ).fetchall()]
+        return rows
 
-    @staticmethod
-    def _usable(row, allow_network):
-        if row["local_path"]:
-            return os.path.isfile(row["local_path"])
-        return bool(row["external_url"]) and allow_network
-
-    def resolve(self, entity_type, entity_id, artwork_type, *, allow_network=True):
+    def get(self, entity_type, entity_id, artwork_type, *, allow_network=False):
+        """Return a valid cached artwork immediately, never requiring network."""
         entity_type = self._entity(entity_type, entity_id)
         artwork_type = self._type(artwork_type)
         rows = self.list_for(entity_type, entity_id, artwork_type)
         for row in rows:
-            if row["manual"] and self._usable(row, allow_network):
-                return row
-        for row in rows:
-            if self._usable(row, allow_network):
-                return row
+            if row.get("local_path"):
+                valid = self._is_file(row["local_path"])
+                if row.get("source") in {"cache", "anilist", "generated"}:
+                    valid = self._is_valid_image_file(row["local_path"])
+                if valid:
+                    self._touch(row["id"])
+                    self._log("hit", key=row.get("artwork_key"), entity_type=entity_type, entity_id=entity_id)
+                    return row
+                self._mark_inconsistent(row)
+        if allow_network:
+            for row in rows:
+                if row.get("external_url") and row.get("status") not in {STATUS_INVALID}:
+                    return row
+        return self._fallback(entity_type, entity_id, artwork_type, allow_network=allow_network)
 
-        # Hierarchical fallbacks never replace a manual choice; they only
-        # supply an absent role from an already-known poster/backdrop.
+    def _fallback(self, entity_type, entity_id, artwork_type, *, allow_network):
         if artwork_type in {"thumbnail", "episode_thumbnail"}:
-            fallback = self.resolve(entity_type, entity_id, "poster", allow_network=allow_network)
+            fallback = self._first_usable(entity_type, entity_id, "poster", allow_network)
             if fallback:
                 return dict(fallback, fallback=True)
         if entity_type == "season" and artwork_type == "season_poster":
             anime_id = str(entity_id).split(":season:", 1)[0]
-            fallback = self.resolve("anime", anime_id, "poster", allow_network=allow_network)
+            fallback = self._first_usable("anime", anime_id, "poster", allow_network)
             if fallback:
                 return dict(fallback, fallback=True)
         if artwork_type == "backdrop":
-            fallback = self.resolve(entity_type, entity_id, "poster", allow_network=allow_network)
+            fallback = self._first_usable(entity_type, entity_id, "poster", allow_network)
             if fallback:
                 return dict(fallback, fallback=True)
         return None
 
+    def _first_usable(self, entity_type, entity_id, artwork_type, allow_network):
+        for row in self.list_for(entity_type, entity_id, artwork_type):
+            if row.get("local_path") and self._is_file(row["local_path"]):
+                self._touch(row["id"])
+                return row
+            if allow_network and row.get("external_url") and row.get("status") != STATUS_INVALID:
+                return row
+        return None
+
+    def resolve(self, entity_type, entity_id, artwork_type, *, allow_network=True):
+        """Compatibility facade used by Home/Details and existing tests."""
+        result = self.get(entity_type, entity_id, artwork_type, allow_network=allow_network)
+        if result:
+            return result
+        return None
+
+    def _touch(self, row_id):
+        with self.store._conn() as con:
+            con.execute("UPDATE artwork SET last_access=? WHERE id=?", (time.time(), int(row_id)))
+
+    def _mark_inconsistent(self, row):
+        with self.store._conn() as con:
+            con.execute(
+                """UPDATE artwork SET status=?,local_path=NULL,updated_at=?,next_retry_at=NULL
+                   WHERE id=?""",
+                (STATUS_NOT_REQUESTED, time.time(), int(row["id"])),
+            )
+        self._log("miss", key=row.get("artwork_key"), reason="missing_local_file")
+
+    def _retry_delay(self, failure_count):
+        exponent = max(0, min(int(failure_count) - 1, 8))
+        delay = min(self.MAX_BACKOFF_SECONDS, self.BASE_BACKOFF_SECONDS * (2 ** exponent))
+        jitter = delay * 0.20 * ((int(time.time() * 1000) % 1000) / 1000.0)
+        return delay + jitter
+
+    def _enqueue(self, key, fn, *, priority):
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("ArtworkEngine encerrado")
+            existing = self._pending.get(key)
+            if existing and not existing.done():
+                return existing
+            future = Future()
+            self._sequence += 1
+            self._pending[key] = future
+            self._queue.put((-int(priority), self._sequence, key, fn, future))
+            return future
+
+    def request(self, entity_type, entity_id, artwork_type, *, priority=100,
+                allow_network=True, blocking=False, force=False):
+        """Request one artwork; concurrent requests for the same key coalesce."""
+        entity_type = self._entity(entity_type, entity_id)
+        artwork_type = self._type(artwork_type)
+        self._log("request", entity_type=entity_type, entity_id=entity_id, artwork_type=artwork_type)
+
+        cached = self.get(entity_type, entity_id, artwork_type, allow_network=False)
+        if cached:
+            return cached
+
+        rows = self.list_for(entity_type, entity_id, artwork_type)
+        row = next((item for item in rows if item.get("external_url")), None)
+        if row is None:
+            self._log("miss", entity_type=entity_type, entity_id=entity_id, artwork_type=artwork_type)
+            return None
+        now = time.time()
+        retry_at = float(row.get("next_retry_at") or 0)
+        if not force and retry_at > now:
+            return row
+        if not allow_network:
+            return row
+
+        key = row.get("artwork_key") or self._make_key(
+            row.get("source") or "url", row.get("source_ref") or row.get("external_url"),
+            artwork_type, row.get("variant") or _VARIANT_PRIORITY.get(artwork_type, "default"),
+        )
+        variant = row.get("variant") or _VARIANT_PRIORITY.get(artwork_type, "default")
+        self._set_status(row["id"], STATUS_QUEUED)
+        future = self._enqueue(
+            key,
+            lambda: self._download_row(row, force=force),
+            priority=priority,
+        )
+        if blocking:
+            return future.result()
+        return dict(row, status=STATUS_QUEUED)
+
+    def prefetch(self, requests, *, default_priority=50):
+        """Queue a bounded set of requests; duplicate keys share one task."""
+        futures = []
+        for item in list(requests or [])[:100]:
+            if not isinstance(item, dict):
+                continue
+            try:
+                futures.append(self.request(
+                    item["entity_type"], item["entity_id"], item["artwork_type"],
+                    priority=int(item.get("priority", default_priority)),
+                    allow_network=bool(item.get("allow_network", True)),
+                    blocking=False,
+                    force=bool(item.get("force", False)),
+                ))
+            except Exception:
+                logger.exception("Artwork prefetch request failed")
+        return futures
+
+    def _download_row(self, row, *, force=False):
+        row_id = int(row["id"])
+        url = self._normalize_url(row.get("external_url"))
+        if not url or not _safe_http_url(url):
+            self._set_status(row_id, STATUS_INVALID, http_status=None)
+            self._log("failure", key=row.get("artwork_key"), reason="invalid_url")
+            return None
+        self._log("start", key=row.get("artwork_key"), url_host=_url_host(url))
+        self._set_status(row_id, STATUS_DOWNLOADING)
+        try:
+            payload, content_type, http_status = self._downloader(url)
+            extension = IMAGE_MIME.get(content_type.casefold(), "") if content_type else ""
+            if not extension:
+                extension = _detect_image_extension(payload)
+            if not extension:
+                raise ValueError("conteúdo recebido não é uma imagem suportada")
+            checksum = hashlib.sha256(payload).hexdigest()
+            key = row.get("artwork_key") or self._make_key(
+                "url", row.get("source_ref") or url, row["artwork_type"],
+                row.get("variant") or _VARIANT_PRIORITY.get(row["artwork_type"], "default"),
+            )
+            target = self.cache_dir / f"{key}{extension}"
+            temporary = self.cache_dir / f".{key}.tmp"
+            temporary.write_bytes(payload)
+            os.replace(temporary, target)
+            now = time.time()
+            with self.store._conn() as con:
+                con.execute(
+                    """UPDATE artwork SET source='cache',local_path=?,status=?,
+                       updated_at=?,last_access=?,byte_size=?,checksum=?,content_type=?,
+                       next_retry_at=NULL,http_status=?,failure_count=0 WHERE id=?""",
+                    (str(target), STATUS_READY, now, now, len(payload), checksum,
+                     content_type or _mime_from_path(str(target)), http_status, row_id),
+                )
+                if row["entity_type"] in {"anime", "movie"} and row["artwork_type"] == "poster":
+                    con.execute(
+                        "UPDATE anime SET cover_cache=? WHERE id=?",
+                        (str(target), int(row["entity_id"])),
+                    )
+            self._log("success", key=key, bytes=len(payload))
+            self._evict_if_needed(protected={str(target)})
+            return self.get(row["entity_type"], row["entity_id"], row["artwork_type"], allow_network=False)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                self._failure(row_id, http_status=404, retry=False, reason="http_404")
+            elif exc.code == 429:
+                delay = _retry_after(exc.headers) or self._retry_delay(int(row.get("failure_count") or 0) + 1)
+                self._failure(row_id, http_status=429, retry=True, delay=delay, reason="http_429")
+            elif 500 <= exc.code <= 599:
+                self._failure(row_id, http_status=exc.code, retry=True, reason=f"http_{exc.code}")
+            else:
+                self._failure(row_id, http_status=exc.code, retry=False, reason=f"http_{exc.code}")
+        except (TimeoutError, urllib.error.URLError, OSError, ValueError) as exc:
+            self._failure(row_id, retry=True, reason=type(exc).__name__)
+        except Exception as exc:
+            self._failure(row_id, retry=False, reason=type(exc).__name__)
+        return None
+
+    def _download_url(self, url):
+        request = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Rei-Flix/ArtworkEngine"},
+            method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=self.REQUEST_TIMEOUT_SECONDS) as response:
+            status = int(getattr(response, "status", 200) or 200)
+            content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().casefold()
+            if content_type and not content_type.startswith("image/"):
+                raise ValueError("resposta HTTP não é uma imagem")
+            length_header = response.headers.get("Content-Length")
+            if length_header:
+                try:
+                    if int(length_header) > self.max_download_bytes:
+                        raise ValueError("artwork excede o limite de tamanho")
+                except ValueError:
+                    raise
+            chunks = []
+            total = 0
+            while True:
+                chunk = response.read(128 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > self.max_download_bytes:
+                    raise ValueError("artwork excede o limite de tamanho")
+                chunks.append(chunk)
+            payload = b"".join(chunks)
+            if not payload:
+                raise ValueError("artwork vazio")
+            detected = _detect_image_extension(payload)
+            if not detected:
+                raise ValueError("conteúdo recebido não é uma imagem suportada")
+            if content_type and content_type in IMAGE_MIME and IMAGE_MIME[content_type] != detected:
+                raise ValueError("MIME e conteúdo da imagem não correspondem")
+            return payload, content_type, status
+
+    def _set_status(self, row_id, status, *, http_status=None):
+        with self.store._conn() as con:
+            con.execute(
+                "UPDATE artwork SET status=?,updated_at=?,http_status=? WHERE id=?",
+                (status, time.time(), http_status, int(row_id)),
+            )
+
+    def _failure(self, row_id, *, http_status=None, retry, delay=None, reason):
+        with self.store._conn() as con:
+            row = con.execute(
+                "SELECT failure_count,artwork_key FROM artwork WHERE id=?", (int(row_id),)
+            ).fetchone()
+            if not row:
+                return
+            failures = int(row["failure_count"] or 0) + 1
+            can_retry = bool(retry and failures < self.MAX_RETRIES)
+            next_retry = time.time() + (delay if delay is not None else self._retry_delay(failures)) if can_retry else None
+            status = STATUS_RETRY_WAIT if can_retry else STATUS_FAILED
+            con.execute(
+                """UPDATE artwork SET status=?,failure_count=?,last_attempt_at=?,
+                   next_retry_at=?,updated_at=?,http_status=? WHERE id=?""",
+                (status, failures, time.time(), next_retry, time.time(), http_status, int(row_id)),
+            )
+        self._log("retry" if can_retry else "failure", key=row["artwork_key"], reason=reason,
+                  attempt=failures, next_retry_at=next_retry)
+
+    def _failure_backwards_compatible(self, row_id, *, http_status=None, retry=False, delay=None, reason=""):
+        self._failure(row_id, http_status=http_status, retry=retry, delay=delay, reason=reason)
+
     def mark_download_failure(self, entity_type, entity_id, artwork_type, source_ref):
         with self.store._conn() as con:
             row = con.execute(
-                """SELECT id,failure_count FROM artwork WHERE entity_type=? AND entity_id=?
-                   AND artwork_type=? AND source_ref=?""",
+                """SELECT id,failure_count,artwork_key FROM artwork
+                   WHERE entity_type=? AND entity_id=? AND artwork_type=? AND source_ref=?""",
                 (self._entity(entity_type, entity_id), str(entity_id), self._type(artwork_type), source_ref),
             ).fetchone()
-            if not row:
-                return False
-            con.execute(
-                "UPDATE artwork SET status='failed',failure_count=?,last_attempt_at=?,updated_at=? WHERE id=?",
-                (int(row["failure_count"] or 0) + 1, time.time(), time.time(), row["id"]),
-            )
-            return True
+        if not row:
+            return False
+        self._failure_backwards_compatible(
+            row["id"], retry=True, reason="legacy_mark_download_failure"
+        )
+        return True
 
     def retryable(self, entity_type, entity_id, artwork_type):
         with self.store._conn() as con:
             rows = con.execute(
                 """SELECT * FROM artwork WHERE entity_type=? AND entity_id=? AND artwork_type=?
-                   AND status='failed' ORDER BY last_attempt_at ASC""",
+                   AND status IN ('failed','retry_wait') ORDER BY last_attempt_at ASC""",
                 (self._entity(entity_type, entity_id), str(entity_id), self._type(artwork_type)),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def retry(self, entity_type, entity_id, artwork_type, *, priority=200):
+        entity_type = self._entity(entity_type, entity_id)
+        artwork_type = self._type(artwork_type)
+        with self.store._conn() as con:
+            rows = con.execute(
+                "SELECT id FROM artwork WHERE entity_type=? AND entity_id=? AND artwork_type=? AND external_url IS NOT NULL",
+                (entity_type, str(entity_id), artwork_type),
+            ).fetchall()
+            for row in rows:
+                con.execute(
+                    "UPDATE artwork SET status=?,next_retry_at=NULL,failure_count=0,updated_at=? WHERE id=?",
+                    (STATUS_NOT_REQUESTED, time.time(), row["id"]),
+                )
+        return self.request(entity_type, entity_id, artwork_type, priority=priority, force=True, blocking=False)
+
+    def cancel(self, entity_type, entity_id, artwork_type):
+        entity_type = self._entity(entity_type, entity_id)
+        artwork_type = self._type(artwork_type)
+        cancelled = False
+        for row in self.list_for(entity_type, entity_id, artwork_type):
+            key = row.get("artwork_key")
+            with self._lock:
+                future = self._pending.get(key) if key else None
+                if future and future.cancel():
+                    cancelled = True
+                    self._log("cancel", key=key)
+                    self._set_status(row["id"], STATUS_NOT_REQUESTED)
+        return cancelled
+
+    def invalidate(self, entity_type, entity_id, artwork_type, *, source_ref=None):
+        entity_type = self._entity(entity_type, entity_id)
+        artwork_type = self._type(artwork_type)
+        with self.store._conn() as con:
+            if source_ref:
+                con.execute(
+                    """UPDATE artwork SET status=?,local_path=NULL,next_retry_at=NULL,updated_at=?
+                       WHERE entity_type=? AND entity_id=? AND artwork_type=? AND source_ref=?""",
+                    (STATUS_INVALID, time.time(), entity_type, str(entity_id), artwork_type, source_ref),
+                )
+            else:
+                con.execute(
+                    """UPDATE artwork SET status=?,local_path=NULL,next_retry_at=NULL,updated_at=?
+                       WHERE entity_type=? AND entity_id=? AND artwork_type=?""",
+                    (STATUS_INVALID, time.time(), entity_type, str(entity_id), artwork_type),
+                )
+
+    def get_status(self, entity_type, entity_id, artwork_type):
+        rows = self.list_for(entity_type, entity_id, artwork_type)
+        if not rows:
+            return STATUS_NOT_REQUESTED
+        if any(row.get("local_path") and self._is_file(row["local_path"]) for row in rows):
+            return STATUS_READY
+        return max(rows, key=lambda row: (row.get("updated_at") or 0)).get("status") or STATUS_NOT_REQUESTED
+
+    def _evict_if_needed(self, protected=None):
+        protected = set(protected or ())
+        with self.store._conn() as con:
+            rows = con.execute(
+                """SELECT id,local_path,byte_size,last_access,source,manual
+                   FROM artwork WHERE local_path IS NOT NULL AND source='cache'
+                   ORDER BY COALESCE(last_access,updated_at,0) ASC"""
+            ).fetchall()
+        total = sum(int(row["byte_size"] or 0) for row in rows if self._is_file(row["local_path"]))
+        for row in rows:
+            if total <= self.cache_limit_bytes:
+                break
+            path = str(row["local_path"])
+            if path in protected or int(row["manual"] or 0):
+                continue
+            try:
+                size = int(row["byte_size"] or Path(path).stat().st_size)
+            except OSError:
+                size = 0
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError:
+                continue
+            with self.store._conn() as con:
+                con.execute(
+                    "UPDATE artwork SET local_path=NULL,status=?,byte_size=NULL,last_access=NULL WHERE id=?",
+                    (STATUS_NOT_REQUESTED, int(row["id"])),
+                )
+            total -= size
+            self._log("evict", path=path, bytes=size)
+
+    def cleanup_orphans(self):
+        """Remove only managed artwork files with no live artwork record."""
+        referenced = set()
+        with self.store._conn() as con:
+            for row in con.execute("SELECT local_path FROM artwork WHERE local_path IS NOT NULL"):
+                if row["local_path"]:
+                    try:
+                        referenced.add(str(Path(row["local_path"]).resolve()))
+                    except OSError:
+                        pass
+        removed = 0
+        for path in self.cache_dir.iterdir():
+            if not path.is_file() or path.name.endswith(".tmp") or path.name.startswith("."):
+                continue
+            if str(path.resolve()) not in referenced:
+                try:
+                    path.unlink()
+                    removed += 1
+                except OSError:
+                    logger.warning("Could not remove artwork orphan %s", path)
+        return removed
+
+    def clear(self):
+        """Clear only managed external artwork; never touch videos or SQLite."""
+        with self.store._conn() as con:
+            rows = con.execute(
+                "SELECT id,local_path,source FROM artwork WHERE source IN ('cache','anilist')"
+            ).fetchall()
+            for row in rows:
+                path = row["local_path"]
+                if path and self._path_under(path, self.cache_dir):
+                    try:
+                        Path(path).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+            con.execute(
+                """DELETE FROM artwork WHERE source IN ('cache','anilist')
+                   AND manual=0"""
+            )
+            # Existing anime rows remain local and their metadata/match state
+            # stays intact.  Only the refreshable cover pointer is cleared when
+            # it was an engine-managed cache path.
+            anime_rows = con.execute("SELECT id,cover_cache FROM anime").fetchall()
+            for row in anime_rows:
+                cover = row["cover_cache"]
+                if cover and self._path_under(cover, self.cache_dir):
+                    con.execute("UPDATE anime SET cover_cache='' WHERE id=?", (row["id"],))
+        removed = self.cleanup_orphans()
+        self._log("evict", reason="clear", removed=removed)
+        return removed
+
+    def cache_stats(self):
+        with self.store._conn() as con:
+            rows = con.execute(
+                """SELECT COUNT(*) AS files, COALESCE(SUM(byte_size),0) AS bytes
+                   FROM artwork WHERE source='cache' AND local_path IS NOT NULL"""
+            ).fetchone()
+        return {"files": int(rows["files"] or 0), "bytes": int(rows["bytes"] or 0),
+                "limit_bytes": self.cache_limit_bytes}
+
+    def shutdown(self):
+        self._closed = True
+        for future in list(self._pending.values()):
+            future.cancel()
+
+
+def _safe_http_url(url):
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        return parsed.scheme.casefold() in {"https", "http"} and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
+def _url_host(url):
+    try:
+        from urllib.parse import urlparse
+        return urlparse(url).hostname or ""
+    except Exception:
+        return ""
+
+
+def _mime_from_path(path):
+    suffix = Path(path).suffix.casefold()
+    return {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+            ".webp": "image/webp", ".avif": "image/avif", ".gif": "image/gif"}.get(suffix)
+
+
+def _detect_image_extension(payload):
+    if payload.startswith(b"\\xff\\xd8\\xff"):
+        return ".jpg"
+    if payload.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+        return ".png"
+    if payload.startswith(b"RIFF") and payload[8:12] == b"WEBP":
+        return ".webp"
+    if payload.startswith(b"GIF87a") or payload.startswith(b"GIF89a"):
+        return ".gif"
+    if payload.startswith(b"\\x00\\x00\\x00") and b"ftypavif" in payload[:32]:
+        return ".avif"
+    return ""
+
+
+def _retry_after(headers):
+    try:
+        value = headers.get("Retry-After")
+        return max(0.0, float(value)) if value else None
+    except (TypeError, ValueError):
+        return None

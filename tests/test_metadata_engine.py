@@ -22,7 +22,7 @@ class ProfessionalMetadataTests(unittest.TestCase):
     def test_schema_and_metadata_model_are_persistent(self):
         self._anime()
         row = self.store.anime_metadata("attack on titan")
-        self.assertEqual(self.store.SCHEMA_VERSION, 28)
+        self.assertEqual(self.store.SCHEMA_VERSION, 29)
         self.assertEqual(row["metadata_source"], "local")
         self.assertEqual(row["metadata_status"], "unresolved")
         self.assertEqual(row["metadata_confidence"], "low")
@@ -246,14 +246,15 @@ class ProfessionalMetadataTests(unittest.TestCase):
         cover.write_bytes(b'cover')
         media = {'id': 16498, 'title': {'english': 'Attack on Titan', 'romaji': 'Shingeki no Kyojin'},
                  'coverImage': {'extraLarge': 'https://img.example/a.jpg'}, 'genres': ['Action']}
-        with patch.object(self.service.anilist, 'search', return_value=[media]), patch.object(self.service.anilist, 'cache_cover', return_value=str(cover)) as downloader:
+        downloader = lambda url: (b"\\xff\\xd8\\xff" + b"cover", "image/jpeg", 200)
+        with patch.object(self.service.anilist, 'search', return_value=[media]), patch.object(self.service.artwork, '_downloader', side_effect=downloader) as artwork_downloader:
             result = self.service.hydrate_catalog_metadata(self.service.catalog())
         self.assertEqual(len(result), 1)
         row = self.store.anime_metadata('attack on titan')
         self.assertEqual(row['anilist_id'], 16498)
         self.assertEqual(row['cover_cache'], str(cover))
         self.assertEqual(self.store.association('attack on titan'), 16498)
-        downloader.assert_called_once_with('https://img.example/a.jpg')
+        artwork_downloader.assert_called_once_with('https://img.example/a.jpg')
 
     def test_hydration_uses_existing_cover_without_http_download(self):
         anime = self._anime('Attack on Titan', 'attack on titan')
@@ -280,7 +281,7 @@ class ProfessionalMetadataTests(unittest.TestCase):
                 'UPDATE anime SET anilist_id=?,cover_url=?,cover_cache=?,metadata_status=?,metadata_source=?,metadata_updated_at=?,metadata_fetched_at=? WHERE id=?',
                 (16498, 'https://img.example/a.jpg', '', 'available', 'anilist', now, now, anime),
             )
-        with patch.object(self.service.anilist, 'cache_cover', return_value='') as downloader:
+        with patch.object(self.service.artwork, '_downloader', side_effect=TimeoutError("timeout")) as downloader:
             self.service.hydrate_catalog_metadata(self.service.catalog())
             self.service.hydrate_catalog_metadata(self.service.catalog())
         self.assertEqual(downloader.call_count, 1)

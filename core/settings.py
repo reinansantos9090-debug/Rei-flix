@@ -121,7 +121,12 @@ class SettingsStore:
         if definition.kind == "int":
             if isinstance(value, bool):
                 raise SettingsValidationError(f"inteiro inválido para {definition.key}")
-            number = int(value)
+            if isinstance(value, int):
+                number = value
+            elif isinstance(value, str) and re.fullmatch(r"\\d+", value.strip()):
+                number = int(value.strip())
+            else:
+                raise SettingsValidationError(f"inteiro inválido para {definition.key}")
             if number < 0:
                 raise SettingsValidationError(f"inteiro negativo para {definition.key}")
             if definition.choices and number not in definition.choices:

@@ -157,6 +157,7 @@ object MediaStoreScanner {
                         .put("documents",batch))
                 }
                 var localCancelled=false
+                var volumeVideos=0
                 val collection=if(Build.VERSION.SDK_INT>=29)MediaStore.Video.Media.getContentUri(volumeName)else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                 resolver.query(collection,projection.toTypedArray(),null,null,MediaStore.Video.Media.DISPLAY_NAME+" COLLATE NOCASE ASC")?.use{cursor->
                     val idCol=cursor.getColumnIndex(MediaStore.Video.Media._ID);val nameCol=cursor.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
@@ -188,9 +189,10 @@ object MediaStoreScanner {
                     val changedDuringQuery=consumeChangeNotification()
                     if(changedDuringQuery || postVersion!=version || (Build.VERSION.SDK_INT>=30 && postGeneration!=generation)) {
                         volumeWaitingForMediaStore=true
-                    } else if(videos==0) {
-                        // A single empty query is not proof that Android's media indexing has settled.
-                        Thread.sleep(300L)
+                    } else if(volumeVideos==0) {
+                        // Do not use a lifecycle sleep as a synchronization primitive. Re-check the
+                        // provider's own version/generation immediately; if it is still changing,
+                        // this volume is not safe for destructive reconciliation.
                         if(shouldCancel()){cancelled=true;localCancelled=true}
                         val stableVersion=if(Build.VERSION.SDK_INT>=29)runCatching{MediaStore.getVersion(context,volumeName)}.getOrDefault(postVersion) else postVersion
                         val stableGeneration=if(Build.VERSION.SDK_INT>=30)runCatching{MediaStore.getGeneration(context,volumeName)}.getOrDefault(postGeneration) else postGeneration

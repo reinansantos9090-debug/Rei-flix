@@ -749,17 +749,14 @@ class NativePlayerActivity : ComponentActivity() {
             "never" -> builder
                 .setPreferredTextLanguage(null)
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                .setSelectTextByDefault(false)
-            "always" -> builder
+                            "always" -> builder
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .setPreferredTextLanguage(preferredSubtitleLanguage.takeIf { it.isNotBlank() })
-                .setSelectTextByDefault(true)
-                .setSelectUndeterminedTextLanguage(true)
+                                .setSelectUndeterminedTextLanguage(true)
             else -> builder
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .setPreferredTextLanguage(preferredSubtitleLanguage.takeIf { it.isNotBlank() })
-                .setSelectTextByDefault(false)
-        }
+                        }
         player.trackSelectionParameters = builder.build()
         logPlayer(
             "GLOBAL_TRACK_PREFS audio=" + preferredAudioLanguage.ifBlank { "auto" } +

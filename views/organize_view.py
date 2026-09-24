@@ -752,6 +752,7 @@ class OrganizeView:
                     ft.Text('Descobrindo vídeos locais…', color=TEXT_MUTED, size=12),
                 ]
             await render()
+            await restore_scroll_position()
         content.on_scroll = on_collection_scroll
         async def restore_scroll_position():
             stored = view_state.get('scroll_position')
@@ -768,7 +769,6 @@ class OrganizeView:
         render_generation[0] += 1
         render_overview()
         page.run_task(load_catalog)
-        page.run_task(restore_scroll_position)
         return ft.Container(
             content=content,
             padding=ft.Padding(

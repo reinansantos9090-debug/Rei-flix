@@ -810,7 +810,8 @@ class IdentificationTests(unittest.TestCase):
                 ambiguous = service._identify('naruto shipuden', 'Naruto Shipuden', lambda _: None)
             with patch.object(service.anilist, 'search', return_value=[]):
                 missing = service._identify('arquivo local', 'Arquivo Local', lambda _: None)
-            self.assertNotIn('anilist_id', ambiguous)
+            self.assertIsNone(ambiguous.get('anilist_id'))
+            self.assertEqual(ambiguous.get('metadata_status'), 'ambiguous')
             self.assertEqual(store.pending_matches()[0]['lookup_title'], 'naruto shipuden')
             self.assertEqual(missing['title'], 'Arquivo Local')
 
@@ -1710,11 +1711,14 @@ class OrganizeTests(unittest.TestCase):
         return store, action, comedy, plain, paths
 
     def test_organize_summary_empty_and_uses_only_real_genres(self):
-        self.assertEqual(LibraryService.organize_summary([]), {
-            'genres': [],
-            'states': [{'name': 'Todos', 'count': 0}, {'name': 'Favoritos', 'count': 0},
-                       {'name': 'Em andamento', 'count': 0}, {'name': 'Concluídos', 'count': 0}],
-        })
+        empty = LibraryService.organize_summary([])
+        self.assertEqual(empty['genres'], [])
+        self.assertEqual(
+            [(item['name'], item['count']) for item in empty['states']],
+            [('Todos', 0), ('Favoritos', 0), ('Em andamento', 0), ('Concluídos', 0)],
+        )
+        self.assertTrue(empty['collections'])
+        self.assertTrue(all(int(item['count']) == 0 for item in empty['collections']))
         with tempfile.TemporaryDirectory() as d:
             store, *_ = self._catalog(d)
             genres = LibraryService.organize_summary(store.catalog())['genres']

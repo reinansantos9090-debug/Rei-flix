@@ -529,12 +529,11 @@ E: manifest
 
     def test_refresh_library_waits_for_every_saf_scan_result_or_error(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn("pending_native_scans[0] = 0", source)
-        self.assertIn("pending_native_scans[0] += 1", source)
-        self.assertIn("pending_native_scans[0] = max(0, pending_native_scans[0] - 1)", source)
-        self.assertIn("if pending_native_scans[0] == 0:", source)
+        self.assertIn("scan_coordinator", source)
+        self.assertIn("handle_native_event", source)
+        self.assertNotIn("pending_native_scans", source)
+        self.assertNotIn("finish_native_scan()", source)
         self.assertIn("if event_type == 'saf_error':", source)
-        self.assertIn("finish_native_scan()", source)
 
     def test_native_player_entry_requires_a_persisted_saf_document(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

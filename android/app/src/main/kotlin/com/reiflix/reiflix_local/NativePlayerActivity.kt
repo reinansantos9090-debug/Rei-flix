@@ -89,8 +89,6 @@ class NativePlayerActivity : ComponentActivity() {
     private var restoredPositionMs: Long? = null
     internal var firstFrameRenderedForTesting = false
         private set
-    private enum class GestureMode { NONE }
-    private var pendingSeekPosition: Long? = null
     private var feedbackHideAt = 0L
 
     private val titleValue: String
@@ -216,39 +214,118 @@ class NativePlayerActivity : ComponentActivity() {
             aspectModeLabel = savedInstanceState?.getString("aspect_mode_label") ?: "Ajustar"
             playerView.resizeMode = savedResize
 
-            val subtitleTracks = LocalSubtitleResolver.resolve(this, uri)
-            val mediaItemBuilder = MediaItem.Builder()
-                .setUri(uri)
-                .setMediaId(uri.toString())
-            if (subtitleTracks.isNotEmpty()) {
-                mediaItemBuilder.setSubtitleConfigurations(
-                    subtitleTracks.map { track ->
-                        MediaItem.SubtitleConfiguration.Builder(track.uri)
-                            .setMimeType(track.mimeType)
-                            .setLanguage(track.language)
-                            .setSelectionFlags(if (track.isDefault) C.SELECTION_FLAG_DEFAULT else 0)
-                            .build()
-                    }
-                )
-            }
-
-            val mediaItem = mediaItemBuilder.build()
-            logPlayer("MEDIA_ITEM requestId=" + requestId.ifEmpty { "-" } + " uri=" + mediaItem.localConfiguration?.uri)
-            val shouldPlayWhenReady = savedInstanceState?.takeIf { it.containsKey("play_when_ready") }
-                ?.getBoolean("play_when_ready")
-                ?: intent.getBooleanExtra("autoplay", true)
-            player.setMediaItem(mediaItem)
-            // Set the desired playWhenReady state before prepare(). This prevents a
-            // transient autoplay race when callers explicitly request autoplay=false.
-            player.playWhenReady = shouldPlayWhenReady
-            logPlayer("PLAY_WHEN_READY=" + player.playWhenReady + " requestId=" + requestId.ifEmpty { "-" })
-            logPlayer("PREPARE requestId=" + requestId.ifEmpty { "-" })
-            player.prepare()
+            prepareCurrentMedia("initial", savedInstanceState?.takeIf { it.containsKey("play_when_ready") }?.getBoolean("play_when_ready"))
         } catch (exception: Exception) {
             if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
             logPlayer("EXOPLAYER_INIT_FAILED requestId=" + requestId.ifEmpty { "-" }, exception)
             showPlayerError("Não foi possível iniciar o player local.", "player_initialization")
         }
+    }
+
+    override fun onNewIntent(newIntent: Intent) {
+        super.onNewIntent(newIntent)
+        setIntent(newIntent)
+        logPlayer(
+            "PLAYER_REUSE_INTENT requestId=" +
+                (newIntent.getStringExtra("requestId")?.trim().orEmpty().ifBlank { "-" }),
+        )
+
+        val rawUri = newIntent.getStringExtra("uri")
+        if (rawUri.isNullOrBlank()) {
+            showPlayerError("Arquivo local inválido.", "missing_uri_on_reuse")
+            return
+        }
+        val normalized = normalizeLocalReference(rawUri)
+        if (normalized == null) {
+            showPlayerError("Referência local inválida.", "invalid_uri_on_reuse")
+            return
+        }
+        val preflightError = validateLocalSource(normalized)
+        if (preflightError != null) {
+            showPlayerError(preflightError, "preflight_on_reuse")
+            return
+        }
+
+        uri = normalized
+        requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
+        restoredPositionMs = null
+        initialSeekApplied = false
+        completionReported = false
+        openedReported = false
+        exitReported = false
+        suppressExitEvent = false
+        errorVisible = false
+        aspectModeLabel = findViewByTag<TextView>("reiflix_aspect_button")?.text?.toString() ?: aspectModeLabel
+
+        findViewByTag<TextView>("reiflix_player_title")?.text =
+            newIntent.getStringExtra("title") ?: "Episódio"
+        findViewByTag<TextView>("reiflix_next_episode")?.isEnabled =
+            newIntent.getBooleanExtra("canNext", false)
+        findViewByTag<TextView>("reiflix_previous_episode")?.isEnabled =
+            newIntent.getBooleanExtra("canPrevious", false)
+        findViewByTag<View>("reiflix_error_panel")?.visibility = View.GONE
+        if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
+        moreVisible = false
+        findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
+        setControlsVisible(true)
+
+        try {
+            prepareCurrentMedia("reuse")
+        } catch (exception: Exception) {
+            logPlayer("MEDIA_REUSE_FAILED requestId=" + requestId.ifEmpty { "-" }, exception)
+            showPlayerError("Não foi possível iniciar o próximo episódio local.", "player_reuse", JSONObject()
+                .put("error", exception.message ?: exception::class.java.simpleName))
+        }
+    }
+
+    private fun buildMediaItem(mediaUri: Uri): MediaItem {
+        val mediaItemBuilder = MediaItem.Builder()
+            .setUri(mediaUri)
+            .setMediaId(mediaUri.toString())
+        val subtitleTracks = LocalSubtitleResolver.resolve(this, mediaUri)
+        if (subtitleTracks.isNotEmpty()) {
+            mediaItemBuilder.setSubtitleConfigurations(
+                subtitleTracks.map { track ->
+                    MediaItem.SubtitleConfiguration.Builder(track.uri)
+                        .setMimeType(track.mimeType)
+                        .setLanguage(track.language)
+                        .setSelectionFlags(if (track.isDefault) C.SELECTION_FLAG_DEFAULT else 0)
+                        .build()
+                }
+            )
+        }
+        return mediaItemBuilder.build()
+    }
+
+    private fun prepareCurrentMedia(reason: String, playWhenReadyOverride: Boolean? = null) {
+        if (!::player.isInitialized) return
+        initialSeekApplied = false
+        completionReported = false
+        firstFrameRenderedForTesting = false
+        if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
+
+        val mediaItem = buildMediaItem(uri)
+        val shouldPlayWhenReady = playWhenReadyOverride
+            ?: intent.getBooleanExtra("autoplay", true)
+
+        logPlayer(
+            "MEDIA_ITEM requestId=" + requestId.ifEmpty { "-" } +
+                " uri=" + mediaItem.localConfiguration?.uri +
+                " reason=" + reason,
+        )
+        player.pause()
+        player.setMediaItem(mediaItem)
+        player.playWhenReady = shouldPlayWhenReady
+        logPlayer(
+            "PLAY_WHEN_READY=" + player.playWhenReady +
+                " requestId=" + requestId.ifEmpty { "-" } +
+                " reason=" + reason,
+        )
+        logPlayer("PREPARE requestId=" + requestId.ifEmpty { "-" } + " reason=" + reason)
+        player.prepare()
+        updateTrackButtons()
+        updatePlayPauseButton()
+        updateProgressUi()
     }
 
     private val playerListener = object : Player.Listener {
@@ -285,6 +362,8 @@ class NativePlayerActivity : ComponentActivity() {
                                     .put("uri", uri.toString())
                                     .put("source", sourceFor(uri))
                                     .put("title", titleValue)
+                                    .put("mediaId", uri.toString())
+                                    .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
                                     .put("state", "READY"))
                         )
                         if (!opened) {
@@ -967,9 +1046,17 @@ class NativePlayerActivity : ComponentActivity() {
         if (exitReported) return
         exitReported = true
         suppressExitEvent = true
+        val currentPosition = if (::player.isInitialized) player.currentPosition.coerceAtLeast(0L) else 0L
+        val currentDuration = if (::player.isInitialized) player.duration.coerceAtLeast(0L) else 0L
         val payload = JSONObject()
             .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
+            .put("mediaId", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("mediaId").orEmpty())
+            .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
+            .put("positionMs", currentPosition)
+            .put("durationMs", currentDuration)
+            .put("completion", completionReported)
             .put("reason", reason)
+            .put("timestamp", System.currentTimeMillis())
         val ok = NativeMailbox.write(
             this,
             JSONObject().put("type", "player_exited")
@@ -1445,7 +1532,6 @@ class NativePlayerActivity : ComponentActivity() {
         fun dispose() {
             zoomAnimator?.cancel()
             zoomAnimator = null
-            cancelPendingTap()
             lastPanX = null
             lastPanY = null
             pinchActive = false
@@ -1481,9 +1567,6 @@ class NativePlayerActivity : ComponentActivity() {
             logPlayer("GESTURE_END type=pinch requestId=" + requestId.ifEmpty { "-" })
             lastPanX = null
             lastPanY = null
-            pendingSeekPosition = null
-            gestureMode = GestureMode.NONE
-            gestureConsumed = true
 
             if (zoomScale <= ZOOM_SNAP_THRESHOLD) {
                 animateZoomToFit()

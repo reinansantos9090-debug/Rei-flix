@@ -353,11 +353,15 @@ class NativePlayerActivity : ComponentActivity() {
         }
     }
 
-    private fun buildMediaItem(mediaUri: Uri): MediaItem {
+    private fun buildMediaItem(
+        mediaUri: Uri,
+        mimeType: String?,
+        subtitleTracks: List<LocalSubtitleResolver.SubtitleTrack>,
+    ): MediaItem {
         val mediaItemBuilder = MediaItem.Builder()
             .setUri(mediaUri)
             .setMediaId(mediaUri.toString())
-        val subtitleTracks = LocalSubtitleResolver.resolve(this, mediaUri)
+        mimeType?.takeIf { it.startsWith("video/") }?.let { mediaItemBuilder.setMimeType(it) }
         if (subtitleTracks.isNotEmpty()) {
             mediaItemBuilder.setSubtitleConfigurations(
                 subtitleTracks.map { track ->
@@ -372,36 +376,117 @@ class NativePlayerActivity : ComponentActivity() {
         return mediaItemBuilder.build()
     }
 
+    private fun isCurrentPreparation(generation: Long, localUri: Uri): Boolean =
+        generation == playerGeneration &&
+            sessionState == SessionState.ACTIVE &&
+            ::uri.isInitialized &&
+            uri == localUri
+
     private fun prepareCurrentMedia(reason: String, playWhenReadyOverride: Boolean? = null) {
         if (!::player.isInitialized || sessionState == SessionState.DESTROYED) return
         beginPlayerGeneration(reason)
-        initialSeekApplied = false
-        completionReported = false
-        firstFrameRenderedForTesting = false
-        if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
-
-        val mediaItem = buildMediaItem(uri)
+        val generation = playerGeneration
+        val localUri = uri
         val shouldPlayWhenReady = playWhenReadyOverride
             ?: intent.getBooleanExtra("autoplay", true)
 
+        initialSeekApplied = false
+        completionReported = false
+        firstFrameRenderedForTesting = false
+        contentMimeType = null
+        mediaDisplayName = null
+        mediaSizeBytes = null
+        decoderVideoName = null
+        decoderAudioName = null
+        videoFormatSummary = null
+        audioFormatSummary = null
+        currentErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN
+        pendingPreparation?.cancel(true)
+        if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
         logPlayer(
-            "MEDIA_ITEM requestId=" + requestId.ifEmpty { "-" } +
-                " uri=" + mediaItem.localConfiguration?.uri +
-                " reason=" + reason,
+            "PREPARE_ASYNC_START generation=$generation requestId=" +
+                requestId.ifEmpty { "-" } + " reason=" + reason,
         )
-        player.pause()
-        player.setMediaItem(mediaItem)
-        player.playWhenReady = shouldPlayWhenReady
-        logPlayer(
-            "PLAY_WHEN_READY=" + player.playWhenReady +
-                " requestId=" + requestId.ifEmpty { "-" } +
-                " reason=" + reason,
-        )
-        logPlayer("PREPARE requestId=" + requestId.ifEmpty { "-" } + " reason=" + reason)
-        player.prepare()
-        updateTrackButtons()
-        updatePlayPauseButton()
-        updateProgressUi()
+
+        pendingPreparation = playbackWorker.submit {
+            try {
+                val displayName = displayNameForUri(localUri)
+                val providerMime = runCatching { contentResolver.getType(localUri) }.getOrNull()
+                val resolvedMime = PlayerMediaPolicy.resolveVideoMimeType(providerMime, displayName)
+                val sizeBytes = localSizeBytes(localUri)
+                val subtitleTracks = runCatching {
+                    LocalSubtitleResolver.resolve(this@NativePlayerActivity, localUri)
+                }.getOrElse { error ->
+                    logPlayer("SUBTITLE_RESOLVE_FAILED generation=$generation uri=$localUri", error)
+                    emptyList()
+                }
+
+                handler.post {
+                    if (!isCurrentPreparation(generation, localUri)) return@post
+
+                    contentMimeType = resolvedMime
+                    mediaDisplayName = displayName
+                    mediaSizeBytes = sizeBytes
+                    logPlayer(
+                        "MIME_RESOLVED generation=$generation provider=" +
+                            providerMime.orEmpty() + " resolved=" + resolvedMime.orEmpty() +
+                            " displayName=" + displayName.orEmpty(),
+                    )
+
+                    if (sizeBytes == 0L) {
+                        showPlayerError(
+                            "Este arquivo está vazio e não contém dados de vídeo.",
+                            "empty_file",
+                            JSONObject().put("sizeBytes", 0),
+                            PlayerMediaPolicy.ErrorCategory.SOURCE_UNAVAILABLE,
+                        )
+                        return@post
+                    }
+
+                    val mediaItem = buildMediaItem(localUri, resolvedMime, subtitleTracks)
+                    logPlayer(
+                        "MEDIA_ITEM requestId=" + requestId.ifEmpty { "-" } +
+                            " uri=" + mediaItem.localConfiguration?.uri +
+                            " mime=" + resolvedMime.orEmpty() +
+                            " subtitleCount=" + subtitleTracks.size +
+                            " reason=" + reason,
+                    )
+                    player.pause()
+                    player.setMediaItem(mediaItem)
+                    player.playWhenReady = shouldPlayWhenReady
+                    logPlayer(
+                        "PLAY_WHEN_READY=" + player.playWhenReady +
+                            " requestId=" + requestId.ifEmpty { "-" } +
+                            " generation=$generation reason=" + reason,
+                    )
+                    logPlayer(
+                        "PREPARE requestId=" + requestId.ifEmpty { "-" } +
+                            " generation=$generation reason=" + reason,
+                    )
+                    player.prepare()
+                    updateTrackButtons()
+                    updatePlayPauseButton()
+                    updateProgressUi()
+                }
+            } catch (cancelled: java.util.concurrent.CancellationException) {
+                logPlayer("PREPARE_ASYNC_CANCELLED generation=$generation reason=$reason")
+            } catch (error: Exception) {
+                handler.post {
+                    if (!isCurrentPreparation(generation, localUri)) return@post
+                    logPlayer("PREPARE_ASYNC_FAILED generation=$generation reason=$reason", error)
+                    val category = PlayerMediaPolicy.classifyError(
+                        error::class.java.simpleName,
+                        listOfNotNull(error.cause?.javaClass?.simpleName),
+                    )
+                    showPlayerError(
+                        "Não foi possível preparar este arquivo local.",
+                        "prepare_io",
+                        JSONObject().put("error", error.message ?: error::class.java.simpleName),
+                        category,
+                    )
+                }
+            }
+        }
     }
 
     private fun createPlayerListener(generation: Long): Player.Listener = object : Player.Listener {

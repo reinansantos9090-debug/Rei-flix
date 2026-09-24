@@ -52,7 +52,8 @@ class NavigationControllerTests(unittest.TestCase):
         self.assertEqual(self.navigation.settings_path, ("Player",))
         self.assertEqual(self.navigation.back(), "settings_inner")
         self.assertEqual(self.navigation.settings_path, ())
-        self.assertEqual(self.navigation.back(), "prompt_exit")
+        self.assertEqual(self.navigation.back(), "previous")
+        self.assertEqual(self.navigation.current, "settings")
 
     def test_switching_top_level_screen_clears_nested_settings_path(self):
         self.navigation.push("settings")

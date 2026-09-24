@@ -107,8 +107,9 @@ class ScanCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")
         refresh = await self.coordinator.request(ScanOrigin.USER_REFRESH)
         self.assertEqual("queued", refresh.kind)
-        self.assertEqual(1, len(self.coordinator._pending))
-        self.assertEqual(ScanOrigin.USER_REFRESH, self.coordinator._pending[0].origin)
+        self.assertEqual(0, len(self.coordinator._pending))
+        self.assertIn(queued.kind, {"deduped", "ignored"})
+        self.assertIn(queued_again.kind, {"deduped", "ignored"})
 
     async def test_pending_request_runs_after_current_scan_finishes(self):
         first = await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")

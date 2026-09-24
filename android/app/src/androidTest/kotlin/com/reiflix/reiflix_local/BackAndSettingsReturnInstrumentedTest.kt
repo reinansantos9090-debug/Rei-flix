@@ -67,7 +67,7 @@ class BackAndSettingsReturnInstrumentedTest {
         )
         pressBackAcrossApplicationBoundary()
         waitForForegroundPackage(target.packageName)
-        val activity = currentResumedMainActivity()
+        val activity = runOnMainBoundedValue { currentResumedMainActivity() }
         assertFalse("MainActivity must not be finishing after DocumentsUI Back", activity.isFinishing)
         assertFalse("MainActivity must remain alive after DocumentsUI Back", activity.isDestroyed)
         val field = MainActivity::class.java.getDeclaredField("safPickerPending")

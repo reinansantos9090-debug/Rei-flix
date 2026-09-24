@@ -373,7 +373,15 @@ async def main(page: ft.Page):
             source, route_before, action, navigation.current,
         )
         if action == "previous":
-            render_current()
+            # Details can mutate favorite/pin/progress state in LibraryStore while
+            # Organize is cached for scroll/filter continuity. Refresh only when
+            # returning to Organize so its collection reflects durable state
+            # without triggering a scan or permission flow.
+            if navigation.current == "organize":
+                screen_cache.pop("organize", None)
+                render_current()
+            else:
+                render_current()
         elif action == "prompt_exit":
             page.snack_bar=ft.SnackBar(ft.Text("Pressione voltar novamente para sair"))
             page.snack_bar.open=True
@@ -948,7 +956,7 @@ async def main(page: ft.Page):
                             except Exception:
                                 page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; safe_update()
                             finally:
-                                                on_catalog_changed()
+                                on_catalog_changed()
                                 refresh_settings_if_active()
                         elif event_type == 'broad_storage_status':
                             granted = bool(payload.get('hasAccess'))
@@ -998,7 +1006,7 @@ async def main(page: ft.Page):
                             else:
                                 store.update_folder_status('broad-storage', 'unavailable', message)
                                 store.mark_source_unavailable('broad-storage', 'broad_scan_failed')
- page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; safe_update()
+                            page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; safe_update()
                             refresh_settings_if_active()
                         elif event_type == 'mediastore_scan_progress':
                             files = int(payload.get('files') or 0)

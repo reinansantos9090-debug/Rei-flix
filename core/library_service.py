@@ -15,7 +15,7 @@ from core.artwork import ArtworkEngine
 from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
 from core.media_identity import identity_from_document
 from core.organizer_ai import AnimeOrganizer
-from core.search_engine import LibrarySearchEngine
+from core.search_engine import LibrarySearchEngine, normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -900,33 +900,55 @@ class LibraryService:
 
     @staticmethod
     def organize_summary(catalog):
-        """Summarize one loaded local catalog without repeated filtering passes."""
+        """Build Organize categories from the same search/filter policy used by collections.
+
+        ``states`` remains the legacy four-category API used by existing callers.
+        ``collections`` exposes the expanded Organize 2.0 categories without
+        breaking that public compatibility surface.
+        """
+        catalog = list(catalog or [])
+        collection_names = (
+            "Todos", "Favoritos", "Fixados", "Assistidos",
+            "Não assistidos", "Em andamento", "Concluídos",
+        )
+        collections = [
+            {
+                "name": name,
+                "count": len(LibrarySearchEngine.search(catalog, state=name)),
+            }
+            for name in collection_names
+        ]
+        legacy_order = ("Todos", "Favoritos", "Em andamento", "Concluídos")
+        states = sorted(
+            (item for item in collections if item["name"] in legacy_order),
+            key=lambda item: legacy_order.index(item["name"]),
+        )
+
         genres = {}
-        state_counts = {"Todos": len(catalog), "Favoritos": 0, "Em andamento": 0, "Concluídos": 0}
         for anime in catalog:
             cover = (anime.get("meta") or {}).get("cover_cache") or (anime.get("meta") or {}).get("cover_url")
+            seen_genres = set()
             for genre in anime.get("genres") or []:
-                if not genre:
+                label = str(genre or "").strip()
+                if not label:
                     continue
-                entry = genres.setdefault(genre, {"name": genre, "count": 0, "cover": cover or ""})
+                key = normalize_text(label)
+                if not key or key in seen_genres:
+                    continue
+                seen_genres.add(key)
+                entry = genres.setdefault(
+                    key,
+                    {"name": label, "count": 0, "cover": cover or ""},
+                )
                 entry["count"] += 1
                 if not entry["cover"] and cover:
                     entry["cover"] = cover
 
-            if anime.get("favorite"):
-                state_counts["Favoritos"] += 1
-
-            available_count = int(anime.get("available_count") or 0)
-            active_count = int(anime.get("active_count") or 0)
-            watched_count = int(anime.get("watched_count") or 0)
-            if active_count > 0:
-                state_counts["Em andamento"] += 1
-            if available_count > 0 and watched_count == available_count:
-                state_counts["Concluídos"] += 1
-
-        states = [{"name": name, "count": state_counts[name]} for name in ("Todos", "Favoritos", "Em andamento", "Concluídos")]
-        return {"genres": sorted(genres.values(), key=lambda item: item["name"].casefold()), "states": states}
-
+        return {
+            "genres": sorted(genres.values(), key=lambda item: item["name"].casefold()),
+            "states": states,
+            "collections": collections,
+        }
     @staticmethod
     def browse_catalog(catalog, query="", state="Todos", genre="Todos", sort="Mais recentes", tag="Todos",
                        *, media_type="Todos", season=None, episode_type="Todos", source_kind="Todos",

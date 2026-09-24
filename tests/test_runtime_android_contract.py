@@ -298,9 +298,9 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertIn("applyNormalSystemUi", main)
         self.assertIn("applyNormal()", system_ui)
         self.assertIn("applyImmersive()", system_ui)
-        self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, true)", system_ui)
+        self.assertNotIn("WindowCompat.setDecorFitsSystemWindows(window, true)", system_ui)
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", system_ui)
-        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", system_ui)
+        self.assertNotIn("show(WindowInsetsCompat.Type.systemBars())", system_ui)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", system_ui)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", system_ui)
 

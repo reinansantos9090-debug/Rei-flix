@@ -243,8 +243,8 @@ class ArtworkEngine:
         priority = _SOURCE_PRIORITY.get(source, 0)
         with self.store._conn() as con:
             row = con.execute(
-                "SELECT id,discovered_at FROM artwork WHERE artwork_key=?",
-                (artwork_key,),
+                "SELECT id,discovered_at FROM artwork WHERE entity_type=? AND entity_id=? AND artwork_key=?",
+                (entity_type, str(entity_id), artwork_key),
             ).fetchone()
             if row is None:
                 row = con.execute(

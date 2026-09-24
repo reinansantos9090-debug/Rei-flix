@@ -64,7 +64,11 @@ class Prompt4PlayerGestureUxTests(unittest.TestCase):
         self.assertIn("resetTransientState()", self.player)
         self.assertIn("ACTION_POINTER_DOWN", self.player)
         self.assertIn("ACTION_POINTER_UP", self.player)
-        self.assertIn("velocityTracker?.recycle()", self.player)
+        self.assertIn("MotionEvent.ACTION_UP", self.player)
+        self.assertIn("cancelGestureDetector()", self.player)
+        self.assertIn("pinchActive = false", self.player)
+        self.assertIn("lastPanX = null", self.player)
+        self.assertIn("lastPanY = null", self.player)
 
     def test_disabled_vertical_gestures_are_silent_and_no_legacy_messages_remain(self):
         self.assertIn("if (brightnessGesturesEnabled)", self.player)
@@ -94,12 +98,24 @@ class Prompt4PlayerGestureUxTests(unittest.TestCase):
         self.assertIn("override fun onStop()", self.player)
         self.assertIn("override fun onDestroy()", self.player)
 
+    def test_no_legacy_gesture_tracking_or_duplicate_gesture_authority(self):
+        self.assertNotIn("VelocityTracker", self.player)
+        self.assertNotIn("velocityTracker", self.player)
+        self.assertNotIn("manualDoubleTap", self.player)
+        self.assertNotIn("lastTapUpTime", self.player)
+        self.assertNotIn("lastTapX", self.player)
+        self.assertNotIn("lastTapY", self.player)
+        self.assertEqual(1, self.player.count("private inner class GestureLayer"))
+        self.assertEqual(1, self.player.count("private val gestureDetector = GestureDetector"))
+        self.assertEqual(1, self.player.count("private val scaleDetector = ScaleGestureDetector"))
+        self.assertEqual(1, self.player.count("internal object PlayerGesturePolicy"))
+
     def test_android_policy_tests_cover_new_pure_math(self):
         for token in (
             "zoomIsClampedToConfiguredRange",
             "panBoundsAndTranslationClampUseViewportMath",
             "seekTargetIsAlwaysWithinMediaDuration",
-            "movementAndVerticalDistanceUseRelativeViewportValues",
+            "movementAndVerticalDeltaUseRelativeViewportValues",
         ):
             self.assertIn(token, self.android_test)
 

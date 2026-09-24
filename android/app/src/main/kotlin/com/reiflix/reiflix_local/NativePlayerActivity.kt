@@ -25,7 +25,6 @@ import android.provider.MediaStore
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
-import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewGroup
 import android.view.ScaleGestureDetector
@@ -2443,9 +2442,8 @@ class NativePlayerActivity : ComponentActivity() {
         private var gestureMode = GestureMode.IDLE
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
-            scaleDetector.onTouchEvent(event)
-
             if (inPictureInPicture) return true
+            scaleDetector.onTouchEvent(event)
 
             if (event.pointerCount > 1 || pinchActive || gestureMode == GestureMode.PINCH) {
                 when (event.actionMasked) {
@@ -2547,6 +2545,7 @@ class NativePlayerActivity : ComponentActivity() {
                                 gestureConsumed = true
                                 gestureMode = GestureMode.VERTICAL
                                 lastVerticalY = event.y
+                                handleVerticalGestureDelta(downX, event.y - downY)
                                 cancelGestureDetector(event)
                                 restoreLongPressSpeed()
                                 logPlayer(
@@ -2731,10 +2730,9 @@ class NativePlayerActivity : ComponentActivity() {
             gestureMode = GestureMode.IDLE
             verticalGesture = false
             horizontalGesture = false
+            lastVerticalY = null
             systemGestureEdge = false
             restoreLongPressSpeed()
-            velocityTracker?.recycle()
-            velocityTracker = null
             cancelGestureDetector()
             lastPanX = null
             lastPanY = null

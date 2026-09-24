@@ -45,11 +45,11 @@ class Prompt1RegressionBaselineTests(unittest.TestCase):
         source=self.read("views/organize_view.py")
         tree=ast.parse(source)
         async_names={n.name for n in ast.walk(tree) if isinstance(n,ast.AsyncFunctionDef)}
-        self.assertIn("open_collection",async_names)
-        self.assertIn("def make_collection_click_handler(label):", source)
-        self.assertIn("loop.create_task(invoke())", source)
-        self.assertIn("open_collection(label)", source)
-        self.assertIn('open_collection(value, "Todos")',source)
+        self.assertIn("state_button", source)
+        self.assertIn("genre_card", source)
+        self.assertIn("handle", async_names)
+        self.assertIn("on_click=handle", source)
+        self.assertIn("await render()", source)
 
     def test_genre_registry_is_local_and_not_artificially_limited(self):
         source=self.read("core/genre_registry.py")

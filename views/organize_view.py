@@ -551,7 +551,7 @@ class OrganizeView:
                                 item["name"],
                                 item["count"],
                             )
-                            for item in summary.get("states", [])
+                            for item in (summary.get("collections") or summary.get("states") or [])
                         ],
                         scroll=ft.ScrollMode.AUTO,
                         spacing=10,
@@ -679,8 +679,8 @@ class OrganizeView:
                 label="Gênero",
                 width=235,
                 options=[ft.dropdown.Option(value, value) for value in genres],
-                on_change=on_genre_change,
             )
+            genre.on_change = on_genre_change
             sort = ft.Dropdown(
                 value=selected_sort[0],
                 label="Ordenar",
@@ -689,8 +689,8 @@ class OrganizeView:
                     ft.dropdown.Option(value, value)
                     for value in OrganizeView._SORTS
                 ],
-                on_select=on_sort,
             )
+            sort.on_select = on_sort
             content.controls.append(ft.Row([genre, sort], wrap=True, spacing=8))
 
             active_description = []

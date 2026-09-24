@@ -1450,6 +1450,9 @@ class NativePlayerActivity : ComponentActivity() {
         }
         button.text = mode
         button.isSelected = mode != "Ajustar"
+        if (mode == "Zoom") {
+            findViewByTag<GestureLayer>("reiflix_gesture_layer")?.enterManualZoomMode()
+        }
         showFeedback(mode)
         touchControls()
         playerView.requestLayout()
@@ -1642,8 +1645,8 @@ class NativePlayerActivity : ComponentActivity() {
         centerControls.visibility = View.VISIBLE
         lastControlsInteraction = System.currentTimeMillis()
         handler.removeCallbacks(controlsHider)
-        if (!errorVisible && autoHideTimeoutMs > 0L) {
-            handler.postDelayed(controlsHider, autoHideTimeoutMs)
+        if (::player.isInitialized && player.isPlaying && !errorVisible) {
+            if (autoHideTimeoutMs > 0L) handler.postDelayed(controlsHider, autoHideTimeoutMs)
         }
     }
 
@@ -2608,6 +2611,20 @@ class NativePlayerActivity : ComponentActivity() {
                 500L,
             )
             logPlayer("PLAYER_LONG_PRESS_END speed=" + restore + " requestId=" + requestId.ifEmpty { "-" })
+        }
+
+        fun enterManualZoomMode() {
+            zoomAnimator?.cancel()
+            zoomAnimator = null
+            zoomScale = 1.15f
+            zoomTranslationX = 0f
+            zoomTranslationY = 0f
+            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            applyZoomTransform()
+            findViewByTag<TextView>("reiflix_aspect_button")?.apply {
+                text = "Zoom"
+                isSelected = true
+            }
         }
 
         fun refreshZoomForLayout() {

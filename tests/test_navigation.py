@@ -66,6 +66,33 @@ class NavigationControllerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.navigation.push("search")
 
+    def test_navigation_snapshot_restores_top_level_and_nested_settings_state(self):
+        self.navigation.push("details")
+        snapshot = self.navigation.snapshot()
+
+        restored = NavigationController(clock=lambda: self.now[0])
+        self.assertTrue(restored.restore(snapshot))
+        self.assertEqual(restored.stack, ("home", "details"))
+        self.assertEqual(restored.settings_path, ())
+
+        settings_snapshot = {
+            "stack": ["home", "settings"],
+            "settings_path": ["Player", "Legenda"],
+        }
+        self.assertTrue(restored.restore(settings_snapshot))
+        self.assertEqual(restored.current, "settings")
+        self.assertEqual(restored.settings_path, ("Player", "Legenda"))
+
+    def test_invalid_navigation_snapshot_is_rejected_without_mutating_state(self):
+        self.navigation.push("details")
+        self.assertFalse(
+            self.navigation.restore(
+                {"stack": ["details"], "settings_path": ["Player"]}
+            )
+        )
+        self.assertEqual(self.navigation.stack, ("home", "details"))
+        self.assertEqual(self.navigation.settings_path, ())
+
     def test_native_player_is_not_a_second_navigation_route(self):
         self.navigation.push("details")
         self.assertEqual(self.navigation.current, "details")

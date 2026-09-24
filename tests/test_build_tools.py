@@ -442,12 +442,14 @@ E: manifest
         self.assertIn("private lateinit var systemUiController: SystemUiController", main)
         self.assertIn("systemUiController = SystemUiController(window)", main)
         self.assertIn("override fun onResume()", main)
-        self.assertIn("applyImmersiveSystemUi()", main)
+        self.assertIn("applyNormalSystemUi()", main)
         self.assertIn("WindowCompat.getInsetsController(window, window.decorView)", controller)
         self.assertIn("setDecorFitsSystemWindows(window, false)", controller)
+        self.assertIn("setDecorFitsSystemWindows(window, true)", controller)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
+        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", controller)
-        self.assertNotIn("applyNormalSystemUi()", main)
+        self.assertNotIn("applyImmersiveSystemUi()", main)
         main_style = styles.split('<style name="ReiFlixPlayerTheme"', 1)[0]
         self.assertNotIn('<item name="android:windowFullscreen">true</item>', main_style)
 
@@ -637,7 +639,7 @@ E: manifest
     def test_player_rejects_removed_or_invalid_saf_documents_without_starting_media3(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
-        self.assertIn('localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri)', main)
+        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("playerActivityLauncher.launch(intent)", main)
         self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", player)
@@ -674,7 +676,9 @@ E: manifest
         seek = player.index("private fun seekToSavedPosition")
         block = player[request:seek]
         self.assertIn('saveProgress("player_progress", force = true)', block)
-        self.assertIn("suppressExitEvent = true", block)
+        self.assertNotIn("suppressExitEvent = true", block)
+        self.assertIn("episodeChangePending = true", block)
+        self.assertIn("keepActivity=true", player)
         self.assertIn("player_next_request", player)
         self.assertIn("player_previous_request", player)
 

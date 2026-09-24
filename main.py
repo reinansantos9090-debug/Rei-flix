@@ -228,6 +228,9 @@ async def main(page: ft.Page):
                 state = json.load(handle)
         except (OSError, ValueError, TypeError):
             return {}
+        if not isinstance(state, dict):
+            logger.warning("[NAV] persisted navigation state is not an object; starting from Home")
+            return {}
         if not navigation.restore(state.get("navigation")):
             logger.warning("[NAV] invalid persisted navigation snapshot; starting from Home")
             return {}

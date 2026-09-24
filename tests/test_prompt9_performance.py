@@ -105,8 +105,8 @@ class Prompt9StorePaginationTests(unittest.TestCase):
             anime_id = store.upsert_anime("watch-next", {"title": "Watch Next", "genres": "[]"})
             first = "/library/watch-next-01.mkv"
             second = "/library/watch-next-02.mkv"
-            store.upsert_episode(anime_id, first, "Watch Next 01", 1, 1, duration=100)
-            store.upsert_episode(anime_id, second, "Watch Next 02", 1, 2, duration=100)
+            store.upsert_episode(anime_id, first, "Watch Next 01", 1, 1)
+            store.upsert_episode(anime_id, second, "Watch Next 02", 1, 2)
             store.save_progress(first, 100, 100)
 
             sections = store.home_sections(limit=4)

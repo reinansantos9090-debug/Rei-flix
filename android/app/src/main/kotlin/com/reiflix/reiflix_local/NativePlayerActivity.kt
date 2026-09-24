@@ -2914,8 +2914,6 @@ class NativePlayerActivity : ComponentActivity() {
         }
 
         private fun resetTransientState() {
-            verticalGesture = false
-            horizontalGesture = false
             gestureMode = GestureMode.IDLE
             lastPanX = null
             lastPanY = null

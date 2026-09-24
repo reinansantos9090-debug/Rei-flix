@@ -158,11 +158,35 @@ class ScanCoordinator:
         self._pending: list[ScanRequest] = []
         self._cancel_requested = False
         self._last_result: str | None = None
+        self._exclusive_reason: str | None = None
         self._state = ScanState.IDLE
 
     @property
     def active(self) -> bool:
         return self._active_request is not None
+
+    @property
+    def exclusive(self) -> bool:
+        return self._exclusive_reason is not None
+
+    async def begin_exclusive(self, reason: str = "exclusive_operation") -> bool:
+        """Reserve the coordinator for a destructive coordinated operation."""
+        async with self._lock:
+            if self._active_request is not None or self._pending:
+                return False
+            self._exclusive_reason = str(reason)
+            self._log("SCAN_EXCLUSIVE_BEGIN", ScanRequest(
+                request_id=uuid.uuid4().hex,
+                origin=ScanOrigin.RESTORE_RECONCILIATION,
+                reason=str(reason),
+            ))
+            self._emit()
+            return True
+
+    async def end_exclusive(self) -> None:
+        async with self._lock:
+            self._exclusive_reason = None
+            self._emit()
 
     @property
     def snapshot(self) -> ScanSnapshot:
@@ -256,6 +280,8 @@ class ScanCoordinator:
         except ValueError as exc:
             raise ValueError(f"Unknown scan origin: {origin}") from exc
         source = self.normalize_source(source)
+        if self._exclusive_reason is not None:
+            return ScanTransition(True, "blocked", message=f"exclusive_operation:{self._exclusive_reason}")
         if origin == ScanOrigin.BACKGROUND_RECONCILIATION:
             return ScanTransition(True, "ignored", message="background_reconciliation_disabled")
         if origin == ScanOrigin.STARTUP and not self._startup_needed():

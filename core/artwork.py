@@ -207,6 +207,16 @@ class ArtworkEngine:
             return False
 
     @staticmethod
+    def _is_valid_image_file(path):
+        if not ArtworkEngine._is_file(path):
+            return False
+        try:
+            with open(path, "rb") as handle:
+                return bool(_detect_image_extension(handle.read(32 * 1024)))
+        except OSError:
+            return False
+
+    @staticmethod
     def _path_under(path, root):
         try:
             Path(path).resolve().relative_to(Path(root).resolve())
@@ -601,7 +611,10 @@ class ArtworkEngine:
         rows = self.list_for(entity_type, entity_id, artwork_type)
         for row in rows:
             if row.get("local_path"):
-                if self._is_file(row["local_path"]):
+                valid = self._is_file(row["local_path"])
+                if row.get("source") in {"cache", "anilist", "generated"}:
+                    valid = self._is_valid_image_file(row["local_path"])
+                if valid:
                     self._touch(row["id"])
                     self._log("hit", key=row.get("artwork_key"), entity_type=entity_type, entity_id=entity_id)
                     return row

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import sqlite3
 import json
 import os
 from pathlib import Path, PurePosixPath

@@ -562,16 +562,19 @@ class BackupService:
         if os.path.getsize(path) > self.MAX_ARCHIVE_BYTES:
             raise BackupValidationError("BACKUP_TOO_LARGE", "Backup maior que o limite suportado.")
         with tempfile.TemporaryDirectory(prefix=".reiflix-inspect-", dir=self.store.backup_dir) as root:
-            with zipfile.ZipFile(path, "r") as archive:
-                infos = self._validate_archive_members(archive)
-                manifest = self._read_manifest(archive)
-                self._validate_integrity(archive, manifest, infos)
-                extracted = os.path.join(root, "library.sqlite3")
-                with archive.open("library.sqlite3", "r") as source, open(extracted, "wb") as target:
-                    shutil.copyfileobj(source, target)
-                self.store._validate_backup_database(extracted)
-                self._validate_snapshot_semantics(extracted)
-                counts = self._database_counts(extracted)
+            try:
+                with zipfile.ZipFile(path, "r") as archive:
+                    infos = self._validate_archive_members(archive)
+                    manifest = self._read_manifest(archive)
+                    self._validate_integrity(archive, manifest, infos)
+                    extracted = os.path.join(root, "library.sqlite3")
+                    with archive.open("library.sqlite3", "r") as source, open(extracted, "wb") as target:
+                        shutil.copyfileobj(source, target)
+                    self.store._validate_backup_database(extracted)
+                    self._validate_snapshot_semantics(extracted)
+                    counts = self._database_counts(extracted)
+            except zipfile.BadZipFile as exc:
+                raise BackupValidationError("BACKUP_INVALID", "Container ZIP inválido ou truncado.") from exc
             return {
                 "format": manifest["format"],
                 "format_version": int(manifest["format_version"]),

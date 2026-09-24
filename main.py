@@ -254,6 +254,9 @@ async def main(page: ft.Page):
                 "gestures.brightness": settings.get("gestures.brightness"),
                 "gestures.double_tap": settings.get("gestures.double_tap"),
                 "gestures.long_press": settings.get("gestures.long_press"),
+                "audio.preferred_language": settings.get("audio.preferred_language"),
+                "audio.preferred_subtitle_language": settings.get("audio.preferred_subtitle_language"),
+                "audio.subtitles": settings.get("audio.subtitles"),
             },
         )
 

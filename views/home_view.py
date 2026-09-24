@@ -80,7 +80,10 @@ class HomeView:
             )],
         )
         state_filter = ft.Dropdown(value=selected_state[0], label="Estado", width=220, options=[
-            ft.dropdown.Option(v) for v in ("Todos", "Favoritos", "Em andamento", "Concluídos")
+            ft.dropdown.Option(v) for v in (
+                "Todos", "Favoritos", "Fixados", "Não assistidos",
+                "Em andamento", "Concluídos", "Assistidos",
+            )
         ])
         genre_filter = ft.Dropdown(value=selected_genre[0], label="Gênero", width=220, options=[ft.dropdown.Option("Todos")])
         media_type = ft.Dropdown(value=selected_media_type[0], label="Tipo", width=220, options=[

@@ -63,11 +63,11 @@ class Prompt6HomeLibraryTests(unittest.TestCase):
         source = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
 
         self.assertIn(
-            'binding_id = item.get("anime_id") if binding_entity == "anime" and item.get("anime_id") is not None else item.get("id")',
+            'binding_id = item.get("anime_id") if item.get("anime_id") is not None and binding_entity in {"anime", "movie"} else item.get("id")',
             source,
         )
         self.assertIn(
-            'item.get("anime_id") if entity == "anime" and item.get("anime_id") is not None else item.get("id")',
+            'item.get("anime_id") if item.get("anime_id") is not None and entity in {"anime", "movie"} else item.get("id")',
             source,
         )
 

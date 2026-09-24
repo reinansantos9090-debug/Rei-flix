@@ -27,7 +27,7 @@ class RecoveryView:
             try:
                 page.update()
             except Exception:
-                pass
+                logger.debug("recovery UI update skipped", exc_info=True)
 
         async def diagnostic(_):
             try:

@@ -46,7 +46,9 @@ class Prompt1RegressionBaselineTests(unittest.TestCase):
         tree=ast.parse(source)
         async_names={n.name for n in ast.walk(tree) if isinstance(n,ast.AsyncFunctionDef)}
         self.assertIn("open_collection",async_names)
-        self.assertIn("on_click=lambda _, value=label: open_collection",source)
+        self.assertIn("def make_collection_click_handler(label):", source)
+        self.assertIn("loop.create_task(invoke())", source)
+        self.assertIn("open_collection(label)", source)
         self.assertIn('open_collection(value, "Todos")',source)
 
     def test_genre_registry_is_local_and_not_artificially_limited(self):

@@ -66,7 +66,9 @@ class TestPrompt4StoragePermissionFlow(unittest.TestCase):
 
     def test_empty_check_is_scoped_to_current_volume(self):
         source = MEDIA_STORE.read_text(encoding="utf-8")
-        self.assertIn("volumeVideos++", source)
+        self.assertIn("var volumeWaitingForMediaStore=false", source)
+        self.assertIn("volumeName", source)
+        self.assertIn("probeHasMedia", source)
         self.assertIn("volumeVideos==0", source)
         self.assertNotIn("Thread.sleep(300L)", source)
 

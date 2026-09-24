@@ -110,6 +110,13 @@ class SettingsStore:
     def __init__(self, store):
         self.store = store
         self._migrate_legacy_keys()
+        raw_version = self.store.get_preference("settings.schema_version")
+        try:
+            stored_version = int(raw_version or 0)
+        except (TypeError, ValueError):
+            stored_version = 0
+        if stored_version < self.SCHEMA_VERSION:
+            self.store.set_preference("settings.schema_version", str(self.SCHEMA_VERSION))
 
     def _migrate_legacy_keys(self):
         legacy = {
@@ -237,7 +244,8 @@ class SettingsStore:
             raise SettingsValidationError("arquivo de configurações inválido")
         if payload.get("format") != self.EXPORT_FORMAT:
             raise SettingsValidationError("formato de configurações incompatível")
-        if payload.get("schema_version") != self.SCHEMA_VERSION:
+        schema_version = payload.get("schema_version")
+        if schema_version not in {1, self.SCHEMA_VERSION}:
             raise SettingsValidationError("versão de configurações incompatível")
         settings = payload.get("settings")
         if not isinstance(settings, dict):

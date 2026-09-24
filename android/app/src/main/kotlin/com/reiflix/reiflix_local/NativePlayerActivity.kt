@@ -2427,8 +2427,6 @@ class NativePlayerActivity : ComponentActivity() {
         private var downY = 0f
         private var gestureConsumed = false
         private var systemGestureEdge = false
-        private var verticalGesture = false
-        private var horizontalGesture = false
         private var pinchActive = false
         private var lastVerticalY: Float? = null
         private var lastPanX: Float? = null
@@ -2495,8 +2493,6 @@ class NativePlayerActivity : ComponentActivity() {
                     downY = event.y
                     gestureConsumed = false
                     systemGestureEdge = isSystemGestureEdge(event.x, event.y)
-                    verticalGesture = false
-                    horizontalGesture = false
                     lastVerticalY = null
                     gestureMode = GestureMode.IDLE
                     if (systemGestureEdge || !gestureInteractionAllowed()) {
@@ -2541,7 +2537,6 @@ class NativePlayerActivity : ComponentActivity() {
                     when (PlayerGesturePolicy.direction(dx, dy, touchSlop)) {
                         PlayerGesturePolicy.Direction.VERTICAL -> {
                             if (gestureMode == GestureMode.IDLE) {
-                                verticalGesture = true
                                 gestureConsumed = true
                                 gestureMode = GestureMode.VERTICAL
                                 lastVerticalY = event.y
@@ -2564,7 +2559,6 @@ class NativePlayerActivity : ComponentActivity() {
 
                         PlayerGesturePolicy.Direction.HORIZONTAL -> {
                             if (gestureMode == GestureMode.IDLE) {
-                                horizontalGesture = true
                                 gestureConsumed = true
                                 gestureMode = GestureMode.HORIZONTAL
                                 cancelGestureDetector(event)
@@ -2728,8 +2722,6 @@ class NativePlayerActivity : ComponentActivity() {
             if (pinchActive) finishPinchGesture(cancelled = true)
             gestureConsumed = true
             gestureMode = GestureMode.IDLE
-            verticalGesture = false
-            horizontalGesture = false
             lastVerticalY = null
             systemGestureEdge = false
             restoreLongPressSpeed()
@@ -3036,9 +3028,6 @@ class NativePlayerActivity : ComponentActivity() {
             } else {
                 (currentPositionMs + deltaMs).coerceIn(0L, durationMs)
             }
-
-        fun distanceRatio(distancePx: Float, viewportPx: Int): Float =
-            if (viewportPx <= 0) 0f else (distancePx / viewportPx.toFloat()).coerceIn(0f, 0.75f)
 
         fun verticalDeltaFraction(deltaY: Float, viewportHeight: Int): Float =
             if (viewportHeight <= 0) {

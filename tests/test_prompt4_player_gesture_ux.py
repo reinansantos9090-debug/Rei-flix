@@ -31,8 +31,8 @@ class Prompt4PlayerGestureUxTests(unittest.TestCase):
         self.assertIn("seekBy(-doubleTapSeekMs", self.player)
         self.assertIn("seekBy(doubleTapSeekMs", self.player)
         self.assertIn("PLAYER_DOUBLE_TAP side=center_ignored", self.player)
-        self.assertNotIn("onDoubleTap", self.player[self.player.index("private inner class GestureLayer"):]).__class__
-        self.assertNotIn("zoomScale = MAX_ZOOM", self.player)
+        self.assertEqual(1, self.player.count("override fun onDoubleTap"))
+        self.assertNotIn("manualDoubleTap", self.player)
 
     def test_zoom_pan_math_is_isolated_in_player_gesture_policy(self):
         for token in (

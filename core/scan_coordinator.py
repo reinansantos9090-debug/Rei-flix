@@ -270,13 +270,13 @@ class ScanCoordinator:
             self._state = ScanState.RUNNING
             self._emit()
             self._log("SCAN_REQUEST", request)
-        await self._dispatch_active()
-        return ScanTransition(True, "started", request.request_id, message="scan started")
+        transition = await self._dispatch_active()
+        return transition
 
-    async def _dispatch_active(self) -> None:
+    async def _dispatch_active(self) -> ScanTransition:
         request = self._active_request
         if request is None:
-            return
+            return ScanTransition(True, "ignored")
         targets = list(self.target_provider(request.source, request.scope_ref))
         if not targets:
             async with self._lock:
@@ -285,7 +285,13 @@ class ScanCoordinator:
                 self._emit()
                 self._active_request = None
                 self._cancel_requested = False
-            return
+            return ScanTransition(
+                True,
+                "blocked",
+                request.request_id,
+                logical_finished=True,
+                message="no authorized scan source",
+            )
 
         failed_launches = []
         async with self._lock:
@@ -312,11 +318,11 @@ class ScanCoordinator:
                 self._emit()
 
         if failed_launches and not self._active_children:
-            await self._finish_logical("FAILED", refresh_required=False)
-            return
+            return await self._finish_logical("FAILED", refresh_required=False)
         if failed_launches:
             logger.warning("[SCAN] some child launches failed count=%s", len(failed_launches))
         self._emit()
+        return ScanTransition(True, "started", request.request_id, message="scan started")
 
     async def cancel(self) -> ScanTransition:
         async with self._lock:
@@ -344,6 +350,15 @@ class ScanCoordinator:
             return ScanTransition(True, "waiting", self._active_request.request_id if self._active_request else None, message=status)
         async with self._lock:
             if request_id and request_id not in self._active_children:
+                if self._active_request is None:
+                    self._last_result = ScanState.COMPLETED.value
+                    return ScanTransition(
+                        True,
+                        "unmatched",
+                        request_id,
+                        logical_finished=True,
+                        refresh_required=True,
+                    )
                 return ScanTransition(False, "unmatched")
             if request_id:
                 self._active_children.pop(request_id, None)

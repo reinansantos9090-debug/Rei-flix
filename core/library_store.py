@@ -1811,14 +1811,17 @@ class LibraryStore:
         except (TypeError, ValueError): page_size = 36
         where = ["EXISTS (SELECT 1 FROM episodes e0 WHERE e0.anime_id=a.id)"]
         params = []
+        completed_sql = "(e.watched=1 OR (e.duration>0 AND MIN(MAX(COALESCE(e.progress,0),0),e.duration)/e.duration >= 0.90))"
+        in_progress_sql = "(e.missing=0 AND COALESCE(e.progress,0)>0 AND NOT " + completed_sql + ")"
+        unwatched_sql = "(e.missing=0 AND COALESCE(e.progress,0)<=0 AND NOT " + completed_sql + ")"
         state_sql = {
             "Favoritos": "a.favorite=1",
             "Fixados": "a.is_pinned=1",
-            "Assistidos": "EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.watched=1)",
-            "Não assistidos": "EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.watched=0)",
-            "Em andamento": "EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.progress>0 AND e.watched=0)",
-            "Concluídos": "EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.watched=0)",
-            "Não iniciados": "EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND (e.watched=1 OR e.progress>0))",
+            "Assistidos": f"EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {completed_sql})",
+            "Não assistidos": f"EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {unwatched_sql})",
+            "Em andamento": f"EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {in_progress_sql})",
+            "Concluídos": f"EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND NOT {completed_sql})",
+            "Não iniciados": f"EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND (e.watched=1 OR COALESCE(e.progress,0)>0))",
             "Com nota": "NULLIF(TRIM(a.personal_note),'') IS NOT NULL",
             "Sem nota": "NULLIF(TRIM(a.personal_note),'') IS NULL",
             "Sem metadata": "(a.anilist_id IS NULL OR TRIM(COALESCE(a.anilist_id,''))='') AND COALESCE(a.metadata_source,'local') IN ('local','unresolved','unknown','')",
@@ -1827,7 +1830,7 @@ class LibraryStore:
         if state in state_sql:
             where.append(state_sql[state])
         elif state == "Sem capa":
-            where.append("NULLIF(TRIM(COALESCE(a.cover_cache,'')),'') IS NULL AND NULLIF(TRIM(COALESCE(a.cover_url,'')),'') IS NULL AND NOT EXISTS (SELECT 1 FROM artwork ar WHERE ar.entity_id=CAST(a.id AS TEXT) AND ar.status='ready' AND NULLIF(TRIM(COALESCE(ar.local_path,'')),'') IS NOT NULL)")
+            where.append("NULLIF(TRIM(COALESCE(a.cover_cache,'')),'') IS NULL AND NULLIF(TRIM(COALESCE(a.cover_url,'')),'') IS NULL AND NULLIF(TRIM(COALESCE(a.banner_url,'')),'') IS NULL AND NOT EXISTS (SELECT 1 FROM artwork ar WHERE ar.entity_id=CAST(a.id AS TEXT) AND ar.status='ready' AND NULLIF(TRIM(COALESCE(ar.local_path,'')),'') IS NOT NULL)")
         media = str(media_type or "Todos")
         if media in {"Série/Anime", "Série", "Anime"}:
             where.append("a.media_kind!='movie' AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND LOWER(COALESCE(e.episode_type,'regular')) NOT IN ('special','ova','oad','ona','extra','movie'))")

@@ -29,7 +29,7 @@ class SettingsView:
         on_resolve_match=lambda _lookup, _id: None, storage_snapshot=None,
         scan_snapshot=None, settings: SettingsStore | None = None,
         on_create_backup=None, on_inspect_backup=None, on_restore_backup=None,
-        on_export_diagnostics=None, on_integrity_check=None,
+        on_export_diagnostics=None, on_integrity_check=None, on_reconcile_after_restore=None,
     ):
         settings = settings or SettingsStore(store)
         busy = {"scan": False, "folder": False, "permission": False, "cache": False}
@@ -448,6 +448,18 @@ class SettingsView:
                 logger.exception("backup restore preview failed")
                 notice("O backup selecionado é inválido ou incompatível.", True)
 
+        async def reconcile_after_restore(_):
+            try:
+                notice("Reconciliando referências de arquivos…")
+                result = await call_callback(on_reconcile_after_restore)
+                if result and result.get("accepted") is False:
+                    notice("A reconciliação não foi iniciada porque há outra atualização em execução.", True)
+                else:
+                    notice("Reconciliação solicitada ao ScanCoordinator.")
+            except Exception:
+                logger.exception("restore reconciliation failed")
+                notice("Não foi possível iniciar a reconciliação.", True)
+
         async def export_diagnostic(_):
             try:
                 raw = await call_callback(on_export_diagnostics)
@@ -654,6 +666,7 @@ class SettingsView:
                     ft.OutlinedButton("Fazer backup", icon=ft.Icons.BACKUP_OUTLINED, on_click=lambda e: page.run_task(create_backup_file, e)),
                     ft.OutlinedButton("Restaurar backup", icon=ft.Icons.RESTORE_OUTLINED, on_click=lambda e: page.run_task(restore_backup_file, e)),
                     ft.OutlinedButton("Verificar integridade", icon=ft.Icons.VERIFIED_OUTLINED, on_click=lambda e: page.run_task(verify_integrity, e)),
+                    ft.OutlinedButton("Reconciliar arquivos", icon=ft.Icons.SYNC_OUTLINED, on_click=lambda e: page.run_task(reconcile_after_restore, e)),
                     ft.OutlinedButton("Exportar diagnóstico", icon=ft.Icons.BUG_REPORT_OUTLINED, on_click=lambda e: page.run_task(export_diagnostic, e)),
                 ], wrap=True, spacing=8),
                 ft.Text(

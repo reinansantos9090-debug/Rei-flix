@@ -32,6 +32,42 @@ class BackupError(RuntimeError):
 class BackupValidationError(BackupError):
     pass
 
+
+class BackupMigrationRegistry:
+    """Explicit registry for backup-container migrations.
+    
+    The repository currently has only format v1, so v1 is accepted as-is.
+    Future versions must register a deterministic migration before being accepted.
+    """
+    _migrations: dict[tuple[int, int], Any] = {}
+
+    @classmethod
+    def register(cls, source: int, target: int, migration) -> None:
+        cls._migrations[(int(source), int(target))] = migration
+
+    @classmethod
+    def can_migrate(cls, source: int, target: int) -> bool:
+        return int(source) == int(target) or (int(source), int(target)) in cls._migrations
+
+    @classmethod
+    def migrate_manifest(cls, manifest: dict[str, Any], target: int) -> dict[str, Any]:
+        current = int(manifest.get("format_version") or 0)
+        target = int(target)
+        if current == target:
+            return dict(manifest)
+        migration = cls._migrations.get((current, target))
+        if migration is None:
+            raise BackupValidationError(
+                "BACKUP_UNSUPPORTED_VERSION",
+                f"Nenhuma migração registrada de v{current} para v{target}.",
+            )
+        migrated = migration(dict(manifest))
+        if not isinstance(migrated, dict):
+            raise BackupValidationError("BACKUP_INVALID", "Migração de backup retornou um manifest inválido.")
+        migrated["format_version"] = target
+        return migrated
+
+
 class BackupService:
     FORMAT = "rei-flix-backup-v1"
     FORMAT_VERSION = 1

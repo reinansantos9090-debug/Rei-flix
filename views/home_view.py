@@ -287,6 +287,7 @@ class HomeView:
             status.visible = scan_active[0]
             page_loading[0] = False
             page.update()
+            await restore_scroll_position()
             if fresh_items:
                 page.run_task(hydrate_metadata_and_artwork, list(fresh_items), token)
 

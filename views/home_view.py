@@ -512,6 +512,7 @@ class HomeView:
             await load_library_page(reset=True)
             status.visible = scan_active[0]
             page.update()
+            await restore_scroll_position()
         search.on_change = on_search
         search.on_submit = on_search
         sort.on_select = on_sort

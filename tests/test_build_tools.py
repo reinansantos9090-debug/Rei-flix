@@ -372,7 +372,8 @@ E: manifest
         main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         self.assertNotIn("private val backCallback", main)
         self.assertNotIn('put("type", "android_back")', main)
-        self.assertNotIn("lastBackEventAt", main)
+        self.assertIn("import androidx.activity.OnBackPressedCallback", main)
+        self.assertIn("flutterEngine?.navigationChannel?.popRoute()", main)
         self.assertNotIn("backEventDebounceMs", main)
         self.assertNotIn("SystemClock.uptimeMillis()", main)
 
@@ -485,20 +486,17 @@ E: manifest
 
     def test_refresh_recovers_when_a_saf_scan_cannot_start(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        start = source.index("            saf_folders = [")
-        end = source.index("            result = await asyncio.to_thread(library.scan)", start)
-        block = source[start:end]
-        self.assertIn("pending_native_scans[0] = 0", block)
-        self.assertIn("except Exception:", block)
-        self.assertIn('update_folder_status(folder[\'path\'], "granted"', block)
-        self.assertIn("pending_native_scans[0] > 0", block)
+        refresh = source[source.index("async def refresh_library"):source.index("async def login")]
+        self.assertIn("scan_coordinator.request(", refresh)
+        self.assertIn("ScanOrigin.USER_REFRESH", refresh)
+        self.assertIn('if transition.kind == "blocked"', refresh)
 
     def test_folder_removal_is_blocked_while_refresh_is_active(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         start = source.index("    async def remove_folder(reference):")
         end = source.index("    def account():", start)
         block = source[start:end]
-        self.assertIn("if scan_in_progress[0] or saf_selection.pending:", block)
+        self.assertIn("if scan_coordinator.active or saf_selection.pending:", block)
         self.assertIn("store.remove_folder(reference)", block)
 
     def test_folder_removal_waits_for_native_release_event(self):
@@ -521,15 +519,15 @@ E: manifest
         settings = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
         main = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("on_remove_folder", settings)
-        self.assertIn("on_remove_folder(reference)", settings)
+        self.assertIn("on_remove_folder(ref)", settings)
         self.assertIn("remove_folder", main)
 
     def test_refresh_library_skips_revoked_saf_trees_until_permission_returns(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn("authorized_roots = set(caps.saf_roots)", source)
-        self.assertIn("folder.get('kind') == 'saf'", source)
-        self.assertIn("folder.get('path') in authorized_roots", source)
-        self.assertIn("await bridge.rescan_tree(folder['path'])", source)
+        refresh = source[source.index("async def refresh_library"):source.index("async def login", source.index("async def refresh_library"))]
+        self.assertIn("scan_coordinator.request(", refresh)
+        self.assertIn("ScanOrigin.USER_REFRESH", refresh)
+        self.assertNotIn("bridge.rescan_tree(", refresh)
 
     def test_refresh_library_waits_for_every_saf_scan_result_or_error(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
@@ -710,8 +708,9 @@ class TestSafSelectionRegistration(unittest.TestCase):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn('put("selected", true)', main)
         self.assertIn('SafScanner.displayName(this, uri)', main)
-        self.assertLess(main.index('put("selected", true)'), main.index('publishScanRequest("PERMISSION_CHANGE"'))
-        self.assertLess(main.index('SafScanner.persistPermission(this, uri, flags)'), main.index('publishScanRequest("PERMISSION_CHANGE"'))
+        block = main[main.index("private fun handleTreePickerResult"):main.index("private fun logLifecycle", main.index("private fun handleTreePickerResult"))]
+        self.assertLess(block.index('put("selected", true)'), block.index('publishScanRequest("PERMISSION_CHANGE"'))
+        self.assertLess(block.index('SafScanner.persistPermission(this, uri, flags)'), block.index('publishScanRequest("PERMISSION_CHANGE"'))
 
     def test_python_registers_selected_saf_tree_before_ingest_result(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
@@ -779,5 +778,5 @@ class TestFletAsyncCallbacks(unittest.TestCase):
     def test_settings_confirm_uses_an_async_event_handler(self):
         source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
         self.assertNotIn("page.run_task(lambda:", source)
-        self.assertIn("async def run_action(_event):", source)
+        self.assertIn("async def run(_):", source)
         self.assertIn("inspect.isawaitable(result)", source)

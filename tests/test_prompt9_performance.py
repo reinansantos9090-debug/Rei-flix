@@ -61,6 +61,17 @@ class Prompt9StorePaginationTests(unittest.TestCase):
             self.assertEqual(len(result["items"]), 1)
             self.assertEqual(result["items"][0]["main_title"], "Title 002")
 
+    def test_paged_states_follow_consumption_completion_ratio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            completed = store.upsert_anime('completed', {'title': 'Completed', 'genres': '[]'})
+            store.upsert_episode(completed, '/library/completed.mkv', 'Completed', 1, 1, duration=100, progress=95, watched=0)
+            active = store.upsert_anime('active', {'title': 'Active', 'genres': '[]'})
+            store.upsert_episode(active, '/library/active.mkv', 'Active', 1, 1, duration=100, progress=50, watched=0)
+            result = store.catalog_page(page=0, page_size=12, state='Concluídos')
+            active_result = store.catalog_page(page=0, page_size=12, state='Em andamento')
+            self.assertEqual([item['main_title'] for item in result['items']], ['Completed'])
+            self.assertEqual([item['main_title'] for item in active_result['items']], ['Active'])
     def test_catalog_anime_ids_is_a_bounded_projection(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

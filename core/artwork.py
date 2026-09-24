@@ -148,6 +148,7 @@ class ArtworkEngine:
             for column, definition in definitions.items():
                 if column not in columns:
                     con.execute(f"ALTER TABLE artwork ADD COLUMN {column} {definition}")
+            con.execute("DROP INDEX IF EXISTS idx_artwork_key")
             con.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_artwork_key "
                 "ON artwork(entity_type, entity_id, artwork_key) WHERE artwork_key IS NOT NULL"

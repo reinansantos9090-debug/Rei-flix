@@ -554,7 +554,6 @@ class HomeView:
 
         status.visible = True
         page.run_task(load_catalog)
-        page.run_task(restore_scroll_position)
         return ft.Container(
             content=layout, padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=16, bottom=8),
             bgcolor=BACKGROUND, expand=True,

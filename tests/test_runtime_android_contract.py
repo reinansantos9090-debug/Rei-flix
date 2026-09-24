@@ -110,7 +110,6 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "PlayerGesturePolicy",
             "RESIZE_MODE_ZOOM",
             "RESIZE_MODE_FIT",
-            "RESIZE_MODE_FILL",
             "showFeedback",
             "setControlsVisible",
             "CONTROL_TIMEOUT_MS",

@@ -85,6 +85,12 @@ class LibraryExperienceTests(unittest.TestCase):
         self.assertIn("on_select_anime(entry) if entry else None", home)
         self.assertRegex(home, r'ft\.(?:OutlinedButton|TextButton)\(\s*"Continuar"')
 
+    def test_home_exposes_all_consumption_state_filters(self):
+        home = (Path(__file__).resolve().parents[1] / "views" / "home_view.py").read_text(encoding="utf-8")
+        for state in ("Todos", "Favoritos", "Fixados", "Não assistidos", "Em andamento", "Concluídos", "Assistidos"):
+            self.assertIn('ft.dropdown.Option(v)', home)
+            self.assertIn(state, home)
+
 
 if __name__ == "__main__":
     unittest.main()

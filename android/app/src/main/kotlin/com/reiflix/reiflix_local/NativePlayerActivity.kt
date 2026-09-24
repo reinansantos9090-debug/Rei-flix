@@ -1490,7 +1490,9 @@ class NativePlayerActivity : ComponentActivity() {
         message: String,
         reason: String,
         payload: JSONObject = JSONObject(),
+        category: PlayerMediaPolicy.ErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN,
     ) {
+        currentErrorCategory = category
         setLocked(false, persist = true, announce = false)
         errorVisible = true
         if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
@@ -1499,13 +1501,21 @@ class NativePlayerActivity : ComponentActivity() {
         findViewByTag<View>("reiflix_error_text")?.let { (it as TextView).text = message }
         findViewByTag<View>("reiflix_error_reason")?.let { (it as TextView).text = "Detalhe: " + reason }
         findViewByTag<View>("reiflix_error_retry")?.visibility =
-            if (::player.isInitialized) View.VISIBLE else View.GONE
+            if (::player.isInitialized && PlayerMediaPolicy.isRetryable(category)) View.VISIBLE else View.GONE
         findViewByTag<View>("reiflix_error_panel")?.visibility = View.VISIBLE
         findViewByTag<View>("reiflix_error_back")?.requestFocus()
         if (::feedback.isInitialized) feedback.visibility = View.GONE
-        val effectivePayload = JSONObject(payload.toString())
+        val effectivePayload = diagnosticPayload()
+        val supplied = JSONObject(payload.toString())
+        val keys = supplied.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            effectivePayload.put(key, supplied.opt(key))
+        }
+        effectivePayload
             .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
             .put("reason", reason)
+            .put("category", category.name)
         publishPlayerError(message, effectivePayload)
     }
 
@@ -1586,10 +1596,20 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun seekToSavedPosition(savedPositionMs: Long) {
         if (!::player.isInitialized) return
-        val requested = savedPositionMs.coerceAtLeast(0L)
-        val duration = player.duration
-        if (requested > 0L && (duration <= 0L || requested < duration)) {
-            player.seekTo(requested)
+        val safePosition = PlayerMediaPolicy.safeResumePosition(savedPositionMs, player.duration)
+        if (safePosition > 0L && player.duration > 0L) {
+            player.seekTo(safePosition)
+            logPlayer(
+                "RESUME_APPLIED positionMs=" + safePosition +
+                    " durationMs=" + player.duration +
+                    " requestId=" + requestId.ifEmpty { "-" },
+            )
+        } else if (savedPositionMs > 0L) {
+            logPlayer(
+                "RESUME_CLAMPED requestedMs=" + savedPositionMs +
+                    " durationMs=" + player.duration +
+                    " requestId=" + requestId.ifEmpty { "-" },
+            )
         }
     }
 

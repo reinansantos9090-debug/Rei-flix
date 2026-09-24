@@ -129,7 +129,7 @@ class TestMediaStorePersistence(unittest.TestCase):
         self.assertIn('scan_coordinator.request(', main)
         self.assertIn("ScanOrigin.USER_REFRESH", main)
         self.assertNotIn('await bridge.scan_media_store()', main)
-        self.assertIn("pending_native_scans[0] += 1", main)
+        self.assertNotIn("pending_native_scans", main)
         self.assertIn("mediastore_scan", main)
         self.assertIn("source_kind='mediastore'", main)
 

@@ -1,518 +1,427 @@
-"""Settings UI for the local Rei-flix library.
+"""Settings Center 2.0 for Rei-Flix.
 
-The view receives service callbacks from ``main`` and keeps SQL/business rules
-out of Flet controls. It intentionally reads only compact store projections.
+The view is a thin UI layer. Persistent values live in the existing
+LibraryStore preferences table through SettingsStore; storage, scanner,
+metadata, artwork and player remain owned by their existing services.
 """
 from __future__ import annotations
 
-import asyncio
-import json
+import inspect
 import logging
 
-import inspect
 import flet as ft
 
 from core.storage_access import normalize_storage_snapshot
-from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title, count_label
+from core.settings import SettingsStore, SettingsValidationError
+from core.ui import BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title
 
 logger = logging.getLogger("reiflix.settings")
 
 
 class SettingsView:
     @staticmethod
-    def build(page, store, library, on_back, on_catalog_changed, on_add_folder, on_remove_folder,
-              on_refresh_library, on_request_video_access, on_open_broad_storage, on_login, on_logout, account, account_state="disconnected",
-              folder_selection_pending=lambda: False, on_resolve_match=lambda _lookup, _id: None,
-              on_create_backup=None, on_restore_backup=None, storage_snapshot=None, scan_snapshot=None):
-        status = ft.Text("", color="#9DA3B4", size=12)
-        ui_alive = [True]
+    def build(
+        page, store, library, on_back, on_catalog_changed, on_add_folder,
+        on_remove_folder, on_refresh_library, on_request_video_access,
+        on_open_broad_storage, on_login, on_logout, account,
+        account_state="disconnected", folder_selection_pending=lambda: False,
+        on_resolve_match=lambda _lookup, _id: None, storage_snapshot=None,
+        scan_snapshot=None, settings: SettingsStore | None = None,
+    ):
+        settings = settings or SettingsStore(store)
+        busy = {"scan": False, "folder": False, "permission": False, "cache": False}
+        status = ft.Text("", size=12, color=TEXT_MUTED)
+        search = ft.TextField(
+            hint_text="Pesquisar configurações…",
+            prefix_icon=ft.Icons.SEARCH,
+            dense=True,
+            border_radius=12,
+        )
+        sections_host = ft.Column(spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
 
         def safe_update():
-            if not ui_alive[0]:
-                return
             try:
                 page.update()
-            except Exception as exc:
-                logger.warning("[FLET] Settings update failed: %s", exc)
+            except Exception:
+                logger.debug("settings update skipped")
 
-        try:
-            page.on_disconnect = lambda _e: ui_alive.__setitem__(0, False)
-        except Exception as exc:
-            logger.warning("[FLET] Settings on_disconnect hook unavailable: %s", exc)
-
-        busy = {"folder": False, "scan": False, "login": False, "logout": False, "cache": False, "permission": False, "backup": False, "restore": False}
-
-        def notice(message, error=False):
+        def notice(message: str, error: bool = False):
             status.value = message
-            status.color = "#FFB4AB" if error else "#9DA3B4"
+            status.color = "#FFB4AB" if error else TEXT_MUTED
             safe_update()
 
-        def section(title, icon, content):
-            return ft.Container(
-                content=ft.Column([
-                    section_title(title, icon),
-                    content,
-                ], spacing=10), padding=14, bgcolor=SURFACE, border_radius=RADIUS,
-            )
-
         def confirm(title, body, action_label, action):
-            async def run_action(_event):
+            async def run(_):
                 page.pop_dialog()
-                safe_update()
                 try:
                     result = action()
                     if inspect.isawaitable(result):
                         await result
                 except Exception:
-                    logger.exception("Settings confirmation action failed")
-                    notice("Não foi possível concluir a operação.", error=True)
+                    logger.exception("settings action failed")
+                    notice("Não foi possível concluir a operação.", True)
+                finally:
+                    safe_update()
 
-            dialog = ft.AlertDialog(
+            page.show_dialog(ft.AlertDialog(
                 modal=True,
                 title=ft.Text(title),
                 content=ft.Text(body),
                 actions=[
                     ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
-                    ft.FilledButton(action_label, on_click=run_action),
+                    ft.FilledButton(action_label, on_click=run),
                 ],
-                actions_alignment=ft.MainAxisAlignment.END,
-            )
-            page.show_dialog(dialog)
+            ))
             safe_update()
 
+        def save(key, value, control=None):
+            try:
+                normalized = settings.set(key, value)
+                if control is not None:
+                    control.value = normalized
+                notice("Configuração salva.")
+                return True
+            except (SettingsValidationError, ValueError, TypeError):
+                logger.exception("invalid setting %s", key)
+                notice("Valor inválido para esta configuração.", True)
+                return False
+            except Exception:
+                logger.exception("setting persistence failed: %s", key)
+                notice("Não foi possível salvar a configuração.", True)
+                return False
+
+        def row(key, label, description, kind="bool", choices=None, labels=None):
+            value = settings.get(key)
+            if kind == "bool":
+                control = ft.Switch(
+                    value=bool(value),
+                    on_change=lambda e, k=key: save(k, e.control.value, e.control),
+                )
+            else:
+                display = labels.get(value, str(value)) if labels else str(value)
+                async def choose(_):
+                    opts = tuple(choices or ())
+                    buttons = []
+                    dialog = ft.AlertDialog(modal=True, title=ft.Text(label))
+                    for option in opts:
+                        text = labels.get(option, str(option)) if labels else str(option)
+                        async def pick(_event, selected=option):
+                            save(key, selected)
+                            page.pop_dialog()
+                            rebuild()
+                        buttons.append(ft.TextButton(text, on_click=pick))
+                    dialog.content = ft.Column(buttons, tight=True)
+                    page.show_dialog(dialog)
+                    safe_update()
+                control = ft.TextButton(display, on_click=choose)
+            return ft.Container(
+                content=ft.Row([
+                    ft.Column([
+                        ft.Text(label, color=TEXT, size=13, weight=ft.FontWeight.BOLD),
+                        ft.Text(description, color=TEXT_MUTED, size=10),
+                    ], spacing=2, expand=True),
+                    control,
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=ft.padding.symmetric(vertical=7),
+            )
+
+        def action_row(label, description, button_text, callback):
+            return ft.Container(
+                content=ft.Row([
+                    ft.Column([
+                        ft.Text(label, color=TEXT, size=13, weight=ft.FontWeight.BOLD),
+                        ft.Text(description, color=TEXT_MUTED, size=10),
+                    ], spacing=2, expand=True),
+                    ft.OutlinedButton(button_text, on_click=callback),
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=ft.padding.symmetric(vertical=7),
+            )
+
+        def section(title, icon, items, tags=()):
+            container = ft.Container(
+                content=ft.Column([section_title(title, icon), *items], spacing=4),
+                padding=14, bgcolor=SURFACE, border_radius=RADIUS,
+            )
+            container.data = " ".join((title, *tags)).casefold()
+            return container
+
+        def rebuild(_=None):
+            query = (search.value or "").strip().casefold()
+            sections = build_sections()
+            sections_host.controls = [
+                item for item in sections
+                if not query or query in getattr(item, "data", "")
+            ]
+            safe_update()
+
+        search.on_change = rebuild
+
+        normalized = normalize_storage_snapshot(storage_snapshot)
+        snap = normalized.as_mapping()
+        media_state = str(snap.get("mediaReadState", "denied")).casefold()
+        broad_state = str(snap.get("broadStorageState", "unavailable")).casefold()
+        saf_roots = tuple(snap.get("safRoots", ()) or ())
+        volumes = tuple(snap.get("removableVolumes", ()) or ())
+        scan = scan_snapshot or {}
         folders = store.folders()
         summary = store.library_summary()
-        statistics = library.library_statistics()
-        normalized_snapshot = normalize_storage_snapshot(storage_snapshot)
-        snapshot = normalized_snapshot.as_mapping()
-        scan_snapshot_data = scan_snapshot or {}
-        media_state = str(snapshot.get("mediaReadState", "denied")).casefold()
-        broad_state = str(snapshot.get("broadStorageState", "unavailable")).casefold()
-        saf_roots = tuple(snapshot.get("safRoots", ()) or ())
-        volumes = tuple(snapshot.get("removableVolumes", ()) or ())
-        broad_granted = broad_state == "available"
-        media_granted = media_state in {"partial", "full"}
-        media_partial = media_state == "partial"
-        media_full = media_state == "full"
 
-        def show_video_permission_dialog(_=None):
-            if busy["permission"]:
-                return
-            dialog = None
-            async def allow(_event):
-                busy["permission"] = True
-                try:
-                    page.pop_dialog()
-                    await on_request_video_access()
-                    notice("Solicitação de permissão para ler vídeos enviada ao Android…")
-                except Exception:
-                    logger.exception("Settings video permission request failed")
-                    notice("Não foi possível solicitar a permissão para ler vídeos.", error=True)
-                finally:
-                    busy["permission"] = False
-                    safe_update()
-            dialog = ft.AlertDialog(
-                modal=True,
-                icon=ft.Icon(ft.Icons.SETTINGS_OUTLINED, size=40),
-                title=ft.Text("Permissão necessária"),
-                content=ft.Text("Permissão para ler vídeos"),
-                actions=[
-                    ft.TextButton("CANCELAR", on_click=lambda _: page.pop_dialog()),
-                    ft.FilledButton("PERMITIR", on_click=allow),
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
-            )
-            page.show_dialog(dialog)
-            safe_update()
-
-        def show_broad_storage_dialog(_=None):
-            if busy["permission"]:
-                return
-            dialog = None
-            async def allow(_event):
-                busy["permission"] = True
-                try:
-                    page.pop_dialog()
-                    await on_open_broad_storage()
-                    notice("Abrindo as configurações do Android para permitir o acesso ao armazenamento…")
-                except Exception:
-                    logger.exception("Settings broad storage request failed")
-                    notice("Não foi possível abrir a configuração de armazenamento.", error=True)
-                finally:
-                    busy["permission"] = False
-                    safe_update()
-            dialog = ft.AlertDialog(
-                modal=True,
-                icon=ft.Icon(ft.Icons.FOLDER_OPEN_OUTLINED, size=40),
-                title=ft.Text("Permissão necessária"),
-                content=ft.Column([
-                    ft.Text("Acesso amplo ao armazenamento compartilhado para procurar vídeos em várias pastas locais."),
-                    ft.Text("Este acesso é opcional: o Rei-Flix também pode usar os vídeos do dispositivo e pastas específicas escolhidas por você.", color=TEXT_MUTED, size=11),
-                ], spacing=6),
-                actions=[
-                    ft.TextButton("CANCELAR", on_click=lambda _: page.pop_dialog()),
-                    ft.FilledButton("PERMITIR", on_click=allow),
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
-            )
-            page.show_dialog(dialog)
-            safe_update()
-
-        pending_matches = store.pending_matches()
-        folder_lines = []
-        for folder in folders:
-            name = folder.get("name") or "Pasta configurada"
-            granted = folder.get("authorization") == "granted"
-            authorization = str(folder.get("authorization") or "").casefold()
-            if folder.get("kind") == "saf" and granted:
-                description = "Pasta SAF autorizada"
-            elif folder.get("kind") == "saf" and authorization == "unavailable":
-                description = "Pasta SAF salva, mas o provedor está indisponível"
-            elif folder.get("kind") != "saf" and granted:
-                description = "Pasta local configurada"
-            else:
-                description = "Acesso precisa ser verificado"
-            error = str(folder.get("last_error") or "").strip()
-
-            def ask_remove(reference, display_name):
-                async def remove():
-                    result = on_remove_folder(reference)
-                    if hasattr(result, "__await__"):
-                        await result
-                confirm(
-                    "Remover pasta da biblioteca?",
-                    f'"{display_name}" será removida das pastas configuradas. Os arquivos já indexados serão mantidos no histórico, mas ficarão indisponíveis até a pasta ser adicionada novamente.',
-                    "Remover",
-                    remove,
-                )
-
-            folder_info = ft.Column([
-                ft.Text(name, color=TEXT, size=13, weight=ft.FontWeight.BOLD, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                ft.Text(description, color=TEXT_MUTED, size=11),
-                ft.Text(error, color="#FFB4AB", size=10, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, visible=bool(error)),
-            ], spacing=2, expand=True)
-            folder_lines.append(ft.Row([
-                folder_info,
-                ft.OutlinedButton(
-                    "Remover",
-                    icon=ft.Icons.DELETE_OUTLINE,
-                    on_click=lambda _, ref=folder["path"], label=name: ask_remove(ref, label),
-                ),
-            ], vertical_alignment=ft.CrossAxisAlignment.CENTER))
-        if not folder_lines:
-            folder_lines = [ft.Text("Nenhuma pasta foi selecionada.", color="#AAA7B6", size=12)]
-
-        add_folder_button = ft.OutlinedButton("Adicionar pasta", icon=ft.Icons.CREATE_NEW_FOLDER,
-                                              disabled=bool(folder_selection_pending()))
-        async def add_folder(_):
-            if busy["folder"] or busy["scan"] or folder_selection_pending():
+        def add_folder(_):
+            if busy["folder"] or folder_selection_pending():
                 return
             busy["folder"] = True
-            add_folder_button.disabled = True
-            try:
-                await on_add_folder()
-                notice("Abrindo seletor Android para autorizar a pasta…")
-            except Exception:
-                logger.exception("Settings folder picker failed")
-                notice("Não foi possível abrir o seletor de pasta.", error=True)
-            finally:
-                busy["folder"] = False
-                add_folder_button.disabled = bool(folder_selection_pending())
-                safe_update()
-        add_folder_button.on_click = add_folder
+            async def run():
+                try:
+                    await on_add_folder()
+                    notice("Abrindo seletor Android…")
+                except Exception:
+                    logger.exception("folder picker failed")
+                    notice("Não foi possível abrir o seletor de pasta.", True)
+                finally:
+                    busy["folder"] = False
+                    safe_update()
+            page.run_task(run)
 
-        scan_button = ft.FilledButton("Atualizar biblioteca", icon=ft.Icons.REFRESH)
-        async def scan(_):
+        def refresh(_):
             if busy["scan"]:
                 return
-            busy["scan"] = True; scan_button.disabled = True; notice("Verificando biblioteca local…")
-            waiting_native_result = False
-            try:
-                message, waiting_native_result = await on_refresh_library()
-                notice(message)
-                on_catalog_changed()
-            except Exception:
-                logger.exception("Settings library refresh failed")
-                notice("Não foi possível atualizar a biblioteca.", error=True)
-            finally:
-                busy["scan"] = waiting_native_result
-                scan_button.disabled = waiting_native_result
-                safe_update()
-        scan_button.on_click = scan
+            busy["scan"] = True
+            async def run():
+                try:
+                    message, waiting = await on_refresh_library()
+                    notice(message)
+                    on_catalog_changed()
+                except Exception:
+                    logger.exception("library refresh failed")
+                    notice("Não foi possível atualizar a biblioteca.", True)
+                finally:
+                    busy["scan"] = False
+                    safe_update()
+            page.run_task(run)
 
-        video_permission_button = ft.FilledButton(
-            "Solicitar leitura de vídeos" if not media_granted else ("Rever acesso parcial" if media_partial else "Permissão de vídeos concedida"),
-            icon=ft.Icons.VIDEO_LIBRARY_OUTLINED,
-            disabled=media_full,
-            on_click=show_video_permission_dialog,
-        )
-        broad_storage_button = ft.OutlinedButton(
-            "Permitir acesso ao armazenamento" if not broad_granted else "Acesso ao armazenamento concedido",
-            icon=ft.Icons.FOLDER_OPEN_OUTLINED,
-            disabled=broad_granted,
-            on_click=show_broad_storage_dialog,
-        )
-        if media_granted:
-            if media_partial:
-                media_permission_text = "⚠ Permissão de vídeos: Acesso parcial (alguns vídeos selecionados pelo usuário)"
-                media_permission_color = "#FFD54F"
-            else:
-                media_permission_text = "✓ Permissão para ler vídeos concedida"
-                media_permission_color = "#9FE3B1"
-        else:
-            media_permission_text = "⚠ Permissão para ler vídeos ainda não concedida"
-            media_permission_color = "#FFB4AB"
-
-        media_label = {
-            "full": "COMPLETO — acesso aos vídeos confirmado pelo Android",
-            "partial": "PARCIAL — o Android liberou apenas itens selecionados",
-            "denied": "NEGADO — o Android não liberou leitura de vídeos",
-        }.get(media_state, "DESCONHECIDO")
-        broad_label = "DISPONÍVEL — acesso amplo confirmado pelo Android" if broad_granted else "INDISPONÍVEL — acesso amplo não concedido"
-        saf_label = f"PASTAS AUTORIZADAS — {len(saf_roots)}" if saf_roots else "SEM PASTA SAF AUTORIZADA"
-        scan_state_label = str(scan_snapshot_data.get("state") or "IDLE")
-        scan_source = str(scan_snapshot_data.get("source") or "—")
-        scan_volume = str(scan_snapshot_data.get("volume") or "—")
-        scan_found = int(scan_snapshot_data.get("found") or 0)
-        scan_error = str(scan_snapshot_data.get("error") or "")
-        permission_lines = [
-            ft.Text(f"MEDIASTORE: {media_label}", color="#9FE3B1" if media_granted else "#FFB4AB", size=11),
-            ft.Text(f"SAF: {saf_label}", color="#9FE3B1" if saf_roots else "#AAA7B6", size=11),
-            ft.Text(f"BROAD STORAGE: {broad_label}", color="#9FE3B1" if broad_granted else "#AAA7B6", size=11),
-            ft.Row([video_permission_button, broad_storage_button], wrap=True, spacing=8, run_spacing=8),
-            ft.Text(
-                "Os estados acima vêm do snapshot atual do Android; as linhas do SQLite são apenas histórico/configuração.",
-                color="#AAA7B6", size=10,
-            ),
-        ]
-        diagnostics_content = ft.Column([
-            ft.Text(f"SCAN: {scan_state_label}", color=TEXT, size=12, weight=ft.FontWeight.BOLD),
-            ft.Text(f"Fonte: {scan_source} • Volume: {scan_volume}", color=TEXT_MUTED, size=11),
-            ft.Text(f"Encontrados: {scan_found} • Diretórios: {int(scan_snapshot_data.get('directories') or 0)} • Arquivos: {int(scan_snapshot_data.get('files') or 0)}", color=TEXT_MUTED, size=11),
-            ft.Text(f"Volumes removíveis: {len(volumes)}", color=TEXT_MUTED, size=11),
-            ft.Text(f"Erro: {scan_error}" if scan_error else "Erro: nenhum", color="#FFB4AB" if scan_error else TEXT_MUTED, size=11),
-            ft.Text(f"Timestamp: {scan_snapshot_data.get('timestamp') or '—'}", color=TEXT_MUTED, size=10),
-        ], spacing=4)
-
-        resume_switch = ft.Switch(label="Continuar do progresso salvo", value=store.get_preference("resume_playback", "true") == "true")
-        def save_resume(event):
-            try:
-                store.set_preference("resume_playback", "true" if event.control.value else "false")
-                notice("Preferência de reprodução salva.")
-            except Exception:
-                logger.exception("Settings preference save failed")
-                event.control.value = not event.control.value
-                notice("Não foi possível salvar a preferência.", error=True)
-        resume_switch.on_change = save_resume
-
-        cache_button = ft.OutlinedButton("Limpar cache AniList", icon=ft.Icons.DELETE_SWEEP_OUTLINED)
-
-        backup_button = ft.OutlinedButton("Criar backup local", icon=ft.Icons.BACKUP_OUTLINED)
-        restore_button = ft.OutlinedButton("Restaurar backup", icon=ft.Icons.RESTORE_OUTLINED)
-        async def create_backup():
-            if busy["backup"] or not on_create_backup:
+        def permission(_):
+            if busy["permission"]:
                 return
-            busy["backup"] = True
-            backup_button.disabled = True
-            safe_update()
-            try:
-                result = on_create_backup()
-                path = await result if inspect.isawaitable(result) else await asyncio.to_thread(lambda: result)
-                notice(f"Backup criado: {str(path).rsplit('/', 1)[-1]}")
-            except Exception:
-                logger.exception("Create backup failed")
-                notice("Não foi possível criar o backup local.", error=True)
-            finally:
-                busy["backup"] = False
-                backup_button.disabled = False
-                safe_update()
-        def ask_create_backup(_):
-            confirm("Criar backup local?", "Será salva uma cópia offline da biblioteca SQLite e do cache de artwork gerenciado pelo Rei-Flix.", "Criar", create_backup)
-        backup_button.on_click = ask_create_backup
+            busy["permission"] = True
+            async def run():
+                try:
+                    await on_request_video_access()
+                    notice("Solicitação de permissão enviada ao Android.")
+                except Exception:
+                    logger.exception("video permission request failed")
+                    notice("Não foi possível solicitar a permissão.", True)
+                finally:
+                    busy["permission"] = False
+                    safe_update()
+            page.run_task(run)
 
-        async def restore_backup():
-            if busy["restore"] or not on_restore_backup:
+        def broad(_):
+            if busy["permission"]:
                 return
-            busy["restore"] = True
-            restore_button.disabled = True
-            safe_update()
-            try:
-                result = on_restore_backup()
-                path = await result if inspect.isawaitable(result) else await asyncio.to_thread(lambda: result)
-                on_catalog_changed()
-                notice(f"Backup restaurado: {str(path).rsplit('/', 1)[-1]}")
-            except Exception:
-                logger.exception("Restore backup failed")
-                notice("Não foi possível restaurar o backup local.", error=True)
-            finally:
-                busy["restore"] = False
-                restore_button.disabled = False
-                safe_update()
-        def ask_restore_backup(_):
-            latest = store.latest_backup()
-            if not latest:
-                notice("Nenhum backup local encontrado.", error=True)
-                return
-            confirm("Restaurar backup local?", "A biblioteca atual será substituída pela cópia salva. O processo só substitui o banco depois da validação do backup.", "Restaurar", restore_backup)
-        restore_button.on_click = ask_restore_backup
-        async def clear_cache():
-            if busy["cache"]:
-                return
+            busy["permission"] = True
+            async def run():
+                try:
+                    await on_open_broad_storage()
+                    notice("Abrindo as configurações de armazenamento do Android.")
+                except Exception:
+                    logger.exception("broad storage request failed")
+                    notice("Não foi possível abrir o armazenamento.", True)
+                finally:
+                    busy["permission"] = False
+                    safe_update()
+            page.run_task(run)
+
+        def clear_cache_action():
             busy["cache"] = True
-            cache_button.disabled = True
-            safe_update()
             try:
-                removed = await asyncio.to_thread(library.clear_anilist_cache)
+                removed = library.clear_anilist_cache()
                 notice(f"Cache AniList limpo ({removed} capa(s) removida(s)).")
             except Exception:
-                logger.exception("Clear AniList cache failed")
-                notice("Não foi possível limpar o cache AniList.", error=True)
+                logger.exception("clear cache failed")
+                notice("Não foi possível limpar o cache AniList.", True)
             finally:
                 busy["cache"] = False
-                cache_button.disabled = False
-                safe_update()
-        def ask_clear_cache(_):
-            confirm("Limpar cache AniList?", "Metadados e capas temporárias serão atualizados na próxima varredura. Sua biblioteca, favoritos e progresso serão preservados.", "Limpar", clear_cache)
-        cache_button.on_click = ask_clear_cache
 
-        connected = bool(account.get("email"))
-        account_text = account.get("name") or account.get("email") or "Você não está conectado."
-        account_details = account.get("email", "")
-        google_needs_configuration = account_state == "configuration_required"
-        account_button = ft.FilledButton(
-            "Configurar login Google" if google_needs_configuration else "Entrar com Google",
-            icon=ft.Icons.SETTINGS if google_needs_configuration else ft.Icons.LOGIN,
-        )
-        async def login(_):
-            if busy["login"]:
-                return
-            busy["login"] = True; account_button.disabled = True; notice("Conectando à conta Google…")
-            try:
-                await on_login()
-            except Exception:
-                logger.exception("Settings Google login failed")
-                notice("Não foi possível iniciar o login Google.", error=True)
-            finally:
-                busy["login"] = False; account_button.disabled = False; safe_update()
-        account_button.on_click = login
-        account_button.disabled = account_state in {"connecting", "awaiting_google"}
-        logout_button = ft.OutlinedButton("Sair da conta", icon=ft.Icons.LOGOUT)
-        def do_logout():
-            if busy["logout"]:
-                return
-            busy["logout"] = True; logout_button.disabled = True; safe_update()
-            try:
-                on_logout()
-            except Exception:
-                logger.exception("Settings logout failed")
-                busy["logout"] = False; logout_button.disabled = False
-                notice("Não foi possível sair da conta.", error=True)
-        def ask_logout(_):
-            confirm("Sair da conta Google?", "A sessão local será removida. Biblioteca, favoritos, progresso e histórico não serão alterados.", "Sair", do_logout)
-        logout_button.on_click = ask_logout
-        state_labels = {"connecting": "Conectando…", "awaiting_google": "Aguardando Google…", "connected": "Conectada", "error": "Erro ao conectar", "disconnecting": "Saindo…", "configuration_required": "Configuração necessária"}
-        account_status = state_labels.get(account_state, "Conectada" if connected else "Não conectada")
-
-        pending_content = []
-        if pending_matches:
-            pending_content.append(ft.Text(
-                f"{len(pending_matches)} título(s) precisam de confirmação antes de receber metadados AniList.",
-                color=TEXT_MUTED, size=11,
-            ))
-            for pending in pending_matches:
-                buttons = []
-                for candidate in (pending.get("candidates") or [])[:5]:
-                    title = candidate.get("title") or {}
-                    label = title.get("english") or title.get("romaji") or title.get("native") or f"AniList #{candidate.get('id')}"
-                    score = int(round(float(candidate.get("match_score") or 0) * 100))
-                    buttons.append(ft.OutlinedButton(
-                        f"{label} • {score}%",
-                        on_click=lambda _, lookup=pending["lookup_title"], aid=candidate.get("id"): on_resolve_match(lookup, aid),
-                    ))
-                pending_content.append(ft.Container(
-                    content=ft.Column([
-                        ft.Text(pending["display_title"], color=TEXT, size=12, weight=ft.FontWeight.BOLD),
-                        ft.Row(buttons, wrap=True, spacing=6, run_spacing=6),
-                    ], spacing=5),
-                    padding=10, bgcolor="#252836", border_radius=10,
-                ))
-        else:
-            pending_content.append(ft.Text("Nenhum título aguarda confirmação AniList.", color=TEXT_MUTED, size=11))
-
-        last = store.last_scan()
-        runtime_status = str((scan_snapshot or {}).get("state") or "IDLE").upper()
-        runtime_found = int((scan_snapshot or {}).get("found") or 0)
-        runtime_files = int((scan_snapshot or {}).get("files") or 0)
-        if runtime_status in {"CHECKING", "SCANNING", "WAITING_FOR_MEDIASTORE"}:
-            diagnostic = (
-                f"Varredura em andamento: {runtime_status}. "
-                f"Snapshot atual: {count_label(runtime_files, 'arquivo')}, "
-                f"{count_label(runtime_found, 'vídeo')}."
+        def clear_cache(_):
+            confirm(
+                "Limpar cache AniList?",
+                "A biblioteca, progresso, favoritos, notas, pins e arquivos não serão apagados.",
+                "Limpar",
+                clear_cache_action,
             )
-        else:
-            diagnostic = "Ainda não houve varredura."
-            if last:
-                try:
-                    errors = json.loads(last["errors"] or "[]")
-                except (TypeError, json.JSONDecodeError):
-                    errors = ["diagnóstico inválido"]
-                diagnostic = f"Última varredura: {count_label(last['videos'], 'vídeo')}, {count_label(last['animes'], 'anime')}, {count_label(last['episodes'], 'episódio')}."
-                if errors:
-                    diagnostic += " Há itens que precisam de atenção."
-                if last.get("status"):
-                    diagnostic += f" Status: {last['status']}."
 
-        stats_text = (
-            f"{count_label(statistics['animes'], 'anime')} • {statistics['episodes_available']}/{statistics['episodes']} {'episódio' if statistics['episodes'] == 1 else 'episódios'} disponíveis\n"
-            f"{statistics['animes_completed']} concluídos • {statistics['animes_in_progress']} em andamento • {statistics['animes_not_started']} não iniciados\n"
-            f"{statistics['episodes_watched']} episódios concluídos • {statistics['favorites']} favoritos • {statistics['pinned']} fixados\n"
-            f"{statistics['tags']} etiquetas distintas • {statistics['notes']} notas pessoais\n"
-            f"{statistics['without_metadata']} sem metadata • {statistics['without_cover']} sem capa"
-        )
+        def reset_player(_):
+            confirm(
+                "Restaurar Player?",
+                "Somente as preferências do Player serão restauradas. Biblioteca, progresso e arquivos permanecem intactos.",
+                "Restaurar",
+                lambda: (settings.reset_category("player"), notice("Configurações do Player restauradas."), rebuild()),
+            )
 
-        account_content = ft.Row([
-            ft.Image(src=account.get("picture"), width=42, height=42, border_radius=21) if account.get("picture") else ft.Icon(ft.Icons.ACCOUNT_CIRCLE_OUTLINED, size=42, color="#C7C5D0"),
-            ft.Column([ft.Text(account_text, color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD), ft.Text(f"{account_status}{' • ' + account_details if account_details else ''}", color="#AAA7B6", size=11)], spacing=2),
-            logout_button if connected else account_button,
-        ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
-        content = ft.Column([
-            ft.Row([ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=ft.Colors.WHITE, tooltip="Voltar", on_click=lambda _: on_back()), ft.Text("Configurações", size=20, weight=ft.FontWeight.BOLD, color="#F7F5FA")], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            section("CONTA", ft.Icons.PERSON_OUTLINE, account_content),
-            section("BIBLIOTECA", ft.Icons.VIDEO_LIBRARY_OUTLINED, ft.Column(folder_lines + [
-                ft.Text(f"{summary['animes']} animes • {summary['episodes']} episódios locais", color="#C7C5D0", size=12),
-                ft.Column(permission_lines, spacing=6),
-                ft.Row([add_folder_button, scan_button], wrap=True),
-                ft.Text(diagnostic, color="#AAA7B6", size=11),
-            ], spacing=8)),
-            section("REPRODUÇÃO", ft.Icons.PLAY_CIRCLE_OUTLINE, ft.Column([
-                resume_switch,
-                ft.Text("O próximo episódio continua sendo uma ação explícita no player local.", color="#AAA7B6", size=11),
-            ], spacing=4)),
-            section("APARÊNCIA", ft.Icons.DARK_MODE_OUTLINED, ft.Text("Tema escuro Rei-flix ativo.", color="#C7C5D0", size=12)),
-            section("DADOS", ft.Icons.STORAGE_OUTLINED, ft.Column([
-                ft.Text(f"{summary['folders']} pasta(s) • {summary['history']} item(ns) no histórico", color="#C7C5D0", size=12),
-                ft.Row([backup_button, restore_button], wrap=True, spacing=8),
-                cache_button,
-                ft.Text("Backup local protege SQLite e artwork gerenciado; restaurar não depende de internet e não cria outro banco.", color="#AAA7B6", size=11),
-                ft.Text("Limpar cache não remove associações AniList confirmadas nem arquivos da biblioteca.", color="#AAA7B6", size=11),
-            ], spacing=8)),
-            section("ANILIST", ft.Icons.MANAGE_SEARCH_OUTLINED, ft.Column(pending_content + [
-                ft.Text("Associações confirmadas ficam salvas localmente e serão reutilizadas nas próximas varreduras.", color=TEXT_MUTED, size=11),
-            ], spacing=8)),
-            section("ESTATÍSTICAS OFFLINE", ft.Icons.INSIGHTS_OUTLINED, ft.Column([
-                ft.Text(stats_text, color="#C7C5D0", size=12),
-                ft.Text("“Registrado” representa a posição atual salva nos episódios disponíveis; não é tempo histórico assistido.", color=TEXT_MUTED, size=10),
-                ft.Text(diagnostic, color="#AAA7B6", size=11),
-            ], spacing=7)),
-            section("AVANÇADO / DIAGNÓSTICOS", ft.Icons.STORAGE_OUTLINED, diagnostics_content),
-            section("SOBRE", ft.Icons.INFO_OUTLINE, ft.Column([
-                ft.Text("Rei-flix Local 0.2.0", color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD),
-                ft.Text("Biblioteca local com SQLite, Android SAF e player nativo. Vídeos nunca são enviados.", color="#AAA7B6", size=11),
-            ], spacing=4)),
-            status,
-        ], spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
+        def reset_all(_):
+            confirm(
+                "Restaurar todas as configurações?",
+                "Somente preferências do Rei-Flix serão restauradas. Biblioteca, consumo, metadata manual, artwork, arquivos e permissões não serão apagados.",
+                "Restaurar",
+                lambda: (settings.reset_all(), notice("Configurações restauradas."), rebuild()),
+            )
+
+        def build_sections():
+            items = []
+            connected = bool(account.get("email"))
+            account_text = account.get("name") or account.get("email") or "Não conectado"
+            account_status = {
+                "connecting": "Conectando…", "awaiting_google": "Aguardando Google…",
+                "connected": "Conectada", "error": "Erro ao conectar",
+                "configuration_required": "Configuração necessária",
+            }.get(account_state, "Conectada" if connected else "Não conectada")
+            account_control = (
+                ft.FilledButton("Entrar com Google", on_click=lambda _: page.run_task(on_login))
+                if not connected else
+                ft.OutlinedButton("Sair", on_click=lambda _: on_logout())
+            )
+            items.append(section("Conta", ft.Icons.PERSON_OUTLINE, [
+                ft.Row([
+                    ft.Icon(ft.Icons.ACCOUNT_CIRCLE_OUTLINED, size=42),
+                    ft.Column([
+                        ft.Text(account_text, color=TEXT, weight=ft.FontWeight.BOLD),
+                        ft.Text(account_status, color=TEXT_MUTED, size=11),
+                    ], expand=True),
+                    account_control,
+                ]),
+            ], ("google", "login", "conta")))
+
+            items.append(section("Geral", ft.Icons.SETTINGS_OUTLINED, [
+                row("app.confirm_destructive", "Confirmar ações destrutivas", "Pede confirmação antes de ações destrutivas."),
+                row("app.animations", "Animações", "Mantém as animações existentes quando suportadas."),
+            ], ("geral", "confirmação", "animações")))
+
+            def theme_changed(e):
+                if save("appearance.theme", e.control.value):
+                    page.theme_mode = {
+                        "system": ft.ThemeMode.SYSTEM,
+                        "light": ft.ThemeMode.LIGHT,
+                        "dark": ft.ThemeMode.DARK,
+                    }[e.control.value]
+                    safe_update()
+
+            theme = ft.Dropdown(
+                value=settings.get("appearance.theme"),
+                options=[
+                    ft.dropdown.Option("system", "Seguir sistema"),
+                    ft.dropdown.Option("light", "Claro"),
+                    ft.dropdown.Option("dark", "Escuro"),
+                ],
+                on_change=theme_changed, dense=True, width=180,
+            )
+            items.append(section("Aparência", ft.Icons.DARK_MODE_OUTLINED, [
+                ft.Row([
+                    ft.Column([
+                        ft.Text("Tema", color=TEXT, weight=ft.FontWeight.BOLD),
+                        ft.Text("Aplica imediatamente sem recriar banco, scanner ou navegação.", color=TEXT_MUTED, size=10),
+                    ], expand=True),
+                    theme,
+                ]),
+            ], ("aparência", "tema", "dark", "light", "system")))
+
+            items.append(section("Biblioteca", ft.Icons.VIDEO_LIBRARY_OUTLINED, [
+                row("library.continue_watching", "Continue Watching", "Controla a preferência global para a seção quando consumida pela Home."),
+                row("library.continue_watching_limit", "Limite de Continue Watching", "Limite persistido para a seção.", "enum", (5, 10, 15, 20), {5:"5",10:"10",15:"15",20:"20"}),
+            ], ("biblioteca", "home", "continue watching", "grid", "organize")))
+
+            player = [
+                row("player.autoplay_next", "Autoplay do próximo episódio", "Permite avanço automático no player local."),
+                row("player.resume", "Continuar reprodução", "Usa a posição de progresso já salva; desligar não apaga o progresso."),
+                row("player.default_speed", "Velocidade padrão", "Aplicada quando um episódio é aberto.", "enum", (0.5,0.75,1.0,1.25,1.5,2.0), {x:f"{x:.2f}x" for x in (0.5,0.75,1.0,1.25,1.5,2.0)}),
+                row("player.aspect_ratio", "Aspect ratio", "Preencher preserva a proporção e corta somente o excedente.", "enum", ("auto","fit","fill","zoom","original"), {"auto":"Auto","fit":"Ajustar","fill":"Preencher","zoom":"Zoom","original":"Original"}),
+                row("player.immersive", "Modo imersivo", "Controla as barras do sistema somente no player.", "enum", ("always","landscape","never"), {"always":"Sempre","landscape":"Somente landscape","never":"Nunca"}),
+                row("player.rotation", "Rotação", "Orientação do player, sem forçar o aplicativo inteiro.", "enum", ("auto","portrait","landscape"), {"auto":"Automática","portrait":"Portrait","landscape":"Landscape"}),
+                row("player.pip", "Picture-in-Picture", "Permite PiP quando suportado."),
+                row("player.auto_hide_seconds", "Auto-hide dos controles", "0 significa nunca.", "enum", (5,10,15,30,0), {5:"5s",10:"10s",15:"15s",30:"30s",0:"Nunca"}),
+                action_row("Restaurar Player", "Volta somente as preferências do Player aos defaults.", "Restaurar", reset_player),
+            ]
+            items.append(section("Player", ft.Icons.PLAY_CIRCLE_OUTLINE, player, ("player","autoplay","resume","velocidade","aspect","immersive","pip","rotation")))
+
+            items.append(section("Gestos", ft.Icons.TOUCH_APP_OUTLINED, [
+                row("gestures.volume", "Gestos de volume", "Swipe vertical no lado direito ajusta o volume quando ativado."),
+                row("gestures.brightness", "Gestos de brilho", "Swipe vertical no lado esquerdo ajusta o brilho quando ativado."),
+                row("gestures.double_tap", "Double tap para seek", "Controla o double tap existente; swipe horizontal continua desativado."),
+                row("gestures.long_press", "Pressão longa", "Controla a ação de long press existente."),
+            ], ("gestos","volume","brilho","double tap","long press","swipe")))
+
+            items.append(section("Áudio e Legendas", ft.Icons.HEADPHONES_OUTLINED, [
+                ft.Text("A seleção de faixas continua sendo feita pelo Media3 com base nas tracks disponíveis no arquivo.", color=TEXT_MUTED, size=11),
+                ft.Text("Preferências globais de idioma e delay não são exibidas enquanto não houver API persistente para aplicá-las de forma real.", color=TEXT_MUTED, size=10),
+            ], ("áudio","legenda","subtitle","audio")))
+
+            items.append(section("Metadata", ft.Icons.MANAGE_SEARCH_OUTLINED, [
+                ft.Text("AniList continua opcional. Associações e decisões manuais permanecem no catálogo existente.", color=TEXT_MUTED, size=11),
+                ft.Text("Alterar Settings não dispara sincronização em massa.", color=TEXT_MUTED, size=10),
+            ], ("metadata","anilist","matching","offline")))
+
+            items.append(section("Artwork", ft.Icons.IMAGE_OUTLINED, [
+                ft.Text("O Artwork Engine existente continua sendo a única fonte do cache de artwork.", color=TEXT_MUTED, size=11),
+                action_row("Limpar cache AniList", "Remove somente o cache temporário administrado pelo catálogo.", "Limpar", clear_cache),
+            ], ("artwork","cache","thumbnail","offline")))
+
+            folder_lines = [
+                ft.Text(f"• {folder.get('name') or folder.get('path') or 'Pasta'}", color=TEXT_MUTED, size=11)
+                for folder in folders
+            ]
+            media_label = {"full":"Permitida","partial":"Parcial","denied":"Negada"}.get(media_state, "Desconhecida")
+            broad_label = "Disponível" if broad_state == "available" else "Indisponível"
+            items.append(section("Armazenamento", ft.Icons.STORAGE_OUTLINED, [
+                ft.Text(f"Permissão de vídeos: {media_label}", color=TEXT, size=12),
+                ft.Text(f"Acesso amplo: {broad_label} • SAF autorizadas: {len(saf_roots)} • volumes ativos: {len(volumes)}", color=TEXT_MUTED, size=11),
+                ft.Column(folder_lines or [ft.Text("Nenhuma pasta indexada.", color=TEXT_MUTED, size=11)], spacing=2),
+                ft.Row([
+                    ft.OutlinedButton("Adicionar pasta", icon=ft.Icons.CREATE_NEW_FOLDER, on_click=add_folder),
+                    ft.OutlinedButton("Atualizar biblioteca", icon=ft.Icons.REFRESH, on_click=refresh),
+                ], wrap=True),
+                ft.Row([
+                    ft.OutlinedButton("Verificar permissão de vídeos", on_click=permission),
+                    ft.OutlinedButton("Armazenamento amplo", on_click=broad),
+                ], wrap=True),
+            ], ("storage","armazenamento","permission","saf","mediastore","scan")))
+
+            items.append(section("Dados e Cache", ft.Icons.CACHED_OUTLINED, [
+                ft.Text(f"{summary['folders']} pasta(s) • {summary['animes']} anime(s) • {summary['episodes']} episódio(s)", color=TEXT, size=12),
+                ft.Text("Limpar cache não remove catálogo, consumo, favoritos, tags, notas, pins, IDs AniList ou arquivos.", color=TEXT_MUTED, size=10),
+                action_row("Restaurar configurações", "Reseta somente Settings; não é backup/restore completo.", "Restaurar", reset_all),
+            ], ("dados","cache","reset")))
+
+            items.append(section("Privacidade", ft.Icons.PRIVACY_TIP_OUTLINED, [
+                ft.Text("Biblioteca, histórico e caminhos locais permanecem locais.", color=TEXT, size=12),
+                ft.Text("Não há analytics, tracking ou upload da biblioteca. Google Login não é requisito para reprodução local.", color=TEXT_MUTED, size=10),
+            ], ("privacidade","local","offline","google")))
+
+            items.append(section("Diagnóstico", ft.Icons.BUG_REPORT_OUTLINED, [
+                ft.Text(f"Database: OK • Schema SQLite: {getattr(store, 'SCHEMA_VERSION', '—')}", color=TEXT, size=11),
+                ft.Text(f"Scan: {scan.get('state') or 'IDLE'} • encontrados: {int(scan.get('found') or 0)} • arquivos: {int(scan.get('files') or 0)}", color=TEXT_MUTED, size=11),
+                ft.Text(f"Volumes removíveis: {len(volumes)} • SAF: {len(saf_roots)}", color=TEXT_MUTED, size=11),
+                ft.Text("Python/Flet: Flet 0.86.5 • Android target 36", color=TEXT_MUTED, size=11),
+                ft.Text("Abrir Settings não inicia scan, AniList request, artwork download ou player.", color=TEXT_MUTED, size=10),
+            ], ("diagnóstico","logs","database","index","player","android")))
+
+            items.append(section("Sobre", ft.Icons.INFO_OUTLINE, [
+                ft.Text("Rei-Flix Local", color=TEXT, size=14, weight=ft.FontWeight.BOLD),
+                ft.Text("Versão real do projeto: 0.2.1 • Flet 0.86.5", color=TEXT_MUTED, size=11),
+                ft.Text("Licença do projeto: não declarada no repositório atual.", color=TEXT_MUTED, size=11),
+                ft.Text("Player nativo: Media3. Storage: MediaStore / SAF / scanner nativo.", color=TEXT_MUTED, size=11),
+            ], ("sobre","versão","build","licença","media3")))
+            return items
+
+        rebuild()
         return ft.Container(
-            content=content,
+            content=ft.Column([
+                ft.Row([
+                    ft.IconButton(icon=ft.Icons.ARROW_BACK, tooltip="Voltar", on_click=lambda _: on_back()),
+                    ft.Text("Configurações", size=20, weight=ft.FontWeight.BOLD, color=TEXT),
+                ]),
+                search,
+                sections_host,
+                status,
+            ], spacing=10, expand=True),
             padding=PAGE_PADDING,
             bgcolor=BACKGROUND,
             expand=True,

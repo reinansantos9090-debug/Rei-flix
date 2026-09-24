@@ -31,7 +31,7 @@ class SettingsDefaults:
         SettingDefinition("library.sort_default", "enum", "added_desc", ("added_desc", "title_asc", "title_desc", "recently_watched")),
         SettingDefinition("library.grid_density", "enum", "medium", ("small", "medium", "large")),
         SettingDefinition("library.continue_watching", "bool", True),
-        SettingDefinition("library.continue_watching_limit", "int", 10),
+        SettingDefinition("library.continue_watching_limit", "int", 10, (5, 10, 15, 20)),
         SettingDefinition("player.autoplay_next", "bool", True),
         SettingDefinition("player.resume", "bool", True),
         SettingDefinition("player.default_speed", "float", 1.0, (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)),

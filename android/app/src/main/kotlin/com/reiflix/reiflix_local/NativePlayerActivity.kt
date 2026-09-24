@@ -137,6 +137,7 @@ class NativePlayerActivity : ComponentActivity() {
         enterImmersiveMode()
         configureWindow()
         restoredPositionMs = savedInstanceState?.takeIf { it.containsKey("position_ms") }?.getLong("position_ms")
+        aspectModeLabel = savedInstanceState?.getString("aspect_mode_label") ?: "Ajustar"
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             clipChildren = false
@@ -211,7 +212,6 @@ class NativePlayerActivity : ComponentActivity() {
             val savedResize = savedInstanceState?.takeIf { it.containsKey("resize_mode") }
                 ?.getInt("resize_mode", AspectRatioFrameLayout.RESIZE_MODE_FIT)
                 ?: AspectRatioFrameLayout.RESIZE_MODE_FIT
-            aspectModeLabel = savedInstanceState?.getString("aspect_mode_label") ?: "Ajustar"
             playerView.resizeMode = savedResize
 
             prepareCurrentMedia("initial", savedInstanceState?.takeIf { it.containsKey("play_when_ready") }?.getBoolean("play_when_ready"))

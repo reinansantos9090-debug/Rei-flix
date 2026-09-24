@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -12,7 +13,7 @@ from pathlib import Path
 from core.backup import BackupError, BackupMigrationRegistry, BackupService, BackupValidationError
 from core.diagnostic_service import DiagnosticsService
 from core.library_store import LibraryStore
-from core.scan_coordinator import ScanOrigin
+from core.scan_coordinator import ScanCoordinator, ScanOrigin
 from core.settings import SettingsStore
 
 
@@ -274,6 +275,19 @@ class Prompt15BackupRestoreTests(unittest.TestCase):
             self.assertEqual(1, con.execute("SELECT COUNT(*) FROM episodes").fetchone()[0])
             self.assertEqual(1, con.execute("SELECT COUNT(*) FROM artwork").fetchone()[0])
             self.assertEqual(1, con.execute("SELECT COUNT(*) FROM anime_genres").fetchone()[0])
+
+    def test_scan_coordinator_blocks_new_scans_during_restore_gate(self):
+        coordinator = ScanCoordinator(object(), self.store, lambda _source, _scope: ())
+        self.assertTrue(asyncio.run(coordinator.begin_exclusive("restore")))
+        try:
+            transition = asyncio.run(coordinator.request(ScanOrigin.USER_REFRESH))
+            self.assertTrue(transition.accepted)
+            self.assertEqual("blocked", transition.kind)
+            self.assertIn("exclusive_operation:restore", transition.message)
+        finally:
+            asyncio.run(coordinator.end_exclusive())
+        transition = asyncio.run(coordinator.request(ScanOrigin.USER_REFRESH))
+        self.assertEqual("blocked", transition.kind)
 
     def test_restore_reconciliation_is_distinct_from_startup_or_full_rescan(self):
         self.assertEqual("RESTORE_RECONCILIATION", ScanOrigin.RESTORE_RECONCILIATION.value)

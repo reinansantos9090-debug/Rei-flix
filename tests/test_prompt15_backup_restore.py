@@ -205,12 +205,18 @@ class Prompt15BackupRestoreTests(unittest.TestCase):
             self.assertEqual(12345, con.execute("SELECT anilist_id FROM anime").fetchone()[0])
 
     def test_restore_restores_supported_settings(self):
-        service, raw, _ = self._backup()
         self.settings.set("appearance.theme", "light")
         self.settings.set("player.default_speed", 2.0)
         self.settings.set("audio.preferred_language", "en")
         self.settings.set("audio.preferred_subtitle_language", "pt-BR")
+        service, raw, _ = self._backup()
+
+        self.settings.set("appearance.theme", "dark")
+        self.settings.set("player.default_speed", 0.5)
+        self.settings.set("audio.preferred_language", "")
+        self.settings.set("audio.preferred_subtitle_language", "")
         service.restore_bytes(raw)
+
         self.assertEqual("light", self.settings.get("appearance.theme"))
         self.assertEqual(2.0, self.settings.get("player.default_speed"))
         self.assertEqual("en", self.settings.get("audio.preferred_language"))

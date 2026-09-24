@@ -173,14 +173,14 @@ class OrganizeHandlerContractTests(unittest.TestCase):
     def test_parameterized_category_clicks_use_real_async_handlers(self):
         source = ORGANIZE.read_text(encoding="utf-8")
         self.assertIn("async def handle(_event):", source)
-        self.assertIn("async def handle(event):", source)
+        self.assertIn("page.run_task", source)
         self.assertNotIn("lambda _, value=label: open_collection", source)
         self.assertNotIn("lambda _, value=label: page.run_task", source)
 
     def test_card_clicks_do_not_return_an_unawaited_coroutine(self):
         source = ORGANIZE.read_text(encoding="utf-8")
         self.assertIn("def make_anime_click_handler(anime):", source)
-        self.assertIn("await select_anime(event, anime)", source)
+        self.assertIn("page.run_task(lambda: select_anime(event, anime))", source)
 
     def test_collection_render_has_generation_guard_for_rapid_filter_changes(self):
         source = ORGANIZE.read_text(encoding="utf-8")

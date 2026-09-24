@@ -28,6 +28,7 @@ class ScanOrigin(str, Enum):
     RECOVERY = "RECOVERY"
     EXPLICIT_FULL_RESCAN = "EXPLICIT_FULL_RESCAN"
     BACKGROUND_RECONCILIATION = "BACKGROUND_RECONCILIATION"
+    RESTORE_RECONCILIATION = "RESTORE_RECONCILIATION"
 
 
 class ScanState(str, Enum):
@@ -52,6 +53,7 @@ _PRIORITY = {
     ScanOrigin.SAF_CHANGE: 55,
     ScanOrigin.MEDIA_CHANGE: 40,
     ScanOrigin.BACKGROUND_RECONCILIATION: 10,
+    ScanOrigin.RESTORE_RECONCILIATION: 65,
     ScanOrigin.VOLUME_UNMOUNT: 95,
 }
 
@@ -228,6 +230,16 @@ class ScanCoordinator:
             return True
         status = str(last.get("status") or "").casefold()
         return status not in {"completed", "complete", "empty_complete"}
+
+    async def request_restore_reconciliation(self, *, source: str | None = None, scope_ref: str | None = None, reason: str = "post_restore") -> ScanTransition:
+        """Explicit restore reconciliation; never runs automatically from restore."""
+        return await self.request(
+            ScanOrigin.RESTORE_RECONCILIATION,
+            source=source,
+            scope_ref=scope_ref,
+            full=False,
+            reason=reason,
+        )
 
     async def request(
         self,

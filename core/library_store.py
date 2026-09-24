@@ -227,6 +227,16 @@ class LibraryStore:
         # recovery operation testable and reusable by callers.
         self.recover_interrupted_scans()
 
+    def database_check(self):
+        """Return a real SQLite health check without scanning library contents."""
+        try:
+            with self._conn() as con:
+                result = con.execute("PRAGMA quick_check").fetchone()
+            value = str(result[0] if result else "").strip().casefold()
+            return value == "ok", value or "unknown"
+        except Exception as exc:
+            return False, str(exc)
+
     def get_preference(self, key, default=None):
         with self._conn() as c:
             row = c.execute("SELECT value FROM preferences WHERE key=?", (key,)).fetchone()

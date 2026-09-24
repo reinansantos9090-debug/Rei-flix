@@ -346,6 +346,11 @@ async def main(page: ft.Page):
         title = anime.get("main_title") or (anime.get("meta") or {}).get("title") or "Anime local"
         if not lookup:
             return
+        if not settings.get("metadata.anilist_enabled"):
+            page.snack_bar = ft.SnackBar(ft.Text("AniList está desativado nas configurações."))
+            page.snack_bar.open = True
+            safe_update()
+            return
         try:
             await asyncio.to_thread(library.refresh_metadata, lookup, title, force=True)
             await refresh_current_details()

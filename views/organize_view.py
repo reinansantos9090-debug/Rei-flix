@@ -161,8 +161,8 @@ class OrganizeView:
                 page.update()
 
         def make_anime_click_handler(anime):
-            def handle(event):
-                page.run_task(lambda: select_anime(event, anime))
+            async def handle(event):
+                await select_anime(event, anime)
             return handle
 
         def anime_card(anime):
@@ -518,6 +518,9 @@ class OrganizeView:
             save_view_state()
             await render_collection(reset=True)
 
+        async def load_next_collection_page():
+            await load_collection_page(reset=False)
+
         async def load_collection_page(*, reset=False):
             if page_loading[0] or (not reset and not has_more[0]):
                 return
@@ -574,7 +577,7 @@ class OrganizeView:
             except (TypeError, ValueError, AttributeError):
                 return
             if remaining < 800 and has_more[0] and not page_loading[0] and mode[0] == 'collection':
-                page.run_task(lambda: load_collection_page(reset=False))
+                page.run_task(load_next_collection_page)
         def render_overview():
             try:
                 summary = library.organize_summary_bounded()
@@ -604,7 +607,7 @@ class OrganizeView:
                         "Tente novamente para ler o catálogo local.",
                         ft.FilledButton(
                             "Tentar novamente",
-                            on_click=lambda _event: page.run_task(load_catalog),
+                            on_click=load_catalog,
                         ),
                     )
                 )

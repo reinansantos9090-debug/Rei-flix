@@ -456,12 +456,14 @@ class LibraryStore:
     def _validate_backup_database(path):
         """Validate an extracted backup without mutating the live database."""
         with sqlite3.connect(path) as c:
+            c.execute("PRAGMA foreign_keys=ON")
             tables = {row[0] for row in c.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )}
             required = {
-                "folders", "anime", "episodes", "artwork", "associations",
-                "pending_matches", "account", "preferences", "schema_migrations", "scan_runs", "genres", "genre_aliases", "anime_genres",
+                "folders", "anime", "episodes", "episode_observations", "artwork",
+                "associations", "pending_matches", "preferences", "schema_migrations",
+                "scan_runs", "genres", "genre_aliases", "anime_genres", "account",
             }
             if not required.issubset(tables):
                 missing = ", ".join(sorted(required - tables))
@@ -471,61 +473,177 @@ class LibraryStore:
                 raise ValueError(
                     f"Schema de backup incompatível: {version or 0}; esperado {LibraryStore.SCHEMA_VERSION}."
                 )
-            if c.execute("PRAGMA foreign_key_check").fetchone():
+            quick = c.execute("PRAGMA quick_check").fetchone()
+            if str(quick[0] if quick else "").strip().casefold() != "ok":
+                raise ValueError("Backup SQLite inválido: integrity_check falhou.")
+            foreign = c.execute("PRAGMA foreign_key_check").fetchone()
+            if foreign:
                 raise ValueError("Backup contém inconsistências de integridade referencial.")
 
-    def create_backup(self, destination=None):
-        """Create an offline ZIP snapshot of SQLite state and managed artwork cache."""
-        if destination:
-            destination = os.path.abspath(os.path.expanduser(str(destination)))
-            os.makedirs(os.path.dirname(destination), exist_ok=True)
-        else:
-            stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-            destination = os.path.join(self.backup_dir, f"reiflix-backup-{stamp}.zip")
+    def create_backup_snapshot(self, destination):
+        """Create a consistent SQLite snapshot through SQLite's backup API."""
+        destination = os.path.abspath(os.path.expanduser(str(destination)))
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        with sqlite3.connect(self.db_path) as source, sqlite3.connect(destination) as snapshot:
+            source.backup(snapshot)
+        return destination
 
-        parent = os.path.dirname(destination)
-        fd, temp_db = tempfile.mkstemp(prefix=".backup-", suffix=".sqlite3", dir=parent)
-        os.close(fd)
-        temp_zip = f"{destination}.tmp"
-        try:
-            with sqlite3.connect(self.db_path) as source, sqlite3.connect(temp_db) as snapshot:
-                source.backup(snapshot)
-            self._validate_backup_database(temp_db)
-            manifest = {
-                "format": 1,
-                "app": "Rei-flix",
-                "schema": self.SCHEMA_VERSION,
-                "created_at": time.time(),
-                "database": "library.sqlite3",
-                "artwork_root": "covers",
-            }
-            with zipfile.ZipFile(temp_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-                archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-                archive.write(temp_db, "library.sqlite3")
-                for root, _, files in os.walk(self.cache_dir):
-                    for name in files:
-                        path = os.path.join(root, name)
-                        arcname = os.path.relpath(path, self.cache_dir).replace(os.sep, "/")
-                        archive.write(path, f"covers/{arcname}")
-            os.replace(temp_zip, destination)
-            return destination
-        finally:
-            for path in (temp_db, temp_zip):
+    @staticmethod
+    def _restore_table_columns(connection, schema_name, table):
+        rows = connection.execute(
+            f"PRAGMA {schema_name}.table_info({table})"
+        ).fetchall()
+        return [row[1] for row in rows]
+
+    def _reconcile_restored_files_locked(self, connection):
+        """Project physical-path availability without deleting logical catalog rows.
+        
+        Native content:// references cannot be verified from Python. They remain
+        untouched so the existing MediaStore/SAF reconciliation can prove their
+        availability later. Absolute filesystem paths are checked immediately.
+        """
+        from urllib.parse import urlparse
+        rows = connection.execute(
+            "SELECT id,path,availability_state FROM episodes"
+        ).fetchall()
+        for row in rows:
+            path = str(row["path"] or "").strip()
+            if not path:
+                connection.execute(
+                    "UPDATE episodes SET missing=1,availability_state='missing' "
+                    "WHERE id=? AND availability_state!='scope_removed'",
+                    (row["id"],),
+                )
+                continue
+            scheme = urlparse(path).scheme.casefold()
+            if scheme in {"content", "file", "http", "https"}:
+                continue
+            exists = os.path.isfile(path)
+            connection.execute(
+                "UPDATE episodes SET missing=?,availability_state=? "
+                "WHERE id=? AND availability_state!='scope_removed'",
+                (0 if exists else 1, "available" if exists else "missing", row["id"]),
+            )
+
+    def restore_backup_transaction(self, source_db, *, artwork_mappings=None):
+        """Restore one validated database inside one SQLite transaction.
+        
+        Authentication is deliberately not imported. The existing account table
+        remains owned by the current installation, while all logical library
+        state is replaced from the validated snapshot. A transaction guarantees
+        that an import failure leaves the previous catalog untouched.
+        """
+        source_db = os.path.abspath(os.path.expanduser(str(source_db)))
+        if not os.path.isfile(source_db):
+            raise FileNotFoundError(source_db)
+        self._validate_backup_database(source_db)
+
+        delete_order = (
+            "episode_observations",
+            "anime_genres",
+            "genre_aliases",
+            "episodes",
+            "artwork",
+            "associations",
+            "pending_matches",
+            "scan_runs",
+            "folders",
+            "anime",
+            "genres",
+            "preferences",
+            "schema_migrations",
+        )
+        insert_order = (
+            "schema_migrations",
+            "preferences",
+            "folders",
+            "anime",
+            "genres",
+            "genre_aliases",
+            "episodes",
+            "artwork",
+            "associations",
+            "pending_matches",
+            "anime_genres",
+            "episode_observations",
+            "scan_runs",
+        )
+        with self._conn() as con:
+            attached = False
+            try:
+                con.execute("ATTACH DATABASE ? AS restore_db", (source_db,))
+                attached = True
+                con.execute("BEGIN IMMEDIATE")
+                for table in delete_order:
+                    con.execute(f"DELETE FROM main.{table}")
+                for table in insert_order:
+                    main_columns = self._restore_table_columns(con, "main", table)
+                    source_columns = self._restore_table_columns(con, "restore_db", table)
+                    if main_columns != source_columns:
+                        raise ValueError(f"Schema incompatível na tabela {table}.")
+                    columns = ",".join(main_columns)
+                    con.execute(
+                        f"INSERT INTO main.{table} ({columns}) "
+                        f"SELECT {columns} FROM restore_db.{table}"
+                    )
+                for old_path, new_path in tuple(artwork_mappings or ()):
+                    if not old_path or not new_path:
+                        continue
+                    con.execute(
+                        "UPDATE artwork SET local_path=?,source_ref=? WHERE local_path=? AND manual=1",
+                        (new_path, new_path, old_path),
+                    )
+                    con.execute(
+                        "UPDATE anime SET cover_cache=? WHERE cover_cache=?",
+                        (new_path, old_path),
+                    )
+                self._reconcile_restored_files_locked(con)
+                quick = con.execute("PRAGMA quick_check").fetchone()
+                if str(quick[0] if quick else "").strip().casefold() != "ok":
+                    raise ValueError("SQLite integrity_check falhou durante restore.")
+                if con.execute("PRAGMA foreign_key_check").fetchone():
+                    raise ValueError("foreign_key_check falhou durante restore.")
+                duplicate = con.execute(
+                    "SELECT media_identity FROM episodes "
+                    "WHERE media_identity IS NOT NULL AND TRIM(media_identity)!='' "
+                    "GROUP BY media_identity HAVING COUNT(*)>1 LIMIT 1"
+                ).fetchone()
+                if duplicate:
+                    raise ValueError("Restore produziria identidade de mídia duplicada.")
+                con.execute("COMMIT")
+            except Exception:
                 try:
-                    os.unlink(path)
-                except FileNotFoundError:
-                    pass
+                    con.rollback()
+                finally:
+                    if attached:
+                        try:
+                            con.execute("DETACH DATABASE restore_db")
+                        except sqlite3.Error:
+                            pass
+                raise
+            else:
+                if attached:
+                    con.execute("DETACH DATABASE restore_db")
+        self._last_playback_event_at.clear()
+        return True
+
+    def create_backup(self, destination=None):
+        """Compatibility facade over the versioned BackupService."""
+        from core.backup import BackupService
+        return BackupService(self).create_backup_file(destination)
 
     def latest_backup(self):
         candidates = [
             os.path.join(self.backup_dir, name)
             for name in os.listdir(self.backup_dir)
-            if name.endswith(".zip")
+            if name.endswith(".zip") and not name.endswith(".tmp")
         ]
         return max(candidates, key=os.path.getmtime) if candidates else None
 
     @staticmethod
     def _safe_zip_members(archive):
+        # Kept for compatibility with older callers. BackupService now owns the
+        # complete ZIP security policy and checksum validation.
         members = []
         for info in archive.infolist():
             name = str(info.filename).replace("\\", "/")
@@ -535,49 +653,13 @@ class LibraryStore:
         return members
 
     def restore_backup(self, backup_path=None):
-        """Restore a validated local snapshot atomically, without a schema migration."""
+        """Compatibility facade over the versioned BackupService."""
+        from core.backup import BackupService
         chosen = backup_path or self.latest_backup()
         if not chosen:
             raise FileNotFoundError("Nenhum backup local Rei-flix foi encontrado.")
-        backup_path = os.path.abspath(os.path.expanduser(str(chosen)))
-        if not os.path.isfile(backup_path):
-            raise FileNotFoundError("Backup local não encontrado.")
-
-        restore_root = tempfile.mkdtemp(prefix=".restore-", dir=os.path.dirname(self.db_path))
-        try:
-            with zipfile.ZipFile(backup_path, "r") as archive:
-                members = self._safe_zip_members(archive)
-                names = {name for _, name in members}
-                if not {"manifest.json", "library.sqlite3"}.issubset(names):
-                    raise ValueError("Backup inválido: manifest.json ou library.sqlite3 ausente.")
-                manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
-                if manifest.get("app") != "Rei-flix" or int(manifest.get("schema", 0)) != self.SCHEMA_VERSION:
-                    raise ValueError("Backup incompatível com o schema atual do Rei-flix.")
-                archive.extract("library.sqlite3", restore_root)
-                for info, name in members:
-                    if not name.startswith("covers/") or name.endswith("/"):
-                        continue
-                    target = os.path.join(restore_root, name)
-                    os.makedirs(os.path.dirname(target), exist_ok=True)
-                    with archive.open(info) as src, open(target, "wb") as dst:
-                        shutil.copyfileobj(src, dst)
-
-            extracted_db = os.path.join(restore_root, "library.sqlite3")
-            self._validate_backup_database(extracted_db)
-            os.replace(extracted_db, self.db_path)
-            if os.path.isdir(self.cache_dir):
-                shutil.rmtree(self.cache_dir)
-            restored_covers = os.path.join(restore_root, "covers")
-            if os.path.isdir(restored_covers):
-                shutil.copytree(restored_covers, self.cache_dir)
-            else:
-                os.makedirs(self.cache_dir, exist_ok=True)
-            self._last_playback_event_at.clear()
-            self.recover_interrupted_scans()
-            return backup_path
-        finally:
-            shutil.rmtree(restore_root, ignore_errors=True)
-
+        return BackupService(self).restore_file(chosen)
+    
     def clear_anilist_metadata_cache(self):
         """Expire metadata and cover paths, preserving library rows and associations."""
         with self._conn() as c:

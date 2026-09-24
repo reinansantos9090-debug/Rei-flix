@@ -56,7 +56,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
 import org.json.JSONObject
@@ -836,16 +835,7 @@ class NativePlayerActivity : ComponentActivity() {
             setBottomPaddingFraction((subtitleBottomPaddingPercent / 100f).coerceIn(0f, 0.5f))
             setApplyEmbeddedStyles(subtitleEmbeddedStyle)
             setApplyEmbeddedFontSizes(subtitleEmbeddedStyle)
-            setStyle(
-                CaptionStyleCompat(
-                    Color.WHITE,
-                    Color.TRANSPARENT,
-                    Color.TRANSPARENT,
-                    CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-                    Color.BLACK,
-                    Typeface.DEFAULT,
-                ),
-            )
+            setUserDefaultStyle()
         }
         logPlayer(
             "SUBTITLE_PREFS scale=" + subtitleScale +
@@ -1407,9 +1397,10 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun showAspectSelection(button: TextView) {
-        val labels = arrayOf("Ajustar", "Preencher", "Zoom", "Original", "Auto")
+        val labels = arrayOf("Ajustar", "Preencher", "Zoom")
         val current = when (button.text.toString()) {
             in labels -> button.text.toString()
+            "Original", "Auto" -> "Ajustar"
             else -> "Ajustar"
         }
         val currentIndex = labels.indexOf(current).coerceAtLeast(0)
@@ -1430,16 +1421,10 @@ class NativePlayerActivity : ComponentActivity() {
         playerView.resizeMode = when (mode) {
             "Preencher" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
             "Zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-            "Original", "Auto" -> AspectRatioFrameLayout.RESIZE_MODE_FIT
             else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
         button.text = mode
-        showFeedback(
-            when (mode) {
-                "Original", "Auto" -> "$mode • Ajustar"
-                else -> mode
-            }
-        )
+        showFeedback(mode)
         touchControls()
         playerView.requestLayout()
     }

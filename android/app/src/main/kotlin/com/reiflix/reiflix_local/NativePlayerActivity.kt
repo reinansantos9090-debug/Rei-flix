@@ -226,7 +226,12 @@ class NativePlayerActivity : ComponentActivity() {
             ?: gesturePreferences.getBoolean(PREF_LOCK_MODE, false)
         controlsVisible = savedInstanceState?.getBoolean("controls_visible", true) ?: true
         controlsRestoredFromState = savedInstanceState?.containsKey("controls_visible") == true
-        logPlayer("onCreate requestId=" + requestId.ifEmpty { "-" } + " task=" + taskId)
+        logPlayer(
+            "PLAYER_ACTIVITY_ON_CREATE requestId=" + requestId.ifEmpty { "-" } +
+                " task=" + taskId +
+                " intentAction=" + (intent.action ?: "-") +
+                " component=" + (intent.component?.flattenToShortString() ?: "-"),
+        )
 
         applyConfiguredRotation()
         if (shouldUseImmersive()) enterImmersiveMode() else restoreSystemUiBeforeExit()
@@ -287,6 +292,7 @@ class NativePlayerActivity : ComponentActivity() {
 
         try {
             logPlayer("EXOPLAYER_CREATE requestId=" + requestId.ifEmpty { "-" })
+            logPlayer("MEDIA3_PLAYER_CREATE_START requestId=" + requestId.ifEmpty { "-" })
             player = ExoPlayer.Builder(this).build()
             player.setAudioAttributes(
                 AudioAttributes.Builder()
@@ -524,6 +530,11 @@ class NativePlayerActivity : ComponentActivity() {
                             " generation=$generation reason=" + reason,
                     )
                     player.prepare()
+                    logPlayer(
+                        "MEDIA3_PREPARE_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
+                            " generation=" + generation +
+                            " mediaId=" + mediaItem.mediaId,
+                    )
                     updateTrackButtons()
                     updatePlayPauseButton()
                     updateProgressUi()
@@ -1915,7 +1926,9 @@ class NativePlayerActivity : ComponentActivity() {
         super.onWindowFocusChanged(hasFocus)
         logPlayer("onWindowFocusChanged hasFocus=" + hasFocus +
             " finishing=" + isFinishing + " resumed=" + !isFinishing)
-        if (hasFocus && !inPictureInPicture && shouldUseImmersive()) enterImmersiveMode()
+        if (hasFocus && !inPictureInPicture && shouldUseImmersive()) {
+            window.decorView.post { enterImmersiveMode() }
+        }
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
@@ -2020,7 +2033,12 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun enterImmersiveMode() {
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+        // Android 15/16 enforce edge-to-edge for target 35+; fullscreen is
+        // therefore controlled by WindowInsetsControllerCompat hiding system bars.
+        // Keep the decor-fit call only for pre-35 compatibility.
+        if (Build.VERSION.SDK_INT < 35) {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+        }
         WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
@@ -2033,7 +2051,9 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun restoreSystemUiBeforeExit() {
         runCatching {
-            WindowCompat.setDecorFitsSystemWindows(window, true)
+            if (Build.VERSION.SDK_INT < 35) {
+                WindowCompat.setDecorFitsSystemWindows(window, true)
+            }
             WindowInsetsControllerCompat(window, window.decorView).apply {
                 isAppearanceLightStatusBars = false
                 isAppearanceLightNavigationBars = false

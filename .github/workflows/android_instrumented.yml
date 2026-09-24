@@ -155,13 +155,46 @@ jobs:
           PY
 
       - name: Build rendered Android project
+        shell: bash
         run: |
+          # Do not let the checkout metadata enter the packaged Python app.
+          # The checkout can carry an ephemeral Authorization header in
+          # .git/config, which must never be shipped inside an APK.
+          git_backup_root="$(mktemp -d)"
+          git_backup="$git_backup_root/.git"
+          mv .git "$git_backup"
+          restore_git() {
+            if [ -d "$git_backup" ] && [ ! -e .git ]; then
+              mv "$git_backup" .git
+            fi
+            rmdir "$git_backup_root" 2>/dev/null || true
+          }
+          trap restore_git EXIT
+
           flet build apk \
             --template build/flet-build-template \
             --build-number "$GITHUB_RUN_NUMBER" \
             --build-version "0.2.1" \
             --yes -v
 
+      - name: Verify rendered app has no Git metadata
+        shell: bash
+        run: |
+          apk="$(find build -type f -name '*.apk' -print -quit)"
+          test -s "$apk"
+          python - "$apk" <<'PY'
+          import sys
+          from io import BytesIO
+          from zipfile import ZipFile
+
+          with ZipFile(sys.argv[1]) as apk:
+              app_zip = apk.read("assets/app.zip")
+          with ZipFile(BytesIO(app_zip)) as app:
+              leaked = [name for name in app.namelist() if name == ".git" or name.startswith(".git/")]
+          if leaked:
+              raise SystemExit("Git metadata leaked into rendered app")
+          print("Rendered app contains no .git metadata.")
+          PY
       - name: Enable KVM for Android instrumented tests
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

@@ -1302,11 +1302,27 @@ async def main(page: ft.Page):
                             page.snack_bar.open = True
                             safe_update()
                         elif event_type == 'player_exited':
+                            exit_uri = str(payload.get('uri') or '').strip()
+                            exit_updated = False
+                            if exit_uri and payload.get('positionMs') is not None:
+                                try:
+                                    position_seconds = max(0.0, float(payload.get('positionMs') or 0.0)) / 1000.0
+                                    duration_seconds = max(0.0, float(payload.get('durationMs') or 0.0)) / 1000.0
+                                    exit_updated = await asyncio.to_thread(
+                                        store.save_progress,
+                                        exit_uri,
+                                        position_seconds,
+                                        duration_seconds,
+                                        event_created_at=event.get('createdAt') or event.get('timestamp'),
+                                    )
+                                except (TypeError, ValueError):
+                                    exit_updated = False
                             diagnostics.record(
                                 "PLAYER_EXITED",
                                 request_id=event_request_id,
                                 source="native_player",
                                 result=payload.get('reason') or "exit",
+                                error=None if exit_updated else None,
                             )
                             # The native player sits over the current Flet screen;
                             # there is no synthetic player route to pop.

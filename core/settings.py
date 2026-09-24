@@ -7,6 +7,9 @@ database or settings backend.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import re
+import time
 from typing import Any
 
 @dataclass(frozen=True)
@@ -41,8 +44,8 @@ class SettingsDefaults:
         SettingDefinition("gestures.brightness", "bool", False),
         SettingDefinition("gestures.double_tap", "bool", False),
         SettingDefinition("gestures.long_press", "bool", False),
-        SettingDefinition("audio.preferred_language", "string", ""),
-        SettingDefinition("audio.preferred_subtitle_language", "string", ""),
+        SettingDefinition("audio.preferred_language", "language", ""),
+        SettingDefinition("audio.preferred_subtitle_language", "language", ""),
         SettingDefinition("audio.subtitles", "enum", "auto", ("auto", "always", "never")),
         SettingDefinition("metadata.anilist_enabled", "bool", True),
         SettingDefinition("metadata.auto_match", "bool", True),
@@ -58,6 +61,8 @@ class SettingsValidationError(ValueError):
 
 class SettingsStore:
     SCHEMA_VERSION = 1
+    EXPORT_FORMAT = "reiflix-settings"
+
 
     def __init__(self, store):
         self.store = store
@@ -107,10 +112,15 @@ class SettingsStore:
             if definition.choices and number not in definition.choices:
                 raise SettingsValidationError(f"valor não permitido para {definition.key}")
             return number
-        if definition.kind in {"enum", "string"}:
-            text = str(value)
+        if definition.kind in {"enum", "string", "language"}:
+            text = str(value).strip()
             if definition.kind == "enum" and text not in definition.choices:
                 raise SettingsValidationError(f"opção não permitida para {definition.key}")
+            if definition.kind == "language":
+                if len(text) > 32:
+                    raise SettingsValidationError(f"idioma inválido para {definition.key}")
+                if text and not re.fullmatch(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*", text):
+                    raise SettingsValidationError(f"idioma inválido para {definition.key}")
             return text
         raise SettingsValidationError(f"tipo desconhecido: {definition.kind}")
 
@@ -161,6 +171,64 @@ class SettingsStore:
     def reset_all(self):
         for key in SettingsDefaults.BY_KEY:
             self.reset(key)
+
+
+    def export_payload(self):
+        """Return only the supported SettingsStore state in a versioned structure."""
+        return {
+            "format": self.EXPORT_FORMAT,
+            "schema_version": self.SCHEMA_VERSION,
+            "settings": self.snapshot(),
+        }
+
+    def export_json(self) -> str:
+        return json.dumps(self.export_payload(), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+    def _validate_import_payload(self, payload):
+        if not isinstance(payload, dict):
+            raise SettingsValidationError("arquivo de configurações inválido")
+        if payload.get("format") != self.EXPORT_FORMAT:
+            raise SettingsValidationError("formato de configurações incompatível")
+        if payload.get("schema_version") != self.SCHEMA_VERSION:
+            raise SettingsValidationError("versão de configurações incompatível")
+        settings = payload.get("settings")
+        if not isinstance(settings, dict):
+            raise SettingsValidationError("campo settings inválido")
+        normalized = {}
+        unknown = []
+        for key, value in settings.items():
+            if key not in SettingsDefaults.BY_KEY:
+                unknown.append(str(key))
+                continue
+            normalized[key] = self._coerce(SettingsDefaults.BY_KEY[key], value)
+        return normalized, unknown
+
+    def import_payload(self, payload):
+        """Validate the complete import before changing any stored preference."""
+        normalized, unknown = self._validate_import_payload(payload)
+        if not normalized:
+            return {"imported": 0, "unknown": unknown}
+        now = time.time()
+        with self.store._conn() as con:
+            for key, value in normalized.items():
+                con.execute(
+                    """INSERT INTO preferences(key,value,updated_at) VALUES (?,?,?)
+                       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
+                    (key, self._encode(value), now),
+                )
+            con.execute(
+                """INSERT INTO preferences(key,value,updated_at) VALUES (?,?,?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
+                ("settings.schema_version", str(self.SCHEMA_VERSION), now),
+            )
+        return {"imported": len(normalized), "unknown": unknown}
+
+    def import_json(self, raw: str):
+        try:
+            payload = json.loads(raw)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise SettingsValidationError("JSON de configurações inválido") from exc
+        return self.import_payload(payload)
 
     def snapshot(self):
         return {key: self.get(key) for key in SettingsDefaults.BY_KEY}

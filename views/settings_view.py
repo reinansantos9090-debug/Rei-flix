@@ -817,7 +817,6 @@ class SettingsView:
                     ft.OutlinedButton("Restaurar backup", icon=ft.Icons.RESTORE_OUTLINED, on_click=lambda e: page.run_task(restore_backup_file, e)),
                     ft.OutlinedButton("Verificar integridade", icon=ft.Icons.VERIFIED_OUTLINED, on_click=lambda e: page.run_task(verify_integrity, e)),
                     ft.OutlinedButton("Reconciliar arquivos", icon=ft.Icons.REFRESH, on_click=lambda e: page.run_task(reconcile_after_restore, e)),
-                    ft.OutlinedButton("Exportar diagnóstico", icon=ft.Icons.BUG_REPORT_OUTLINED, on_click=lambda e: page.run_task(export_diagnostic, e)),
                 ], wrap=True, spacing=8),
                 ft.Text(
                     "Restore: valida formato, schema, SHA-256, tabelas, referências e foreign keys antes de alterar o banco. "
@@ -849,8 +848,9 @@ class SettingsView:
                 ft.Text(f"Scan: {scan.get('state') or 'IDLE'} • encontrados: {int(scan.get('found') or 0)} • arquivos: {int(scan.get('files') or 0)}", color=TEXT_MUTED, size=11),
                 ft.Text(f"Volumes removíveis: {len(volumes)} • SAF: {len(saf_roots)}", color=TEXT_MUTED, size=11),
                 ft.Text("Python/Flet: Flet 0.86.5 • Android target 36", color=TEXT_MUTED, size=11),
-                ft.Text("Abrir Settings não inicia scan, AniList request, artwork download ou player.", color=TEXT_MUTED, size=10),
-            ], ("diagnóstico","logs","database","index","player","android")))
+                ft.Text("Player, scanner e storage mantêm logs técnicos separados da mensagem exibida ao usuário.", color=TEXT_MUTED, size=10),
+                action_row("Exportar diagnóstico", "Gera informações técnicas sem misturar restore de biblioteca ou configurações.", "Exportar", export_diagnostic),
+            ], ("diagnóstico","logs","database","index","player","android","exportar","técnico")))
 
             items.append(section("Sobre", ft.Icons.INFO_OUTLINE, [
                 ft.Text("Rei-Flix Local", color=TEXT, size=14, weight=ft.FontWeight.BOLD),
@@ -863,10 +863,7 @@ class SettingsView:
         rebuild()
         return ft.Container(
             content=ft.Column([
-                ft.Row([
-                    ft.IconButton(icon=ft.Icons.ARROW_BACK, tooltip="Voltar", on_click=lambda _: on_back()),
-                    ft.Text("Configurações", size=20, weight=ft.FontWeight.BOLD, color=TEXT),
-                ]),
+                ft.Row([back_button, header_title]),
                 search,
                 sections_host,
                 status,

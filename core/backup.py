@@ -19,7 +19,7 @@ import time
 import zipfile
 from typing import Any
 
-from core.settings import SettingsDefaults
+from core.settings import SettingsDefaults, SettingsStore, SettingsValidationError
 
 class BackupError(RuntimeError):
     """Stable, user-facing backup/restore failure."""
@@ -277,6 +277,56 @@ class BackupService:
         if expected_core != actual_core:
             raise BackupValidationError("BACKUP_CHECKSUM_MISMATCH", "Checksum do manifest inválido.")
 
+    def _validate_snapshot_semantics(self, db_path: str, *, sanitize_unknown: bool = False) -> None:
+        """Validate logical values that SQLite constraints cannot express."""
+        with sqlite3.connect(db_path) as con:
+            rows = con.execute("SELECT key,value FROM preferences").fetchall()
+            supported = set(SettingsDefaults.EXPORT_KEYS) | {"settings.schema_version"}
+            unknown = [str(key) for key, _ in rows if str(key) not in supported]
+            if sanitize_unknown and unknown:
+                placeholders = ",".join("?" for _ in unknown)
+                con.execute(f"DELETE FROM preferences WHERE key IN ({placeholders})", unknown)
+
+            schema_rows = [value for key, value in rows if str(key) == "settings.schema_version"]
+            if schema_rows and str(schema_rows[0]) != str(SettingsStore.SCHEMA_VERSION):
+                raise BackupValidationError(
+                    "BACKUP_SCHEMA_MISMATCH",
+                    "Versão persistida do SettingsStore incompatível com o aplicativo.",
+                )
+            for key, raw in rows:
+                key = str(key)
+                if key not in SettingsDefaults.EXPORT_KEYS:
+                    continue
+                try:
+                    SettingsStore._coerce(SettingsDefaults.BY_KEY[key], raw)
+                except (SettingsValidationError, TypeError, ValueError) as exc:
+                    raise BackupValidationError(
+                        "BACKUP_VALIDATION_FAILED",
+                        f"Valor inválido no SettingsStore: {key}.",
+                    ) from exc
+
+            invalid_progress = con.execute(
+                """SELECT COUNT(*) FROM episodes
+                   WHERE progress < 0 OR duration < 0
+                      OR (duration > 0 AND progress > duration + 0.001)"""
+            ).fetchone()[0]
+            if invalid_progress:
+                raise BackupValidationError(
+                    "BACKUP_VALIDATION_FAILED",
+                    "Backup contém progresso/duração inconsistentes.",
+                )
+            watched_invalid = con.execute(
+                "SELECT COUNT(*) FROM episodes WHERE watched NOT IN (0,1)"
+            ).fetchone()[0]
+            if watched_invalid:
+                raise BackupValidationError(
+                    "BACKUP_VALIDATION_FAILED",
+                    "Backup contém estados de consumo inválidos.",
+                )
+
+            if sanitize_unknown:
+                con.commit()
+
     def _database_counts(self, db_path: str) -> dict[str, int]:
         with sqlite3.connect(db_path) as con:
             tables = [
@@ -316,8 +366,8 @@ class BackupService:
                 allowed,
             )
             con.commit()
-            quick = con.execute("PRAGMA quick_check").fetchone()
-            if str(quick[0] if quick else "").strip().casefold() != "ok":
+            integrity = con.execute("PRAGMA integrity_check").fetchone()
+            if str(integrity[0] if integrity else "").strip().casefold() != "ok":
                 raise BackupError("DATABASE_INTEGRITY_FAILED", "Snapshot SQLite inválido após sanitização.")
             if con.execute("PRAGMA foreign_key_check").fetchone():
                 raise BackupError("DATABASE_INTEGRITY_FAILED", "Snapshot possui referências inválidas.")
@@ -404,6 +454,7 @@ class BackupService:
         try:
             self.store.create_backup_snapshot(snapshot)
             self._sanitize_snapshot(snapshot)
+            self._validate_snapshot_semantics(snapshot)
             artwork = self._manual_artwork(snapshot)
             return snapshot, artwork
         except Exception:
@@ -519,6 +570,7 @@ class BackupService:
                 with archive.open("library.sqlite3", "r") as source, open(extracted, "wb") as target:
                     shutil.copyfileobj(source, target)
                 self.store._validate_backup_database(extracted)
+                self._validate_snapshot_semantics(extracted)
                 counts = self._database_counts(extracted)
             return {
                 "format": manifest["format"],
@@ -545,6 +597,8 @@ class BackupService:
             self._validate_integrity(archive, manifest, infos)
             with archive.open("library.sqlite3", "r") as source, open(extracted, "wb") as target:
                 shutil.copyfileobj(source, target)
+            self.store._validate_backup_database(extracted)
+            self._validate_snapshot_semantics(extracted, sanitize_unknown=True)
             self.store._validate_backup_database(extracted)
             for item in manifest.get("artwork") or []:
                 if not item.get("portable") or not item.get("member"):

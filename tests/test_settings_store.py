@@ -53,6 +53,62 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(settings.get("player.default_speed"), 1.0)
         self.assertFalse(settings.get("player.resume"))
 
+    def test_continue_watching_limits(self):
+        for valid in (5, 10, 15, 20):
+            self.settings.set("library.continue_watching_limit", valid)
+            self.assertEqual(self.settings.get("library.continue_watching_limit"), valid)
+        for invalid in (0, -1, 1, 25):
+            with self.assertRaises(SettingsValidationError):
+                self.settings.set("library.continue_watching_limit", invalid)
+
+    def test_language_and_subtitle_settings(self):
+        self.settings.set("audio.preferred_language", "pt-BR")
+        self.settings.set("audio.preferred_subtitle_language", "ja")
+        self.settings.set("audio.subtitles", "always")
+        self.assertEqual(self.settings.get("audio.preferred_language"), "pt-BR")
+        self.assertEqual(self.settings.get("audio.preferred_subtitle_language"), "ja")
+        self.assertEqual(self.settings.get("audio.subtitles"), "always")
+        with self.assertRaises(SettingsValidationError):
+            self.settings.set("audio.preferred_language", "not a language")
+
+    def test_export_import_round_trip(self):
+        self.settings.set("player.default_speed", 1.5)
+        self.settings.set("appearance.theme", "light")
+        self.settings.set("audio.preferred_language", "pt-BR")
+        exported = self.settings.export_json()
+        other = SettingsStore(LibraryStore(tempfile.TemporaryDirectory().name))
+        result = other.import_json(exported)
+        self.assertEqual(result["imported"], len(self.settings.snapshot()))
+        self.assertEqual(other.get("player.default_speed"), 1.5)
+        self.assertEqual(other.get("appearance.theme"), "light")
+        self.assertEqual(other.get("audio.preferred_language"), "pt-BR")
+
+    def test_import_rejects_bad_version_and_invalid_values_atomically(self):
+        self.settings.set("player.default_speed", 1.5)
+        with self.assertRaises(SettingsValidationError):
+            self.settings.import_json(
+                '{"format":"reiflix-settings","schema_version":999,"settings":{}}'
+            )
+        self.assertEqual(self.settings.get("player.default_speed"), 1.5)
+        with self.assertRaises(SettingsValidationError):
+            self.settings.import_payload({
+                "format": "reiflix-settings",
+                "schema_version": 1,
+                "settings": {"player.default_speed": 8.0, "player.resume": False},
+            })
+        self.assertEqual(self.settings.get("player.default_speed"), 1.5)
+        self.assertTrue(self.settings.get("player.resume"))
+
+    def test_import_ignores_unknown_supported_safe(self):
+        result = self.settings.import_payload({
+            "format": "reiflix-settings",
+            "schema_version": 1,
+            "settings": {"player.resume": False, "future.option": "ignored"},
+        })
+        self.assertEqual(result["imported"], 1)
+        self.assertEqual(result["unknown"], ["future.option"])
+        self.assertFalse(self.settings.get("player.resume"))
+
 
 if __name__ == "__main__":
     unittest.main()

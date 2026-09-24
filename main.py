@@ -212,10 +212,18 @@ async def main(page: ft.Page):
     back_state = {"last_at": 0.0, "last_action": None}
     BACK_DEBOUNCE_SECONDS = 0.30
     navigation_state_path = os.path.join(data_dir, "navigation_state.json")
+    navigation_state_exit_marker = navigation_state_path + ".closed"
     restored_detail_id = [None]
 
     def load_navigation_state():
         try:
+            if os.path.exists(navigation_state_exit_marker):
+                for path in (navigation_state_path, navigation_state_exit_marker):
+                    try:
+                        os.unlink(path)
+                    except FileNotFoundError:
+                        pass
+                return {}
             with open(navigation_state_path, "r", encoding="utf-8") as handle:
                 state = json.load(handle)
         except (OSError, ValueError, TypeError):
@@ -295,11 +303,21 @@ async def main(page: ft.Page):
     def clear_persisted_navigation_state():
         navigation_persist["closing"] = True
         navigation_persist["pending"] = False
+        temporary = navigation_state_exit_marker + ".tmp"
         try:
-            os.unlink(navigation_state_path)
-        except FileNotFoundError:
-            pass
+            with open(temporary, "w", encoding="utf-8") as handle:
+                handle.write("closed")
+            os.replace(temporary, navigation_state_exit_marker)
+            try:
+                os.unlink(navigation_state_path)
+            except FileNotFoundError:
+                pass
         except OSError:
+            try:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+            except OSError:
+                pass
             logger.exception("[NAV] failed to clear persisted navigation snapshot")
 
     def restore_details_context():

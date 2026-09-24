@@ -30,6 +30,7 @@ class SettingsView:
         scan_snapshot=None, settings: SettingsStore | None = None,
         on_create_backup=None, on_inspect_backup=None, on_restore_backup=None,
         on_export_diagnostics=None, on_integrity_check=None, on_reconcile_after_restore=None,
+        on_settings_changed=None,
     ):
         settings = settings or SettingsStore(store)
         busy = {"scan": False, "folder": False, "permission": False, "cache": False}
@@ -89,6 +90,15 @@ class SettingsView:
                 normalized = settings.set(key, value)
                 if control is not None:
                     control.value = normalized
+                if on_settings_changed is not None:
+                    try:
+                        result = on_settings_changed(key, normalized)
+                        if inspect.isawaitable(result):
+                            page.run_task(result)
+                    except Exception:
+                        logger.exception("settings runtime apply failed: %s", key)
+                        notice("Configuração salva, mas a aplicação em runtime falhou.", True)
+                        return False
                 notice("Configuração salva.")
                 return True
             except (SettingsValidationError, ValueError, TypeError):
@@ -124,7 +134,7 @@ class SettingsView:
                     page.show_dialog(dialog)
                     safe_update()
                 control = ft.TextButton(display, on_click=choose)
-            return ft.Container(
+            container = ft.Container(
                 content=ft.Row([
                     ft.Column([
                         ft.Text(label, color=TEXT, size=13, weight=ft.FontWeight.BOLD),
@@ -134,9 +144,11 @@ class SettingsView:
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 padding=ft.Padding(left=0, top=7, right=0, bottom=7),
             )
+            container.data = f"{key} {label} {description}".casefold()
+            return container
 
         def action_row(label, description, button_text, callback):
-            return ft.Container(
+            container = ft.Container(
                 content=ft.Row([
                     ft.Column([
                         ft.Text(label, color=TEXT, size=13, weight=ft.FontWeight.BOLD),
@@ -146,13 +158,16 @@ class SettingsView:
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 padding=ft.Padding(left=0, top=7, right=0, bottom=7),
             )
+            container.data = f"{label} {description}".casefold()
+            return container
 
         def section(title, icon, items, tags=()):
             container = ft.Container(
                 content=ft.Column([section_title(title, icon), *items], spacing=4),
                 padding=14, bgcolor=SURFACE, border_radius=RADIUS,
             )
-            container.data = " ".join((title, *tags)).casefold()
+            item_terms = " ".join(str(getattr(item, "data", "")) for item in items)
+            container.data = " ".join((title, *tags, item_terms)).casefold()
             return container
 
         section_cache = []
@@ -570,15 +585,33 @@ class SettingsView:
             ], ("aparência", "tema", "dark", "light", "system")))
 
             items.append(section("Biblioteca", ft.Icons.VIDEO_LIBRARY_OUTLINED, [
+                row("appearance.card_size", "Tamanho dos cards", "Controla o tamanho visual dos cards da Home."),
+                row("appearance.show_thumbnails", "Mostrar miniaturas", "Quando desativado, a Home mantém o espaço do card mas não carrega imagens."),
+                row("library.sort_default", "Ordenação padrão", "Define a ordenação inicial da Home quando não há outra ordenação salva na tela.", "enum",
+                    ("added_desc", "title_asc", "title_desc", "recently_watched"),
+                    {"added_desc":"Mais recentes","title_asc":"Nome A-Z","title_desc":"Nome Z-A","recently_watched":"Assistidos recentemente"}),
+                row("library.grid_density", "Densidade da grade", "Controla a largura efetiva dos cards na Home.", "enum",
+                    ("small", "medium", "large"), {"small":"Menos cards","medium":"Equilibrada","large":"Mais cards"}),
+                row("library.page_size", "Itens por página", "Controla o tamanho da paginação do catálogo, sem criar consultas paralelas.", "enum",
+                    (24, 36, 48, 72), {24:"24",36:"36",48:"48",72:"72"}),
                 row("library.continue_watching", "Continue Watching", "Controla a preferência global para a seção quando consumida pela Home."),
                 row("library.continue_watching_limit", "Limite de Continue Watching", "Limite persistido para a seção.", "enum", (5, 10, 15, 20), {5:"5",10:"10",15:"15",20:"20"}),
-            ], ("biblioteca", "home", "continue watching", "grid", "organize")))
+            ], ("biblioteca", "home", "continue watching", "grid", "organize", "cards", "ordenação", "paginação")))
 
             player = [
                 row("player.autoplay_next", "Autoplay do próximo episódio", "Permite avanço automático no player local."),
                 row("player.resume", "Continuar reprodução", "Usa a posição de progresso já salva; desligar não apaga o progresso."),
-                row("player.default_speed", "Velocidade padrão", "Aplicada quando um episódio é aberto.", "enum", (0.5,0.75,1.0,1.25,1.5,2.0), {x:f"{x:.2f}x" for x in (0.5,0.75,1.0,1.25,1.5,2.0)}),
-                row("player.aspect_ratio", "Aspect ratio", "Preencher preserva a proporção e corta somente o excedente.", "enum", ("auto","fit","fill","zoom","original"), {"auto":"Auto","fit":"Ajustar","fill":"Preencher","zoom":"Zoom","original":"Original"}),
+                row("player.default_speed", "Velocidade padrão", "Aplicada quando um episódio é aberto.", "enum", (0.5,0.75,1.0,1.25,1.5,1.75,2.0), {x:f"{x:.2f}x" for x in (0.5,0.75,1.0,1.25,1.5,1.75,2.0)}),
+                row("player.aspect_ratio", "Modo de vídeo", "Fit preserva toda a imagem; Fill ocupa a área podendo distorcer; Zoom ocupa a área cortando o excedente.", "enum",
+                    ("fit","fill","zoom"), {"fit":"Ajustar","fill":"Preencher","zoom":"Zoom"}),
+                row("player.double_tap_seek_seconds", "Salto no double tap", "Define quantos segundos são avançados/retrocedidos pelo double tap.", "enum", (5,10,15,30), {5:"5s",10:"10s",15:"15s",30:"30s"}),
+                row("player.long_press_speed", "Velocidade da pressão longa", "Velocidade temporária aplicada enquanto a pressão longa estiver ativa.", "enum", (1.5,1.75,2.0), {1.5:"1,50x",1.75:"1,75x",2.0:"2,00x"}),
+                row("player.max_video_resolution", "Resolução máxima", "Limita a faixa de vídeo selecionada pelo Media3 quando o arquivo oferece múltiplas tracks.", "enum",
+                    ("auto","480p","720p","1080p","1440p","2160p"), {"auto":"Automática","480p":"480p","720p":"720p","1080p":"1080p","1440p":"1440p","2160p":"2160p"}),
+                row("player.max_video_frame_rate", "FPS máximo", "Limita a taxa de frames da track de vídeo selecionada.", "enum",
+                    (0,24,30,60), {0:"Automático",24:"24 fps",30:"30 fps",60:"60 fps"}),
+                row("player.max_audio_channels", "Canais de áudio máximos", "Limita a seleção de áudio sem criar um mixer ou decoder alternativo.", "enum",
+                    (0,2,6,8), {0:"Automático",2:"2",6:"5.1 / 6",8:"7.1 / 8"}),
                 row("player.immersive", "Modo imersivo", "Controla as barras do sistema somente no player.", "enum", ("always","landscape","never"), {"always":"Sempre","landscape":"Somente landscape","never":"Nunca"}),
                 row("player.rotation", "Rotação", "Orientação do player, sem forçar o aplicativo inteiro.", "enum", ("auto","portrait","landscape"), {"auto":"Automática","portrait":"Portrait","landscape":"Landscape"}),
                 row("player.pip", "Picture-in-Picture", "Permite PiP quando suportado."),
@@ -595,6 +628,11 @@ class SettingsView:
             ], ("gestos","volume","brilho","double tap","long press","swipe")))
 
             items.append(section("Áudio e Legendas", ft.Icons.HEADPHONES_OUTLINED, [
+                row("audio.subtitle_scale", "Escala da legenda", "Aplica o tamanho relativo usando o SubtitleView do Media3.", "enum",
+                    (0.75,1.0,1.25,1.5), {0.75:"75%",1.0:"100%",1.25:"125%",1.5:"150%"}),
+                row("audio.subtitle_bottom_padding", "Margem inferior da legenda", "Controla a margem inferior quando a cue não especifica uma linha fixa.", "enum",
+                    (4,8,12,16), {4:"4%",8:"8% (padrão)",12:"12%",16:"16%"}),
+                row("audio.subtitle_embedded_style", "Estilo embutido da legenda", "Permite que o estilo declarado pela própria faixa seja aplicado.", "bool"),
                 language_row(
                     "audio.preferred_language",
                     "Idioma de áudio",
@@ -617,14 +655,18 @@ class SettingsView:
             ], ("áudio","legenda","subtitle","audio","pt-br","en","ja")))
 
             items.append(section("Metadata", ft.Icons.MANAGE_SEARCH_OUTLINED, [
-                ft.Text("AniList continua opcional. Associações e decisões manuais permanecem no catálogo existente.", color=TEXT_MUTED, size=11),
+                row("metadata.anilist_enabled", "Usar AniList", "Permite ou bloqueia chamadas remotas do cliente AniList. O catálogo local continua disponível sem rede."),
+                row("metadata.auto_match", "Auto-match AniList", "Quando desativado, a biblioteca não dispara novas buscas automáticas; associações já existentes continuam sendo usadas."),
                 ft.Text("Alterar Settings não dispara sincronização em massa.", color=TEXT_MUTED, size=10),
-            ], ("metadata","anilist","matching","offline")))
+            ], ("metadata","anilist","matching","offline","rede")))
 
             items.append(section("Artwork", ft.Icons.IMAGE_OUTLINED, [
+                row("artwork.enabled", "Artwork remoto", "Permite que o Artwork Engine faça download de capas remotas. Artwork local e manual continuam utilizáveis."),
+                row("artwork.cache_limit_mb", "Limite do cache de artwork", "Limite aplicado ao único Artwork Engine existente.", "enum",
+                    (64,128,256,512), {64:"64 MB",128:"128 MB",256:"256 MB",512:"512 MB"}),
                 ft.Text("O Artwork Engine existente continua sendo a única fonte do cache de artwork.", color=TEXT_MUTED, size=11),
                 action_row("Limpar cache AniList", "Remove somente o cache temporário administrado pelo catálogo.", "Limpar", clear_cache),
-            ], ("artwork","cache","thumbnail","offline")))
+            ], ("artwork","cache","thumbnail","offline","limite","poster")))
 
             folder_lines = []
             for folder in folders:

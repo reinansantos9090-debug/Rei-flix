@@ -348,30 +348,23 @@ class LibraryService:
                 cover_url = str(cached.get('cover_url') or '').strip()
                 if anilist_id and cover_url and not cover_valid:
                     entity_type = 'movie' if str(cached.get('media_kind') or item.get('media_kind') or 'series').casefold() == 'movie' else 'anime'
-                    blocked = False
                     if cached.get('id'):
-                        for row in self.artwork.list_for(entity_type, cached['id'], 'poster'):
-                            if row.get('source_ref') == cover_url and row.get('status') == 'failed':
-                                blocked = time.time() - float(row.get('last_attempt_at') or 0) < self.COVER_RETRY_SECONDS
-                                break
-                    if not blocked:
-                        if metadata_refreshed:
-                            # refresh_metadata() already attempted this exact cover URL
-                            # through AniListClient.metadata_from_media(). Do not issue
-                            # a duplicate HTTP request in the same hydration cycle; record
-                            # the failed attempt so the existing ArtworkEngine backoff
-                            # governs the next cycle.
-                            if cached.get('id') and not cover_valid:
-                                cover_attempt_failed = True
-                        else:
-                            downloaded = self.anilist.cache_cover(cover_url)
-                            if downloaded and os.path.isfile(downloaded) and os.path.getsize(downloaded) > 0:
-                                self.store.upsert_anime(lookup_title, {'anilist_id': anilist_id, 'cover_url': cover_url, 'cover_cache': downloaded},
-                                                        source='anilist', confidence=cached.get('metadata_confidence') or 'medium',
-                                                        status=cached.get('metadata_status') or 'available', fetched_at=cached.get('metadata_fetched_at'))
-                                cached = self.store.anime_metadata(lookup_title) or cached
-                            elif cached.get('id'):
-                                cover_attempt_failed = True
+                        # ArtworkEngine is now the sole owner of persistent artwork
+                        # downloads. It deduplicates requests and applies retry/backoff
+                        # independently of AniList metadata refreshes.
+                        resolved = self.artwork.request(
+                            entity_type,
+                            cached['id'],
+                            'poster',
+                            priority=100,
+                            allow_network=True,
+                            blocking=True,
+                        )
+                        cached = self.store.anime_metadata(lookup_title) or cached
+                        cover_attempt_failed = not bool(
+                            resolved and resolved.get('local_path')
+                            and os.path.isfile(resolved.get('local_path'))
+                        )
                 if cached.get('id'):
                     self.artwork.sync_anime_metadata(cached['id'], cached)
                     if cover_attempt_failed:
@@ -1034,21 +1027,13 @@ class LibraryService:
     def library_statistics(self): return self.store.library_statistics()
     def last_scan(self): return self.store.last_scan()
 
-    def clear_anilist_cache(self):
-        """Clear only refreshable AniList artifacts, never local library state.
+    def clear_artwork_cache(self):
+        """Clear managed external artwork without touching the local library."""
+        return self.artwork.clear()
 
-        Confirmed ``associations`` are intentionally retained so a later scan
-        refreshes the same manually chosen AniList record.  Metadata rows stay
-        attached to their local anime and are merely marked stale.
-        """
-        removed = 0
-        try:
-            for entry in os.scandir(self.store.cache_dir):
-                if entry.is_file():
-                    os.unlink(entry.path)
-                    removed += 1
-        except OSError as exc:
-            raise RuntimeError("Não foi possível limpar o cache de capas.") from exc
+    def clear_anilist_cache(self):
+        """Compatibility facade: clear refreshable artwork only."""
+        removed = self.clear_artwork_cache()
         self.store.clear_anilist_metadata_cache()
         return removed
 

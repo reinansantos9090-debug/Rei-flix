@@ -84,7 +84,7 @@ class AndroidBridge:
     async def sign_in(self, server_client_id: str): return await self._launch("google_sign_in", server_client_id=server_client_id)
 
     async def play(self, uri: str, title: str, position_ms: int = 0, *, can_next=False,
-                   can_previous=False, autoplay=False):
+                   can_previous=False, autoplay=False, player_settings=None):
         normalized_uri = self.normalize_local_media_reference(uri)
         if normalized_uri is None:
             raise ValueError("A reprodução aceita somente arquivos locais ou URIs content://.")
@@ -96,6 +96,10 @@ class AndroidBridge:
             can_next=str(bool(can_next)).lower(),
             can_previous=str(bool(can_previous)).lower(),
             autoplay=str(bool(autoplay)).lower(),
+            **({
+                f"setting_{key.replace('.', '_')}": str(value).lower() if isinstance(value, bool) else str(value)
+                for key, value in (player_settings or {}).items()
+            }),
         )
 
     @staticmethod

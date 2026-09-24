@@ -34,9 +34,13 @@ class SystemUiController(private val window: Window) {
     }
 
     fun applyNormal() {
-        WindowCompat.setDecorFitsSystemWindows(window, true)
-        window.statusBarColor = android.graphics.Color.BLACK
-        window.navigationBarColor = android.graphics.Color.BLACK
+        // "Normal" is the host/app policy, not a request to reveal Android bars.
+        // Rei-Flix is edge-to-edge on every primary screen; transient system bars
+        // may be revealed by an explicit system gesture, but are never kept visible
+        // by a lifecycle callback such as MainActivity.onResume().
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
         if (android.os.Build.VERSION.SDK_INT >= 29) {
             window.isStatusBarContrastEnforced = false
             window.isNavigationBarContrastEnforced = false
@@ -46,7 +50,10 @@ class SystemUiController(private val window: Window) {
             isAppearanceLightNavigationBars = false
             systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            show(WindowInsetsCompat.Type.systemBars())
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+        window.decorView.post {
+            controller.hide(WindowInsetsCompat.Type.systemBars())
         }
     }
 }

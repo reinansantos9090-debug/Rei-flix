@@ -85,6 +85,19 @@ class LibraryExperienceTests(unittest.TestCase):
         self.assertIn("on_select_anime(entry) if entry else None", home)
         self.assertRegex(home, r'ft\.(?:OutlinedButton|TextButton)\(\s*"Continuar"')
 
+    def test_home_exposes_all_consumption_state_filters(self):
+        home = (Path(__file__).resolve().parents[1] / "views" / "home_view.py").read_text(encoding="utf-8")
+        for state in ("Todos", "Favoritos", "Fixados", "Não assistidos", "Em andamento", "Concluídos", "Assistidos"):
+            self.assertIn('ft.dropdown.Option(v)', home)
+            self.assertIn(state, home)
+
+    def test_home_filters_have_clear_all_action(self):
+        home = (Path(__file__).resolve().parents[1] / "views" / "home_view.py").read_text(encoding="utf-8")
+        self.assertIn("async def clear_filters", home)
+        self.assertIn('selected_sort[0] = "Mais recentes"', home)
+        self.assertIn('search.value = ""', home)
+        self.assertIn('ft.TextButton("Limpar"', home)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -50,24 +50,25 @@ class SettingsView:
             status.color = "#FFB4AB" if error else TEXT_MUTED
             safe_update()
 
-        def confirm(title, body, action_label, action):
-            if not settings.get("app.confirm_destructive"):
+        async def execute_action():
+            try:
                 result = action()
                 if inspect.isawaitable(result):
-                    page.run_task(lambda: result)
+                    await result
+            except Exception:
+                logger.exception("settings action failed")
+                notice("Não foi possível concluir a operação.", True)
+            finally:
+                safe_update()
+
+        def confirm(title, body, action_label, action):
+            if not settings.get("app.confirm_destructive"):
+                page.run_task(execute_action)
                 return
 
             async def run(_):
                 page.pop_dialog()
-                try:
-                    result = action()
-                    if inspect.isawaitable(result):
-                        await result
-                except Exception:
-                    logger.exception("settings action failed")
-                    notice("Não foi possível concluir a operação.", True)
-                finally:
-                    safe_update()
+                await execute_action()
 
             page.show_dialog(ft.AlertDialog(
                 modal=True,
@@ -481,7 +482,7 @@ class SettingsView:
             for folder in folders:
                 name = folder.get("name") or folder.get("path") or "Pasta"
                 path = str(folder.get("path") or "")
-                async def remove_folder(_event, ref=path, display_name=name):
+                def remove_folder(_event, ref=path, display_name=name):
                     confirm(
                         "Remover pasta da biblioteca?",
                         f'"{display_name}" será removida somente da configuração da biblioteca. Nenhum arquivo físico será apagado.',

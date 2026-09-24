@@ -182,7 +182,11 @@ class NativePlayerActivity : ComponentActivity() {
 
     private val progressReporter = object : Runnable {
         override fun run() {
-            saveProgress("player_progress")
+            val now = System.currentTimeMillis()
+            if (now - lastProgressPersistAt >= PROGRESS_PERSIST_INTERVAL_MS) {
+                saveProgress("player_progress")
+                lastProgressPersistAt = now
+            }
             updateProgressUi()
             if (::player.isInitialized && player.playbackState != Player.STATE_ENDED) {
                 handler.postDelayed(this, PROGRESS_INTERVAL_MS)

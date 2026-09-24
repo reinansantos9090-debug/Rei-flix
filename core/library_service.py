@@ -970,18 +970,28 @@ class LibraryService:
         logger.info("ANILIST_MATCH_UNLINK title=%s", lookup_title)
         return True
     def catalog(self, favorites_only=False): return self.genre_registry.enrich_catalog(self.store.catalog(favorites_only))
+
+    def catalog_page(self, **filters):
+        """Return a bounded local catalog page while preserving GenreRegistry enrichment."""
+        result = self.store.catalog_page(**filters)
+        result["items"] = self.genre_registry.enrich_catalog(result.get("items") or [])
+        return result
     def create_backup(self, destination=None): return self.store.create_backup(destination)
 
     def restore_backup(self, backup_path=None): return self.store.restore_backup(backup_path)
 
 
     def media_center_home(self, limit=12, *, catalog=None):
-        """Build all Home sections from one already-aggregated local catalog.
+        """Build Home sections from bounded local projections when no catalog is supplied.
 
-        A preloaded catalog can be supplied by callers such as Home to avoid
-        materializing the same full SQLite projection twice.
+        The legacy ``catalog=`` path remains available for Details/compatibility.
         """
-        catalog = self.store.catalog() if catalog is None else catalog
+        if catalog is None:
+            sections = self.store.home_sections(limit=limit)
+            for key in ("next_episode", "recently_added", "favorites", "pinned", "series", "movies", "specials"):
+                sections[key] = self.genre_registry.enrich_catalog(sections.get(key) or [])
+            return sections
+        catalog = catalog
         episodes = [e for anime in catalog for season in anime.get("seasons", [])
                     for e in season.get("episodes", [])]
         specials = [e for anime in catalog for group in anime.get("specials", [])
@@ -1015,6 +1025,9 @@ class LibraryService:
             "movies": movies[:limit],
             "specials": [a for a in catalog if any(a.get("specials"))][:limit],
         }
+
+    def browse_catalog_page(self, **filters):
+        return self.catalog_page(**filters)
 
     def continue_watching(self, limit=12): return self.store.continue_watching(limit)
     def playback_history(self, limit=50): return self.store.playback_history(limit)
@@ -1130,8 +1143,11 @@ class LibraryService:
             artwork=artwork,
         )
 
-    def search_options(self, catalog):
-        options = LibrarySearchEngine.options(catalog)
+    def search_options(self, catalog=None):
+        if catalog is None:
+            options = self.store.search_options()
+        else:
+            options = LibrarySearchEngine.options(catalog)
         options["genres"] = [item["name"] for item in self.genre_registry.list_all(include_unused=False)]
         return options
 

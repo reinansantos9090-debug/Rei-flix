@@ -1109,6 +1109,10 @@ class NativePlayerActivity : ComponentActivity() {
             pip.contentDescription = "Picture in Picture"
             addMoreRow(pip)
         }
+        addMoreRow(actionButton("Informações", 92) { showTechnicalInfo() }.apply {
+            tag = "reiflix_technical_info"
+            contentDescription = "Informações técnicas"
+        })
         controls.addView(morePanel, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -1820,12 +1824,16 @@ class NativePlayerActivity : ComponentActivity() {
         handler.removeCallbacks(controlsHider)
         handler.removeCallbacks(feedbackHider)
         restoreSystemUiBeforeExit()
+        pendingPreparation?.cancel(true)
+        playbackWorker.shutdownNow()
         if (::player.isInitialized) {
             if (isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations) {
                 reportPlayerExit("activity_finish")
             }
             activePlayerListener?.let { player.removeListener(it) }
+            activeAnalyticsListener?.let { player.removeAnalyticsListener(it) }
             activePlayerListener = null
+            activeAnalyticsListener = null
             if (::playerView.isInitialized && playerView.player === player) {
                 playerView.player = null
                 logPlayer("PLAYER_VIEW_DETACHED requestId=" + requestId.ifEmpty { "-" })

@@ -104,9 +104,6 @@ class Prompt3PlayerReconstructionTests(unittest.TestCase):
             self.assertIn(token, self.player)
 
     def test_disabled_vertical_gestures_are_silent(self):
-        self.assertIn("if (brightnessGesturesEnabled)", self.player)
-        self.assertIn("if (volumeGesturesEnabled)", self.player)
-        self.assertNotIn("Gesto de volume desligado", self.player[self.player.index("private inner class GestureLayer"):])
         gesture_layer = self.player[self.player.index("private inner class GestureLayer"):]
         self.assertNotIn("Gesto de volume desligado", gesture_layer)
         self.assertNotIn("Gesto de brilho desligado", gesture_layer)

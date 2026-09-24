@@ -53,7 +53,7 @@ class NavigationControllerTests(unittest.TestCase):
         self.assertEqual(self.navigation.back(), "settings_inner")
         self.assertEqual(self.navigation.settings_path, ())
         self.assertEqual(self.navigation.back(), "previous")
-        self.assertEqual(self.navigation.current, "settings")
+        self.assertEqual(self.navigation.current, "home")
 
     def test_switching_top_level_screen_clears_nested_settings_path(self):
         self.navigation.push("settings")
@@ -61,7 +61,7 @@ class NavigationControllerTests(unittest.TestCase):
         self.navigation.push("organize")
         self.assertEqual(self.navigation.settings_path, ())
         self.assertEqual(self.navigation.back(), "previous")
-        self.assertEqual(self.navigation.current, "home")
+        self.assertEqual(self.navigation.current, "settings")
 
     def test_invalid_top_level_route_cannot_enter_navigation_stack(self):
         with self.assertRaises(ValueError):

@@ -287,7 +287,19 @@ async def main(page: ft.Page):
             safe_update()
     def on_catalog_changed():
         diagnostics.record("UI_REFRESHED", result="catalog_changed", source=navigation.current)
-        # Durable catalog data changed: invalidate only the visible screen.
+        # Home/Organize keep their cached control tree across Details/Player.
+        # Refresh their current dataset in place instead of rebuilding the whole
+        # screen and losing its viewport/window state.
+        if navigation.current == "home":
+            refresh = home_state.get("_refresh_from_catalog")
+            if callable(refresh):
+                refresh()
+                return
+        if navigation.current == "organize":
+            refresh = organize_state.get("_refresh_from_catalog")
+            if callable(refresh):
+                refresh()
+                return
         screen_cache.pop(navigation.current, None)
         render_current()
     async def remove_folder(reference):
@@ -1144,7 +1156,6 @@ async def main(page: ft.Page):
                                     })
                                     if navigation.current in {'home', 'details', 'organize'}:
                                         on_catalog_changed()
-                                        render_current()
                             diagnostics.record(
                                 "THUMBNAIL_READY",
                                 request_id=request_id,

@@ -76,9 +76,13 @@ class SettingsStoreTests(unittest.TestCase):
         self.settings.set("appearance.theme", "light")
         self.settings.set("audio.preferred_language", "pt-BR")
         exported = self.settings.export_json()
-        other = SettingsStore(LibraryStore(tempfile.TemporaryDirectory().name))
-        result = other.import_json(exported)
-        self.assertEqual(result["imported"], len(self.settings.snapshot()))
+        other_tmp = tempfile.TemporaryDirectory()
+        try:
+            other = SettingsStore(LibraryStore(other_tmp.name))
+            result = other.import_json(exported)
+        finally:
+            other_tmp.cleanup()
+        self.assertEqual(result["imported"], len(SettingsStore.EXPORT_KEYS))
         self.assertEqual(other.get("player.default_speed"), 1.5)
         self.assertEqual(other.get("appearance.theme"), "light")
         self.assertEqual(other.get("audio.preferred_language"), "pt-BR")

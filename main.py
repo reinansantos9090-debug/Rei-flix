@@ -7,6 +7,7 @@ from flet.auth import OAuthProvider
 from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URL as CONFIG_GOOGLE_REDIRECT_URL, GOOGLE_WEB_CLIENT_ID as CONFIG_GOOGLE_WEB_CLIENT_ID
 from core.android_bridge import AndroidBridge
 from core.navigation import NavigationController, SafSelectionState
+from core.scan_coordinator import ScanCoordinator, ScanOrigin, ScanState, ScanTarget
 from core.storage_access import StorageAccessState, StorageCapabilities, ScanUiState, scan_ui_state_from_native, storage_access_state, storage_source_states
 from core.diagnostics import DiagnosticTimeline
 from core.library_store import LibraryStore
@@ -37,8 +38,6 @@ async def main(page: ft.Page):
     account_state=["connected" if store.account().get("email") else "disconnected"]
     diagnostics = DiagnosticTimeline()
     diagnostics.record("APP_START", result="python_ui_initialized")
-    scan_in_progress=[False]
-    pending_native_scans=[0]
     scan_state = [{
         "state": ScanUiState.IDLE.value,
         "source": None,
@@ -72,6 +71,34 @@ async def main(page: ft.Page):
             "error": error,
             "timestamp": timestamp or current.get("timestamp"),
         }
+
+    def _scan_coordinator_state_changed(snapshot):
+        state = snapshot.state
+        ui_state = {
+            ScanState.QUEUED: ScanUiState.SCANNING,
+            ScanState.RUNNING: ScanUiState.SCANNING,
+            ScanState.CANCELLING: ScanUiState.SCANNING,
+            ScanState.COMPLETED: ScanUiState.COMPLETED,
+            ScanState.CANCELLED: ScanUiState.CANCELLED,
+            ScanState.FAILED: ScanUiState.FAILED,
+            ScanState.PARTIAL: ScanUiState.PARTIAL,
+            ScanState.BLOCKED: ScanUiState.IDLE,
+            ScanState.IDLE: ScanUiState.IDLE,
+        }.get(state, ScanUiState.IDLE)
+        set_scan_state(
+            ui_state,
+            source=snapshot.source,
+            scan_id=snapshot.request_id,
+            error=snapshot.last_result if state in {ScanState.FAILED, ScanState.PARTIAL} else None,
+        )
+        safe_update()
+
+    scan_coordinator = ScanCoordinator(
+        bridge,
+        store,
+        _authorized_scan_targets,
+        on_state=_scan_coordinator_state_changed,
+    )
     pending_folder_removals=set()
     # View-local query/filter state survives Details/Player round-trips while
     # the catalog itself is still read afresh from SQLite on each view entry.
@@ -91,6 +118,27 @@ async def main(page: ft.Page):
     # proof of a current grant.  ``dismissed`` prevents an automatic onboarding loop.
     storage_onboarding = {"dismissed": False, "dialog_open": False, "waiting_for_result": False}
     storage_capabilities = [StorageCapabilities.unknown()]
+
+    def _authorized_scan_targets(source=None, scope_ref=None):
+        normalized = ScanCoordinator.normalize_source(source)
+        caps = storage_capabilities[0]
+        targets = []
+        if normalized in (None, "mediastore") and caps.can_scan("mediastore"):
+            targets.append(ScanTarget("mediastore"))
+        if normalized in (None, "broad_storage") and caps.can_scan("broad-storage"):
+            targets.append(ScanTarget("broad_storage"))
+        if normalized in (None, "saf"):
+            allowed_roots = set(caps.saf_roots)
+            folders = {
+                str(folder.get("path") or "").strip()
+                for folder in store.folders()
+                if folder.get("kind") == "saf" and str(folder.get("path") or "").strip()
+            }
+            roots = sorted(allowed_roots | folders)
+            for root in roots:
+                if not scope_ref or root == scope_ref:
+                    targets.append(ScanTarget("saf", root))
+        return targets
     processed_native_operations = set()
     back_state = {"last_at": 0.0, "last_action": None}
     BACK_DEBOUNCE_SECONDS = 0.30
@@ -171,34 +219,7 @@ async def main(page: ft.Page):
 
     def handle_flet_view_pop(_event):
         navigate_back("flet_view_pop")
-        if force:
-            screen_cache.pop(route, None)
-        control = screen_cache.get(route)
-        if control is None:
-            if route == "home":
-                control = HomeView.build(page, library, navigate_details, navigate_settings, play_episode, navigate_organize,
-                                         view_state=home_state, on_request_thumbnail=request_missing_thumbnail)
-            elif route == "organize":
-                control = OrganizeView.build(page, library, navigate_details, lambda: navigate_back("visual:organize"), navigate_settings,
-                                             on_request_storage_access=open_broad_storage_access,
-                                             on_scan_storage=refresh_library,
-                                             on_request_video_access=request_video_access,
-                                             on_add_folder=add_folder,
-                                             view_state=organize_state)
-            elif route == "details":
-                control = DetailView.build(page, current[0], play_episode, lambda: navigate_back("visual:details"),
-                                           store.toggle_favorite, library.playback_target, library.set_user_tags,
-                                           library.toggle_pinned, library.set_personal_note, store.set_episode_identification,
-                                           refresh_current_details, refresh_current_metadata, library.resolve_artwork)
-            elif route == "settings":
-                control = SettingsView.build(page,store,library,lambda: navigate_back("visual:settings"),on_catalog_changed,add_folder,remove_folder,refresh_library,request_video_access,open_broad_storage_access,login,logout,account(),account_state[0],
-                                             folder_selection_pending=lambda: saf_selection.pending, on_resolve_match=resolve_match,
-                                             on_create_backup=create_backup, on_restore_backup=restore_backup,
-                                             storage_snapshot=storage_capabilities[0], scan_snapshot=scan_state[0])
-            if control is None:
-                raise RuntimeError(f"Unknown navigation route: {route}")
-            screen_cache[route] = control
-        show(control)
+
     def navigate_home():
         navigation.reset_to_root()
         render_current()
@@ -270,7 +291,7 @@ async def main(page: ft.Page):
         screen_cache.pop(navigation.current, None)
         render_current()
     async def remove_folder(reference):
-        if scan_in_progress[0] or saf_selection.pending:
+        if scan_coordinator.active or saf_selection.pending:
             page.snack_bar = ft.SnackBar(ft.Text("Aguarde a atualização ou a seleção de pasta terminar antes de remover uma pasta."))
             page.snack_bar.open = True
             safe_update()
@@ -521,76 +542,27 @@ async def main(page: ft.Page):
     async def refresh_library(_=None):
         if saf_selection.pending:
             return "Conclua ou cancele a seleção da pasta antes de atualizar a biblioteca.", False
-        if scan_in_progress[0]:
-            return "Uma atualização da biblioteca já está em andamento.", True
-        scan_in_progress[0] = True
-        set_scan_state(ScanUiState.CHECKING, source="orchestrator", error=None, timestamp=asyncio.get_running_loop().time())
-        safe_update()
-        try:
-            folders = store.folders()
-            caps = storage_capabilities[0]
-            if bridge.available and not caps.known:
-                set_scan_state(ScanUiState.CHECKING, source="permissions")
-                await bridge.check_storage_access()
-                return "Verificando as permissões do armazenamento…", True
-            authorized_roots = set(caps.saf_roots)
-            saf_folders = [
-                folder for folder in folders
-                if folder.get('kind') == 'saf' and folder.get('path') in authorized_roots
-            ]
-            mediastore_granted = caps.can_scan("mediastore")
-            if bridge.available:
-                # Android runtime capabilities are authoritative; SQLite rows are
-                # durable configuration/catalog data and never grant scan access.
-                pending_native_scans[0] = 0
-                broad_granted = caps.can_scan("broad-storage")
-                if broad_granted:
-                    pending_native_scans[0] += 1
-                    try:
-                        await bridge.scan_all_storage()
-                    except Exception:
-                        pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
-                for folder in saf_folders:
-                    pending_native_scans[0] += 1
-                    try:
-                        await bridge.rescan_tree(folder['path'])
-                    except Exception:
-                        pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
-                        store.update_folder_status(folder['path'], "granted", "Não foi possível iniciar a varredura SAF.")
-                if mediastore_granted:
-                    pending_native_scans[0] += 1
-                    try:
-                        await bridge.scan_media_store()
-                    except Exception:
-                        pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
-                        store.update_folder_status(
-                            "mediastore:external:video",
-                            "unknown",
-                            "Não foi possível iniciar a varredura MediaStore.",
-                        )
-                if pending_native_scans[0] > 0:
-                    set_scan_state(ScanUiState.SCANNING, source="multiple")
-                    missing_sources = []
-                    if not mediastore_granted:
-                        missing_sources.append("vídeos do dispositivo")
-                    if not broad_granted:
-                        missing_sources.append("armazenamento amplo")
-                    if missing_sources:
-                        return "Atualização iniciada. Ainda sem acesso a " + ", ".join(missing_sources) + ".", True
-                    return "Atualização iniciada. Verificando as fontes locais…", True
-                scan_in_progress[0] = False
-                set_scan_state(ScanUiState.COMPLETED, source="orchestrator", found=0)
-                return "Nenhuma fonte local pôde iniciar uma varredura.", False
-            result = await asyncio.to_thread(library.scan)
-            return result.message(), False
-        except Exception as exc:
-            scan_in_progress[0] = False
-            set_scan_state(ScanUiState.FAILED, source="orchestrator", error=str(exc))
+        caps = storage_capabilities[0]
+        if bridge.available and not caps.known:
+            set_scan_state(ScanUiState.CHECKING, source="permissions")
             safe_update()
-            raise
-        finally:
-            if not (bridge.available and pending_native_scans[0] > 0):
-                scan_in_progress[0] = False
+            await bridge.check_storage_access()
+            return "Verificando as permissões do armazenamento…", True
+        transition = await scan_coordinator.request(
+            ScanOrigin.USER_REFRESH,
+            source=None,
+            full=False,
+            reason="explicit_user_refresh",
+        )
+        if transition.kind == "ignored":
+            return "Nenhuma fonte local autorizada para atualizar a biblioteca.", False
+        if transition.kind == "blocked":
+            return "Nenhuma fonte local autorizada para atualizar a biblioteca.", False
+        if transition.kind == "deduped":
+            return "Uma atualização da biblioteca já está em andamento.", True
+        if transition.kind == "queued":
+            return "Atualização enfileirada; a varredura atual será concluída primeiro.", True
+        return "Atualização iniciada. Verificando as fontes locais…", True
     async def login(_=None):
         if bridge.available:
             if not GOOGLE_WEB_CLIENT_ID:
@@ -624,11 +596,6 @@ async def main(page: ft.Page):
             account_state[0] = 'connected'
         navigate_settings()
     async def poll_native_bridge():
-        def finish_native_scan():
-            pending_native_scans[0] = max(0, pending_native_scans[0] - 1)
-            if pending_native_scans[0] == 0:
-                scan_in_progress[0] = False
-
         async def ingest_native_batch(event_type, payload, event_request_id):
             source_map = {
                 "saf_scan_batch": ("saf", "root"),
@@ -796,10 +763,47 @@ async def main(page: ft.Page):
                                 if operation_key in processed_native_operations:
                                     logger.info("[STORAGE] duplicate native operation ignored key=%s", operation_key)
                                     continue
+                        if event_type == 'scan_request':
+                            origin_raw = str(payload.get('origin') or 'MEDIASTORE_CHANGE').strip().upper()
+                            source_raw = str(payload.get('source') or '').strip() or None
+                            scope_ref = str(payload.get('scopeRef') or '').strip() or None
+                            full = bool(payload.get('full'))
+                            reason = str(payload.get('reason') or '').strip()
+                            try:
+                                transition = await scan_coordinator.request(
+                                    origin_raw,
+                                    source=source_raw,
+                                    scope_ref=scope_ref,
+                                    full=full,
+                                    reason=reason,
+                                    request_id=request_id or None,
+                                )
+                                diagnostics.record(
+                                    "SCAN_COORDINATOR",
+                                    request_id=request_id,
+                                    source=source_raw,
+                                    result=transition.kind,
+                                )
+                            except Exception as exc:
+                                logger.exception("[SCAN] coordinator request failed: %s", exc)
+                                set_scan_state(ScanUiState.FAILED, source=source_raw, error=str(exc))
+                                safe_update()
                         if contract_event == 'permission_requested':
                             logger.info("[STORAGE] permission_requested type=%s requestId=%s", event_type, request_id or "-")
                         elif contract_event == 'permission_cancelled':
                             storage_onboarding["waiting_for_result"] = False
+                        if event_type in {'saf_scan', 'broad_storage_scan', 'mediastore_scan',
+                            'saf_error', 'broad_storage_error', 'mediastore_error'}:
+                            transition = await scan_coordinator.handle_native_event(
+                                event_type,
+                                request_id,
+                                payload,
+                            )
+                            if transition.refresh_required and transition.logical_finished:
+                                on_catalog_changed()
+                                refresh_settings_if_active()
+                                safe_update()
+
                         if event_type == 'storage_capabilities':
                             apply_storage_capabilities(payload)
                             refresh_settings_if_active()
@@ -812,7 +816,6 @@ async def main(page: ft.Page):
                             directories = int(payload.get('directories') or 0)
                             phase = payload.get('phase') or 'scanning'
                             if phase == 'already_running':
-                                finish_native_scan()
                                 text = 'A varredura desta pasta já está em andamento.'
                             elif phase == 'started':
                                 text = 'Preparando varredura da pasta…'
@@ -878,17 +881,13 @@ async def main(page: ft.Page):
                             except Exception:
                                 page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar a atualização da biblioteca.')); page.snack_bar.open=True; safe_update()
                             finally:
-                                finish_native_scan()
-                                on_catalog_changed()
-                                refresh_settings_if_active()
                         elif event_type == 'broad_storage_scan_progress':
                             files = int(payload.get('files') or 0)
                             videos = int(payload.get('videos') or 0)
                             directories = int(payload.get('directories') or 0)
                             phase = payload.get('phase') or 'scanning'
                             if phase == 'already_running':
-                                finish_native_scan()
-                                text = 'A varredura do armazenamento local já está em andamento.'
+                                    text = 'A varredura do armazenamento local já está em andamento.'
                             else:
                                 text = 'Preparando armazenamento local…' if phase == 'started' else f'Verificando armazenamento… {directories} diretórios, {files} arquivos, {videos} vídeos.'
                             page.snack_bar = ft.SnackBar(ft.Text(text)); page.snack_bar.open = True; safe_update()
@@ -962,8 +961,7 @@ async def main(page: ft.Page):
                             except Exception:
                                 page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; safe_update()
                             finally:
-                                finish_native_scan()
-                                on_catalog_changed()
+                                                on_catalog_changed()
                                 refresh_settings_if_active()
                         elif event_type == 'broad_storage_status':
                             granted = bool(payload.get('hasAccess'))
@@ -1013,7 +1011,7 @@ async def main(page: ft.Page):
                             else:
                                 store.update_folder_status('broad-storage', 'unavailable', message)
                                 store.mark_source_unavailable('broad-storage', 'broad_scan_failed')
-                            finish_native_scan(); page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; safe_update()
+ page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; safe_update()
                             refresh_settings_if_active()
                         elif event_type == 'mediastore_scan_progress':
                             files = int(payload.get('files') or 0)
@@ -1348,9 +1346,13 @@ async def main(page: ft.Page):
                                 if isinstance(after, dict) and after.get('available', False) and not before.get('available', False):
                                     volume_returned = True
                             if volume_returned:
-                                # Event-driven rediscovery: a newly mounted/reconnected
-                                # volume is scanned once instead of being polled.
-                                asyncio.create_task(bridge.scan_all_storage())
+                                transition = await scan_coordinator.request(
+                                    ScanOrigin.VOLUME_MOUNT,
+                                    source="broad_storage",
+                                    full=False,
+                                    reason="volume_returned",
+                                )
+                                diagnostics.record("SCAN_COORDINATOR", source="broad_storage", result=transition.kind)
                             logger.info(
                                 "[STORAGE] action=volume_changed native_result=received "
                                 "current=%s added=%s removed=%s changed=%s rediscovery=%s",

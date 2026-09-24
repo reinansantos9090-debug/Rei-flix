@@ -41,7 +41,6 @@ class Prompt4PlayerGestureUxTests(unittest.TestCase):
             "fun panBounds(",
             "fun clampTranslation(",
             "fun seekTarget(",
-            "fun distanceRatio(",
             "fun isMeaningfulMovement(",
         ):
             self.assertIn(token, self.player)

@@ -63,14 +63,18 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
     def test_player_accepts_saf_or_media_store_without_path_conversion(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
+        self.assertIn('localUri.scheme?.lowercase() !in setOf("content", "file")', main)
+        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
+        self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", main)
+        self.assertIn("validatePlayerSource(localUri)", main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
-        self.assertIn(".setUri(uri)", player)
+        self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", player)
+        self.assertIn(".setUri(mediaUri)", player)
         self.assertIn("validateLocalSource", player)
         self.assertIn('openFileDescriptor(uri, "r")', player)
-        self.assertNotIn("Uri.fromFile", main)
-        self.assertNotIn("/storage/emulated/0", main)
+        self.assertNotIn("Uri.fromFile", main + player)
+        self.assertNotIn("/storage/emulated/0", main + player)
 
     def test_flet_template_copies_media_store_scanner_and_permissions(self):
         template = (ROOT / "scripts" / "prepare_flet_template.py").read_text(encoding="utf-8")

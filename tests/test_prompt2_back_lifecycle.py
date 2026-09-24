@@ -32,10 +32,14 @@ class Prompt2BackLifecycleTests(unittest.TestCase):
 
     def test_navigation_controller_remains_single_logical_source_of_truth(self):
         source = self.read(MAIN)
+        navigation = self.read(ROOT / "core/navigation.py")
         self.assertIn("navigation = NavigationController()", source)
         self.assertIn("for index, route in enumerate(navigation.stack)", source)
         self.assertIn("handle_flet_view_pop", source)
         self.assertIn('navigate_back("flet_view_pop")', source)
+        self.assertIn("push_settings", navigation)
+        self.assertIn("settings_inner", navigation)
+        self.assertNotIn("settings_system_back", source)
 
     def test_manifest_uses_single_task_and_predictive_back_enabled(self):
         manifest = self.read(MANIFEST)
@@ -49,6 +53,22 @@ class Prompt2BackLifecycleTests(unittest.TestCase):
         self.assertIn('finishPlayer("android_back")', source)
         self.assertIn("player.release()", source)
         self.assertIn("setResult(", source)
+
+    def test_settings_is_nested_under_the_same_navigation_controller(self):
+        source = self.read(MAIN)
+        settings = self.read(ROOT / "views/settings_view.py")
+        self.assertIn("on_open_settings_category=navigate_settings_category", source)
+        self.assertIn("settings_path_provider=lambda: navigation.settings_path", source)
+        self.assertIn("on_open_settings_category=None", settings)
+        self.assertNotIn("active_category = [None]", settings)
+        self.assertNotIn("on_register_system_back", settings)
+
+    def test_back_has_no_generic_activity_exit_shortcut(self):
+        source = self.read(MAIN)
+        activity = self.read(MAIN_ACTIVITY)
+        self.assertNotIn("finishAffinity(", source)
+        self.assertNotIn("finishAffinity(", activity)
+        self.assertEqual(source.count("page.on_view_pop = handle_flet_view_pop"), 1)
 
     def test_player_launch_is_single_flight(self):
         source = self.read(MAIN_ACTIVITY)

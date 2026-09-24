@@ -1798,6 +1798,168 @@ class LibraryStore:
                 })
             return result
 
+    def catalog_page(
+        self, *, page=0, page_size=36, query="", state="Todos", genre="Todos",
+        sort="Mais recentes", tag="Todos", media_type="Todos", season=None,
+        episode_type="Todos", source_kind="Todos", availability="Todos",
+        metadata="Todos", artwork="Todos",
+    ):
+        """Return one bounded catalog page directly from SQLite."""
+        try: page = max(0, int(page))
+        except (TypeError, ValueError): page = 0
+        try: page_size = min(100, max(12, int(page_size)))
+        except (TypeError, ValueError): page_size = 36
+        where = ["EXISTS (SELECT 1 FROM episodes e0 WHERE e0.anime_id=a.id)"]
+        params = []
+        state_sql = {
+            "Favoritos": "a.favorite=1",
+            "Fixados": "a.is_pinned=1",
+            "Assistidos": "EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.watched=1)",
+            "Não assistidos": "EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.watched=0)",
+            "Em andamento": "EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.progress>0 AND e.watched=0)",
+            "Concluídos": "EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.watched=0)",
+            "Não iniciados": "EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND (e.watched=1 OR e.progress>0))",
+            "Com nota": "NULLIF(TRIM(a.personal_note),'') IS NOT NULL",
+            "Sem nota": "NULLIF(TRIM(a.personal_note),'') IS NULL",
+            "Sem metadata": "(a.anilist_id IS NULL OR TRIM(COALESCE(a.anilist_id,''))='') AND COALESCE(a.metadata_source,'local') IN ('local','unresolved','unknown','')",
+        }
+        state = str(state or "Todos")
+        if state in state_sql:
+            where.append(state_sql[state])
+        elif state == "Sem capa":
+            where.append("NULLIF(TRIM(COALESCE(a.cover_cache,'')),'') IS NULL AND NULLIF(TRIM(COALESCE(a.cover_url,'')),'') IS NULL AND NOT EXISTS (SELECT 1 FROM artwork ar WHERE ar.entity_id=CAST(a.id AS TEXT) AND ar.status='ready' AND NULLIF(TRIM(COALESCE(ar.local_path,'')),'') IS NOT NULL)")
+        media = str(media_type or "Todos")
+        if media in {"Série/Anime", "Série", "Anime"}:
+            where.append("a.media_kind!='movie' AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND LOWER(COALESCE(e.episode_type,'regular')) NOT IN ('special','ova','oad','ona','extra','movie'))")
+        elif media in {"Filme", "Movie"}:
+            where.append("(a.media_kind='movie' OR EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.episode_type='movie'))")
+        elif media in {"Especial", "Special"}:
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND LOWER(COALESCE(e.episode_type,'regular')) IN ('special','ova','oad','ona','extra'))")
+        elif media in {"Episódio", "Episode"}:
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND LOWER(COALESCE(e.episode_type,'regular')) NOT IN ('special','ova','oad','ona','extra','movie'))")
+        if season not in (None, "", "Todos"):
+            try: wanted_season = int(season)
+            except (TypeError, ValueError): wanted_season = None
+            if wanted_season is not None:
+                where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.season=?)")
+                params.append(wanted_season)
+        if episode_type not in ("Todos", "", None):
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND LOWER(COALESCE(e.episode_type,'regular'))=LOWER(?))")
+            params.append(str(episode_type))
+        if source_kind not in ("Todos", "", None):
+            where.append("EXISTS (SELECT 1 FROM episodes e JOIN folders f ON f.path=e.source_folder WHERE e.anime_id=a.id AND LOWER(COALESCE(f.kind,''))=LOWER(?))")
+            params.append(str(source_kind))
+        if genre not in ("Todos", "", None):
+            label = str(genre).strip()
+            where.append("(EXISTS (SELECT 1 FROM anime_genres ag JOIN genres g ON g.id=ag.genre_id WHERE ag.anime_id=a.id AND (CAST(g.id AS TEXT)=? OR LOWER(g.canonical_name)=LOWER(?) OR LOWER(g.normalized_name)=LOWER(?))) OR LOWER(COALESCE(a.genres,'')) LIKE LOWER(?))")
+            params.extend([label, label, label, f"%{label}%"])
+        if tag == "Sem etiqueta":
+            where.append("COALESCE(TRIM(a.user_tags),'[]') IN ('[]','')")
+        elif tag not in ("Todos", "", None):
+            where.append("LOWER(COALESCE(a.user_tags,'')) LIKE LOWER(?)")
+            params.append(f'%"{str(tag).strip()}"%')
+        if availability == "Disponível":
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0)")
+        elif availability in {"Com missing", "Missing"}:
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=1)")
+        elif availability == "Sem missing":
+            where.append("NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=1)")
+        if metadata == "Disponível":
+            where.append("(a.anilist_id IS NOT NULL OR COALESCE(a.metadata_source,'local') NOT IN ('local','unresolved','unknown',''))")
+        elif metadata == "Ausente":
+            where.append("(a.anilist_id IS NULL AND COALESCE(a.metadata_source,'local') IN ('local','unresolved','unknown',''))")
+        artwork_ready = "EXISTS (SELECT 1 FROM artwork ar WHERE ar.entity_id=CAST(a.id AS TEXT) AND ar.status='ready' AND NULLIF(TRIM(COALESCE(ar.local_path,'')),'') IS NOT NULL)"
+        if artwork == "Disponível":
+            where.append("(NULLIF(TRIM(COALESCE(a.cover_cache,'')),'') IS NOT NULL OR NULLIF(TRIM(COALESCE(a.cover_url,'')),'') IS NOT NULL OR " + artwork_ready + ")")
+        elif artwork == "Ausente":
+            where.append("NULLIF(TRIM(COALESCE(a.cover_cache,'')),'') IS NULL AND NULLIF(TRIM(COALESCE(a.cover_url,'')),'') IS NULL AND NOT " + artwork_ready)
+        raw = str(query or "").strip()
+        compact = re.sub(r'\s+', '', raw.casefold())
+        m = re.fullmatch(r's(\d{1,3})e(\d{1,5})', compact)
+        sm = re.fullmatch(r's(\d{1,3})', compact)
+        em = re.fullmatch(r'(?:e|ep|episodio|episode)(\d{1,5})', compact)
+        am = re.fullmatch(r'(?:absolute|abs)(\d+(?:\.\d+)?)', compact)
+        bm = re.fullmatch(r'\d+(?:\.\d+)?', compact)
+        if m:
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.season=? AND e.number=?)")
+            params.extend([int(m.group(1)), float(m.group(2))])
+        elif sm:
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.season=?)")
+            params.append(int(sm.group(1)))
+        elif em or am or bm:
+            value = float((em or am).group(1) if (em or am) else bm.group(0))
+            if am:
+                where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.absolute_number=?)")
+                params.append(value)
+            else:
+                where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND (e.number=? OR e.absolute_number=?))")
+                params.extend([value, value])
+        elif raw:
+            tokens = [t for t in re.findall(r'[\w]+', raw.casefold()) if t]
+            cols = ("a.title", "a.romaji", "a.english", "a.native", "a.aliases", "a.description", "a.genres", "a.user_tags", "a.personal_note")
+            for token in tokens:
+                like = f"%{token}%"
+                cols_sql = " OR ".join(f"LOWER(COALESCE({column},'')) LIKE ?" for column in cols)
+                where.append(f"({cols_sql} OR EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND (LOWER(COALESCE(e.file_name,'')) LIKE ? OR LOWER(COALESCE(e.episode_title,'')) LIKE ? OR LOWER(COALESCE(e.path,'')) LIKE ?)))")
+                params.extend([like] * len(cols) + [like, like, like])
+        order_map = {
+            "Mais recentes": "a.added_at DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Assistidos recentemente": "(SELECT COALESCE(MAX(e.last_played_at),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Progresso": "(SELECT COALESCE(SUM(CASE WHEN e.missing=0 THEN e.progress ELSE 0 END)/NULLIF(SUM(CASE WHEN e.missing=0 AND e.duration>0 THEN e.duration ELSE 0 END),0),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Episódio": "(SELECT COALESCE(MIN(CASE WHEN e.missing=0 THEN e.number END),999999) FROM episodes e WHERE e.anime_id=a.id) ASC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Temporada + episódio": "(SELECT COALESCE(MIN(CASE WHEN e.missing=0 THEN e.season END),999999) FROM episodes e WHERE e.anime_id=a.id) ASC, (SELECT COALESCE(MIN(CASE WHEN e.missing=0 THEN e.number END),999999) FROM episodes e WHERE e.anime_id=a.id) ASC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Modificação": "(SELECT COALESCE(MAX(e.modified_at),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Duração": "(SELECT COALESCE(SUM(e.duration),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Tamanho": "(SELECT COALESCE(SUM(e.file_size),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Favoritos primeiro": "a.favorite DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Fixados primeiro": "a.is_pinned DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Nome A-Z": "LOWER(COALESCE(a.title,'')) ASC, a.id ASC",
+            "Nome Z-A": "LOWER(COALESCE(a.title,'')) DESC, a.id DESC",
+        }
+        order_by = order_map.get(sort or "Mais recentes", order_map["Mais recentes"])
+        where_sql = " AND ".join(where)
+        with self._conn() as c:
+            total = int(c.execute(f"SELECT COUNT(*) FROM anime a WHERE {where_sql}", tuple(params)).fetchone()[0] or 0)
+            offset = page * page_size
+            rows = c.execute(f"SELECT a.id FROM anime a WHERE {where_sql} ORDER BY {order_by} LIMIT ? OFFSET ?", tuple(params + [page_size, offset])).fetchall()
+            ids = [int(row["id"]) for row in rows]
+        items = self.catalog(anime_ids=ids) if ids else []
+        by_id = {int(item["id"]): item for item in items}
+        ordered = [by_id[anime_id] for anime_id in ids if anime_id in by_id]
+        return {"items": ordered, "page": page, "page_size": page_size, "total": total, "has_more": offset + len(ordered) < total}
+
+    def search_options(self):
+        """Return filter values without projecting the full visual catalog."""
+        with self._conn() as c:
+            seasons = [int(row[0]) for row in c.execute("SELECT DISTINCT season FROM episodes WHERE season IS NOT NULL ORDER BY season").fetchall()]
+            episode_types = [str(row[0]) for row in c.execute("SELECT DISTINCT episode_type FROM episodes WHERE episode_type IS NOT NULL AND episode_type!='' ORDER BY episode_type").fetchall()]
+            source_kinds = [str(row[0]) for row in c.execute("SELECT DISTINCT f.kind FROM episodes e JOIN folders f ON f.path=e.source_folder WHERE f.kind IS NOT NULL AND f.kind!='' ORDER BY f.kind").fetchall()]
+            tags_rows = c.execute("SELECT user_tags FROM anime WHERE user_tags IS NOT NULL").fetchall()
+        tags = {}
+        for row in tags_rows:
+            try: values = json.loads(row["user_tags"] or "[]")
+            except (TypeError, json.JSONDecodeError): values = []
+            for value in values if isinstance(values, list) else []:
+                text_value = str(value).strip()
+                if text_value: tags[text_value.casefold()] = text_value
+        return {"genres": [], "tags": sorted(tags.values(), key=str.casefold), "seasons": seasons, "episode_types": episode_types, "source_kinds": source_kinds, "media_types": ["Série/Anime", "Filme", "Especial", "Episódio"], "availability": ["Disponível", "Com missing", "Sem missing"], "metadata": ["Disponível", "Ausente"], "artwork": ["Disponível", "Ausente"], "states": ["Todos", "Favoritos", "Fixados", "Assistidos", "Não assistidos", "Em andamento", "Concluídos", "Não iniciados", "Com nota", "Sem nota", "Sem metadata", "Sem capa"], "sorts": ["Mais recentes", "Assistidos recentemente", "Progresso", "Episódio", "Temporada + episódio", "Modificação", "Duração", "Tamanho", "Favoritos primeiro", "Fixados primeiro", "Nome A-Z", "Nome Z-A"]}
+
+    def home_sections(self, limit=12):
+        """Build bounded Home sections without materializing the full catalog."""
+        page_limit = min(24, max(1, int(limit)))
+        def items(**filters):
+            return self.catalog_page(page=0, page_size=page_limit, **filters)["items"]
+        return {
+            "continue_watching": self.continue_watching(limit=page_limit),
+            "next_episode": items(state="Em andamento", sort="Assistidos recentemente"),
+            "recently_added": items(sort="Mais recentes"),
+            "recently_watched": self.playback_history(limit=page_limit),
+            "favorites": items(state="Favoritos", sort="Mais recentes"),
+            "pinned": items(state="Fixados", sort="Mais recentes"),
+            "series": items(media_type="Série/Anime", sort="Mais recentes"),
+            "movies": items(media_type="Filme", sort="Mais recentes"),
+            "specials": items(media_type="Especial", sort="Mais recentes"),
+        }
     def set_episode_identification(self, path, *, season=None, number=None, episode_type="regular", title=None):
         """Persist an explicit user identification without changing consumption data."""
         if season is None:

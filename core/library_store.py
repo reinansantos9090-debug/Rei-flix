@@ -1557,6 +1557,14 @@ class LibraryStore:
                 for row in c.execute("SELECT path, kind FROM folders")
                 if row["path"]
             }
+            genre_rows = c.execute(
+                "SELECT ag.anime_id,g.id,g.canonical_name FROM anime_genres ag JOIN genres g ON g.id=ag.genre_id ORDER BY g.normalized_name"
+            ).fetchall()
+            genres_by_anime = {}
+            for genre_row in genre_rows:
+                genres_by_anime.setdefault(int(genre_row["anime_id"]), []).append(
+                    (str(genre_row["id"]), str(genre_row["canonical_name"]))
+                )
             artwork_rows = c.execute(
                 "SELECT entity_type, entity_id, local_path FROM artwork WHERE status != 'failed'"
             ).fetchall()

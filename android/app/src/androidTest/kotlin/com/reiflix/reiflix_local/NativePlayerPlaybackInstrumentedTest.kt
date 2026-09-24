@@ -310,9 +310,10 @@ class NativePlayerPlaybackInstrumentedTest {
 
         logStage("VISUAL_BACK")
         val lockButton = awaitView<View>("reiflix_lock_button")
+        val backBeforeLock = awaitView<View>("reiflix_back_button")
         onMain { lockButton.performClick() }
         await("Lock button must keep the player in a locked interaction state") {
-            !awaitView<View>("reiflix_back_button").isShown
+            !onMain { backBeforeLock.isShown }
         }
         onMain { lockButton.performClick() }
 

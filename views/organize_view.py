@@ -773,7 +773,10 @@ class OrganizeView:
             except Exception:
                 logger.debug('Organize scroll restoration unavailable', exc_info=True)
 
-        view_state['_refresh_from_catalog'] = refresh_from_catalog
+        def schedule_refresh_from_catalog():
+            page.run_task(refresh_from_catalog)
+
+        view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
         save_view_state()
         render_generation[0] += 1
         render_overview()

@@ -32,4 +32,21 @@ class SystemUiController(private val window: Window) {
             hide(WindowInsetsCompat.Type.systemBars())
         }
     }
+
+    fun applyNormal() {
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.statusBarColor = android.graphics.Color.BLACK
+        window.navigationBarColor = android.graphics.Color.BLACK
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            window.isStatusBarContrastEnforced = false
+            window.isNavigationBarContrastEnforced = false
+        }
+        controller.apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+            systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
 }

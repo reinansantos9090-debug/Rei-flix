@@ -12,6 +12,10 @@ class TestRepositoryHygiene(unittest.TestCase):
         for path in ROOT.rglob("*"):
             if ".git" in path.parts or path.is_dir():
                 continue
+            # Ignore CI/runtime-generated directories. This test is about
+            # repository contents, not artifacts produced during the suite itself.
+            if "build" in path.parts or "__pycache__" in path.parts:
+                continue
             if path.suffix.casefold() in forbidden_suffixes or path.name in forbidden_names:
                 offenders.append(str(path.relative_to(ROOT)))
         self.assertEqual([], offenders)

@@ -207,7 +207,7 @@ class GenreRegistry:
                     mapping.setdefault(int(row["anime_id"]), []).append(dict(row))
         for item in catalog:
             genres = mapping.get(int(item["id"]), []) if item.get("id") is not None else []
-            item["genre_ids"] = [g["id"] for g in genres]
+            item["genre_ids"] = list(dict.fromkeys(g["id"] for g in genres))
             item["genres"] = list(dict.fromkeys(g["canonical_name"] for g in genres))
             item["genre_aliases"] = list(dict.fromkeys(g["alias"] for g in genres if g.get("alias")))
         return catalog

@@ -123,7 +123,7 @@ class SettingsStore:
                 raise SettingsValidationError(f"inteiro inválido para {definition.key}")
             if isinstance(value, int):
                 number = value
-            elif isinstance(value, str) and re.fullmatch(r"\\d+", value.strip()):
+            elif isinstance(value, str) and re.fullmatch(r"\d+", value.strip()):
                 number = int(value.strip())
             else:
                 raise SettingsValidationError(f"inteiro inválido para {definition.key}")

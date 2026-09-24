@@ -53,7 +53,7 @@ class Prompt9StorePaginationTests(unittest.TestCase):
             result = store.catalog_page(
                 page=0,
                 page_size=12,
-                query="Title 02",
+                query="Title 002",
                 sort="Nome Z-A",
             )
 

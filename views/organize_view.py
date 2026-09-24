@@ -134,8 +134,8 @@ class OrganizeView:
         collection_genre = None
         collection_sort = None
 
-        def artwork(source, height, icon_size=28, width=None):
-            return media_artwork(source, height, width=width, icon_size=icon_size)
+        def artwork(source, height, icon_size=28, width=None, label="Sem capa"):
+            return media_artwork(source, height, width=width, icon_size=icon_size, label=label)
 
         def progress(anime):
             current = anime.get("current_episode") or {}

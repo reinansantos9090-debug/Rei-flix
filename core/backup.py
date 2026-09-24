@@ -135,9 +135,9 @@ class BackupService:
             name = cls._safe_member_name(info.filename)
             if name in seen:
                 raise BackupValidationError("BACKUP_INVALID", f"Entrada duplicada no backup: {name}")
-            seen.add(name)
             if info.is_dir():
-                continue
+                raise BackupValidationError("BACKUP_UNEXPECTED_ENTRY", f"Entrada de diretório não permitida: {name}")
+            seen.add(name)
             mode = (info.external_attr >> 16) & 0xFFFF
             if stat.S_ISLNK(mode):
                 raise BackupValidationError("BACKUP_UNSAFE_ENTRY", "Backups não podem conter links simbólicos.")
@@ -406,6 +406,15 @@ class BackupService:
             with open(temp_zip, "rb") as handle:
                 os.fsync(handle.fileno())
             os.replace(temp_zip, destination)
+            try:
+                flags = getattr(os, "O_DIRECTORY", 0)
+                dir_fd = os.open(parent, flags)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except (AttributeError, OSError):
+                pass
             return destination
         finally:
             try:

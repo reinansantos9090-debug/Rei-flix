@@ -9,7 +9,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from core.backup import BackupService, BackupValidationError
+from core.backup import BackupError, BackupService, BackupValidationError
 from core.diagnostic_service import DiagnosticsService
 from core.library_store import LibraryStore
 from core.settings import SettingsStore
@@ -201,6 +201,25 @@ class Prompt15BackupRestoreTests(unittest.TestCase):
             self.assertEqual("stable-episode-03", episode["media_identity"])
             self.assertEqual("Ação", con.execute("SELECT canonical_name FROM genres").fetchone()[0])
             self.assertEqual(12345, con.execute("SELECT anilist_id FROM anime").fetchone()[0])
+
+    def test_restore_restores_supported_settings(self):
+        service, raw, _ = self._backup()
+        self.settings.set("appearance.theme", "light")
+        self.settings.set("player.default_speed", 2.0)
+        self.settings.set("audio.preferred_language", "en")
+        self.settings.set("audio.preferred_subtitle_language", "pt-BR")
+        service.restore_bytes(raw)
+        self.assertEqual("light", self.settings.get("appearance.theme"))
+        self.assertEqual(2.0, self.settings.get("player.default_speed"))
+        self.assertEqual("en", self.settings.get("audio.preferred_language"))
+        self.assertEqual("pt-BR", self.settings.get("audio.preferred_subtitle_language"))
+
+    def test_pre_restore_snapshot_is_created(self):
+        service, raw, _ = self._backup()
+        service.restore_bytes(raw)
+        backups = sorted(Path(self.store.backup_dir).glob("pre-restore-*.zip"))
+        self.assertTrue(backups)
+        self.assertGreater(backups[-1].stat().st_size, 0)
 
     def test_restore_does_not_overwrite_current_authentication(self):
         service, raw, _ = self._backup()

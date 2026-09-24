@@ -132,7 +132,7 @@ class SettingsView:
                     ], spacing=2, expand=True),
                     control,
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                padding=ft.padding.symmetric(vertical=7),
+                padding=ft.padding.only(top=7, bottom=7),
             )
 
         def action_row(label, description, button_text, callback):

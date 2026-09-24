@@ -213,7 +213,7 @@ class LibraryStore:
             }.items():
                 if column not in artwork_columns:
                     c.execute(f"ALTER TABLE artwork ADD COLUMN {column} {definition}")
-            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_artwork_key ON artwork(artwork_key) WHERE artwork_key IS NOT NULL")
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_artwork_key ON artwork(entity_type, entity_id, artwork_key) WHERE artwork_key IS NOT NULL")
             c.execute("CREATE INDEX IF NOT EXISTS idx_artwork_last_access ON artwork(last_access)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_artwork_retry ON artwork(status, next_retry_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_anime_pinned ON anime(is_pinned, added_at)")

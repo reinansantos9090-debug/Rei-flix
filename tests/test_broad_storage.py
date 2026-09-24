@@ -57,7 +57,9 @@ class TestBroadStorageArchitecture(unittest.TestCase):
 
     def test_refresh_requests_broad_storage(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn("await bridge.scan_all_storage()", source)
+        self.assertIn("scan_coordinator.request(", source)
+        self.assertIn("ScanOrigin.USER_REFRESH", source)
+        self.assertNotIn("await bridge.scan_all_storage()", source)
         self.assertIn("event_type == 'broad_storage_scan'", source)
 
     def test_broad_access_uses_only_android_authoritative_special_permission(self):

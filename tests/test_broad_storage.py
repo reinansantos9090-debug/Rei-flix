@@ -50,10 +50,11 @@ class TestBroadStorageArchitecture(unittest.TestCase):
 
     def test_settings_shows_permission_rationale_and_controls(self):
         settings = (ROOT / "views/settings_view.py").read_text(encoding="utf-8")
-        self.assertIn("Permissão necessária", settings)
-        self.assertIn("Permissão para ler vídeos", settings)
-        self.assertIn("PERMITIR", settings)
-        self.assertIn("Permitir acesso ao armazenamento", settings)
+        self.assertIn("Permissão de vídeos:", settings)
+        self.assertIn("Acesso amplo:", settings)
+        self.assertIn("Adicionar pasta", settings)
+        self.assertIn("Verificar permissão de vídeos", settings)
+        self.assertIn("Armazenamento amplo", settings)
 
     def test_refresh_requests_broad_storage(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")

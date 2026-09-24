@@ -399,7 +399,14 @@ async def main(page: ft.Page):
             safe_update()
 
     async def create_backup():
-        return await asyncio.to_thread(backup_service.create_backup_bytes)
+        started = time.monotonic()
+        raw = await asyncio.to_thread(backup_service.create_backup_bytes)
+        diagnostics.record(
+            "BACKUP_CREATED",
+            result="success",
+            backup_duration_ms=int((time.monotonic() - started) * 1000),
+        )
+        return raw
 
     async def inspect_backup(raw):
         return await asyncio.to_thread(backup_service.inspect_bytes, raw)
@@ -424,17 +431,19 @@ async def main(page: ft.Page):
                     library.artwork.invalidate_generation("restore_completed")
                     return result
 
+            started = time.monotonic()
             result = await asyncio.to_thread(run_restore)
+            diagnostics.record(
+                "RESTORE_COMPLETED",
+                result="success",
+                restore_duration_ms=int((time.monotonic() - started) * 1000),
+                counts=(result.get("preview") or {}).get("counts") or {},
+            )
         finally:
             await scan_coordinator.end_exclusive()
 
         on_catalog_changed()
         refresh_settings_if_active()
-        diagnostics.record(
-            "RESTORE_COMPLETED",
-            result="success",
-            counts=(result.get("preview") or {}).get("counts") or {},
-        )
         return result
 
     async def request_restore_reconciliation():

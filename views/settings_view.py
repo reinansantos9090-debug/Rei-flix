@@ -189,7 +189,7 @@ class SettingsView:
             "Artwork": ("Capas, thumbnails e cache", ft.Icons.IMAGE_OUTLINED),
             "Armazenamento": ("Permissões, SAF, MediaStore e volumes", ft.Icons.STORAGE_OUTLINED),
             "Dados e Cache": ("Configurações, importação, exportação e cache", ft.Icons.CACHED_OUTLINED),
-            "Backup & Restore": ("Backup, restauração, integridade e reconciliação", ft.Icons.SECURITY_OUTLINED),
+            "Backup e Restauração": ("Backup, restauração, integridade e reconciliação", ft.Icons.SECURITY_OUTLINED),
             "Privacidade": ("Dados locais e conectividade", ft.Icons.PRIVACY_TIP_OUTLINED),
             "Varredura": ("Estado e histórico das varreduras", ft.Icons.REFRESH_OUTLINED),
             "Diagnóstico": ("Informações técnicas e diagnóstico", ft.Icons.BUG_REPORT_OUTLINED),
@@ -238,7 +238,11 @@ class SettingsView:
                     if not query
                     or query in label.casefold()
                     or query in str(category_meta.get(label, ("", None))[0]).casefold()
-                    or query in str(next((item for item in section_cache if getattr(item, "data_label", "") == label), ft.Container())).casefold()
+                    or query in str(getattr(
+                        next((item for item in section_cache if getattr(item, "data_label", "") == label), None),
+                        "data",
+                        "",
+                    ))
                 ]
             else:
                 controls = [
@@ -806,7 +810,7 @@ class SettingsView:
                 action_row("Restaurar configurações", "Reseta somente Settings; não é backup/restore completo.", "Restaurar", reset_all),
             ], ("dados","cache","reset","exportar","importar")))
 
-            items.append(section("Backup & Restore", ft.Icons.SECURITY_OUTLINED, [
+            items.append(section("Backup e Restauração", ft.Icons.SECURITY_OUTLINED, [
                 ft.Text(
                     "Backup v1 guarda o estado lógico do SQLite, preferências suportadas e referências de mídia. "
                     "Vídeos, autenticação, tokens, credenciais e identificadores do dispositivo não entram no arquivo.",
@@ -828,7 +832,7 @@ class SettingsView:
                     "Versões incompatíveis são rejeitadas explicitamente, sem inventar migrações inexistentes.",
                     color=TEXT_MUTED, size=10,
                 ),
-            ], ("backup","restore","migração","integridade","checksum","diagnóstico","recovery","offline")))
+            ], ("backup","restore","migração","integridade","checksum","recovery","offline")))
 
             items.append(section("Privacidade", ft.Icons.PRIVACY_TIP_OUTLINED, [
                 ft.Text("Biblioteca, histórico e caminhos locais permanecem locais.", color=TEXT, size=12),

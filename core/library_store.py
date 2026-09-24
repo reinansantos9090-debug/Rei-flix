@@ -847,7 +847,8 @@ class LibraryStore:
                 """UPDATE anime SET anilist_id=NULL,anilist_match_status='unmatched',
                                    anilist_match_score=NULL,anilist_match_margin=NULL,
                                    anilist_match_manual=0,metadata_status='unresolved',
-                                   metadata_source='local' WHERE id=?""",
+                                   metadata_source='local',metadata_updated_at=NULL,
+                                   metadata_fetched_at=NULL WHERE id=?""",
                 (row["id"],),
             )
             c.execute("DELETE FROM associations WHERE lookup_title=?", (lookup,))

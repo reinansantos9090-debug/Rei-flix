@@ -102,10 +102,12 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertIn("BroadStorageScanner.isAuthorizedFile", source)
         self.assertIn("contentResolver.openFileDescriptor", source)
 
-    def test_native_player_gesture_contract_is_clean_and_non_stretching(self):
+    def test_native_player_gesture_contract_is_touch_arbitrated_and_non_stretching(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         for token in (
             "ScaleGestureDetector",
+            "GestureDetector",
+            "PlayerGesturePolicy",
             "RESIZE_MODE_ZOOM",
             "RESIZE_MODE_FIT",
             "RESIZE_MODE_FILL",
@@ -115,30 +117,60 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "BACK_BUTTON_TOUCH",
             "ANDROID_BACK",
             "PLAYER_SINGLE_TAP",
+            "PLAYER_DOUBLE_TAP",
+            "PLAYER_LONG_PRESS",
             "GESTURE_START",
             "GESTURE_END",
+            "horizontal_ignored",
+            "VERTICAL",
+            "adjustBrightness",
+            "adjustVolumeByFraction",
+            "AudioManager.STREAM_MUSIC",
             "controls.bringToFront()",
             'tag = "reiflix_back_button"',
-            'actionButton("Aspecto", 92)',
+            'tag = "reiflix_lock_button"',
+            'tag = "reiflix_seekbar"',
+            'tag = "reiflix_gesture_volume"',
+            'tag = "reiflix_gesture_brightness"',
+            'tag = "reiflix_gesture_double_tap"',
+            'tag = "reiflix_gesture_long_press"',
             '"Ajustar", "Preencher", "Zoom", "Original", "Auto"',
         ):
             self.assertIn(token, source)
         for token in (
             "HORIZONTAL_SEEK",
+            "GestureMode.HORIZONTAL_SEEK",
             "calculateCloudStreamSeekTarget",
-            "PLAYER_DOUBLE_TAP",
-            "handleDoubleTap",
-            "ViewConfiguration.getDoubleTapTimeout()",
-            "VERTICAL_BRIGHTNESS",
-            "VERTICAL_VOLUME",
-            "adjustBrightness",
-            "adjustVolumeByFraction",
-            "adjustVolume(",
-            "showAdjustment",
-            "currentVolumeSummary",
-            "brightnessLevel",
         ):
             self.assertNotIn(token, source)
+
+    def test_prompt12_generation_back_immersive_and_error_contracts(self):
+        source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        required = (
+            "playerGeneration",
+            "beginPlayerGeneration",
+            "createPlayerListener(generation",
+            "generation == playerGeneration",
+            "SessionState",
+            "ACTIVE",
+            "EXITING",
+            "DESTROYED",
+            "errorPublishedForGeneration",
+            "player_exited",
+            "restoreSystemUiBeforeExit",
+            "WindowCompat.setDecorFitsSystemWindows(window, false)",
+            "show(WindowInsetsCompat.Type.systemBars())",
+            "hide(WindowInsetsCompat.Type.systemBars())",
+            "getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())",
+            "mandatorySystemGestures()",
+            "setAudioAttributes",
+            "FEATURE_PICTURE_IN_PICTURE",
+            "setAutoEnterEnabled(true)",
+        )
+        for token in required:
+            self.assertIn(token, source)
+        self.assertIn('android:enableOnBackInvokedCallback="true"', (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8"))
+        self.assertIn('android:launchMode="singleTop"', (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8"))
 
     def test_native_player_reuses_one_activity_for_episode_changes(self):
         player = PLAYER_ACTIVITY.read_text(encoding="utf-8")

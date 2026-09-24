@@ -421,7 +421,7 @@ class MainActivity : FlutterFragmentActivity() {
         logLifecycle("onCreate", intent)
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
-        applyImmersiveSystemUi()
+        applyNormalSystemUi()
         // Permission-sensitive actions are queued until the Activity is resumed.
         handleNativeIntent(intent)
     }
@@ -445,7 +445,7 @@ class MainActivity : FlutterFragmentActivity() {
         activityResumed = true
         logLifecycle("onResume")
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "ON_RESUME").put("lifecycle", "onResume")))
-        applyImmersiveSystemUi()
+        applyNormalSystemUi()
 
         // A lifecycle-sensitive command may have been queued because the
         // Activity was not resumed when Python delivered the request. Do not
@@ -591,9 +591,9 @@ class MainActivity : FlutterFragmentActivity() {
             .sorted()
             .toList()
 
-    private fun applyImmersiveSystemUi() {
+    private fun applyNormalSystemUi() {
         if (::systemUiController.isInitialized) {
-            systemUiController.applyImmersive()
+            systemUiController.applyNormal()
         }
     }
 
@@ -1621,7 +1621,7 @@ class MainActivity : FlutterFragmentActivity() {
         super.onWindowFocusChanged(hasFocus)
         logLifecycle("onWindowFocusChanged")
         if (hasFocus) {
-            applyImmersiveSystemUi()
+            applyNormalSystemUi()
             ViewCompat.requestApplyInsets(window.decorView)
         }
     }
@@ -1629,7 +1629,7 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         Log.i(tag, "CONFIGURATION_CHANGED orientation=${newConfig.orientation}")
-        applyImmersiveSystemUi()
+        applyNormalSystemUi()
         ViewCompat.requestApplyInsets(window.decorView)
     }
     private fun signInWithGoogle(serverClientId: String?) {

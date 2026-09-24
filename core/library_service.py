@@ -902,37 +902,40 @@ class LibraryService:
     def organize_summary(catalog):
         """Build Organize categories from the same search/filter policy used by collections.
 
-        Counts intentionally come from the reusable search engine so every
-        category badge represents exactly the population that its click opens.
-        Genre labels are only grouped by the existing matching normalization;
-        Prompt 6 remains responsible for a full genre registry.
+        ``states`` remains the legacy four-category API used by existing callers.
+        ``collections`` exposes the expanded Organize 2.0 categories without
+        breaking that public compatibility surface.
         """
         catalog = list(catalog or [])
-        state_names = (
-            "Todos",
-            "Favoritos",
-            "Fixados",
-            "Assistidos",
-            "Não assistidos",
-            "Em andamento",
-            "Concluídos",
+        collection_names = (
+            "Todos", "Favoritos", "Fixados", "Assistidos",
+            "Não assistidos", "Em andamento", "Concluídos",
         )
-        states = [
+        collections = [
             {
                 "name": name,
                 "count": len(LibrarySearchEngine.search(catalog, state=name)),
             }
-            for name in state_names
+            for name in collection_names
         ]
+        legacy_order = ("Todos", "Favoritos", "Em andamento", "Concluídos")
+        states = sorted(
+            (item for item in collections if item["name"] in legacy_order),
+            key=lambda item: legacy_order.index(item["name"]),
+        )
 
         genres = {}
         for anime in catalog:
             cover = (anime.get("meta") or {}).get("cover_cache") or (anime.get("meta") or {}).get("cover_url")
+            seen_genres = set()
             for genre in anime.get("genres") or []:
                 label = str(genre or "").strip()
                 if not label:
                     continue
                 key = normalize_text(label)
+                if not key or key in seen_genres:
+                    continue
+                seen_genres.add(key)
                 entry = genres.setdefault(
                     key,
                     {"name": label, "count": 0, "cover": cover or ""},
@@ -944,8 +947,8 @@ class LibraryService:
         return {
             "genres": sorted(genres.values(), key=lambda item: item["name"].casefold()),
             "states": states,
+            "collections": collections,
         }
-
     @staticmethod
     def browse_catalog(catalog, query="", state="Todos", genre="Todos", sort="Mais recentes", tag="Todos",
                        *, media_type="Todos", season=None, episode_type="Todos", source_kind="Todos",

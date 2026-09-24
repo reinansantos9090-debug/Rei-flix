@@ -1578,6 +1578,16 @@ class MainActivity : FlutterFragmentActivity() {
                 .putExtra("canNext", source.getQueryParameter("can_next")?.toBooleanStrictOrNull() ?: false)
                 .putExtra("canPrevious", source.getQueryParameter("can_previous")?.toBooleanStrictOrNull() ?: false)
                 .putExtra("autoplay", source.getQueryParameter("autoplay")?.toBooleanStrictOrNull() ?: true)
+                .putExtra("setting_player_default_speed", source.getQueryParameter("setting_player_default_speed")?.toFloatOrNull() ?: 1f)
+                .putExtra("setting_player_aspect_ratio", source.getQueryParameter("setting_player_aspect_ratio") ?: "fit")
+                .putExtra("setting_player_immersive", source.getQueryParameter("setting_player_immersive") ?: "always")
+                .putExtra("setting_player_rotation", source.getQueryParameter("setting_player_rotation") ?: "auto")
+                .putExtra("setting_player_pip", source.getQueryParameter("setting_player_pip")?.toBooleanStrictOrNull() ?: true)
+                .putExtra("setting_player_auto_hide_seconds", source.getQueryParameter("setting_player_auto_hide_seconds")?.toIntOrNull() ?: 5)
+                .putExtra("setting_gestures_volume", source.getQueryParameter("setting_gestures_volume")?.toBooleanStrictOrNull() ?: false)
+                .putExtra("setting_gestures_brightness", source.getQueryParameter("setting_gestures_brightness")?.toBooleanStrictOrNull() ?: false)
+                .putExtra("setting_gestures_double_tap", source.getQueryParameter("setting_gestures_double_tap")?.toBooleanStrictOrNull() ?: false)
+                .putExtra("setting_gestures_long_press", source.getQueryParameter("setting_gestures_long_press")?.toBooleanStrictOrNull() ?: false)
 
             Log.i(tag, "PLAY_HANDOFF_START requestId=" + requestId.ifEmpty { "-" } + " component=" + intent.component)
 

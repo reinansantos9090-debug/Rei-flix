@@ -177,12 +177,11 @@ class StorageOnboardingTests(unittest.TestCase):
 
     def test_storage_permission_dialogs_in_settings_use_managed_flet_stack(self):
         source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
-        media = source[source.index("def show_video_permission_dialog"):source.index("def show_broad_storage_dialog")]
-        broad = source[source.index("def show_broad_storage_dialog"):source.index("pending_matches = store.pending_matches()")]
-        for block in (media, broad):
-            self.assertIn("page.show_dialog(dialog)", block)
-            self.assertIn("page.pop_dialog()", block)
-            self.assertNotIn("page.overlay.append(dialog)", block)
+        self.assertIn("page.show_dialog(", source)
+        self.assertIn("page.pop_dialog()", source)
+        self.assertNotIn("page.overlay.append(", source)
+        self.assertIn("Verificar permissão de vídeos", source)
+        self.assertIn("Armazenamento amplo", source)
 
     def test_startup_never_self_launches_persisted_saf_verification(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
@@ -278,8 +277,9 @@ class StorageOnboardingTests(unittest.TestCase):
     def test_refresh_library_gates_broad_scanner_on_authorization(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         refresh = source[source.index("    async def refresh_library"):source.index("    async def login", source.index("    async def refresh_library"))]
-        self.assertIn('broad_granted = caps.can_scan("broad-storage")', refresh)
-        self.assertIn("if broad_granted:", refresh)
+        self.assertIn("scan_coordinator.request(", refresh)
+        self.assertIn("ScanOrigin.USER_REFRESH", refresh)
+        self.assertNotIn("await bridge.scan_all_storage()", refresh)
 
     def test_on_resume_does_not_publish_intermediate_denied_before_pending_request(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
@@ -455,17 +455,18 @@ class TestAuthorizedStorageDiscovery(unittest.TestCase):
         self.assertIn("mediaAccessChangedToUsable", source)
         request = source[source.index("private fun requestMediaAccess()"):source.index("private fun publishStorageStatus()", source.index("private fun requestMediaAccess()"))]
         self.assertIn("if (currentAccess != \"denied\")", request)
-        self.assertIn("scanMediaStore(requestId)", request)
+        self.assertIn("publishScanRequest(", request)
         callback = source[source.index("private val mediaPermissionRequester"):source.index("private val treePicker", source.index("private val mediaPermissionRequester"))]
         self.assertIn("val requestId = pendingMediaRequestId", callback)
-        self.assertIn("scanMediaStore(requestId)", callback)
+        self.assertIn("publishScanRequest(", callback)
 
     def test_existing_broad_access_converges_to_scan(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         block = source[source.index("private fun openBroadStorageSettings()"):source.index("private fun scanAllStorage", source.index("private fun openBroadStorageSettings()"))]
         self.assertIn("if (BroadStorageScanner.hasAccess(this))", block)
-        self.assertIn("scanAllStorage(requestId)", block)
+        self.assertIn("publishScanRequest(", block)
         self.assertIn("revalidatedAfterSettings", block)
+        self.assertNotIn("scanAllStorage(requestId)", block)
 
 
 class TestAndroidMediaLifecycle(unittest.TestCase):

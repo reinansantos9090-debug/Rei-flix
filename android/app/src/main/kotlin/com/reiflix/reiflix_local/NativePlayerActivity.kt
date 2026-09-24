@@ -1289,6 +1289,99 @@ class NativePlayerActivity : ComponentActivity() {
         playerView.requestLayout()
     }
 
+    private fun captureTrackFormatSummaries() {
+        if (!::player.isInitialized) return
+        var videoSummary: String? = null
+        var audioSummary: String? = null
+        for (group in player.currentTracks.groups) {
+            for (index in 0 until group.length) {
+                if (!group.isTrackSupported(index)) continue
+                val format = group.getTrackFormat(index)
+                val summary = formatSummary(format, group.isTrackSelected(index))
+                when (format.sampleMimeType?.substringBefore('/').orEmpty()) {
+                    "video" -> if (videoSummary == null || group.isTrackSelected(index)) videoSummary = summary
+                    "audio" -> if (audioSummary == null || group.isTrackSelected(index)) audioSummary = summary
+                }
+            }
+        }
+        videoFormatSummary = videoSummary
+        audioFormatSummary = audioSummary
+    }
+
+    private fun formatSummary(format: Format, selected: Boolean): String {
+        val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
+        val label = format.label?.takeIf { it.isNotBlank() }
+        val language = format.language?.takeIf { it.isNotBlank() }
+        val size = if (format.width > 0 && format.height > 0) {
+            format.width.toString() + "x" + format.height
+        } else null
+        val frameRate = format.frameRate.takeIf { it > 0f }?.let {
+            String.format(Locale.US, "%.3f fps", it)
+        }
+        val channels = format.channelCount.takeIf { it > 0 }?.let { it.toString() + " ch" }
+        val sampleRate = format.sampleRate.takeIf { it > 0 }?.let { it.toString() + " Hz" }
+        val bitrate = format.bitrate.takeIf { it > 0 }?.let { it.toString() + " bps" }
+        return listOfNotNull(
+            if (selected) "selected" else null,
+            codec, label, language, size, frameRate, channels, sampleRate, bitrate,
+        ).joinToString(" • ")
+    }
+
+    private fun formatCodecLabel(sampleMimeType: String?, codecs: String?): String {
+        val mime = sampleMimeType.orEmpty().lowercase(Locale.ROOT)
+        val codec = codecs?.takeIf { it.isNotBlank() }
+        return when (mime) {
+            "video/avc" -> "H.264" + if (codec != null) " (" + codec + ")" else ""
+            "video/hevc" -> "HEVC" + if (codec != null) " (" + codec + ")" else ""
+            "video/x-vnd.on2.vp9" -> "VP9" + if (codec != null) " (" + codec + ")" else ""
+            "video/av01" -> "AV1" + if (codec != null) " (" + codec + ")" else ""
+            "audio/mp4a-latm" -> "AAC" + if (codec != null) " (" + codec + ")" else ""
+            "audio/opus" -> "Opus" + if (codec != null) " (" + codec + ")" else ""
+            "audio/vorbis" -> "Vorbis" + if (codec != null) " (" + codec + ")" else ""
+            "audio/ac3" -> "AC-3" + if (codec != null) " (" + codec + ")" else ""
+            "audio/eac3" -> "E-AC-3" + if (codec != null) " (" + codec + ")" else ""
+            "audio/flac" -> "FLAC" + if (codec != null) " (" + codec + ")" else ""
+            else -> listOfNotNull(sampleMimeType, codec).joinToString(" / ").ifBlank { "desconhecido" }
+        }
+    }
+
+    private fun diagnosticPayload(): JSONObject = JSONObject()
+        .put("displayName", mediaDisplayName.orEmpty())
+        .put("mimeType", contentMimeType.orEmpty())
+        .put("sizeBytes", mediaSizeBytes ?: JSONObject.NULL)
+        .put("decoderVideo", decoderVideoName.orEmpty())
+        .put("decoderAudio", decoderAudioName.orEmpty())
+        .put("video", videoFormatSummary.orEmpty())
+        .put("audio", audioFormatSummary.orEmpty())
+        .put("audioTrackCount", if (::player.isInitialized) player.currentTracks.groups.count { it.type == C.TRACK_TYPE_AUDIO && it.isSupported } else 0)
+        .put("subtitleTrackCount", if (::player.isInitialized) player.currentTracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported } else 0)
+        .put("durationMs", if (::player.isInitialized) player.duration.coerceAtLeast(0L) else 0L)
+
+    private fun buildTechnicalInfo(): String {
+        if (!::player.isInitialized) return "Player ainda não foi inicializado."
+        captureTrackFormatSummaries()
+        return buildString {
+            append("Arquivo: ").append(mediaDisplayName ?: uri.lastPathSegment.orEmpty().ifBlank { "desconhecido" }).append('\n')
+            append("MIME: ").append(contentMimeType ?: "não informado").append('\n')
+            mediaSizeBytes?.let { append("Tamanho: ").append(it).append(" bytes").append('\n') }
+            append("Duração: ").append(formatTime(player.duration.coerceAtLeast(0L))).append('\n')
+            append("Decodificador vídeo: ").append(decoderVideoName ?: "não informado").append('\n')
+            append("Decodificador áudio: ").append(decoderAudioName ?: "não informado").append('\n')
+            append("Vídeo: ").append(videoFormatSummary ?: "nenhuma faixa detectada").append('\n')
+            append("Áudio: ").append(audioFormatSummary ?: "nenhuma faixa detectada").append('\n')
+            append("Legendas: ").append(player.currentTracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported })
+        }
+    }
+
+    private fun showTechnicalInfo() {
+        if (!::player.isInitialized) return
+        touchControls()
+        AlertDialog.Builder(this)
+            .setTitle("Informações técnicas")
+            .setMessage(buildTechnicalInfo())
+            .setPositiveButton("Fechar", null)
+            .show()
+    }
     private fun showTrackSelection(trackType: Int, label: String) {
         if (!::player.isInitialized) return
         if (!player.currentTracks.groups.any { it.type == trackType && it.isSupported }) {
@@ -1903,6 +1996,46 @@ class NativePlayerActivity : ComponentActivity() {
         return result
     }
 
+    private fun displayNameForUri(localUri: Uri): String? =
+        when (localUri.scheme?.lowercase(Locale.ROOT)) {
+            "file" -> runCatching { File(localUri.path ?: "").name }.getOrNull()
+            "content" -> runCatching {
+                contentResolver.query(
+                    localUri,
+                    arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+                    null, null, null,
+                )?.use { cursor ->
+                    if (!cursor.moveToFirst()) return@use null
+                    val index = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                    if (index >= 0) cursor.getString(index) else null
+                }
+            }.getOrNull()
+            else -> null
+        } ?: localUri.lastPathSegment?.substringAfterLast('/')
+
+    private fun localSizeBytes(localUri: Uri): Long? =
+        when (localUri.scheme?.lowercase(Locale.ROOT)) {
+            "file" -> runCatching { File(localUri.path ?: "").length() }.getOrNull()
+            "content" -> {
+                val queried = runCatching {
+                    contentResolver.query(
+                        localUri,
+                        arrayOf(MediaStore.MediaColumns.SIZE),
+                        null, null, null,
+                    )?.use { cursor ->
+                        if (!cursor.moveToFirst()) return@use null
+                        val index = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+                        if (index >= 0 && !cursor.isNull(index)) cursor.getLong(index) else null
+                    }
+                }.getOrNull()
+                queried ?: runCatching {
+                    contentResolver.openFileDescriptor(localUri, "r")?.use { descriptor ->
+                        descriptor.statSize.takeIf { it >= 0L }
+                    }
+                }.getOrNull()
+            }
+            else -> null
+        }
     private fun <T : View> findViewByTag(tagValue: String): T? =
         root.findViewWithTag(tagValue)
 

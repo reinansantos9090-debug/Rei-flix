@@ -110,7 +110,6 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "PlayerGesturePolicy",
             "RESIZE_MODE_ZOOM",
             "RESIZE_MODE_FIT",
-            "RESIZE_MODE_FILL",
             "showFeedback",
             "setControlsVisible",
             "CONTROL_TIMEOUT_MS",
@@ -134,7 +133,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             'tag = "reiflix_gesture_brightness"',
             'tag = "reiflix_gesture_double_tap"',
             'tag = "reiflix_gesture_long_press"',
-            '"Ajustar", "Preencher", "Zoom", "Original", "Auto"',
+            'arrayOf("Ajustar", "Preencher")',
         ):
             self.assertIn(token, source)
         for token in (

@@ -1605,6 +1605,11 @@ class MainActivity : FlutterFragmentActivity() {
                 .putExtra("setting_player_rotation", source.getQueryParameter("setting_player_rotation") ?: "auto")
                 .putExtra("setting_player_pip", source.getQueryParameter("setting_player_pip")?.toBooleanStrictOrNull() ?: true)
                 .putExtra("setting_player_auto_hide_seconds", source.getQueryParameter("setting_player_auto_hide_seconds")?.toIntOrNull() ?: 5)
+                .putExtra("setting_player_double_tap_seek_seconds", source.getQueryParameter("setting_player_double_tap_seek_seconds")?.toLongOrNull() ?: 10L)
+                .putExtra("setting_player_long_press_speed", source.getQueryParameter("setting_player_long_press_speed")?.toFloatOrNull() ?: 2f)
+                .putExtra("setting_player_max_video_resolution", source.getQueryParameter("setting_player_max_video_resolution") ?: "auto")
+                .putExtra("setting_player_max_video_frame_rate", source.getQueryParameter("setting_player_max_video_frame_rate")?.toIntOrNull() ?: 0)
+                .putExtra("setting_player_max_audio_channels", source.getQueryParameter("setting_player_max_audio_channels")?.toIntOrNull() ?: 0)
                 .putExtra("setting_gestures_volume", source.getQueryParameter("setting_gestures_volume")?.toBooleanStrictOrNull() ?: false)
                 .putExtra("setting_gestures_brightness", source.getQueryParameter("setting_gestures_brightness")?.toBooleanStrictOrNull() ?: false)
                 .putExtra("setting_gestures_double_tap", source.getQueryParameter("setting_gestures_double_tap")?.toBooleanStrictOrNull() ?: false)
@@ -1612,6 +1617,9 @@ class MainActivity : FlutterFragmentActivity() {
                 .putExtra("setting_audio_preferred_language", source.getQueryParameter("setting_audio_preferred_language").orEmpty())
                 .putExtra("setting_audio_preferred_subtitle_language", source.getQueryParameter("setting_audio_preferred_subtitle_language").orEmpty())
                 .putExtra("setting_audio_subtitles", source.getQueryParameter("setting_audio_subtitles") ?: "auto")
+                .putExtra("setting_audio_subtitle_scale", source.getQueryParameter("setting_audio_subtitle_scale")?.toFloatOrNull() ?: 1f)
+                .putExtra("setting_audio_subtitle_bottom_padding", source.getQueryParameter("setting_audio_subtitle_bottom_padding")?.toIntOrNull() ?: 8)
+                .putExtra("setting_audio_subtitle_embedded_style", source.getQueryParameter("setting_audio_subtitle_embedded_style")?.toBooleanStrictOrNull() ?: true)
 
             Log.i(tag, "PLAY_HANDOFF_START requestId=" + requestId.ifEmpty { "-" } + " component=" + intent.component)
 

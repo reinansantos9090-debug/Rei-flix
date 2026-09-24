@@ -15,7 +15,8 @@ class HomeResilienceContractTests(unittest.TestCase):
     def test_catalog_load_is_authoritative_and_secondary_projections_are_isolated(self):
         source = (ROOT / 'views' / 'home_view.py').read_text(encoding='utf-8')
         self.assertIn('library.browse_catalog_page', source)
-        self.assertIn('page_size=36', source)
+        self.assertIn('page_size = settings.get("library.page_size")', source)
+        self.assertIn('page_size=page_size', source)
         self.assertIn('catalog.extend(fresh_items)', source)
         self.assertIn('render_generation', source)
         self.assertNotIn('def load_data():', source)

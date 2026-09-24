@@ -53,8 +53,36 @@ class LibraryService:
     COVER_RETRY_SECONDS = 6 * 60 * 60
     REQUEST_DEDUPE_SECONDS = 5
 
-    def __init__(self, store):
-        self.store=store; self.anilist=AniListClient(store.cache_dir); self.artwork=ArtworkEngine(store); self.genre_registry=GenreRegistry(store); self._scan_lock=threading.Lock(); self._metadata_lock=threading.RLock()
+    def __init__(self, store, settings=None):
+        self.store = store
+        self.settings = settings
+        self.anilist = AniListClient(store.cache_dir)
+        self.artwork = ArtworkEngine(store)
+        self.genre_registry = GenreRegistry(store)
+        self._scan_lock = threading.Lock()
+        self._metadata_lock = threading.RLock()
+        if settings is not None:
+            self.configure_settings(settings)
+
+    def _setting(self, key, default):
+        if self.settings is None:
+            return default
+        try:
+            return self.settings.get(key)
+        except Exception:
+            logger.exception("Could not read setting %s", key)
+            return default
+
+    def configure_settings(self, settings):
+        """Apply advanced runtime settings to existing service owners only."""
+        self.settings = settings
+        try:
+            limit_mb = int(settings.get("artwork.cache_limit_mb"))
+            self.artwork.cache_limit_bytes = max(1, limit_mb) * 1024 * 1024
+            self.artwork._evict_if_needed()
+        except Exception:
+            logger.exception("Could not apply artwork cache settings")
+        return True
 
     def _sync_genres(self, anime_id, metadata, *, source=None):
         if not anime_id:
@@ -96,7 +124,9 @@ class LibraryService:
 
     def _identify(self, lookup_title, display_title, on_status=lambda _ : None, *, allow_network=True):
         """Return local/cached metadata without making the library depend on network."""
+        allow_network = bool(allow_network and self._setting("metadata.anilist_enabled", True))
         cached = self.store.anime_metadata(lookup_title)
+        cached_id = cached.get("anilist_id") if cached else None
         match_state = self.store.anilist_match(lookup_title) or {}
         associated_id = match_state.get("anilist_id") or self.store.association(lookup_title)
         if cached:
@@ -109,6 +139,15 @@ class LibraryService:
             if not allow_network:
                 return cached
         if not allow_network:
+            genres = GenreClassifier.classify(display_title)
+            return cached or {
+                "title": display_title,
+                "genres": json.dumps(genres, ensure_ascii=False),
+                "metadata_source": "classifier" if genres else "local",
+                "metadata_status": "unresolved",
+                "metadata_confidence": "low",
+            }
+        if not self._setting("metadata.auto_match", True) and not associated_id and not cached_id:
             genres = GenreClassifier.classify(display_title)
             return cached or {
                 "title": display_title,
@@ -138,7 +177,16 @@ class LibraryService:
     def refresh_metadata(self, lookup_title, display_title, *, force=False, bypass_request_dedupe=False, match_context=None):
         """Resolve AniList metadata explicitly, conservatively and offline-safe."""
         with self._metadata_lock:
+            anilist_enabled = bool(self._setting("metadata.anilist_enabled", True))
             cached = self.store.anime_metadata(lookup_title)
+            if not anilist_enabled:
+                return cached or {
+                    "title": display_title,
+                    "genres": json.dumps(GenreClassifier.classify(display_title), ensure_ascii=False),
+                    "metadata_source": "classifier",
+                    "metadata_status": "unresolved",
+                    "metadata_confidence": "low",
+                }
             match_state = self.store.anilist_match(lookup_title) or {}
             associated_id = match_state.get("anilist_id") or self.store.association(lookup_title)
             cached_id = cached.get("anilist_id") if cached else None
@@ -346,7 +394,7 @@ class LibraryService:
                 cover_cache = str(cached.get('cover_cache') or '').strip()
                 cover_valid = bool(cover_cache and os.path.isfile(cover_cache) and os.path.getsize(cover_cache) > 0)
                 cover_url = str(cached.get('cover_url') or '').strip()
-                if anilist_id and cover_url and not cover_valid:
+                if anilist_id and cover_url and not cover_valid and self._setting("artwork.enabled", True):
                     entity_type = 'movie' if str(cached.get('media_kind') or item.get('media_kind') or 'series').casefold() == 'movie' else 'anime'
                     if cached.get('id'):
                         # Seed the ArtworkEngine from durable metadata before requesting.
@@ -401,7 +449,12 @@ class LibraryService:
         return self.artwork.register_generated_thumbnail(media_uri, thumbnail_path, size=size, modified_at=modified_at)
 
     def resolve_artwork(self, entity_type, entity_id, artwork_type, *, allow_network=True):
-        return self.artwork.resolve(entity_type, entity_id, artwork_type, allow_network=allow_network)
+        effective_allow_network = bool(
+            allow_network and self._setting("artwork.enabled", True)
+        )
+        return self.artwork.resolve(
+            entity_type, entity_id, artwork_type, allow_network=effective_allow_network,
+        )
 
     def set_manual_artwork(self, entity_type, entity_id, artwork_type, *, path=None, external_url=None):
         return self.artwork.set_manual(entity_type, entity_id, artwork_type, path=path, external_url=external_url)

@@ -8,9 +8,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import logging
 import re
 import time
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SettingDefinition:
@@ -21,25 +24,28 @@ class SettingDefinition:
 
 class SettingsDefaults:
     DEFINITIONS = (
-        SettingDefinition("app.start_screen", "enum", "home", ("home", "organize")),
         SettingDefinition("app.confirm_destructive", "bool", True),
-        SettingDefinition("app.animations", "bool", True),
         SettingDefinition("appearance.theme", "enum", "dark", ("system", "light", "dark")),
         SettingDefinition("appearance.card_size", "enum", "medium", ("small", "medium", "large")),
         SettingDefinition("appearance.show_thumbnails", "bool", True),
-        SettingDefinition("appearance.show_badges", "bool", True),
         SettingDefinition("library.sort_default", "enum", "added_desc", ("added_desc", "title_asc", "title_desc", "recently_watched")),
         SettingDefinition("library.grid_density", "enum", "medium", ("small", "medium", "large")),
+        SettingDefinition("library.page_size", "int", 36, (24, 36, 48, 72)),
         SettingDefinition("library.continue_watching", "bool", True),
         SettingDefinition("library.continue_watching_limit", "int", 10, (5, 10, 15, 20)),
         SettingDefinition("player.autoplay_next", "bool", True),
         SettingDefinition("player.resume", "bool", True),
-        SettingDefinition("player.default_speed", "float", 1.0, (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)),
-        SettingDefinition("player.aspect_ratio", "enum", "fit", ("auto", "fit", "fill", "zoom", "original")),
+        SettingDefinition("player.default_speed", "float", 1.0, (0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)),
+        SettingDefinition("player.aspect_ratio", "enum", "fit", ("fit", "fill")),
         SettingDefinition("player.immersive", "enum", "always", ("always", "landscape", "never")),
         SettingDefinition("player.rotation", "enum", "auto", ("auto", "portrait", "landscape")),
         SettingDefinition("player.pip", "bool", True),
         SettingDefinition("player.auto_hide_seconds", "int", 5, (5, 10, 15, 30, 0)),
+        SettingDefinition("player.double_tap_seek_seconds", "int", 10, (5, 10, 15, 30)),
+        SettingDefinition("player.long_press_speed", "float", 2.0, (1.5, 1.75, 2.0)),
+        SettingDefinition("player.max_video_resolution", "enum", "auto", ("auto", "480p", "720p", "1080p", "1440p", "2160p")),
+        SettingDefinition("player.max_video_frame_rate", "int", 0, (0, 24, 30, 60)),
+        SettingDefinition("player.max_audio_channels", "int", 0, (0, 2, 6, 8)),
         SettingDefinition("gestures.volume", "bool", False),
         SettingDefinition("gestures.brightness", "bool", False),
         SettingDefinition("gestures.double_tap", "bool", False),
@@ -47,17 +53,23 @@ class SettingsDefaults:
         SettingDefinition("audio.preferred_language", "language", ""),
         SettingDefinition("audio.preferred_subtitle_language", "language", ""),
         SettingDefinition("audio.subtitles", "enum", "auto", ("auto", "always", "never")),
+        SettingDefinition("audio.subtitle_scale", "float", 1.0, (0.75, 1.0, 1.25, 1.5)),
+        SettingDefinition("audio.subtitle_bottom_padding", "int", 8, (4, 8, 12, 16)),
+        SettingDefinition("audio.subtitle_embedded_style", "bool", True),
         SettingDefinition("metadata.anilist_enabled", "bool", True),
         SettingDefinition("metadata.auto_match", "bool", True),
-        SettingDefinition("metadata.keep_local", "bool", True),
         SettingDefinition("artwork.enabled", "bool", True),
-        SettingDefinition("artwork.offline_cache", "bool", True),
-        SettingDefinition("privacy.external_sync", "bool", False),
+        SettingDefinition("artwork.cache_limit_mb", "int", 128, (64, 128, 256, 512)),
     )
     BY_KEY = {item.key: item for item in DEFINITIONS}
     EXPORT_KEYS = (
         "app.confirm_destructive",
         "appearance.theme",
+        "appearance.card_size",
+        "appearance.show_thumbnails",
+        "library.sort_default",
+        "library.grid_density",
+        "library.page_size",
         "library.continue_watching",
         "library.continue_watching_limit",
         "player.autoplay_next",
@@ -68,6 +80,11 @@ class SettingsDefaults:
         "player.rotation",
         "player.pip",
         "player.auto_hide_seconds",
+        "player.double_tap_seek_seconds",
+        "player.long_press_speed",
+        "player.max_video_resolution",
+        "player.max_video_frame_rate",
+        "player.max_audio_channels",
         "gestures.volume",
         "gestures.brightness",
         "gestures.double_tap",
@@ -75,13 +92,20 @@ class SettingsDefaults:
         "audio.preferred_language",
         "audio.preferred_subtitle_language",
         "audio.subtitles",
+        "audio.subtitle_scale",
+        "audio.subtitle_bottom_padding",
+        "audio.subtitle_embedded_style",
+        "metadata.anilist_enabled",
+        "metadata.auto_match",
+        "artwork.enabled",
+        "artwork.cache_limit_mb",
     )
 
 class SettingsValidationError(ValueError):
     pass
 
 class SettingsStore:
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
     EXPORT_FORMAT = "reiflix-settings"
     EXPORT_KEYS = SettingsDefaults.EXPORT_KEYS
 
@@ -89,6 +113,13 @@ class SettingsStore:
     def __init__(self, store):
         self.store = store
         self._migrate_legacy_keys()
+        raw_version = self.store.get_preference("settings.schema_version")
+        try:
+            stored_version = int(raw_version or 0)
+        except (TypeError, ValueError):
+            stored_version = 0
+        if stored_version < self.SCHEMA_VERSION:
+            self.store.set_preference("settings.schema_version", str(self.SCHEMA_VERSION))
 
     def _migrate_legacy_keys(self):
         legacy = {
@@ -166,6 +197,12 @@ class SettingsStore:
         raw = self.store.get_preference(key)
         if raw is None:
             return definition.default
+        if key == "player.aspect_ratio" and str(raw).strip().casefold() in {"zoom", "auto", "original"}:
+            raw = "fill" if str(raw).strip().casefold() == "zoom" else "fit"
+            try:
+                self._write(key, raw)
+            except Exception:
+                logger.exception("Could not normalize legacy aspect setting")
         try:
             return self._coerce(definition, raw)
         except (ValueError, TypeError, SettingsValidationError):
@@ -216,7 +253,8 @@ class SettingsStore:
             raise SettingsValidationError("arquivo de configurações inválido")
         if payload.get("format") != self.EXPORT_FORMAT:
             raise SettingsValidationError("formato de configurações incompatível")
-        if payload.get("schema_version") != self.SCHEMA_VERSION:
+        schema_version = payload.get("schema_version")
+        if schema_version not in {1, self.SCHEMA_VERSION}:
             raise SettingsValidationError("versão de configurações incompatível")
         settings = payload.get("settings")
         if not isinstance(settings, dict):

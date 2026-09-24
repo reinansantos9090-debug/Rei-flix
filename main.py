@@ -73,7 +73,7 @@ async def main(page: ft.Page):
         "dark": ft.ThemeMode.DARK,
     }[settings.get("appearance.theme")]
     recovered_scans=store.interrupted_scans()
-    library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]
+    library=LibraryService(store, settings=settings); bridge=AndroidBridge(data_dir, page); current=[None]
     account_state=["connected" if store.account().get("email") else "disconnected"]
     diagnostics = DiagnosticTimeline()
     backup_service = BackupService(store, settings=settings, app_version="0.2.1")
@@ -240,6 +240,7 @@ async def main(page: ft.Page):
                 on_export_diagnostics=export_diagnostics,
                 on_integrity_check=integrity_check,
                 on_reconcile_after_restore=request_restore_reconciliation,
+                on_settings_changed=apply_settings_runtime,
             )
         else:
             raise RuntimeError(f"Unknown navigation route: {route}")
@@ -290,6 +291,11 @@ async def main(page: ft.Page):
                 "player.rotation": settings.get("player.rotation"),
                 "player.pip": settings.get("player.pip"),
                 "player.auto_hide_seconds": settings.get("player.auto_hide_seconds"),
+                "player.double_tap_seek_seconds": settings.get("player.double_tap_seek_seconds"),
+                "player.long_press_speed": settings.get("player.long_press_speed"),
+                "player.max_video_resolution": settings.get("player.max_video_resolution"),
+                "player.max_video_frame_rate": settings.get("player.max_video_frame_rate"),
+                "player.max_audio_channels": settings.get("player.max_audio_channels"),
                 "gestures.volume": settings.get("gestures.volume"),
                 "gestures.brightness": settings.get("gestures.brightness"),
                 "gestures.double_tap": settings.get("gestures.double_tap"),
@@ -297,6 +303,9 @@ async def main(page: ft.Page):
                 "audio.preferred_language": settings.get("audio.preferred_language"),
                 "audio.preferred_subtitle_language": settings.get("audio.preferred_subtitle_language"),
                 "audio.subtitles": settings.get("audio.subtitles"),
+                "audio.subtitle_scale": settings.get("audio.subtitle_scale"),
+                "audio.subtitle_bottom_padding": settings.get("audio.subtitle_bottom_padding"),
+                "audio.subtitle_embedded_style": settings.get("audio.subtitle_embedded_style"),
             },
         )
 
@@ -337,6 +346,11 @@ async def main(page: ft.Page):
         title = anime.get("main_title") or (anime.get("meta") or {}).get("title") or "Anime local"
         if not lookup:
             return
+        if not settings.get("metadata.anilist_enabled"):
+            page.snack_bar = ft.SnackBar(ft.Text("AniList está desativado nas configurações."))
+            page.snack_bar.open = True
+            safe_update()
+            return
         try:
             await asyncio.to_thread(library.refresh_metadata, lookup, title, force=True)
             await refresh_current_details()
@@ -364,6 +378,15 @@ async def main(page: ft.Page):
                 return
         screen_cache.pop(navigation.current, None)
         render_current()
+
+    def apply_settings_runtime(key, _value):
+        library.configure_settings(settings)
+        if str(key).startswith(("appearance.", "library.")):
+            screen_cache.pop("home", None)
+            screen_cache.pop("organize", None)
+            current_route = navigation.current
+            if current_route in {"home", "organize"}:
+                render_current()
     async def remove_folder(reference):
         if scan_coordinator.active or saf_selection.pending:
             page.snack_bar = ft.SnackBar(ft.Text("Aguarde a atualização ou a seleção de pasta terminar antes de remover uma pasta."))

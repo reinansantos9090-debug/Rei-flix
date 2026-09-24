@@ -116,8 +116,9 @@ class UiStateTests(unittest.TestCase):
         source = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
         self.assertIn('filter_button = ft.OutlinedButton("Filtros"', source)
         self.assertIn('page.show_dialog(dialog)', source)
-        self.assertIn("width=146", source)
-        self.assertIn("artwork_holder(item, 146, 176", source)
+        self.assertIn('card_size = {"small": 120, "medium": 146, "large": 172}', source)
+        self.assertIn("width=card_width", source)
+        self.assertIn("artwork_holder(item, card_width, card_height", source)
 
     def test_source_is_valid_python(self):
         for path in (ROOT / "main.py", ROOT / "views" / "settings_view.py", ROOT / "core" / "storage_access.py"):

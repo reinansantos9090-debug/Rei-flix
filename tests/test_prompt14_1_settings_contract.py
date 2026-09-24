@@ -43,7 +43,15 @@ class Prompt141SettingsContractTests(unittest.TestCase):
         self.assertIn('setting_audio_preferred_language', main_activity)
         self.assertIn('setting_audio_preferred_subtitle_language', main_activity)
         self.assertIn('setting_audio_subtitles', main_activity)
+        self.assertIn('setting_player_max_video_resolution', main_activity)
+        self.assertIn('setting_player_max_video_frame_rate', main_activity)
+        self.assertIn('setting_player_max_audio_channels', main_activity)
+        self.assertIn('setting_audio_subtitle_scale', main_activity)
+        self.assertIn('setting_audio_subtitle_bottom_padding', main_activity)
+        self.assertIn('setting_audio_subtitle_embedded_style', main_activity)
         self.assertIn("applyGlobalTrackPreferences()", player)
+        self.assertIn("applyAdvancedTrackConstraints()", player)
+        self.assertIn("applySubtitlePreferences()", player)
         self.assertIn("setPreferredAudioLanguage", player)
         self.assertIn("setPreferredTextLanguage", player)
         self.assertIn("setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)", player)
@@ -63,6 +71,46 @@ class Prompt141SettingsContractTests(unittest.TestCase):
         self.assertIn('settings.get("library.continue_watching")', home)
         self.assertIn('settings.get("library.continue_watching_limit")', home)
         self.assertIn('settings.get("appearance.theme")', main)
+
+
+    def test_prompt17_settings_are_real_and_exported(self):
+        settings = self.read(SETTINGS)
+        view = self.read(SETTINGS_VIEW)
+        main = self.read(MAIN)
+        main_activity = self.read(MAIN_ACTIVITY)
+        home = self.read(HOME)
+        for key in (
+            "player.double_tap_seek_seconds",
+            "player.long_press_speed",
+            "player.max_video_resolution",
+            "player.max_video_frame_rate",
+            "player.max_audio_channels",
+            "audio.subtitle_scale",
+            "audio.subtitle_bottom_padding",
+            "audio.subtitle_embedded_style",
+            "metadata.anilist_enabled",
+            "metadata.auto_match",
+            "artwork.enabled",
+            "artwork.cache_limit_mb",
+            "library.page_size",
+        ):
+            self.assertIn(f'"{key}"', settings)
+            self.assertIn(key, view)
+        self.assertIn('"player.double_tap_seek_seconds": settings.get("player.double_tap_seek_seconds")', main)
+        self.assertIn('"player.long_press_speed": settings.get("player.long_press_speed")', main)
+        self.assertIn('"player.max_video_resolution": settings.get("player.max_video_resolution")', main)
+        self.assertIn("setting_player_double_tap_seek_seconds", main_activity)
+        self.assertIn("setting_player_long_press_speed", main_activity)
+        self.assertIn("setting_player_max_video_resolution", main_activity)
+        self.assertIn("settings.get(\"library.page_size\")", home)
+        self.assertNotIn('"privacy.external_sync"', settings)
+        self.assertNotIn('"artwork.offline_cache"', settings)
+        self.assertNotIn('"metadata.keep_local"', settings)
+
+    def test_settings_search_indexes_descriptions(self):
+        view = self.read(SETTINGS_VIEW)
+        self.assertIn('container.data = f"{key} {label} {description}".casefold()', view)
+        self.assertIn('item_terms = " ".join(str(getattr(item, "data", "")) for item in items)', view)
 
 
 if __name__ == "__main__":

@@ -24,10 +24,22 @@ class HomeView:
         home_data: dict = {}
         view_state = view_state if view_state is not None else {}
         settings = SettingsStore(library.store)
+        sort_labels = {
+            "added_desc": "Mais recentes",
+            "title_asc": "Nome A-Z",
+            "title_desc": "Nome Z-A",
+            "recently_watched": "Assistidos recentemente",
+        }
         selected_state = [view_state.get("state", "Todos")]
         selected_genre = [view_state.get("genre", "Todos")]
-        selected_sort = [view_state.get("sort", "Mais recentes")]
+        selected_sort = [view_state.get("sort", sort_labels[settings.get("library.sort_default")])]
         selected_media_type = [view_state.get("media_type", "Todos")]
+        card_size = {"small": 120, "medium": 146, "large": 172}[settings.get("appearance.card_size")]
+        density_gap = {"small": 14, "medium": 10, "large": 6}[settings.get("library.grid_density")]
+        card_width = card_size
+        card_height = round(card_size * 176 / 146)
+        show_thumbnails = settings.get("appearance.show_thumbnails")
+        page_size = settings.get("library.page_size")
         selected_tag = [view_state.get("tag", "Todos")]
         selected_season = [view_state.get("season", "Todos")]
         selected_episode_type = [view_state.get("episode_type", "Todos")]
@@ -57,7 +69,7 @@ class HomeView:
         def ratio(item):
             return progress_ratio(item)
 
-        grid = ft.Row(wrap=True, spacing=10, run_spacing=14)
+        grid = ft.Row(wrap=True, spacing=density_gap, run_spacing=max(8, density_gap + 2))
         status = ft.Row(
             [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
              ft.Text("Carregando biblioteca local…", color=TEXT_MUTED, size=12)],
@@ -137,6 +149,9 @@ class HomeView:
                 holder.content = ft.Image(src=path, width=width, height=height, fit=ft.BoxFit.COVER, border_radius=RADIUS)
                 return True
 
+            if not show_thumbnails:
+                holder.content = ft.Icon(ft.Icons.MOVIE_OUTLINED, color=TEXT_MUTED, size=28)
+                return holder
             if apply_source(source):
                 return holder
             meta = item.get("meta") or {}
@@ -204,7 +219,7 @@ class HomeView:
             else:
                 title = item.get("main_title") or item.get("anime_title") or meta.get("title") or "Mídia local"
                 subtitle = "Filme" if item.get("media_kind") == "movie" else (count_label(item.get("available_count", 0), "episódio") if item.get("available_count") else "")
-            holder = artwork_holder(item, 146, 176, source=cover)
+            holder = artwork_holder(item, card_width, card_height, source=cover)
             if not cover and on_request_thumbnail:
                 candidate = item.get("episode") or item.get("current_episode")
                 if not candidate and item.get("seasons"):
@@ -212,7 +227,7 @@ class HomeView:
                 if candidate:
                     on_request_thumbnail(candidate)
             return ft.Container(
-                width=146, ink=True, border_radius=RADIUS,
+                width=card_width, ink=True, border_radius=RADIUS,
                 on_click=(lambda _, value=item: action(value)) if action else None,
                 content=ft.Column([holder,
                     ft.Text(title, size=12, weight=ft.FontWeight.BOLD, color=TEXT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
@@ -256,7 +271,7 @@ class HomeView:
             try:
                 result = await asyncio.to_thread(
                     library.browse_catalog_page,
-                    page=target_page, page_size=36, **_library_filters(),
+                    page=target_page, page_size=page_size, **_library_filters(),
                 )
             except Exception:
                 logger.exception("Home paged query failed", extra={"screen":"home","page":target_page})

@@ -14,6 +14,10 @@ import android.graphics.Typeface
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -42,6 +46,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.AudioAttributes
+import androidx.media3.common.Format
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -49,6 +54,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TrackSelectionDialogBuilder
@@ -117,6 +123,19 @@ class NativePlayerActivity : ComponentActivity() {
         private set
     private var feedbackHideAt = 0L
     private var controlsRestoredFromState = false
+    private var contentMimeType: String? = null
+    private var mediaDisplayName: String? = null
+    private var mediaSizeBytes: Long? = null
+    private var decoderVideoName: String? = null
+    private var decoderAudioName: String? = null
+    private var videoFormatSummary: String? = null
+    private var audioFormatSummary: String? = null
+    private var currentErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN
+    private var pendingPreparation: Future<*>? = null
+    private val playbackWorker: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "ReiFlix-PlayerIO").apply { isDaemon = true }
+    }
+    private var activeAnalyticsListener: AnalyticsListener? = null
 
     private val titleValue: String
         get() = intent.getStringExtra("title") ?: "Episódio"

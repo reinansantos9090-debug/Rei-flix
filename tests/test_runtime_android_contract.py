@@ -42,8 +42,9 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertIn("PLAY_HANDOFF_ACCEPTED", source)
         self.assertIn("PLAY_HANDOFF_DUPLICATE", source)
         self.assertNotIn("playerLaunchActive", source)
-        self.assertNotIn("applyNormalSystemUi", source)
-        self.assertIn("applyImmersiveSystemUi()", source)
+        self.assertIn("previousActiveRequestId", source)
+        self.assertIn("reusingPlayerActivity", source)
+        self.assertIn("FLAG_ACTIVITY_REORDER_TO_FRONT", source)
         self.assertIn("registerForActivityResult(ActivityResultContracts.StartActivityForResult())", source)
         self.assertIn("playerActivityLauncher.launch(intent)", source)
 
@@ -263,10 +264,12 @@ class RuntimeAndroidContractTests(unittest.TestCase):
     def test_system_ui_is_immersive_and_not_normal_bars(self):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")
         system_ui = SYSTEM_UI.read_text(encoding="utf-8")
-        self.assertNotIn("applyNormalSystemUi", main)
-        self.assertNotIn("applyNormal()", system_ui)
+        self.assertIn("applyNormalSystemUi", main)
+        self.assertIn("applyNormal()", system_ui)
         self.assertIn("applyImmersive()", system_ui)
+        self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, true)", system_ui)
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", system_ui)
+        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", system_ui)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", system_ui)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", system_ui)
 

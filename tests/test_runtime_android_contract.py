@@ -246,6 +246,9 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "library.previous_episode(current_path)",
             "await start_native_player(",
             "event_type == 'player_exited'",
+            "event_created_at=event.get('createdAt') or event.get('timestamp')",
+            "exit_updated = await asyncio.to_thread(",
+            "store.save_progress",
             "on_catalog_changed()",
         ):
             self.assertIn(token, source)

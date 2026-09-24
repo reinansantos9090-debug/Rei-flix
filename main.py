@@ -544,6 +544,16 @@ async def main(page: ft.Page):
         screen_cache.pop("settings", None)
         render_current()
 
+    def close_home_search():
+        if not home_state.get("search_visible"):
+            return False
+        home_state["search_visible"] = False
+        home_state["query"] = ""
+        screen_cache.pop("home", None)
+        logger.info("[NAV] SEARCH_BACK consumed on Home")
+        render_current()
+        return True
+
     def navigate_back(source="unknown"):
         # One user Back gesture/button owns one logical operation. This protects
         # against Android + Flutter delivering the same physical Back twice.
@@ -569,6 +579,11 @@ async def main(page: ft.Page):
         if dialog is not None:
             logger.info("[NAV] DIALOG_BACK source=%s route=%s", source, route_before)
             safe_update()
+            return
+
+        # Search is a transient Home state, not a second route. Close it before
+        # delegating Back to the top-level NavigationController.
+        if route_before == "home" and close_home_search():
             return
 
         action = navigation.back()

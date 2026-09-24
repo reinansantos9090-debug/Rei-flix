@@ -2288,7 +2288,6 @@ class NativePlayerActivity : ComponentActivity() {
     private inner class GestureLayer(context: Context) : View(context) {
         private val touchConfig = ViewConfiguration.get(context)
         private val touchSlop = touchConfig.scaledTouchSlop.toFloat()
-        private val minFlingVelocity = touchConfig.scaledMinimumFlingVelocity.toFloat()
 
         private val scaleDetector = ScaleGestureDetector(
             context,
@@ -2432,13 +2431,13 @@ class NativePlayerActivity : ComponentActivity() {
         private var verticalGesture = false
         private var horizontalGesture = false
         private var pinchActive = false
+        private var lastVerticalY: Float? = null
         private var lastPanX: Float? = null
         private var lastPanY: Float? = null
         private var zoomScale = 1f
         private var zoomTranslationX = 0f
         private var zoomTranslationY = 0f
         private var zoomAnimator: ValueAnimator? = null
-        private var velocityTracker: VelocityTracker? = null
         private var longPressActive = false
         private var previousSpeedForLongPress = 1f
         private var gestureMode = GestureMode.IDLE
@@ -2489,7 +2488,6 @@ class NativePlayerActivity : ComponentActivity() {
                         resetTransientState()
                     }
                 }
-                finishTouchVelocity(event)
                 return true
             }
 
@@ -2501,10 +2499,8 @@ class NativePlayerActivity : ComponentActivity() {
                     systemGestureEdge = isSystemGestureEdge(event.x, event.y)
                     verticalGesture = false
                     horizontalGesture = false
+                    lastVerticalY = null
                     gestureMode = GestureMode.IDLE
-                    velocityTracker?.recycle()
-                    velocityTracker = VelocityTracker.obtain().apply { addMovement(event) }
-
                     if (systemGestureEdge || !gestureInteractionAllowed()) {
                         gestureConsumed = true
                         cancelGestureDetector(event)
@@ -2514,7 +2510,6 @@ class NativePlayerActivity : ComponentActivity() {
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    velocityTracker?.addMovement(event)
                     if (gestureConsumed || systemGestureEdge) return true
 
                     val dx = event.x - downX
@@ -2551,6 +2546,7 @@ class NativePlayerActivity : ComponentActivity() {
                                 verticalGesture = true
                                 gestureConsumed = true
                                 gestureMode = GestureMode.VERTICAL
+                                lastVerticalY = event.y
                                 cancelGestureDetector(event)
                                 restoreLongPressSpeed()
                                 logPlayer(
@@ -2558,6 +2554,12 @@ class NativePlayerActivity : ComponentActivity() {
                                         PlayerGesturePolicy.side(downX, width).name.lowercase() +
                                         " requestId=" + requestId.ifEmpty { "-" },
                                 )
+                            } else if (gestureMode == GestureMode.VERTICAL) {
+                                val previousY = lastVerticalY
+                                if (previousY != null) {
+                                    handleVerticalGestureDelta(downX, event.y - previousY)
+                                }
+                                lastVerticalY = event.y
                             }
                         }
 
@@ -2580,34 +2582,14 @@ class NativePlayerActivity : ComponentActivity() {
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    velocityTracker?.addMovement(event)
-
                     when (gestureMode) {
                         GestureMode.VERTICAL -> {
-                            if (gestureInteractionAllowed()) {
-                                val velocityY = velocityTracker?.run {
-                                    computeCurrentVelocity(1000)
-                                    yVelocity
-                                } ?: 0f
-                                val dy = event.y - downY
-                                val distanceRatio = PlayerGesturePolicy.distanceRatio(
-                                    abs(dy),
-                                    height,
-                                )
-                                val strongEnough =
-                                    abs(dy) >= max(touchSlop * 2f, dp(48).toFloat()) ||
-                                        abs(velocityY) >= minFlingVelocity * 0.5f
-                                if (strongEnough) {
-                                    handleVerticalGesture(downX, dy, distanceRatio)
-                                }
-                            }
                             logPlayer(
                                 "GESTURE_END type=vertical_ignored_or_applied requestId=" +
                                     requestId.ifEmpty { "-" },
                             )
                             touchControls()
                             resetTransientState()
-                            finishTouchVelocity(event)
                             return true
                         }
 
@@ -2618,7 +2600,6 @@ class NativePlayerActivity : ComponentActivity() {
                             )
                             touchControls()
                             resetTransientState()
-                            finishTouchVelocity(event)
                             return true
                         }
 
@@ -2627,13 +2608,11 @@ class NativePlayerActivity : ComponentActivity() {
                             logPlayer("GESTURE_END type=pan requestId=" + requestId.ifEmpty { "-" })
                             touchControls()
                             resetTransientState()
-                            finishTouchVelocity(event)
                             return true
                         }
 
                         GestureMode.DOUBLE_TAP -> {
                             resetTransientState()
-                            finishTouchVelocity(event)
                             return true
                         }
 
@@ -2644,14 +2623,12 @@ class NativePlayerActivity : ComponentActivity() {
                         gestureDetector.onTouchEvent(event)
                     }
                     resetTransientState()
-                    finishTouchVelocity(event)
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
                     restoreLongPressSpeed()
                     if (pinchActive) finishPinchGesture(cancelled = true)
                     cancelGestureDetector(event)
-                    finishTouchVelocity(event)
                     resetTransientState()
                     logPlayer(
                         "GESTURE_END type=cancel requestId=" +
@@ -2671,20 +2648,21 @@ class NativePlayerActivity : ComponentActivity() {
                 y < gestureSafeTop ||
                 y > height - gestureSafeBottom
 
-        private fun handleVerticalGesture(startX: Float, dy: Float, distanceRatio: Float) {
-            val side = PlayerGesturePolicy.side(startX, width)
-            val directionUp = dy < 0f
-            val fraction = max(0.06f, distanceRatio * 0.6f)
-            when (side) {
+        private fun handleVerticalGestureDelta(startX: Float, deltaY: Float) {
+            if (height <= 0) return
+            val fraction = PlayerGesturePolicy.verticalDeltaFraction(deltaY, height)
+            if (fraction == 0f) return
+
+            when (PlayerGesturePolicy.side(startX, width)) {
                 PlayerGesturePolicy.Side.LEFT -> {
                     if (brightnessGesturesEnabled) {
-                        adjustBrightness(if (directionUp) fraction else -fraction)
+                        adjustBrightness(fraction)
                     }
                 }
 
                 PlayerGesturePolicy.Side.RIGHT -> {
                     if (volumeGesturesEnabled) {
-                        adjustVolumeByFraction(if (directionUp) fraction else -fraction)
+                        adjustVolumeByFraction(fraction)
                     }
                 }
 
@@ -2701,13 +2679,6 @@ class NativePlayerActivity : ComponentActivity() {
             }
             gestureDetector.onTouchEvent(cancel)
             cancel.recycle()
-        }
-
-        private fun finishTouchVelocity(event: MotionEvent) {
-            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                velocityTracker?.recycle()
-                velocityTracker = null
-            }
         }
 
         private fun restoreLongPressSpeed() {
@@ -2958,6 +2929,7 @@ class NativePlayerActivity : ComponentActivity() {
             gestureMode = GestureMode.IDLE
             lastPanX = null
             lastPanY = null
+            lastVerticalY = null
             systemGestureEdge = false
         }
 
@@ -3069,6 +3041,13 @@ class NativePlayerActivity : ComponentActivity() {
 
         fun distanceRatio(distancePx: Float, viewportPx: Int): Float =
             if (viewportPx <= 0) 0f else (distancePx / viewportPx.toFloat()).coerceIn(0f, 0.75f)
+
+        fun verticalDeltaFraction(deltaY: Float, viewportHeight: Int): Float =
+            if (viewportHeight <= 0) {
+                0f
+            } else {
+                (-(deltaY / viewportHeight.toFloat()) * 0.6f).coerceIn(-0.12f, 0.12f)
+            }
     }
 
     private enum class SessionState { ACTIVE, EXITING, DESTROYED }

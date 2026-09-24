@@ -375,24 +375,29 @@ async def main(page: ft.Page):
         return await asyncio.to_thread(backup_service.inspect_bytes, raw)
 
     async def restore_backup(raw):
-        if scan_coordinator.active:
+        reserved = await scan_coordinator.begin_exclusive("restore")
+        if not reserved:
             raise BackupError(
                 "SCAN_IN_PROGRESS",
                 "Finalize a atualização da biblioteca antes de restaurar um backup.",
             )
 
-        def run_restore():
-            with library._metadata_lock:
-                library.artwork.invalidate_generation("restore_started")
-                try:
-                    result = backup_service.restore_bytes(raw)
-                except Exception:
-                    library.artwork.invalidate_generation("restore_failed")
-                    raise
-                library.artwork.invalidate_generation("restore_completed")
-                return result
+        try:
+            def run_restore():
+                with library._metadata_lock:
+                    library.artwork.invalidate_generation("restore_started")
+                    try:
+                        result = backup_service.restore_bytes(raw)
+                    except Exception:
+                        library.artwork.invalidate_generation("restore_failed")
+                        raise
+                    library.artwork.invalidate_generation("restore_completed")
+                    return result
 
-        result = await asyncio.to_thread(run_restore)
+            result = await asyncio.to_thread(run_restore)
+        finally:
+            await scan_coordinator.end_exclusive()
+
         on_catalog_changed()
         refresh_settings_if_active()
         diagnostics.record(

@@ -386,7 +386,7 @@ async def main(page: ft.Page):
         if navigation.current == "settings":
             render_current(force=True)
     async def add_folder(_=None):
-        if scan_in_progress[0] or not saf_selection.begin():
+        if scan_coordinator.active or not saf_selection.begin():
             return False
         try:
             await bridge.select_tree()
@@ -792,18 +792,6 @@ async def main(page: ft.Page):
                             logger.info("[STORAGE] permission_requested type=%s requestId=%s", event_type, request_id or "-")
                         elif contract_event == 'permission_cancelled':
                             storage_onboarding["waiting_for_result"] = False
-                        if event_type in {'saf_scan', 'broad_storage_scan', 'mediastore_scan',
-                            'saf_error', 'broad_storage_error', 'mediastore_error'}:
-                            transition = await scan_coordinator.handle_native_event(
-                                event_type,
-                                request_id,
-                                payload,
-                            )
-                            if transition.refresh_required and transition.logical_finished:
-                                on_catalog_changed()
-                                refresh_settings_if_active()
-                                safe_update()
-
                         if event_type == 'storage_capabilities':
                             apply_storage_capabilities(payload)
                             refresh_settings_if_active()
@@ -880,7 +868,6 @@ async def main(page: ft.Page):
                                 page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; safe_update()
                             except Exception:
                                 page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar a atualização da biblioteca.')); page.snack_bar.open=True; safe_update()
-                            finally:
                         elif event_type == 'broad_storage_scan_progress':
                             files = int(payload.get('files') or 0)
                             videos = int(payload.get('videos') or 0)
@@ -1091,10 +1078,6 @@ async def main(page: ft.Page):
                                 page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; safe_update()
                             except Exception:
                                 page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar os vídeos do dispositivo.')); page.snack_bar.open=True; safe_update()
-                            finally:
-                                finish_native_scan()
-                                on_catalog_changed()
-                                refresh_settings_if_active()
                         elif event_type == 'mediastore_permission':
                             source = payload.get('source') or 'mediastore:external:video'
                             access = str(payload.get('access') or 'denied')
@@ -1535,6 +1518,18 @@ async def main(page: ft.Page):
                                     message = event.get('message', 'O login Google não pôde ser concluído.')
                                 page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; safe_update()
                             if event_type == 'saf_error': refresh_settings_if_active()
+                        if event_type in {'saf_scan', 'broad_storage_scan', 'mediastore_scan',
+                            'saf_error', 'broad_storage_error', 'mediastore_error'}:
+                            transition = await scan_coordinator.handle_native_event(
+                                event_type,
+                                request_id,
+                                payload,
+                            )
+                            if transition.refresh_required and transition.logical_finished:
+                                on_catalog_changed()
+                                refresh_settings_if_active()
+                                safe_update()
+
                         if operation_key:
                             processed_native_operations.add(operation_key)
                         if event_id:

@@ -33,7 +33,7 @@ class SettingsDefaults:
         SettingDefinition("player.autoplay_next", "bool", True),
         SettingDefinition("player.resume", "bool", True),
         SettingDefinition("player.default_speed", "float", 1.0, (0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)),
-        SettingDefinition("player.aspect_ratio", "enum", "fit", ("fit", "fill", "zoom")),
+        SettingDefinition("player.aspect_ratio", "enum", "fit", ("fit", "fill")),
         SettingDefinition("player.immersive", "enum", "always", ("always", "landscape", "never")),
         SettingDefinition("player.rotation", "enum", "auto", ("auto", "portrait", "landscape")),
         SettingDefinition("player.pip", "bool", True),
@@ -194,6 +194,12 @@ class SettingsStore:
         raw = self.store.get_preference(key)
         if raw is None:
             return definition.default
+        if key == "player.aspect_ratio" and str(raw).strip().casefold() in {"zoom", "auto", "original"}:
+            raw = "fill" if str(raw).strip().casefold() == "zoom" else "fit"
+            try:
+                self._write(key, raw)
+            except Exception:
+                pass
         try:
             return self._coerce(definition, raw)
         except (ValueError, TypeError, SettingsValidationError):

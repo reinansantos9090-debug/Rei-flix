@@ -35,6 +35,11 @@ async def main(page: ft.Page):
     data_dir=os.getenv("FLET_APP_STORAGE_DATA") or os.path.join(os.path.dirname(__file__),'.reiflix-data')
     store=LibraryStore(data_dir)
     settings=SettingsStore(store)
+    page.theme_mode = {
+        "system": ft.ThemeMode.SYSTEM,
+        "light": ft.ThemeMode.LIGHT,
+        "dark": ft.ThemeMode.DARK,
+    }[settings.get("appearance.theme")]
     recovered_scans=store.interrupted_scans()
     library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]
     account_state=["connected" if store.account().get("email") else "disconnected"]

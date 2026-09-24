@@ -57,7 +57,7 @@ class SettingsStoreTests(unittest.TestCase):
         for valid in (5, 10, 15, 20):
             self.settings.set("library.continue_watching_limit", valid)
             self.assertEqual(self.settings.get("library.continue_watching_limit"), valid)
-        for invalid in (0, -1, 1, 25):
+        for invalid in (0, -1, 1, 25, 5.5):
             with self.assertRaises(SettingsValidationError):
                 self.settings.set("library.continue_watching_limit", invalid)
 

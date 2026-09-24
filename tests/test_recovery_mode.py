@@ -31,6 +31,17 @@ class RecoveryModeTests(unittest.TestCase):
             self.assertTrue(status["required"])
             self.assertTrue(os.path.isfile(store.db_path))
 
+    def test_store_startup_exposes_recovery_error_instead_of_replacing_database(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = LibraryStore(root)
+            with open(store.db_path, "r+b") as handle:
+                handle.seek(0)
+                handle.write(b"not-a-sqlite-database")
+            reopened = LibraryStore(root)
+            self.assertTrue(reopened.recovery_error)
+            self.assertTrue(os.path.isfile(reopened.db_path))
+            self.assertTrue(RecoveryService(reopened).diagnose()["required"])
+
     def test_recovery_restore_is_explicit_and_preserves_account_when_readable(self):
         with tempfile.TemporaryDirectory() as source_root, tempfile.TemporaryDirectory() as target_root:
             source = LibraryStore(source_root)

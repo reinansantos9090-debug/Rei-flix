@@ -2,6 +2,7 @@ import os
 import time
 import asyncio
 import logging
+import json
 import flet as ft
 from flet.auth import OAuthProvider
 from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URL as CONFIG_GOOGLE_REDIRECT_URL, GOOGLE_WEB_CLIENT_ID as CONFIG_GOOGLE_WEB_CLIENT_ID
@@ -210,6 +211,72 @@ async def main(page: ft.Page):
     processed_native_operations = set()
     back_state = {"last_at": 0.0, "last_action": None}
     BACK_DEBOUNCE_SECONDS = 0.30
+    navigation_state_path = os.path.join(data_dir, "navigation_state.json")
+    restored_detail_id = [None]
+
+    def load_navigation_state():
+        try:
+            with open(navigation_state_path, "r", encoding="utf-8") as handle:
+                state = json.load(handle)
+        except (OSError, ValueError, TypeError):
+            return {}
+        if not navigation.restore(state.get("navigation")):
+            logger.warning("[NAV] invalid persisted navigation snapshot; starting from Home")
+            return {}
+        restored = state.get("home_state")
+        if isinstance(restored, dict):
+            home_state.update(
+                {str(key): value for key, value in restored.items() if not callable(value)}
+            )
+        detail_id = state.get("details_media_id")
+        restored_detail_id[0] = str(detail_id).strip() if detail_id not in (None, "") else None
+        logger.info(
+            "[NAV] restored stack=%s settings_depth=%s details_id=%s",
+            navigation.stack,
+            len(navigation.settings_path),
+            restored_detail_id[0] or "-",
+        )
+        return state
+
+    def persist_navigation_state():
+        state = {
+            "version": 1,
+            "navigation": navigation.snapshot(),
+            "home_state": {
+                str(key): value
+                for key, value in home_state.items()
+                if not callable(value)
+            },
+            "details_media_id": (
+                str(current[0].get("id"))
+                if navigation.current == "details" and current[0] and current[0].get("id") is not None
+                else None
+            ),
+        }
+        temporary = navigation_state_path + ".tmp"
+        try:
+            with open(temporary, "w", encoding="utf-8") as handle:
+                json.dump(state, handle, ensure_ascii=False, separators=(",", ":"))
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, navigation_state_path)
+        except (OSError, TypeError, ValueError):
+            try:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+            except OSError:
+                pass
+            logger.exception("[NAV] failed to persist navigation snapshot")
+
+    def clear_persisted_navigation_state():
+        try:
+            os.unlink(navigation_state_path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            logger.exception("[NAV] failed to clear persisted navigation snapshot")
+
+    load_navigation_state()
 
     def _route_for_screen(screen):
         return {

@@ -378,6 +378,9 @@ class LibraryService:
         self._sync_genres(row["id"], row, source="user")
         return row
 
+    def organize_summary_bounded(self):
+        """Return Organize overview aggregates without materializing the full catalog."""
+        return self.store.organize_summary()
     def genre_options(self, *, include_unused=False):
         return self.genre_registry.list_all(include_unused=include_unused)
 

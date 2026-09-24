@@ -370,13 +370,12 @@ E: manifest
 
     def test_android_back_is_not_translated_into_a_mailbox_event(self):
         main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
-        self.assertNotIn("private val backCallback", main)
         self.assertNotIn('put("type", "android_back")', main)
         self.assertIn("import androidx.activity.OnBackPressedCallback", main)
+        self.assertIn("private fun installSystemBackHandler()", main)
+        self.assertIn("onBackPressedDispatcher.addCallback(", main)
         self.assertIn("flutterEngine?.navigationChannel?.popRoute()", main)
-        self.assertNotIn("backEventDebounceMs", main)
-        self.assertNotIn("SystemClock.uptimeMillis()", main)
-
+        self.assertNotIn("finish()", main[main.index("private fun installSystemBackHandler"):main.index("private fun persistedSafTreeUris")])
 
     def test_native_player_back_logs_use_explicit_player_back_marker(self):
         player = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")

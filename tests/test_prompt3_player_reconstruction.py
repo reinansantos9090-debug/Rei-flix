@@ -54,8 +54,9 @@ class Prompt3PlayerReconstructionTests(unittest.TestCase):
         self.assertIn("private const val MAX_ZOOM = 3f", self.player)
         self.assertIn("scaleX = zoomScale", self.player)
         self.assertIn("scaleY = zoomScale", self.player)
-        self.assertIn("zoomTranslationX = zoomTranslationX.coerceIn(-maxTx, maxTx)", self.player)
-        self.assertIn("zoomTranslationY = zoomTranslationY.coerceIn(-maxTy, maxTy)", self.player)
+        self.assertIn("PlayerGesturePolicy.clampZoom", self.player)
+        self.assertIn("PlayerGesturePolicy.clampTranslation", self.player)
+        self.assertIn("val bounds = calculatePanBounds()", self.player)
         self.assertIn("resetZoomToFit", self.player)
 
     def test_resize_modes_expose_fit_fill_and_zoom_without_stretch(self):

@@ -32,6 +32,7 @@ class SettingsView:
         on_create_backup=None, on_inspect_backup=None, on_restore_backup=None,
         on_export_diagnostics=None, on_integrity_check=None, on_reconcile_after_restore=None,
         on_settings_changed=None,
+        on_register_system_back=None,
     ):
         settings = settings or SettingsStore(store)
         busy = {"scan": False, "folder": False, "permission": False, "cache": False}
@@ -206,6 +207,16 @@ class SettingsView:
             active_category[0] = None
             search.value = ""
             render_settings()
+
+        def handle_system_back():
+            """Return True only when Android Back should close an inner category."""
+            if active_category[0] is None:
+                return False
+            back_to_categories()
+            return True
+
+        if on_register_system_back is not None:
+            on_register_system_back(handle_system_back)
 
         def build_category_tile(label):
             description, icon = category_meta.get(label, ("Configurações Rei-Flix", ft.Icons.SETTINGS_OUTLINED))

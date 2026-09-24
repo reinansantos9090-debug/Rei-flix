@@ -447,13 +447,28 @@ E: manifest
         self.assertIn("applyNormalSystemUi()", main)
         self.assertIn("WindowCompat.getInsetsController(window, window.decorView)", controller)
         self.assertIn("setDecorFitsSystemWindows(window, false)", controller)
-        self.assertIn("setDecorFitsSystemWindows(window, true)", controller)
+        self.assertNotIn("setDecorFitsSystemWindows(window, true)", controller)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
-        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", controller)
+        self.assertNotIn("show(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", controller)
         self.assertNotIn("applyImmersiveSystemUi()", main)
         main_style = styles.split('<style name="ReiFlixPlayerTheme"', 1)[0]
         self.assertNotIn('<item name="android:windowFullscreen">true</item>', main_style)
+
+    def test_disabled_player_gestures_are_silent(self):
+        player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
+        self.assertNotIn('showFeedback("Gesto de brilho desligado"', player)
+        self.assertNotIn('showFeedback("Gesto de volume desligado"', player)
+        self.assertIn("if (brightnessGesturesEnabled)", player)
+        self.assertIn("if (volumeGesturesEnabled)", player)
+
+    def test_settings_inner_back_is_registered_with_host_navigation(self):
+        settings = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("def handle_system_back()", settings)
+        self.assertIn("on_register_system_back", settings)
+        self.assertIn("settings_system_back = [None]", main)
+        self.assertIn("SETTINGS_INNER_BACK", main)
 
     def test_native_host_and_player_use_immersive_system_bars(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")

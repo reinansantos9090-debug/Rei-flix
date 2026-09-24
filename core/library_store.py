@@ -1960,6 +1960,40 @@ class LibraryStore:
             "movies": items(media_type="Filme", sort="Mais recentes"),
             "specials": items(media_type="Especial", sort="Mais recentes"),
         }
+    def organize_summary(self):
+        """Return bounded Organize counters and genre summaries from SQLite."""
+        with self._conn() as c:
+            base = "EXISTS (SELECT 1 FROM episodes e0 WHERE e0.anime_id=a.id)"
+            states = {
+                "Todos": base,
+                "Favoritos": f"{base} AND a.favorite=1",
+                "Fixados": f"{base} AND a.is_pinned=1",
+                "Assistidos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.watched=1)",
+                "Não assistidos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.watched=0)",
+                "Em andamento": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.progress>0 AND e.watched=0)",
+                "Concluídos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.watched=0)",
+                "Não iniciados": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND (e.watched=1 OR e.progress>0))",
+            }
+            collections = []
+            for name, clause in states.items():
+                count = int(c.execute(f"SELECT COUNT(*) FROM anime a WHERE {clause}").fetchone()[0] or 0)
+                collections.append({"name": name, "count": count})
+            genre_rows = c.execute("""
+                SELECT g.id, g.canonical_name, COUNT(DISTINCT ag.anime_id) AS count,
+                       MIN(CASE WHEN NULLIF(TRIM(a.cover_cache),'') IS NOT NULL THEN a.cover_cache
+                                WHEN NULLIF(TRIM(a.cover_url),'') IS NOT NULL THEN a.cover_url END) AS cover
+                FROM genres g
+                JOIN anime_genres ag ON ag.genre_id=g.id
+                JOIN anime a ON a.id=ag.anime_id
+                JOIN episodes e ON e.anime_id=a.id
+                GROUP BY g.id, g.canonical_name, g.normalized_name
+                ORDER BY g.normalized_name
+            """).fetchall()
+        return {
+            "collections": collections,
+            "states": [item for item in collections if item["name"] in {"Todos","Favoritos","Em andamento","Concluídos"}],
+            "genres": [{"id": str(row["id"]), "name": str(row["canonical_name"]), "count": int(row["count"] or 0), "cover": row["cover"] or ""} for row in genre_rows],
+        }
     def set_episode_identification(self, path, *, season=None, number=None, episode_type="regular", title=None):
         """Persist an explicit user identification without changing consumption data."""
         if season is None:

@@ -41,8 +41,8 @@ class GenreRegistry:
     def __init__(self, store):
         self.store = store
         self._ensure_schema()
-        self._migrate_legacy()
         self._seed_system_aliases()
+        self._migrate_legacy()
 
     def _ensure_schema(self):
         with self.store._conn() as c:

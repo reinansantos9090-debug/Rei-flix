@@ -502,9 +502,9 @@ class OrganizeView:
             save_view_state()
             await render_collection_only()
 
-        async def render_overview():
+        def render_overview():
             try:
-                summary = await asyncio.to_thread(library.organize_summary, list(catalog))
+                summary = library.organize_summary(list(catalog))
             except Exception:
                 logger.exception(
                     "Organize summary failed",
@@ -763,7 +763,7 @@ class OrganizeView:
             render_generation[0] += 1
             content.controls.clear()
             if mode[0] == "overview":
-                await render_overview()
+                render_overview()
             else:
                 await render_collection()
             page.update()

@@ -884,6 +884,9 @@ class NativePlayerActivity : ComponentActivity() {
             button.text = gestureSettingLabel("Volume", volumeGesturesEnabled)
             showFeedback(if (volumeGesturesEnabled) "Gesto de volume ligado" else "Gesto de volume desligado")
             touchControls()
+        }.apply {
+            tag = "reiflix_gesture_volume"
+            contentDescription = "Configurar gesto de volume"
         }
         val brightnessGestureButton = actionButton(gestureSettingLabel("Brilho", brightnessGesturesEnabled), 120) { button ->
             brightnessGesturesEnabled = !brightnessGesturesEnabled
@@ -891,6 +894,9 @@ class NativePlayerActivity : ComponentActivity() {
             button.text = gestureSettingLabel("Brilho", brightnessGesturesEnabled)
             showFeedback(if (brightnessGesturesEnabled) "Gesto de brilho ligado" else "Gesto de brilho desligado")
             touchControls()
+        }.apply {
+            tag = "reiflix_gesture_brightness"
+            contentDescription = "Configurar gesto de brilho"
         }
         val doubleTapButton = actionButton(gestureSettingLabel("Double tap", doubleTapEnabled), 120) { button ->
             doubleTapEnabled = !doubleTapEnabled
@@ -898,6 +904,9 @@ class NativePlayerActivity : ComponentActivity() {
             button.text = gestureSettingLabel("Double tap", doubleTapEnabled)
             showFeedback(if (doubleTapEnabled) "Double tap ligado" else "Double tap desligado")
             touchControls()
+        }.apply {
+            tag = "reiflix_gesture_double_tap"
+            contentDescription = "Configurar double tap"
         }
         val longPressButton = actionButton(gestureSettingLabel("Pressão", longPressEnabled), 120) { button ->
             longPressEnabled = !longPressEnabled
@@ -905,6 +914,9 @@ class NativePlayerActivity : ComponentActivity() {
             button.text = gestureSettingLabel("Pressão", longPressEnabled)
             showFeedback(if (longPressEnabled) "Pressão longa ligada" else "Pressão longa desligada")
             touchControls()
+        }.apply {
+            tag = "reiflix_gesture_long_press"
+            contentDescription = "Configurar pressão longa"
         }
         addMoreRow(volumeGestureButton, brightnessGestureButton)
         addMoreRow(doubleTapButton, longPressButton)

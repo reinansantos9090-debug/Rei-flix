@@ -9,7 +9,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from core.backup import BackupError, BackupService, BackupValidationError
+from core.backup import BackupError, BackupMigrationRegistry, BackupService, BackupValidationError
 from core.diagnostic_service import DiagnosticsService
 from core.library_store import LibraryStore
 from core.settings import SettingsStore
@@ -273,6 +273,26 @@ class Prompt15BackupRestoreTests(unittest.TestCase):
             self.assertEqual(1, con.execute("SELECT COUNT(*) FROM episodes").fetchone()[0])
             self.assertEqual(1, con.execute("SELECT COUNT(*) FROM artwork").fetchone()[0])
             self.assertEqual(1, con.execute("SELECT COUNT(*) FROM anime_genres").fetchone()[0])
+
+    def test_future_backup_version_is_rejected_and_migration_registry_is_explicit(self):
+        self.assertTrue(BackupMigrationRegistry.can_migrate(1, 1))
+        self.assertFalse(BackupMigrationRegistry.can_migrate(1, 999))
+        with self.assertRaises(BackupValidationError) as ctx:
+            BackupMigrationRegistry.migrate_manifest({"format_version": 1}, 2)
+        self.assertEqual("BACKUP_UNSUPPORTED_VERSION", ctx.exception.code)
+
+    def test_diagnostic_export_redacts_storage_references(self):
+        report = DiagnosticsService(self.store).report(
+            storage_snapshot={
+                "safRoots": ["content://com.android.documents/tree/private-user"],
+                "removableVolumes": [{"state": "mounted", "uuid": "private-volume"}],
+            },
+            scan_snapshot={"volume": "/storage/emulated/0/private", "state": "COMPLETED"},
+        )
+        raw = json.dumps(report, ensure_ascii=False)
+        self.assertNotIn("private-user", raw)
+        self.assertNotIn("/storage/emulated/0/private", raw)
+        self.assertIn("paths_redacted", raw)
 
     def test_diagnostics_detects_orphan_and_bad_progress(self):
         with self.store._conn() as con:

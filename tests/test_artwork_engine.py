@@ -4,6 +4,7 @@ import tempfile
 import threading
 import time
 import unittest
+from urllib.error import HTTPError
 from pathlib import Path
 
 from core.artwork import (
@@ -237,7 +238,7 @@ class ArtworkEngineTests(unittest.TestCase):
         anime = self._media()
         self._remote(anime, "https://example/missing.jpg")
         def downloader(_url):
-            raise __import__("urllib.error").error.HTTPError(_url, 404, "missing", {}, None)
+            raise HTTPError(_url, 404, "missing", {}, None)
         self.engine._downloader = downloader
         self.assertIsNone(self.engine.request("anime", anime, "poster", blocking=True))
         self.assertEqual(self.engine.get_status("anime", anime, "poster"), STATUS_FAILED)

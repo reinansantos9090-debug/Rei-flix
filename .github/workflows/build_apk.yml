@@ -246,12 +246,34 @@ jobs:
           fi
 
       - name: Build APK
+        shell: bash
         run: |
-          flet build apk \
-            --template build/flet-build-template \
-            --build-number "$GITHUB_RUN_NUMBER" \
-            --build-version "0.2.1" \
-            --yes -v
+          set -o pipefail
+          build_args=(
+            apk
+            --template build/flet-build-template
+            --build-number "$GITHUB_RUN_NUMBER"
+            --build-version "0.2.1"
+            --yes
+            -v
+          )
+
+          # Flet/Gradle downloads native artifacts from GitHub Releases.
+          # A transient HTTP 5xx from that service must not make an otherwise
+          # reproducible APK build fail before the APK exists.
+          for attempt in 1 2 3; do
+            echo "APK build attempt $attempt/3"
+            if flet build "${build_args[@]}"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::APK build attempt $attempt failed; retrying after transient dependency/download failure."
+              sleep 10
+            fi
+          done
+
+          echo "::error::APK build failed after 3 attempts."
+          exit 1
 
       - name: Restore source configuration after build
         shell: bash

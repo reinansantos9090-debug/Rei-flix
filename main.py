@@ -238,8 +238,10 @@ async def main(page: ft.Page):
         )
         return state
 
-    def persist_navigation_state():
-        state = {
+    navigation_persist = {"pending": False, "running": False}
+
+    def _navigation_state_payload():
+        return {
             "version": 1,
             "navigation": navigation.snapshot(),
             "home_state": {
@@ -253,12 +255,13 @@ async def main(page: ft.Page):
                 else None
             ),
         }
+
+    def _write_navigation_state(state):
         temporary = navigation_state_path + ".tmp"
         try:
             with open(temporary, "w", encoding="utf-8") as handle:
                 json.dump(state, handle, ensure_ascii=False, separators=(",", ":"))
                 handle.flush()
-                os.fsync(handle.fileno())
             os.replace(temporary, navigation_state_path)
         except (OSError, TypeError, ValueError):
             try:
@@ -268,7 +271,27 @@ async def main(page: ft.Page):
                 pass
             logger.exception("[NAV] failed to persist navigation snapshot")
 
+    async def _flush_navigation_state():
+        navigation_persist["running"] = True
+        try:
+            while navigation_persist["pending"]:
+                navigation_persist["pending"] = False
+                await asyncio.to_thread(
+                    _write_navigation_state,
+                    _navigation_state_payload(),
+                )
+        finally:
+            navigation_persist["running"] = False
+            if navigation_persist["pending"]:
+                page.run_task(_flush_navigation_state)
+
+    def persist_navigation_state():
+        navigation_persist["pending"] = True
+        if not navigation_persist["running"]:
+            page.run_task(_flush_navigation_state)
+
     def clear_persisted_navigation_state():
+        navigation_persist["pending"] = False
         try:
             os.unlink(navigation_state_path)
         except FileNotFoundError:
@@ -276,8 +299,29 @@ async def main(page: ft.Page):
         except OSError:
             logger.exception("[NAV] failed to clear persisted navigation snapshot")
 
-    load_navigation_state()
-
+    def restore_details_context():
+        if navigation.current != "details":
+            return
+        detail_id = restored_detail_id[0]
+        if not detail_id:
+            navigation.replace("home")
+            return
+        try:
+            catalog = library.catalog()
+            current[0] = next(
+                (item for item in catalog if str(item.get("id")) == detail_id),
+                None,
+            )
+        except Exception:
+            logger.exception("[NAV] failed to rebuild persisted Details context")
+            current[0] = None
+        if current[0] is None:
+            logger.warning(
+                "[NAV] persisted Details target unavailable id=%s; falling back to Home",
+                detail_id,
+            )
+            navigation.replace("home")
+            restored_detail_id[0] = None
     def _route_for_screen(screen):
         return {
             "home": "/",

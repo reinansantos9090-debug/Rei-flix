@@ -271,11 +271,16 @@ class SettingsView:
             )
 
         def reset_all(_):
+            def do_reset_all():
+                settings.reset_all()
+                apply_theme_from_settings()
+                notice("Configurações restauradas.")
+                rebuild()
             confirm(
                 "Restaurar todas as configurações?",
                 "Somente preferências do Rei-Flix serão restauradas. Biblioteca, consumo, metadata manual, artwork, arquivos e permissões não serão apagados.",
                 "Restaurar",
-                lambda: (settings.reset_all(), notice("Configurações restauradas."), rebuild()),
+                do_reset_all,
             )
 
 
@@ -472,10 +477,23 @@ class SettingsView:
                 action_row("Limpar cache AniList", "Remove somente o cache temporário administrado pelo catálogo.", "Limpar", clear_cache),
             ], ("artwork","cache","thumbnail","offline")))
 
-            folder_lines = [
-                ft.Text(f"• {folder.get('name') or folder.get('path') or 'Pasta'}", color=TEXT_MUTED, size=11)
-                for folder in folders
-            ]
+            folder_lines = []
+            for folder in folders:
+                name = folder.get("name") or folder.get("path") or "Pasta"
+                path = str(folder.get("path") or "")
+                async def remove_folder(_event, ref=path, display_name=name):
+                    confirm(
+                        "Remover pasta da biblioteca?",
+                        f'"{display_name}" será removida somente da configuração da biblioteca. Nenhum arquivo físico será apagado.',
+                        "Remover",
+                        lambda: on_remove_folder(ref),
+                    )
+                folder_lines.append(
+                    ft.Row([
+                        ft.Text(f"• {name}", color=TEXT_MUTED, size=11, expand=True),
+                        ft.TextButton("Remover", on_click=remove_folder),
+                    ])
+                )
             media_label = {"full":"Permitida","partial":"Parcial","denied":"Negada"}.get(media_state, "Desconhecida")
             broad_label = "Disponível" if broad_state == "available" else "Indisponível"
             items.append(section("Armazenamento", ft.Icons.STORAGE_OUTLINED, [
@@ -507,8 +525,10 @@ class SettingsView:
                 ft.Text("Não há analytics, tracking ou upload da biblioteca. Google Login não é requisito para reprodução local.", color=TEXT_MUTED, size=10),
             ], ("privacidade","local","offline","google")))
 
+            database_ok, database_detail = store.database_check() if hasattr(store, "database_check") else (False, "não disponível")
+            database_label = "OK" if database_ok else f"ERRO ({database_detail})"
             items.append(section("Diagnóstico", ft.Icons.BUG_REPORT_OUTLINED, [
-                ft.Text(f"Database: OK • Schema SQLite: {getattr(store, 'SCHEMA_VERSION', '—')}", color=TEXT, size=11),
+                ft.Text(f"Database: {database_label} • Schema SQLite: {getattr(store, 'SCHEMA_VERSION', '—')}", color=TEXT if database_ok else "#FFB4AB", size=11),
                 ft.Text(f"Scan: {scan.get('state') or 'IDLE'} • encontrados: {int(scan.get('found') or 0)} • arquivos: {int(scan.get('files') or 0)}", color=TEXT_MUTED, size=11),
                 ft.Text(f"Volumes removíveis: {len(volumes)} • SAF: {len(saf_roots)}", color=TEXT_MUTED, size=11),
                 ft.Text("Python/Flet: Flet 0.86.5 • Android target 36", color=TEXT_MUTED, size=11),

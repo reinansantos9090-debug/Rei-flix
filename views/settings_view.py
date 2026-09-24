@@ -181,7 +181,7 @@ class SettingsView:
         scan = scan_snapshot or {}
         runtime_status = str(scan.get("state") or "IDLE").upper()
         running_scan = runtime_status in {"CHECKING", "SCANNING", "WAITING_FOR_MEDIASTORE"}
-        last_scan = store.last_scan()
+        last_scan = None if running_scan else store.last_scan()
         folders = store.folders()
         summary = store.library_summary()
 

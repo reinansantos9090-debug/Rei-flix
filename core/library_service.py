@@ -349,9 +349,10 @@ class LibraryService:
                 if anilist_id and cover_url and not cover_valid:
                     entity_type = 'movie' if str(cached.get('media_kind') or item.get('media_kind') or 'series').casefold() == 'movie' else 'anime'
                     if cached.get('id'):
-                        # ArtworkEngine is now the sole owner of persistent artwork
-                        # downloads. It deduplicates requests and applies retry/backoff
-                        # independently of AniList metadata refreshes.
+                        # Seed the ArtworkEngine from durable metadata before requesting.
+                        # This also repairs databases created before the artwork table
+                        # became the sole owner of remote cover downloads.
+                        self.artwork.sync_anime_metadata(cached['id'], cached)
                         resolved = self.artwork.request(
                             entity_type,
                             cached['id'],

@@ -250,13 +250,29 @@ class ArtworkEngine:
                 artwork_type, source_ref,
             )
             if row:
+                existing = con.execute(
+                    "SELECT status,failure_count,next_retry_at FROM artwork WHERE id=?",
+                    (row["id"],),
+                ).fetchone()
+                update_values = values
+                if (
+                    existing
+                    and status == STATUS_NOT_REQUESTED
+                    and existing["status"] in {STATUS_FAILED, STATUS_RETRY_WAIT}
+                    and not local_path
+                ):
+                    update_values = list(values)
+                    update_values[5] = existing["status"]
+                    update_values[7] = int(existing["failure_count"] or 0)
+                    update_values[16] = existing["next_retry_at"]
+                    update_values = tuple(update_values)
                 con.execute(
                     """UPDATE artwork SET source=?,local_path=?,external_url=?,manual=?,
                        priority=?,status=?,updated_at=?,failure_count=?,artwork_key=?,
                        variant=?,byte_size=?,width=?,height=?,checksum=?,content_type=?,
                        last_access=COALESCE(?,last_access),next_retry_at=?,http_status=?
                        WHERE id=?""",
-                    values[:18] + (row["id"],),
+                    update_values[:18] + (row["id"],),
                 )
                 return int(row["id"])
             cur = con.execute(
@@ -750,6 +766,11 @@ class ArtworkEngine:
                     (str(target), STATUS_READY, now, now, len(payload), checksum,
                      content_type or _mime_from_path(str(target)), http_status, row_id),
                 )
+                if row["entity_type"] in {"anime", "movie"} and row["artwork_type"] == "poster":
+                    con.execute(
+                        "UPDATE anime SET cover_cache=? WHERE id=?",
+                        (str(target), int(row["entity_id"])),
+                    )
             self._log("success", key=key, bytes=len(payload))
             self._evict_if_needed(protected={str(target)})
             return self.get(row["entity_type"], row["entity_id"], row["artwork_type"], allow_network=False)
@@ -778,6 +799,8 @@ class ArtworkEngine:
         with urllib.request.urlopen(request, timeout=self.REQUEST_TIMEOUT_SECONDS) as response:
             status = int(getattr(response, "status", 200) or 200)
             content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().casefold()
+            if content_type and not content_type.startswith("image/"):
+                raise ValueError("resposta HTTP não é uma imagem")
             length_header = response.headers.get("Content-Length")
             if length_header:
                 try:
@@ -798,6 +821,11 @@ class ArtworkEngine:
             payload = b"".join(chunks)
             if not payload:
                 raise ValueError("artwork vazio")
+            detected = _detect_image_extension(payload)
+            if not detected:
+                raise ValueError("conteúdo recebido não é uma imagem suportada")
+            if content_type and content_type in IMAGE_MIME and IMAGE_MIME[content_type] != detected:
+                raise ValueError("MIME e conteúdo da imagem não correspondem")
             return payload, content_type, status
 
     def _set_status(self, row_id, status, *, http_status=None):

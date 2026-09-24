@@ -1779,7 +1779,7 @@ class NativePlayerActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         logPlayer("onResume requestId=" + requestId.ifEmpty { "-" })
-        if (!inPictureInPicture) enterImmersiveMode()
+        if (!inPictureInPicture && shouldUseImmersive()) enterImmersiveMode()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.refreshZoomForLayout()
         if (::player.isInitialized && !errorVisible) {
             updateProgressUi()
@@ -1803,7 +1803,7 @@ class NativePlayerActivity : ComponentActivity() {
         super.onWindowFocusChanged(hasFocus)
         logPlayer("onWindowFocusChanged hasFocus=" + hasFocus +
             " finishing=" + isFinishing + " resumed=" + !isFinishing)
-        if (hasFocus && !inPictureInPicture) enterImmersiveMode()
+        if (hasFocus && !inPictureInPicture && shouldUseImmersive()) enterImmersiveMode()
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
@@ -1908,7 +1908,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun resizeModeFromSetting(value: String?): Int = when (value) {
-        "fill" -> AspectRatioFrameLayout.RESIZE_MODE_FIT // custom crop-free Fill is applied by PlayerView
+        "fill", "zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
         "zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
         else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
     }
@@ -1943,7 +1943,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun applyImmersiveAfterLayout() {
         window.decorView.post {
-            enterImmersiveMode()
+            if (shouldUseImmersive()) enterImmersiveMode() else restoreSystemUiBeforeExit()
             if (::root.isInitialized) {
                 val rootInsets = ViewCompat.getRootWindowInsets(window.decorView)
                 if (rootInsets != null) {

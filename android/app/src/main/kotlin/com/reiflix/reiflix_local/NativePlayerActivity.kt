@@ -2284,6 +2284,15 @@ class NativePlayerActivity : ComponentActivity() {
      * consumed by GestureDetector, while a drag crossing touchSlop cancels the
      * detector before it can be interpreted as a tap.
      */
+    private enum class GestureMode {
+        IDLE,
+        DOUBLE_TAP,
+        PINCH,
+        PAN,
+        HORIZONTAL,
+        VERTICAL,
+    }
+
     private inner class GestureLayer(context: Context) : View(context) {
         private val touchConfig = ViewConfiguration.get(context)
         private val touchSlop = touchConfig.scaledTouchSlop.toFloat()
@@ -2413,15 +2422,6 @@ class NativePlayerActivity : ComponentActivity() {
                 }
             },
         )
-
-        private enum class GestureMode {
-            IDLE,
-            DOUBLE_TAP,
-            PINCH,
-            PAN,
-            HORIZONTAL,
-            VERTICAL,
-        }
 
         private var downX = 0f
         private var downY = 0f

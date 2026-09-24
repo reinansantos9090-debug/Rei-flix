@@ -268,7 +268,9 @@ jobs:
             if [ -d "$git_backup" ] && [ ! -e .git ]; then
               mv "$git_backup" .git
             fi
-            rmdir "$git_backup_root" 2>/dev/null || true
+            if [ -d "$git_backup_root" ]; then
+              rmdir "$git_backup_root"
+            fi
           }
           trap restore_git EXIT
 

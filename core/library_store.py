@@ -1908,8 +1908,8 @@ class LibraryStore:
         order_map = {
             "Mais recentes": "a.added_at DESC, a.title COLLATE NOCASE ASC, a.id DESC",
             "Assistidos recentemente": "(SELECT COALESCE(MAX(e.last_played_at),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
-            "Progresso": "(SELECT COALESCE(SUM(CASE WHEN e.missing=0 THEN e.progress ELSE 0 END)/NULLIF(SUM(CASE WHEN e.missing=0 AND e.duration>0 THEN e.duration ELSE 0 END),0),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
-            "Episódio": "(SELECT COALESCE(MIN(CASE WHEN e.missing=0 THEN e.number END),999999) FROM episodes e WHERE e.anime_id=a.id) ASC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Progresso": "(SELECT COALESCE(AVG(CASE WHEN e.missing=0 AND e.duration>0 THEN MIN(MAX(COALESCE(e.progress,0),0),e.duration)/e.duration ELSE 0 END),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Episódio": "(SELECT COALESCE(e.number,999999) FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 ORDER BY COALESCE(e.season,999999), COALESCE(e.number,999999), COALESCE(e.absolute_number,999999) LIMIT 1), a.title COLLATE NOCASE ASC, a.id DESC",
             "Temporada + episódio": "(SELECT COALESCE(MIN(CASE WHEN e.missing=0 THEN e.season END),999999) FROM episodes e WHERE e.anime_id=a.id) ASC, (SELECT COALESCE(MIN(CASE WHEN e.missing=0 THEN e.number END),999999) FROM episodes e WHERE e.anime_id=a.id) ASC, a.title COLLATE NOCASE ASC, a.id DESC",
             "Modificação": "(SELECT COALESCE(MAX(e.modified_at),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
             "Duração": "(SELECT COALESCE(SUM(e.duration),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
@@ -1952,9 +1952,28 @@ class LibraryStore:
         page_limit = min(24, max(1, int(limit)))
         def items(**filters):
             return self.catalog_page(page=0, page_size=page_limit, **filters)["items"]
+
+        next_items = []
+        candidate_page_size = min(100, max(page_limit * 4, 24))
+        candidate_page = 0
+        while len(next_items) < page_limit:
+            result = self.catalog_page(
+                page=candidate_page,
+                page_size=candidate_page_size,
+                sort="Assistidos recentemente",
+            )
+            for item in result.get("items") or []:
+                if item.get("next_episode"):
+                    next_items.append(item)
+                    if len(next_items) >= page_limit:
+                        break
+            if not result.get("has_more"):
+                break
+            candidate_page += 1
+
         return {
             "continue_watching": self.continue_watching(limit=page_limit),
-            "next_episode": items(state="Em andamento", sort="Assistidos recentemente"),
+            "next_episode": next_items[:page_limit],
             "recently_added": items(sort="Mais recentes"),
             "recently_watched": self.playback_history(limit=page_limit),
             "favorites": items(state="Favoritos", sort="Mais recentes"),
@@ -1967,15 +1986,18 @@ class LibraryStore:
         """Return bounded Organize counters and genre summaries from SQLite."""
         with self._conn() as c:
             base = "EXISTS (SELECT 1 FROM episodes e0 WHERE e0.anime_id=a.id)"
+            completed_sql = "(e.watched=1 OR (e.duration>0 AND MIN(MAX(COALESCE(e.progress,0),0),e.duration)/e.duration >= 0.90))"
+            in_progress_sql = "(e.missing=0 AND COALESCE(e.progress,0)>0 AND NOT " + completed_sql + ")"
+            unwatched_sql = "(e.missing=0 AND COALESCE(e.progress,0)<=0 AND NOT " + completed_sql + ")"
             states = {
                 "Todos": base,
                 "Favoritos": f"{base} AND a.favorite=1",
                 "Fixados": f"{base} AND a.is_pinned=1",
-                "Assistidos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.watched=1)",
-                "Não assistidos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.watched=0)",
-                "Em andamento": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.progress>0 AND e.watched=0)",
-                "Concluídos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.watched=0)",
-                "Não iniciados": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND (e.watched=1 OR e.progress>0))",
+                "Assistidos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {completed_sql})",
+                "Não assistidos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {unwatched_sql})",
+                "Em andamento": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {in_progress_sql})",
+                "Concluídos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND NOT {completed_sql})",
+                "Não iniciados": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND (e.watched=1 OR COALESCE(e.progress,0)>0))",
             }
             collections = []
             for name, clause in states.items():

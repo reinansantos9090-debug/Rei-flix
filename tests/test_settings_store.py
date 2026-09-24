@@ -25,6 +25,12 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertIs(self.settings.get("gestures.volume"), True)
         self.settings.set("player.aspect_ratio", "zoom")
         self.assertEqual(self.settings.get("player.aspect_ratio"), "zoom")
+        with self.assertRaises(SettingsValidationError):
+            self.settings.set("player.max_video_resolution", "144p")
+        with self.assertRaises(SettingsValidationError):
+            self.settings.set("player.max_video_frame_rate", 75)
+        with self.assertRaises(SettingsValidationError):
+            self.settings.set("audio.subtitle_bottom_padding", 60)
 
     def test_invalid_values_rejected(self):
         with self.assertRaises(SettingsValidationError):
@@ -40,6 +46,28 @@ class SettingsStoreTests(unittest.TestCase):
         self.settings.reset_category("player")
         self.assertEqual(self.settings.get("player.default_speed"), 1.0)
         self.assertEqual(self.settings.get("appearance.theme"), "light")
+
+    def test_prompt17_advanced_defaults_persist_and_reset(self):
+        self.assertEqual(self.settings.get("player.double_tap_seek_seconds"), 10)
+        self.assertEqual(self.settings.get("player.long_press_speed"), 2.0)
+        self.assertEqual(self.settings.get("player.max_video_resolution"), "auto")
+        self.assertEqual(self.settings.get("player.max_video_frame_rate"), 0)
+        self.assertEqual(self.settings.get("player.max_audio_channels"), 0)
+        self.assertEqual(self.settings.get("audio.subtitle_scale"), 1.0)
+        self.assertEqual(self.settings.get("audio.subtitle_bottom_padding"), 8)
+        self.assertTrue(self.settings.get("audio.subtitle_embedded_style"))
+        self.settings.set("player.double_tap_seek_seconds", 30)
+        self.settings.set("player.max_video_resolution", "1080p")
+        self.settings.set("audio.subtitle_scale", 1.5)
+        self.settings.set("artwork.cache_limit_mb", 256)
+        reloaded = SettingsStore(self.store)
+        self.assertEqual(reloaded.get("player.double_tap_seek_seconds"), 30)
+        self.assertEqual(reloaded.get("player.max_video_resolution"), "1080p")
+        self.assertEqual(reloaded.get("audio.subtitle_scale"), 1.5)
+        self.assertEqual(reloaded.get("artwork.cache_limit_mb"), 256)
+        self.settings.reset_category("player")
+        self.assertEqual(self.settings.get("player.double_tap_seek_seconds"), 10)
+        self.assertEqual(self.settings.get("player.max_video_resolution"), "auto")
 
     def test_legacy_preferences_are_migrated(self):
         self.store.set_preference("resume_playback", "false")

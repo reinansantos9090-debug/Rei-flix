@@ -14,7 +14,7 @@ from core.consumption import consumption_state, is_completed, is_in_progress, is
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 26
+    SCHEMA_VERSION = 27
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")

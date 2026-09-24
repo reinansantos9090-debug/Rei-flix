@@ -318,7 +318,14 @@ class NativePlayerPlaybackInstrumentedTest {
 
         val back = awaitView<View>("reiflix_back_button")
         assertTrue("Visual Back control must be clickable", onMain { back.performClick() })
-        await("Visual Back must finish the native player Activity") { activity!!.isFinishing }
+        // Once finish() is dispatched, the Activity can be detached from the
+        // instrumentation main thread while Android is completing the transition.
+        // Verify the lifecycle result without enqueueing another main-thread task.
+        SystemClock.sleep(400L)
+        assertTrue(
+            "Visual Back must finish the native player Activity",
+            activity?.isFinishing == true || activity?.isDestroyed == true,
+        )
 
         logStage("SYSTEM_BACK")
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())

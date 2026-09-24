@@ -473,8 +473,8 @@ class LibraryStore:
                 raise ValueError(
                     f"Schema de backup incompatível: {version or 0}; esperado {LibraryStore.SCHEMA_VERSION}."
                 )
-            quick = c.execute("PRAGMA quick_check").fetchone()
-            if str(quick[0] if quick else "").strip().casefold() != "ok":
+            integrity = c.execute("PRAGMA integrity_check").fetchone()
+            if str(integrity[0] if integrity else "").strip().casefold() != "ok":
                 raise ValueError("Backup SQLite inválido: integrity_check falhou.")
             foreign = c.execute("PRAGMA foreign_key_check").fetchone()
             if foreign:
@@ -598,8 +598,8 @@ class LibraryStore:
                         (new_path, old_path),
                     )
                 self._reconcile_restored_files_locked(con)
-                quick = con.execute("PRAGMA quick_check").fetchone()
-                if str(quick[0] if quick else "").strip().casefold() != "ok":
+                integrity = con.execute("PRAGMA integrity_check").fetchone()
+                if str(integrity[0] if integrity else "").strip().casefold() != "ok":
                     raise ValueError("SQLite integrity_check falhou durante restore.")
                 if con.execute("PRAGMA foreign_key_check").fetchone():
                     raise ValueError("foreign_key_check falhou durante restore.")

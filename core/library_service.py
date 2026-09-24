@@ -16,6 +16,8 @@ from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
 from core.media_identity import identity_from_document
 from core.organizer_ai import AnimeOrganizer
 from core.search_engine import LibrarySearchEngine, normalize_text
+from core.genre_classifier import GenreClassifier
+from core.genre_registry import GenreRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +54,20 @@ class LibraryService:
     REQUEST_DEDUPE_SECONDS = 5
 
     def __init__(self, store):
-        self.store=store; self.anilist=AniListClient(store.cache_dir); self.artwork=ArtworkEngine(store); self._scan_lock=threading.Lock(); self._metadata_lock=threading.RLock()
+        self.store=store; self.anilist=AniListClient(store.cache_dir); self.artwork=ArtworkEngine(store); self.genre_registry=GenreRegistry(store); self._scan_lock=threading.Lock(); self._metadata_lock=threading.RLock()
+
+    def _sync_genres(self, anime_id, metadata, *, source=None):
+        if not anime_id:
+            return []
+        names = metadata.get("genres") if isinstance(metadata, dict) else []
+        if isinstance(names, str):
+            try:
+                names = json.loads(names or "[]")
+            except (TypeError, json.JSONDecodeError):
+                names = []
+        return self.genre_registry.sync_anime(anime_id, names or [],
+                                              source=source or metadata.get("metadata_source") or "local",
+                                              replace_source=True)
 
     def _cached_metadata_is_current(self, cached, associated_id):
         if not cached:
@@ -93,10 +108,11 @@ class LibraryService:
             if not allow_network:
                 return cached
         if not allow_network:
+            genres = GenreClassifier.classify(display_title)
             return cached or {
                 "title": display_title,
-                "genres": "[]",
-                "metadata_source": "local",
+                "genres": json.dumps(genres, ensure_ascii=False),
+                "metadata_source": "classifier" if genres else "local",
                 "metadata_status": "unresolved",
                 "metadata_confidence": "low",
             }
@@ -143,6 +159,8 @@ class LibraryService:
                         self.store.upsert_anime(lookup_title, refreshed, source="anilist", confidence="high", status="available", fetched_at=time.time())
                         row = self.store.anime_metadata(lookup_title)
                         if row:
+                            self._sync_genres(row["id"], row, source="anilist")
+                        if row:
                             self.artwork.sync_anime_metadata(row["id"], row)
                         return self.store.anime_metadata(lookup_title) or refreshed
                     if cached:
@@ -160,6 +178,8 @@ class LibraryService:
                     confidence = "high" if score >= 0.9 else "medium"
                     self.store.upsert_anime(lookup_title, refreshed, source="anilist", confidence=confidence, status="available", fetched_at=time.time())
                     row = self.store.anime_metadata(lookup_title)
+                    if row:
+                        self._sync_genres(row["id"], row, source="anilist")
                     if row:
                         self.artwork.sync_anime_metadata(row["id"], row)
                     return self.store.anime_metadata(lookup_title) or refreshed
@@ -269,7 +289,24 @@ class LibraryService:
                 logger.exception('Local metadata/artwork hydration failed', extra={'screen':'home','lookup_title':lookup_title,'library_items':len(catalog)})
         return hydrated
     def set_manual_metadata(self, lookup_title, values):
-        return self.store.set_manual_metadata(lookup_title, values)
+        row = self.store.set_manual_metadata(lookup_title, values)
+        self._sync_genres(row["id"], row, source="user")
+        return row
+
+    def genre_options(self, *, include_unused=False):
+        return self.genre_registry.list_all(include_unused=include_unused)
+
+    def search_genres(self, query):
+        return self.genre_registry.search(query)
+
+    def create_custom_genre(self, name):
+        return self.genre_registry.register(name, source="user", is_custom=True)
+
+    def attach_genre(self, anime_id, genre_id):
+        return self.genre_registry.attach(anime_id, genre_id, source="user")
+
+    def detach_genre(self, anime_id, genre_id):
+        return self.genre_registry.detach(anime_id, genre_id, source="user")
 
     def register_generated_thumbnail(self, media_uri, thumbnail_path, *, size=0, modified_at=0):
         return self.artwork.register_generated_thumbnail(media_uri, thumbnail_path, size=size, modified_at=modified_at)
@@ -822,7 +859,7 @@ class LibraryService:
         self.store.upsert_anime(lookup_title, metadata, source="anilist", confidence="high", status="available", fetched_at=time.time())
         self.store.resolve_match(lookup_title, anilist_id)
         return metadata
-    def catalog(self, favorites_only=False): return self.store.catalog(favorites_only)
+    def catalog(self, favorites_only=False): return self.genre_registry.enrich_catalog(self.store.catalog(favorites_only))
     def create_backup(self, destination=None): return self.store.create_backup(destination)
 
     def restore_backup(self, backup_path=None): return self.store.restore_backup(backup_path)
@@ -958,9 +995,15 @@ class LibraryService:
         This compatibility facade keeps Home/Organize callers stable while the
         matching policy lives in the reusable local SearchFilterSort engine.
         """
+        genre_id = None
+        if genre not in ("Todos", "", None):
+            wanted = str(genre)
+            if any(wanted in (item.get("genre_ids") or []) for item in catalog):
+                genre_id = wanted
         return LibrarySearchEngine.search(
             catalog,
             query=query,
+            genre_id=genre_id,
             state=state,
             genre=genre,
             sort=sort,
@@ -974,7 +1017,8 @@ class LibraryService:
             artwork=artwork,
         )
 
-    @staticmethod
-    def search_options(catalog):
-        return LibrarySearchEngine.options(catalog)
+    def search_options(self, catalog):
+        options = LibrarySearchEngine.options(catalog)
+        options["genres"] = [item["name"] for item in self.genre_registry.list_all(include_unused=False)]
+        return options
 

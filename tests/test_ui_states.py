@@ -96,7 +96,9 @@ class UiStateTests(unittest.TestCase):
     def test_main_does_not_treat_library_rows_as_permission_authority(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         refresh = source[source.index("async def refresh_library"):source.index("async def login")]
-        self.assertIn("caps.can_scan", refresh)
+        self.assertIn("caps.known", refresh)
+        self.assertIn("scan_coordinator.request(", refresh)
+        self.assertIn("ScanOrigin.USER_REFRESH", refresh)
         self.assertNotIn("folder.get('authorization') == 'granted'", refresh)
 
 
@@ -131,7 +133,7 @@ class UiStateTests(unittest.TestCase):
             source.index('section("Aparência"'),
             source.index('section("Biblioteca"'),
             source.index('section("Player"'),
-            source.index('section("Audio"'),
+            source.index('section("Áudio e Legendas"'),
             source.index('section("Metadata"'),
             source.index('section("Armazenamento"'),
             source.index('section("Backup & Restore"'),

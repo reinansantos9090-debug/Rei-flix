@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -1620,37 +1621,83 @@ class LibraryStore:
             complete=True,
         )
 
-    def catalog(self, favorites_only=False):
-        """Project the local library once into the visual hierarchy used by Home/Details."""
+    def catalog(self, favorites_only=False, anime_ids=None):
+        """Project the local library into the visual hierarchy used by Home/Details."""
+        normalized_ids = []
+        for value in anime_ids or []:
+            try:
+                normalized_ids.append(int(value))
+            except (TypeError, ValueError):
+                continue
         with self._conn() as c:
-            query = "SELECT * FROM anime" + (" WHERE favorite=1" if favorites_only else "") + " ORDER BY added_at DESC, title COLLATE NOCASE"
-            anime_rows = c.execute(query).fetchall()
-            episode_rows = c.execute("SELECT * FROM episodes ORDER BY anime_id, season, number, absolute_number, file_name").fetchall()
+            where = []
+            params = []
+            if favorites_only:
+                where.append("favorite=1")
+            if normalized_ids:
+                placeholders = ",".join("?" for _ in normalized_ids)
+                where.append(f"id IN ({placeholders})")
+                params.extend(normalized_ids)
+            elif anime_ids is not None:
+                return []
+            query = "SELECT * FROM anime"
+            if where:
+                query += " WHERE " + " AND ".join(where)
+            query += " ORDER BY added_at DESC, title COLLATE NOCASE"
+            anime_rows = c.execute(query, tuple(params)).fetchall()
+            if normalized_ids:
+                placeholders = ",".join("?" for _ in normalized_ids)
+                episode_rows = c.execute(
+                    f"SELECT * FROM episodes WHERE anime_id IN ({placeholders}) ORDER BY anime_id, season, number, absolute_number, file_name",
+                    tuple(normalized_ids),
+                ).fetchall()
+            else:
+                episode_rows = c.execute(
+                    "SELECT * FROM episodes ORDER BY anime_id, season, number, absolute_number, file_name"
+                ).fetchall()
             folder_kinds = {
                 row["path"]: row["kind"]
                 for row in c.execute("SELECT path, kind FROM folders")
                 if row["path"]
             }
-            genre_rows = c.execute(
-                "SELECT ag.anime_id,g.id,g.canonical_name FROM anime_genres ag JOIN genres g ON g.id=ag.genre_id ORDER BY g.normalized_name"
-            ).fetchall()
+            if normalized_ids:
+                placeholders = ",".join("?" for _ in normalized_ids)
+                genre_rows = c.execute(
+                    f"SELECT ag.anime_id,g.id,g.canonical_name FROM anime_genres ag JOIN genres g ON g.id=ag.genre_id WHERE ag.anime_id IN ({placeholders}) ORDER BY g.normalized_name",
+                    tuple(normalized_ids),
+                ).fetchall()
+            else:
+                genre_rows = c.execute(
+                    "SELECT ag.anime_id,g.id,g.canonical_name FROM anime_genres ag JOIN genres g ON g.id=ag.genre_id ORDER BY g.normalized_name"
+                ).fetchall()
             genres_by_anime = {}
             for genre_row in genre_rows:
                 genres_by_anime.setdefault(int(genre_row["anime_id"]), []).append(
                     (str(genre_row["id"]), str(genre_row["canonical_name"]))
                 )
-            artwork_rows = c.execute(
-                "SELECT entity_type, entity_id, local_path FROM artwork WHERE status != 'failed'"
-            ).fetchall()
+            if normalized_ids:
+                placeholders = ",".join("?" for _ in normalized_ids)
+                artwork_rows = c.execute(
+                    f"SELECT entity_type, entity_id, local_path FROM artwork WHERE status != 'failed' AND entity_id IN ({placeholders})",
+                    tuple(str(value) for value in normalized_ids),
+                ).fetchall()
+            else:
+                artwork_rows = c.execute(
+                    "SELECT entity_type, entity_id, local_path FROM artwork WHERE status != 'failed'"
+                ).fetchall()
             local_artwork_anime = {
                 str(row["entity_id"])
                 for row in artwork_rows
                 if row["local_path"] and str(row["entity_type"]) in {"anime", "movie"}
             }
-            history_rows = c.execute(
-                "SELECT anime_id, MAX(last_played_at) AS last_played_at FROM episodes "
-                "WHERE last_played_at IS NOT NULL GROUP BY anime_id"
-            ).fetchall()
+            history_sql = "SELECT anime_id, MAX(last_played_at) AS last_played_at FROM episodes WHERE last_played_at IS NOT NULL"
+            history_params = []
+            if normalized_ids:
+                placeholders = ",".join("?" for _ in normalized_ids)
+                history_sql += f" AND anime_id IN ({placeholders})"
+                history_params.extend(normalized_ids)
+            history_sql += " GROUP BY anime_id"
+            history_rows = c.execute(history_sql, tuple(history_params)).fetchall()
             history = {int(row["anime_id"]): row["last_played_at"] for row in history_rows}
 
             def project(e):

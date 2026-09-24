@@ -87,6 +87,9 @@ class NativePlayerActivity : ComponentActivity() {
     private var errorVisible = false
     private var openedReported = false
     private var restoredPositionMs: Long? = null
+    private var aspectModeLabel = "Ajustar"
+    private var episodeChangePending = false
+    private var retryCount = 0
     internal var firstFrameRenderedForTesting = false
         private set
     private var feedbackHideAt = 0L

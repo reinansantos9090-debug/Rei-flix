@@ -48,8 +48,8 @@ class DiagnosticsService:
             "genre_aliases", "anime_genres", "schema_migrations", "scan_runs",
         )
         with self.store._conn() as con:
-            quick_row = con.execute("PRAGMA quick_check").fetchone()
-            quick = str(quick_row[0] if quick_row else "unknown")
+            integrity_row = con.execute("PRAGMA integrity_check").fetchone()
+            integrity = str(integrity_row[0] if integrity_row else "unknown")
             fk_rows = con.execute("PRAGMA foreign_key_check").fetchall()
             version_row = con.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
             schema_version = int(version_row[0] or 0) if version_row else 0
@@ -59,7 +59,7 @@ class DiagnosticsService:
             }
         return {
             "schema_version": schema_version,
-            "quick_check": quick,
+            "integrity_check": integrity,
             "foreign_key_ok": not fk_rows,
             "foreign_key_violations": len(fk_rows),
             "table_counts": counts,
@@ -320,7 +320,7 @@ class DiagnosticsService:
         anilist = self._anilist_report()
         player = self._player_report()
         overall_ok = (
-            database["quick_check"].casefold() == "ok"
+            database["integrity_check"].casefold() == "ok"
             and database["foreign_key_ok"]
             and not any(orphans.values())
             and not any(duplicates.values())
@@ -369,7 +369,7 @@ class DiagnosticsService:
             f"App: {report.get('app')} {report.get('app_version')}",
             f"Generated: {report.get('generated_at')}",
             f"Backup format: v{report.get('backup_format_version')}",
-            f"Database: schema={database.get('schema_version')} quick_check={database.get('quick_check')} foreign_keys={database.get('foreign_key_ok')}",
+            f"Database: schema={database.get('schema_version')} integrity_check={database.get('integrity_check')} foreign_keys={database.get('foreign_key_ok')}",
             f"Library: anime={library.get('anime')} episodes={library.get('episodes')} available={library.get('available_files')} missing={library.get('missing_files')}",
             f"Consumption: watched={library.get('watched')} in_progress={library.get('in_progress')} history={library.get('history')}",
             f"Favorites/pinned/notes: {library.get('favorites')}/{library.get('pinned')}/{library.get('notes')}",

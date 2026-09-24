@@ -394,8 +394,9 @@ E: manifest
 
     def test_main_activity_delegates_back_to_flet_and_keeps_activity_result_callbacks(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
-        self.assertNotIn("import androidx.activity.OnBackPressedCallback", main)
-        self.assertNotIn("onBackPressedDispatcher.addCallback(this, backCallback)", main)
+        self.assertIn("import androidx.activity.OnBackPressedCallback", main)
+        self.assertIn("onBackPressedDispatcher.addCallback(", main)
+        self.assertIn("flutterEngine?.navigationChannel?.popRoute()", main)
         self.assertNotIn("override fun onBackPressed()", main)
         self.assertNotIn("return@registerForActivityResult", main)
         self.assertIn("handleTreePickerResult(result)", main)

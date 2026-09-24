@@ -36,8 +36,10 @@ class Prompt1RegressionBaselineTests(unittest.TestCase):
         end=source.index("override fun onPause()",start)
         resume=source[start:end]
         self.assertIn("startupDiscoveryTriggered",resume)
-        self.assertIn("scanMediaStore(null)",resume)
-        self.assertIn("scanAllStorage(null)",resume)
+        self.assertIn("publishScanRequest(",resume)
+        self.assertIn('"STARTUP"',resume)
+        self.assertNotIn("scanMediaStore(null)",resume)
+        self.assertNotIn("scanAllStorage(null)",resume)
 
     def test_organize_has_async_collection_handler_bound_to_clicks(self):
         source=self.read("views/organize_view.py")
@@ -47,12 +49,12 @@ class Prompt1RegressionBaselineTests(unittest.TestCase):
         self.assertIn("on_click=lambda _, value=label: open_collection",source)
         self.assertIn('open_collection(value, "Todos")',source)
 
-    def test_genre_classifier_is_local_and_has_seven_rules(self):
-        source=self.read("core/genre_classifier.py")
-        tree=ast.parse(source)
-        rules=next(n.value for n in ast.walk(tree) if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=="RULES" for t in n.targets))
-        self.assertEqual(7,len(rules.keys))
-        self.assertIn('return genres or ["Minha biblioteca"]',source)
+    def test_genre_registry_is_local_and_not_artificially_limited(self):
+        source=self.read("core/genre_registry.py")
+        self.assertIn("class GenreRegistry", source)
+        self.assertIn("sync_anime", source)
+        self.assertNotIn("return genres or [\"Minha biblioteca\"]", source)
+
 
     def test_anilist_and_artwork_pipeline_already_exist(self):
         service=self.read("core/library_service.py")

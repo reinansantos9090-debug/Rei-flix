@@ -373,7 +373,15 @@ async def main(page: ft.Page):
             source, route_before, action, navigation.current,
         )
         if action == "previous":
-            render_current()
+            # Details can mutate favorite/pin/progress state in LibraryStore while
+            # Organize is cached for scroll/filter continuity. Refresh only when
+            # returning to Organize so its collection reflects durable state
+            # without triggering a scan or permission flow.
+            if navigation.current == "organize":
+                screen_cache.pop("organize", None)
+                render_current()
+            else:
+                render_current()
         elif action == "prompt_exit":
             page.snack_bar=ft.SnackBar(ft.Text("Pressione voltar novamente para sair"))
             page.snack_bar.open=True

@@ -15,6 +15,8 @@ from core.backup import BackupError, BackupService
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
 from core.settings import SettingsStore
+from core.recovery import RecoveryService
+from views.recovery_view import RecoveryView
 from core.google_account import normalize_google_profile
 from views.home_view import HomeView
 from views.details_view import DetailView
@@ -36,6 +38,34 @@ async def main(page: ft.Page):
     page.theme=ft.Theme(color_scheme_seed='#E50914',font_family='Roboto')
     data_dir=os.getenv("FLET_APP_STORAGE_DATA") or os.path.join(os.path.dirname(__file__),'.reiflix-data')
     store=LibraryStore(data_dir)
+    recovery_service = RecoveryService(store)
+    recovery_status = recovery_service.diagnose()
+    if store.recovery_error or recovery_status.get("required"):
+        logger.error("[RECOVERY] database inconsistency detected: %s", store.recovery_error or recovery_status.get("error") or recovery_status.get("quick_check"))
+        async def recovery_diagnostic():
+            return await asyncio.to_thread(recovery_service.diagnostic_bytes)
+        async def recovery_snapshot():
+            return await asyncio.to_thread(recovery_service.create_safety_snapshot)
+        async def recovery_restore(raw, *, preview_only=False):
+            if preview_only:
+                return await asyncio.to_thread(BackupService(store).inspect_bytes, raw)
+            return await asyncio.to_thread(recovery_service.restore_backup, raw)
+        page.views.clear()
+        page.views.append(
+            ft.View(
+                route="/recovery",
+                controls=[RecoveryView.build(
+                    page,
+                    recovery_status,
+                    on_diagnostic=recovery_diagnostic,
+                    on_snapshot=recovery_snapshot,
+                    on_restore=recovery_restore,
+                )],
+                padding=0,
+            )
+        )
+        page.update()
+        return
     settings=SettingsStore(store)
     page.theme_mode = {
         "system": ft.ThemeMode.SYSTEM,

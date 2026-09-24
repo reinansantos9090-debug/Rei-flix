@@ -999,6 +999,7 @@ class NativePlayerActivity : ComponentActivity() {
         topBar.addView(lockButton, weightParams(48))
 
         val moreButton = actionButton("⋮", 48) {
+            findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
             moreVisible = !moreVisible
             findViewByTag<View>("reiflix_more_panel")?.visibility = if (moreVisible) View.VISIBLE else View.GONE
             touchControls()
@@ -1403,6 +1404,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun showSpeedSelection(button: TextView) {
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         if (!::player.isInitialized) return
         val speeds = floatArrayOf(.5f, .75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
         val labels = speeds.map { String.format(java.util.Locale.US, "%.2fx", it) }.toTypedArray()
@@ -1423,6 +1425,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun showAspectSelection(button: TextView) {
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         val labels = arrayOf("Ajustar", "Preencher", "Zoom")
         val current = when (button.text.toString()) {
             in labels -> button.text.toString()
@@ -1565,6 +1568,7 @@ class NativePlayerActivity : ComponentActivity() {
             .show()
     }
     private fun showTrackSelection(trackType: Int, label: String) {
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         if (!::player.isInitialized) return
         if (!player.currentTracks.groups.any { it.type == trackType && it.isSupported }) {
             showFeedback("Nenhuma faixa disponível")
@@ -1940,6 +1944,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         saveProgress("player_progress", force = true)
         logPlayer("onStop finishing=" + isFinishing + " changingConfig=" + isChangingConfigurations)
         super.onStop()
@@ -1974,6 +1979,7 @@ class NativePlayerActivity : ComponentActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         logPlayer("onConfigurationChanged orientation=" + newConfig.orientation)
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         ViewCompat.requestApplyInsets(root)
         applyImmersiveAfterLayout()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.refreshZoomForLayout()

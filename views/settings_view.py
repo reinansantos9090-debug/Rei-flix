@@ -27,6 +27,7 @@ class SettingsView:
         on_open_broad_storage, on_login, on_logout, account,
         account_state="disconnected", folder_selection_pending=lambda: False,
         on_resolve_match=lambda _lookup, _id: None, storage_snapshot=None,
+        on_check_video_access=None,
         scan_snapshot=None, settings: SettingsStore | None = None,
         on_create_backup=None, on_inspect_backup=None, on_restore_backup=None,
         on_export_diagnostics=None, on_integrity_check=None, on_reconcile_after_restore=None,
@@ -168,25 +169,99 @@ class SettingsView:
             )
             item_terms = " ".join(str(getattr(item, "data", "")) for item in items)
             container.data = " ".join((title, *tags, item_terms)).casefold()
+            container.data_label = title
             return container
 
         section_cache = []
+        active_category = [None]
+        back_button = ft.IconButton(icon=ft.Icons.ARROW_BACK, tooltip="Voltar")
+        header_title = ft.Text("Configurações", size=20, weight=ft.FontWeight.BOLD, color=TEXT)
+
+        category_meta = {
+            "Conta": ("Conta e autenticação", ft.Icons.PERSON_OUTLINE),
+            "Geral": ("Comportamento geral do aplicativo", ft.Icons.SETTINGS_OUTLINED),
+            "Aparência": ("Tema e apresentação", ft.Icons.DARK_MODE_OUTLINED),
+            "Biblioteca": ("Catálogo, grade e Continue Watching", ft.Icons.VIDEO_LIBRARY_OUTLINED),
+            "Player": ("Reprodução, vídeo, controles e tela", ft.Icons.PLAY_CIRCLE_OUTLINE),
+            "Gestos": ("Interações de toque do player", ft.Icons.TOUCH_APP_OUTLINED),
+            "Áudio e Legendas": ("Idiomas, legendas e áudio", ft.Icons.HEADPHONES_OUTLINED),
+            "Metadata": ("AniList e matching", ft.Icons.MANAGE_SEARCH_OUTLINED),
+            "Artwork": ("Capas, thumbnails e cache", ft.Icons.IMAGE_OUTLINED),
+            "Armazenamento": ("Permissões, SAF, MediaStore e volumes", ft.Icons.STORAGE_OUTLINED),
+            "Dados e Cache": ("Configurações, importação, exportação e cache", ft.Icons.CACHED_OUTLINED),
+            "Backup & Restore": ("Backup, restauração, integridade e reconciliação", ft.Icons.SECURITY_OUTLINED),
+            "Privacidade": ("Dados locais e conectividade", ft.Icons.PRIVACY_TIP_OUTLINED),
+            "Varredura": ("Estado e histórico das varreduras", ft.Icons.REFRESH_OUTLINED),
+            "Diagnóstico": ("Informações técnicas e diagnóstico", ft.Icons.BUG_REPORT_OUTLINED),
+            "Sobre": ("Versão e componentes do Rei-Flix", ft.Icons.INFO_OUTLINE),
+        }
+
+        def open_category(label):
+            active_category[0] = label
+            search.value = ""
+            render_settings()
+
+        def back_to_categories():
+            active_category[0] = None
+            search.value = ""
+            render_settings()
+
+        def build_category_tile(label):
+            description, icon = category_meta.get(label, ("Configurações Rei-Flix", ft.Icons.SETTINGS_OUTLINED))
+            return ft.Container(
+                padding=14,
+                bgcolor=SURFACE,
+                border_radius=RADIUS,
+                ink=True,
+                on_click=lambda _event, key=label: open_category(key),
+                content=ft.Row([
+                    ft.Icon(icon, color=TEXT, size=24),
+                    ft.Column([
+                        ft.Text(label, color=TEXT, size=14, weight=ft.FontWeight.BOLD),
+                        ft.Text(description, color=TEXT_MUTED, size=10),
+                    ], spacing=2, expand=True),
+                    ft.Icon(ft.Icons.CHEVRON_RIGHT, color=TEXT_MUTED),
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            )
+
+        def render_settings(_=None):
+            query = (search.value or "").strip().casefold()
+            if active_category[0] is None:
+                labels = []
+                for item in section_cache:
+                    label = getattr(item, "data_label", "")
+                    if label and label not in labels:
+                        labels.append(label)
+                controls = [
+                    build_category_tile(label)
+                    for label in labels
+                    if not query
+                    or query in label.casefold()
+                    or query in str(category_meta.get(label, ("", None))[0]).casefold()
+                    or query in str(next((item for item in section_cache if getattr(item, "data_label", "") == label), ft.Container())).casefold()
+                ]
+            else:
+                controls = [
+                    item for item in section_cache
+                    if str(getattr(item, "data_label", "")).casefold() == str(active_category[0]).casefold()
+                    and (not query or query in getattr(item, "data", ""))
+                ]
+            sections_host.controls = controls or [
+                ft.Text("Nenhuma configuração corresponde à pesquisa.", color=TEXT_MUTED, size=12),
+            ]
+            header_title.value = "Configurações" if active_category[0] is None else str(active_category[0])
+            back_button.tooltip = "Voltar ao menu de configurações" if active_category[0] is not None else "Voltar"
+            back_button.on_click = (lambda _event: back_to_categories()) if active_category[0] is not None else (lambda _event: on_back())
+            safe_update()
 
         def rebuild(_=None):
             nonlocal section_cache
             section_cache = build_sections()
-            filter_sections()
+            render_settings()
 
-        def filter_sections(_=None):
-            query = (search.value or "").strip().casefold()
-            sections_host.controls = [
-                item for item in section_cache
-                if not query or query in getattr(item, "data", "")
-            ]
-            safe_update()
+        search.on_change = render_settings
 
-        search.on_change = filter_sections
-
+        normalized = normalize_storage_snapshot(storage_snapshot)
         normalized = normalize_storage_snapshot(storage_snapshot)
         snap = normalized.as_mapping()
         media_state = str(snap.get("mediaReadState", "denied")).casefold()
@@ -233,7 +308,7 @@ class SettingsView:
                     safe_update()
             page.run_task(run)
 
-        def permission(_):
+        def request_permission(_):
             if busy["permission"]:
                 return
             busy["permission"] = True
@@ -249,6 +324,25 @@ class SettingsView:
                     safe_update()
             page.run_task(run)
 
+        def verify_permission(_):
+            if busy["permission"]:
+                return
+            busy["permission"] = True
+            async def run():
+                try:
+                    if on_check_video_access is None:
+                        raise RuntimeError("Verificação de armazenamento indisponível.")
+                    await on_check_video_access()
+                    notice("Estado atual da permissão foi solicitado ao Android.")
+                except Exception:
+                    logger.exception("video permission verification failed")
+                    notice("Não foi possível verificar a permissão atual.", True)
+                finally:
+                    busy["permission"] = False
+                    safe_update()
+            page.run_task(run)
+
+        def broad(_):
         def broad(_):
             if busy["permission"]:
                 return

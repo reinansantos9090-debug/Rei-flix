@@ -209,6 +209,7 @@ async def main(page: ft.Page):
                 on_restore_backup=restore_backup,
                 on_export_diagnostics=export_diagnostics,
                 on_integrity_check=integrity_check,
+                on_reconcile_after_restore=request_restore_reconciliation,
             )
         else:
             raise RuntimeError(f"Unknown navigation route: {route}")
@@ -400,6 +401,13 @@ async def main(page: ft.Page):
             counts=(result.get("preview") or {}).get("counts") or {},
         )
         return result
+
+    async def request_restore_reconciliation():
+        if scan_coordinator.active:
+            return {"accepted": False, "message": "scan_already_running"}
+        return await scan_coordinator.request_restore_reconciliation(
+            reason="user_requested_post_restore",
+        )
 
     async def export_diagnostics():
         raw = await asyncio.to_thread(

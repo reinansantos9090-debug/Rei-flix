@@ -1,4 +1,4 @@
-"""Persistent, local-first artwork engine for Rei-Flix.
+"""Persistent, local-first Artwork Engine 2.0 for Rei-Flix.
 
 Artwork is an enrichment layer.  The local catalog, NativeIndex/scanners and
 AniList matching remain authoritative for their own domains.  This module only
@@ -243,8 +243,8 @@ class ArtworkEngine:
         priority = _SOURCE_PRIORITY.get(source, 0)
         with self.store._conn() as con:
             row = con.execute(
-                "SELECT id,discovered_at FROM artwork WHERE artwork_key=?",
-                (artwork_key,),
+                "SELECT id,discovered_at FROM artwork WHERE entity_type=? AND entity_id=? AND artwork_key=?",
+                (entity_type, str(entity_id), artwork_key),
             ).fetchone()
             if row is None:
                 row = con.execute(
@@ -518,7 +518,8 @@ class ArtworkEngine:
 
         if cover_cache and self._is_file(cover_cache):
             key = self._make_key("anilist" if anilist_id else "cache",
-                                 anilist_id or cover_url or cover_cache, "poster", "large")
+                                 f"{anilist_id or cover_url or cover_cache}|{cover_url}",
+                                 "poster", "large")
             self._upsert(
                 entity_type=entity_type, entity_id=anime_id, artwork_type="poster",
                 source="cache", source_ref=cover_url or cover_cache,
@@ -529,7 +530,7 @@ class ArtworkEngine:
             )
         elif cover_url:
             key = self._make_key("anilist" if anilist_id else "url",
-                                 anilist_id or cover_url, "poster", "large")
+                                 f"{anilist_id or cover_url}|{cover_url}", "poster", "large")
             self._upsert(
                 entity_type=entity_type, entity_id=anime_id, artwork_type="poster",
                 source="anilist", source_ref=cover_url, external_url=cover_url,
@@ -537,7 +538,7 @@ class ArtworkEngine:
             )
         if banner_url:
             key = self._make_key("anilist" if anilist_id else "url",
-                                 anilist_id or banner_url, "backdrop", "large")
+                                 f"{anilist_id or banner_url}|{banner_url}", "backdrop", "large")
             self._upsert(
                 entity_type=entity_type, entity_id=anime_id, artwork_type="backdrop",
                 source="anilist", source_ref=banner_url, external_url=banner_url,
@@ -1043,6 +1044,8 @@ class ArtworkEngine:
         self._closed = True
         for future in list(self._pending.values()):
             future.cancel()
+        for thread in self._workers:
+            thread.join(timeout=0.5)
 
 
 def _safe_http_url(url):

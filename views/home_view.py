@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 import flet as ft
@@ -33,6 +34,11 @@ class HomeView:
         selected_artwork = [view_state.get("artwork", "Todos")]
         search_visible = [bool(view_state.get("search_visible", False))]
         render_generation = [0]
+        search_generation = [0]
+        current_page = [0]
+        has_more = [True]
+        total_matches = [0]
+        page_loading = [False]
         scan_active = [False]
         artwork_tasks: set[tuple] = set()
         artwork_bindings: dict[tuple, list] = {}
@@ -138,17 +144,23 @@ class HomeView:
                 key = (entity, int(item_id), kind, width, height)
                 if key not in artwork_tasks:
                     artwork_tasks.add(key)
+                    request_generation = render_generation[0]
                     async def hydrate():
                         try:
                             resolved = await asyncio.to_thread(
                                 library.resolve_artwork, entity, item_id, kind, allow_network=False
                             )
+                            if request_generation != render_generation[0]:
+                                return
                             path = (resolved or {}).get("local_path")
                             if apply_source(path):
                                 meta = item.setdefault("meta", {})
                                 meta["cover_cache"] = path
                                 item["cover"] = path
-                                page.update()
+                                try:
+                                    holder.update()
+                                except Exception:
+                                    page.update()
                         except Exception:
                             logger.exception(
                                 "Artwork render hydration failed",
@@ -213,60 +225,93 @@ class HomeView:
             section_cards[key].visible = bool(items)
             section_cards[key].content.controls[1] = row
 
-        async def render_library():
-            render_generation[0] += 1
+        def _library_filters():
+            return dict(
+                query=search.value or "", state=selected_state[0], genre=selected_genre[0], sort=selected_sort[0],
+                tag=selected_tag[0], media_type=selected_media_type[0], season=selected_season[0],
+                episode_type=selected_episode_type[0], availability=selected_availability[0],
+                metadata=selected_metadata[0], artwork=selected_artwork[0],
+            )
+
+        async def load_library_page(*, reset=False):
+            if page_loading[0] or (not reset and not has_more[0]):
+                return
+            if reset:
+                render_generation[0] += 1
+                current_page[0] = 0
+                has_more[0] = True
+                total_matches[0] = 0
+                artwork_bindings.clear()
+                catalog.clear()
+                grid.controls.clear()
+                feedback.visible = False
+            page_loading[0] = True
             token = render_generation[0]
-            filter_failed = False
+            target_page = 0 if reset else current_page[0] + 1
             try:
-                filtered = await asyncio.to_thread(
-                    library.browse_catalog, catalog, search.value or "", selected_state[0], selected_genre[0],
-                    selected_sort[0], selected_tag[0], media_type=selected_media_type[0], season=selected_season[0],
-                    episode_type=selected_episode_type[0], availability=selected_availability[0],
-                    metadata=selected_metadata[0], artwork=selected_artwork[0],
+                result = await asyncio.to_thread(
+                    library.browse_catalog_page,
+                    page=target_page, page_size=36, **_library_filters(),
                 )
             except Exception:
-                filter_failed = True
-                logger.exception(
-                    "Home filter projection failed",
-                    extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog)},
-                )
-                filtered = list(catalog)
-
-            if token != render_generation[0]:
+                logger.exception("Home paged query failed", extra={"screen":"home","page":target_page})
+                if reset:
+                    feedback.content = empty_state(ft.Icons.ERROR_OUTLINE, "Não foi possível ler a biblioteca local agora.", "Tente novamente.")
+                    feedback.visible = True
+                    page.update()
+                page_loading[0] = False
                 return
-            grid.controls.clear()
-            if not catalog and scan_active[0]:
+            if token != render_generation[0]:
+                page_loading[0] = False
+                return
+            page_items = result.get("items") or []
+            existing_ids = {int(item.get("id")) for item in catalog if item.get("id") is not None}
+            fresh_items = [item for item in page_items if item.get("id") is None or int(item.get("id")) not in existing_ids]
+            catalog.extend(fresh_items)
+            current_page[0] = int(result.get("page") or target_page)
+            total_matches[0] = int(result.get("total") or 0)
+            has_more[0] = bool(result.get("has_more"))
+            if catalog:
+                library_label.value = f"MINHA BIBLIOTECA • {total_matches[0]}"
+                feedback.visible = False
+                grid.controls.extend(card(item) for item in fresh_items)
+            elif scan_active[0]:
                 library_label.value = "DESCOBRINDO BIBLIOTECA LOCAL…"
                 feedback.visible = False
-                status.visible = True
-                status.controls = [
-                    ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
-                    ft.Text("Descobrindo vídeos locais…", color=TEXT_MUTED, size=12),
-                ]
-            elif not catalog:
-                library_label.value = "SUA BIBLIOTECA"
-                feedback.content = empty_state(ft.Icons.VIDEO_LIBRARY_OUTLINED, "Sua biblioteca local está vazia",
-                                               "Adicione uma pasta com animes nas configurações para começar.",
-                                               ft.FilledButton("Abrir configurações", icon=ft.Icons.SETTINGS, on_click=lambda _: on_open_settings()))
-                feedback.visible = True
-            elif not filtered:
-                library_label.value = "MINHA BIBLIOTECA"
-                feedback.content = empty_state(ft.Icons.SEARCH_OFF, "Nenhum resultado", "Tente alterar a busca ou os filtros.")
-                feedback.visible = True
             else:
-                library_label.value = f"MINHA BIBLIOTECA • {len(filtered)}"
-                feedback.visible = False
-                grid.controls.extend(card(anime) for anime in filtered)
-            active_filters = sum(v not in {None, "", "Todos", "Mais recentes"} for v in (
-                selected_state[0], selected_genre[0], selected_media_type[0], selected_tag[0],
-                selected_season[0], selected_episode_type[0], selected_availability[0],
-                selected_metadata[0], selected_artwork[0],
-            ))
-            filter_summary.value = "Filtros temporariamente indisponíveis" if filter_failed else (
-                f"{active_filters} filtro(s) ativo(s)" if active_filters else "Filtros"
-            )
+                library_label.value = "MINHA BIBLIOTECA"
+                feedback.content = empty_state(ft.Icons.SEARCH_OFF if (search.value or "").strip() else ft.Icons.VIDEO_LIBRARY_OUTLINED, "Nenhum resultado" if (search.value or "").strip() else "Sua biblioteca local está vazia", "Tente alterar a busca ou os filtros." if (search.value or "").strip() else "Adicione uma pasta com animes nas configurações para começar.", ft.FilledButton("Abrir configurações", icon=ft.Icons.SETTINGS, on_click=lambda _: on_open_settings()) if not (search.value or "").strip() else None)
+                feedback.visible = True
+            active_filters = sum(v not in {None, "", "Todos", "Mais recentes"} for v in (selected_state[0], selected_genre[0], selected_media_type[0], selected_tag[0], selected_season[0], selected_episode_type[0], selected_availability[0], selected_metadata[0], selected_artwork[0]))
+            filter_summary.value = f"{active_filters} filtro(s) ativo(s)" if active_filters else "Filtros"
+            status.visible = scan_active[0]
+            page_loading[0] = False
             page.update()
+            await restore_scroll_position()
+            if fresh_items:
+                async def run_hydration_batch():
+                    await hydrate_metadata_and_artwork(list(fresh_items), token)
+                schedule_background(run_hydration_batch)
 
+        def schedule_background(coro_factory):
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                page.run_task(coro_factory)
+                return
+            loop.create_task(coro_factory())
+
+        async def load_next_page():
+            await load_library_page(reset=False)
+
+        def on_home_scroll(event):
+            try:
+                view_state["scroll_position"] = float(event.pixels)
+                remaining = float(event.max_scroll_extent - event.pixels)
+            except (TypeError, ValueError, AttributeError):
+                return
+            if remaining < 800 and has_more[0] and not page_loading[0]:
+                schedule_background(load_next_page)
         def card(anime):
             available_count = int(anime.get("available_count") or 0)
             completed = int(anime.get("watched_count") or 0)
@@ -286,6 +331,7 @@ class HomeView:
             if current_state and current_state.value in {"completed", "watched"}:
                 indicators.append(ft.Container(ft.Icon(ft.Icons.CHECK, color="#FFFFFF", size=14), bottom=5, right=5, bgcolor="#27845ACC", border_radius=12, padding=3))
             return ft.Container(
+                key=f"anime:{anime.get('id', '-')}",
                 width=146, ink=True, on_click=lambda _, item=anime: on_select_anime(item), border_radius=RADIUS,
                 content=ft.Column([
                     ft.Stack([artwork_holder(anime, 146, 176, source=cover), *indicators]),
@@ -324,7 +370,7 @@ class HomeView:
             tags = options.get("tags") or []
             seasons = options.get("seasons") or []
             episode_types = options.get("episode_types") or []
-            genres = sorted({str(genre) for anime in catalog for genre in anime.get("genres", []) if genre}, key=str.casefold)
+            genres = [str(value) for value in (options.get("genres") or []) if value]
             tag.options = [ft.dropdown.Option("Todos", "Todos"), ft.dropdown.Option("Sem etiqueta", "Sem etiqueta")] + [ft.dropdown.Option(v, v) for v in tags]
             season.options = [ft.dropdown.Option("Todos", "Todos")] + [ft.dropdown.Option(str(v), f"Temporada {v}") for v in seasons]
             episode_type.options = [ft.dropdown.Option("Todos", "Todos")] + [ft.dropdown.Option(v, v) for v in episode_types]
@@ -356,7 +402,7 @@ class HomeView:
             selected_artwork[0] = artwork_filter.value or "Todos"
             save_view_state()
             page.pop_dialog()
-            await render_library()
+            await load_library_page(reset=True)
 
         def open_filters(_=None):
             dialog = ft.AlertDialog(
@@ -380,176 +426,108 @@ class HomeView:
             if not search_visible[0]:
                 search.value = ""
             save_view_state()
-            await render_library()
+            await load_library_page(reset=True)
 
         async def on_search(event):
             save_view_state()
-            await render_library()
+            search_generation[0] += 1
+            token = search_generation[0]
+            await asyncio.sleep(0.18)
+            if token != search_generation[0]:
+                return
+            await load_library_page(reset=True)
 
         async def on_sort(event):
             selected_sort[0] = event.control.value or "Mais recentes"
             save_view_state()
-            await render_library()
+            await load_library_page(reset=True)
 
-        async def hydrate_metadata_and_artwork():
-            if not catalog:
+        async def hydrate_metadata_and_artwork(items, token):
+            if not items or token != render_generation[0]:
                 return
-            hydration_status.visible = True
-            hydration_status.value = "Atualizando metadata e capas…"
-            page.update()
             try:
-                results = await asyncio.to_thread(library.hydrate_catalog_metadata, catalog)
-                by_id = {int(item.get("id")): item for item in catalog if item.get("id") is not None}
+                results = await asyncio.to_thread(library.hydrate_catalog_metadata, items)
+                if token != render_generation[0]:
+                    return
+                by_id = {int(item.get('id')): item for item in items if item.get('id') is not None}
+                updated = 0
                 for result in results or []:
-                    item_id = result.get("id")
-                    if item_id is None:
-                        continue
-                    target = by_id.get(int(item_id))
-                    metadata = result.get("metadata") or {}
+                    item_id = result.get('id')
+                    target = by_id.get(int(item_id)) if item_id is not None else None
+                    metadata = result.get('metadata') or {}
                     if target is None or not metadata:
                         continue
-                    target["meta"] = dict(metadata)
-                    entity = "movie" if target.get("media_kind") == "movie" else "anime"
-                    cover_path = metadata.get("cover_cache")
-                    if cover_path:
+                    target['meta'] = dict(metadata)
+                    cover_path = metadata.get('cover_cache')
+                    if not cover_path:
+                        continue
+                    entity = 'movie' if target.get('media_kind') == 'movie' else 'anime'
+                    for holder, width, height in artwork_bindings.get((entity, int(item_id), 'poster'), []):
                         try:
-                            cover_valid = os.path.isfile(str(cover_path)) and os.path.getsize(str(cover_path)) > 0
-                        except OSError:
-                            cover_valid = False
-                    else:
-                        cover_valid = False
-                    if cover_valid:
-                        for holder, width, height in artwork_bindings.get((entity, int(item_id), "poster"), []):
-                            holder.content = ft.Image(
-                                src=cover_path, width=width, height=height,
-                                fit=ft.BoxFit.COVER, border_radius=RADIUS,
-                            )
-                        page.update()
+                            holder.content = ft.Image(src=cover_path, width=width, height=height, fit=ft.BoxFit.COVER, border_radius=RADIUS)
+                            holder.update()
+                            updated += 1
+                        except Exception:
+                            logger.exception('Home localized artwork update failed')
+                if updated:
+                    logger.info('HOME_ARTWORK_BATCH_UPDATED count=%s', updated)
             except Exception:
-                logger.exception(
-                    "Home metadata/artwork hydration failed",
-                    extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog)},
-                )
-            finally:
-                hydration_status.visible = False
-                page.update()
+                logger.exception('Home metadata/artwork hydration failed', extra={'screen':'home','requestId':'-','library_items':len(items)})
+
+        async def refresh_from_catalog():
+            save_view_state()
+            await load_library_page(reset=True)
+
+        async def retry_load_catalog(_event=None):
+            await load_catalog()
 
         async def load_catalog():
             status.visible = True
             status.controls = [
                 ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
-                ft.Text("Carregando biblioteca local…", color=TEXT_MUTED, size=12),
+                ft.Text('Carregando biblioteca local…', color=TEXT_MUTED, size=12),
             ]
             page.update()
-
             try:
-                loaded_catalog = await asyncio.to_thread(library.catalog)
+                last_scan = await asyncio.to_thread(library.last_scan)
+                loaded_home_data = await asyncio.to_thread(library.media_center_home, limit=12)
+                loaded_options = await asyncio.to_thread(library.search_options)
             except Exception:
-                try:
-                    last_scan = await asyncio.to_thread(library.last_scan)
-                except Exception:
-                    last_scan = None
-                logger.exception(
-                    "Home local catalog load failed",
-                    extra={
-                        "screen":"home","requestId":"-",
-                        "scanId":(last_scan or {}).get("scan_id") if last_scan else "-",
-                        "library_items":len(catalog),
-                    },
-                )
+                logger.exception('Home local projections load failed', extra={'screen':'home','requestId':'-'})
                 status.controls = [
-                    ft.Icon(ft.Icons.ERROR_OUTLINE, color="#FFB4AB", size=18),
-                    ft.Text("Não foi possível ler a biblioteca local agora.", color="#FFB4AB", size=12),
-                    ft.TextButton("Tentar novamente", on_click=lambda _: page.run_task(load_catalog)),
+                    ft.Icon(ft.Icons.ERROR_OUTLINE, color='#FFB4AB', size=18),
+                    ft.Text('Não foi possível ler a biblioteca local agora.', color='#FFB4AB', size=12),
+                    ft.TextButton('Tentar novamente', on_click=retry_load_catalog),
                 ]
                 status.visible = True
                 page.update()
                 return
 
-            # Catalog acquisition is authoritative. A secondary Home projection
-            # may fail without making durable local media disappear from the UI.
-            catalog.clear()
-            catalog.extend(loaded_catalog or [])
-
-            try:
-                last_scan = await asyncio.to_thread(library.last_scan)
-            except Exception:
-                logger.exception(
-                    "Home last-scan state lookup failed",
-                    extra={"screen":"home","requestId":"-","library_items":len(catalog)},
-                )
-                last_scan = None
-            scan_active[0] = bool(
-                last_scan and str(last_scan.get("status") or "").casefold() in {"running", "started"}
-            )
-
-            try:
-                loaded_home_data = await asyncio.to_thread(
-                    library.media_center_home, limit=12, catalog=list(catalog)
-                )
-            except Exception:
-                logger.exception(
-                    "Home section projection failed",
-                    extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog)},
-                )
-                loaded_home_data = {}
-
-            try:
-                loaded_options = await asyncio.to_thread(
-                    library.search_options, list(catalog)
-                )
-            except Exception:
-                logger.exception(
-                    "Home filter options failed",
-                    extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog)},
-                )
-                loaded_options = {}
-
+            scan_active[0] = bool(last_scan and str(last_scan.get('status') or '').casefold() in {'running', 'started'})
             home_data.clear()
             home_data.update(loaded_home_data or {})
             continuing.clear()
-            continuing.extend(home_data.get("continue_watching", []))
+            continuing.extend(home_data.get('continue_watching', []))
             refresh_filter_options(loaded_options or {})
-            status.visible = scan_active[0]
-            if scan_active[0]:
-                status.controls = [
-                    ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
-                    ft.Text("Descobrindo vídeos locais…", color=TEXT_MUTED, size=12),
-                ]
             render_continue()
             for title, key, is_episode in (
-                ("PRÓXIMO EPISÓDIO","next_episode",False),
-                ("RECENTEMENTE ADICIONADOS","recently_added",False),
-                ("RECENTEMENTE ASSISTIDOS","recently_watched",True),
-                ("FAVORITOS","favorites",False),
-                ("PINADOS","pinned",False),
-                ("SÉRIES / ANIMES","series",False),
-                ("FILMES","movies",False),
-                ("ESPECIAIS","specials",False),
+                ('PRÓXIMO EPISÓDIO','next_episode',False),
+                ('RECENTEMENTE ADICIONADOS','recently_added',False),
+                ('RECENTEMENTE ASSISTIDOS','recently_watched',True),
+                ('FAVORITOS','favorites',False),
+                ('PINADOS','pinned',False),
+                ('SÉRIES / ANIMES','series',False),
+                ('FILMES','movies',False),
+                ('ESPECIAIS','specials',False),
             ):
                 try:
-                    render_section(
-                        title, key, home_data.get(key),
-                        action=None if is_episode else on_select_anime,
-                        episode=is_episode,
-                    )
+                    render_section(title, key, home_data.get(key), action=None if is_episode else on_select_anime, episode=is_episode)
                 except Exception:
-                    logger.exception(
-                        "Home section render failed",
-                        extra={"screen":"home","requestId":"-","scanId":"-","library_items":len(catalog),"section":key},
-                    )
-            await render_library()
-            if scan_active[0]:
-                status.visible = True
-                if not catalog:
-                    feedback.visible = False
-                    library_label.value = "DESCOBRINDO BIBLIOTECA LOCAL…"
-                page.update()
-            else:
-                status.visible = False
-                page.update()
-            page.run_task(hydrate_metadata_and_artwork)
-
+                    logger.exception('Home section render failed', extra={'screen':'home','section':key})
+            await load_library_page(reset=True)
+            status.visible = scan_active[0]
+            page.update()
+            await restore_scroll_position()
         search.on_change = on_search
         search.on_submit = on_search
         sort.on_select = on_sort
@@ -578,7 +556,22 @@ class HomeView:
         layout = ft.Column([
             header, search, ft.Text("Sua biblioteca local, conteúdo primeiro.", size=12, color=TEXT_MUTED),
             status, hydration_status, continuation_section, main_library_bar, feedback, grid, sections_column, ft.Container(height=24),
-        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=12)
+        ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=12, scroll_interval=60, on_scroll=on_home_scroll)
+        async def restore_scroll_position():
+            stored = view_state.get("scroll_position")
+            if stored is None:
+                return
+            try:
+                result = layout.scroll_to(offset=float(stored), duration=0)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.debug("Home scroll restoration unavailable", exc_info=True)
+
+        def schedule_refresh_from_catalog():
+            page.run_task(refresh_from_catalog)
+
+        view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
         status.visible = True
         page.run_task(load_catalog)
         return ft.Container(

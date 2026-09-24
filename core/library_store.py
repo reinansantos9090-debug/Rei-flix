@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -1620,37 +1621,83 @@ class LibraryStore:
             complete=True,
         )
 
-    def catalog(self, favorites_only=False):
-        """Project the local library once into the visual hierarchy used by Home/Details."""
+    def catalog(self, favorites_only=False, anime_ids=None):
+        """Project the local library into the visual hierarchy used by Home/Details."""
+        normalized_ids = []
+        for value in anime_ids or []:
+            try:
+                normalized_ids.append(int(value))
+            except (TypeError, ValueError):
+                continue
         with self._conn() as c:
-            query = "SELECT * FROM anime" + (" WHERE favorite=1" if favorites_only else "") + " ORDER BY added_at DESC, title COLLATE NOCASE"
-            anime_rows = c.execute(query).fetchall()
-            episode_rows = c.execute("SELECT * FROM episodes ORDER BY anime_id, season, number, absolute_number, file_name").fetchall()
+            where = []
+            params = []
+            if favorites_only:
+                where.append("favorite=1")
+            if normalized_ids:
+                placeholders = ",".join("?" for _ in normalized_ids)
+                where.append(f"id IN ({placeholders})")
+                params.extend(normalized_ids)
+            elif anime_ids is not None:
+                return []
+            query = "SELECT * FROM anime"
+            if where:
+                query += " WHERE " + " AND ".join(where)
+            query += " ORDER BY added_at DESC, title COLLATE NOCASE"
+            anime_rows = c.execute(query, tuple(params)).fetchall()
+            if normalized_ids:
+                placeholders = ",".join("?" for _ in normalized_ids)
+                episode_rows = c.execute(
+                    f"SELECT * FROM episodes WHERE anime_id IN ({placeholders}) ORDER BY anime_id, season, number, absolute_number, file_name",
+                    tuple(normalized_ids),
+                ).fetchall()
+            else:
+                episode_rows = c.execute(
+                    "SELECT * FROM episodes ORDER BY anime_id, season, number, absolute_number, file_name"
+                ).fetchall()
             folder_kinds = {
                 row["path"]: row["kind"]
                 for row in c.execute("SELECT path, kind FROM folders")
                 if row["path"]
             }
-            genre_rows = c.execute(
-                "SELECT ag.anime_id,g.id,g.canonical_name FROM anime_genres ag JOIN genres g ON g.id=ag.genre_id ORDER BY g.normalized_name"
-            ).fetchall()
+            if normalized_ids:
+                placeholders = ",".join("?" for _ in normalized_ids)
+                genre_rows = c.execute(
+                    f"SELECT ag.anime_id,g.id,g.canonical_name FROM anime_genres ag JOIN genres g ON g.id=ag.genre_id WHERE ag.anime_id IN ({placeholders}) ORDER BY g.normalized_name",
+                    tuple(normalized_ids),
+                ).fetchall()
+            else:
+                genre_rows = c.execute(
+                    "SELECT ag.anime_id,g.id,g.canonical_name FROM anime_genres ag JOIN genres g ON g.id=ag.genre_id ORDER BY g.normalized_name"
+                ).fetchall()
             genres_by_anime = {}
             for genre_row in genre_rows:
                 genres_by_anime.setdefault(int(genre_row["anime_id"]), []).append(
                     (str(genre_row["id"]), str(genre_row["canonical_name"]))
                 )
-            artwork_rows = c.execute(
-                "SELECT entity_type, entity_id, local_path FROM artwork WHERE status != 'failed'"
-            ).fetchall()
+            if normalized_ids:
+                placeholders = ",".join("?" for _ in normalized_ids)
+                artwork_rows = c.execute(
+                    f"SELECT entity_type, entity_id, local_path FROM artwork WHERE status != 'failed' AND entity_id IN ({placeholders})",
+                    tuple(str(value) for value in normalized_ids),
+                ).fetchall()
+            else:
+                artwork_rows = c.execute(
+                    "SELECT entity_type, entity_id, local_path FROM artwork WHERE status != 'failed'"
+                ).fetchall()
             local_artwork_anime = {
                 str(row["entity_id"])
                 for row in artwork_rows
                 if row["local_path"] and str(row["entity_type"]) in {"anime", "movie"}
             }
-            history_rows = c.execute(
-                "SELECT anime_id, MAX(last_played_at) AS last_played_at FROM episodes "
-                "WHERE last_played_at IS NOT NULL GROUP BY anime_id"
-            ).fetchall()
+            history_sql = "SELECT anime_id, MAX(last_played_at) AS last_played_at FROM episodes WHERE last_played_at IS NOT NULL"
+            history_params = []
+            if normalized_ids:
+                placeholders = ",".join("?" for _ in normalized_ids)
+                history_sql += f" AND anime_id IN ({placeholders})"
+                history_params.extend(normalized_ids)
+            history_sql += " GROUP BY anime_id"
+            history_rows = c.execute(history_sql, tuple(history_params)).fetchall()
             history = {int(row["anime_id"]): row["last_played_at"] for row in history_rows}
 
             def project(e):
@@ -1751,6 +1798,227 @@ class LibraryStore:
                 })
             return result
 
+    def catalog_page(
+        self, *, page=0, page_size=36, query="", state="Todos", genre="Todos",
+        sort="Mais recentes", tag="Todos", media_type="Todos", season=None,
+        episode_type="Todos", source_kind="Todos", availability="Todos",
+        metadata="Todos", artwork="Todos",
+    ):
+        """Return one bounded catalog page directly from SQLite."""
+        try: page = max(0, int(page))
+        except (TypeError, ValueError): page = 0
+        try: page_size = min(100, max(1, int(page_size)))
+        except (TypeError, ValueError): page_size = 36
+        where = ["EXISTS (SELECT 1 FROM episodes e0 WHERE e0.anime_id=a.id)"]
+        params = []
+        completed_sql = "(e.watched=1 OR (e.duration>0 AND MIN(MAX(COALESCE(e.progress,0),0),e.duration)/e.duration >= 0.90))"
+        in_progress_sql = "(e.missing=0 AND COALESCE(e.progress,0)>0 AND NOT " + completed_sql + ")"
+        unwatched_sql = "(e.missing=0 AND COALESCE(e.progress,0)<=0 AND NOT " + completed_sql + ")"
+        state_sql = {
+            "Favoritos": "a.favorite=1",
+            "Fixados": "a.is_pinned=1",
+            "Assistidos": f"EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {completed_sql})",
+            "Não assistidos": f"EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {unwatched_sql})",
+            "Em andamento": f"EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {in_progress_sql})",
+            "Concluídos": f"EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND NOT {completed_sql})",
+            "Não iniciados": f"EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND (e.watched=1 OR COALESCE(e.progress,0)>0))",
+            "Com nota": "NULLIF(TRIM(a.personal_note),'') IS NOT NULL",
+            "Sem nota": "NULLIF(TRIM(a.personal_note),'') IS NULL",
+            "Sem metadata": "(a.anilist_id IS NULL OR TRIM(COALESCE(a.anilist_id,''))='') AND COALESCE(a.metadata_source,'local') IN ('local','unresolved','unknown','')",
+        }
+        state = str(state or "Todos")
+        if state in state_sql:
+            where.append(state_sql[state])
+        elif state == "Sem capa":
+            where.append("NULLIF(TRIM(COALESCE(a.cover_cache,'')),'') IS NULL AND NULLIF(TRIM(COALESCE(a.cover_url,'')),'') IS NULL AND NULLIF(TRIM(COALESCE(a.banner_url,'')),'') IS NULL AND NOT EXISTS (SELECT 1 FROM artwork ar WHERE ar.entity_id=CAST(a.id AS TEXT) AND ar.status='ready' AND NULLIF(TRIM(COALESCE(ar.local_path,'')),'') IS NOT NULL)")
+        media = str(media_type or "Todos")
+        if media in {"Série/Anime", "Série", "Anime"}:
+            where.append("a.media_kind!='movie' AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND LOWER(COALESCE(e.episode_type,'regular')) NOT IN ('special','ova','oad','ona','extra','movie'))")
+        elif media in {"Filme", "Movie"}:
+            where.append("(a.media_kind='movie' OR EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.episode_type='movie'))")
+        elif media in {"Especial", "Special"}:
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND LOWER(COALESCE(e.episode_type,'regular')) IN ('special','ova','oad','ona','extra'))")
+        elif media in {"Episódio", "Episode"}:
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND LOWER(COALESCE(e.episode_type,'regular')) NOT IN ('special','ova','oad','ona','extra','movie'))")
+        if season not in (None, "", "Todos"):
+            try: wanted_season = int(season)
+            except (TypeError, ValueError): wanted_season = None
+            if wanted_season is not None:
+                where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.season=?)")
+                params.append(wanted_season)
+        if episode_type not in ("Todos", "", None):
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND LOWER(COALESCE(e.episode_type,'regular'))=LOWER(?))")
+            params.append(str(episode_type))
+        if source_kind not in ("Todos", "", None):
+            where.append("EXISTS (SELECT 1 FROM episodes e JOIN folders f ON f.path=e.source_folder WHERE e.anime_id=a.id AND LOWER(COALESCE(f.kind,''))=LOWER(?))")
+            params.append(str(source_kind))
+        if genre not in ("Todos", "", None):
+            label = str(genre).strip()
+            where.append("(EXISTS (SELECT 1 FROM anime_genres ag JOIN genres g ON g.id=ag.genre_id WHERE ag.anime_id=a.id AND (CAST(g.id AS TEXT)=? OR LOWER(g.canonical_name)=LOWER(?) OR LOWER(g.normalized_name)=LOWER(?))) OR LOWER(COALESCE(a.genres,'')) LIKE LOWER(?))")
+            params.extend([label, label, label, f"%{label}%"])
+        if tag == "Sem etiqueta":
+            where.append("COALESCE(TRIM(a.user_tags),'[]') IN ('[]','')")
+        elif tag not in ("Todos", "", None):
+            where.append("LOWER(COALESCE(a.user_tags,'')) LIKE LOWER(?)")
+            params.append(f'%"{str(tag).strip()}"%')
+        if availability == "Disponível":
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0)")
+        elif availability in {"Com missing", "Missing"}:
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=1)")
+        elif availability == "Sem missing":
+            where.append("NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=1)")
+        if metadata == "Disponível":
+            where.append("(a.anilist_id IS NOT NULL OR COALESCE(a.metadata_source,'local') NOT IN ('local','unresolved','unknown',''))")
+        elif metadata == "Ausente":
+            where.append("(a.anilist_id IS NULL AND COALESCE(a.metadata_source,'local') IN ('local','unresolved','unknown',''))")
+        artwork_ready = "EXISTS (SELECT 1 FROM artwork ar WHERE ar.entity_id=CAST(a.id AS TEXT) AND ar.status='ready' AND NULLIF(TRIM(COALESCE(ar.local_path,'')),'') IS NOT NULL)"
+        if artwork == "Disponível":
+            where.append("(NULLIF(TRIM(COALESCE(a.cover_cache,'')),'') IS NOT NULL OR NULLIF(TRIM(COALESCE(a.cover_url,'')),'') IS NOT NULL OR " + artwork_ready + ")")
+        elif artwork == "Ausente":
+            where.append("NULLIF(TRIM(COALESCE(a.cover_cache,'')),'') IS NULL AND NULLIF(TRIM(COALESCE(a.cover_url,'')),'') IS NULL AND NOT " + artwork_ready)
+        raw = str(query or "").strip()
+        compact = re.sub(r'\s+', '', raw.casefold())
+        m = re.fullmatch(r's(\d{1,3})e(\d{1,5})', compact)
+        sm = re.fullmatch(r's(\d{1,3})', compact)
+        em = re.fullmatch(r'(?:e|ep|episodio|episode)(\d{1,5})', compact)
+        am = re.fullmatch(r'(?:absolute|abs)(\d+(?:\.\d+)?)', compact)
+        bm = re.fullmatch(r'\d+(?:\.\d+)?', compact)
+        if m:
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND e.season=? AND e.number=?)")
+            params.extend([int(m.group(1)), float(m.group(2))])
+        elif sm:
+            where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.season=?)")
+            params.append(int(sm.group(1)))
+        elif em or am or bm:
+            value = float((em or am).group(1) if (em or am) else bm.group(0))
+            if am:
+                where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.absolute_number=?)")
+                params.append(value)
+            else:
+                where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND (e.number=? OR e.absolute_number=?))")
+                params.extend([value, value])
+        elif raw:
+            tokens = [t for t in re.findall(r'[\w]+', raw.casefold()) if t]
+            cols = ("a.title", "a.romaji", "a.english", "a.native", "a.aliases", "a.description", "a.genres", "a.user_tags", "a.personal_note")
+            for token in tokens:
+                like = f"%{token}%"
+                cols_sql = " OR ".join(f"LOWER(COALESCE({column},'')) LIKE ?" for column in cols)
+                where.append(f"({cols_sql} OR EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND (LOWER(COALESCE(e.file_name,'')) LIKE ? OR LOWER(COALESCE(e.episode_title,'')) LIKE ? OR LOWER(COALESCE(e.path,'')) LIKE ?)))")
+                params.extend([like] * len(cols) + [like, like, like])
+        order_map = {
+            "Mais recentes": "a.added_at DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Assistidos recentemente": "(SELECT COALESCE(MAX(e.last_played_at),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Progresso": "(SELECT COALESCE(AVG(CASE WHEN e.missing=0 AND e.duration>0 THEN MIN(MAX(COALESCE(e.progress,0),0),e.duration)/e.duration ELSE 0 END),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Episódio": "(SELECT COALESCE(e.number,999999) FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 ORDER BY COALESCE(e.season,999999), COALESCE(e.number,999999), COALESCE(e.absolute_number,999999) LIMIT 1), a.title COLLATE NOCASE ASC, a.id DESC",
+            "Temporada + episódio": "(SELECT COALESCE(MIN(CASE WHEN e.missing=0 THEN e.season END),999999) FROM episodes e WHERE e.anime_id=a.id) ASC, (SELECT COALESCE(MIN(CASE WHEN e.missing=0 THEN e.number END),999999) FROM episodes e WHERE e.anime_id=a.id) ASC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Modificação": "(SELECT COALESCE(MAX(e.modified_at),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Duração": "(SELECT COALESCE(SUM(e.duration),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Tamanho": "(SELECT COALESCE(SUM(e.file_size),0) FROM episodes e WHERE e.anime_id=a.id) DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Favoritos primeiro": "a.favorite DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Fixados primeiro": "a.is_pinned DESC, a.title COLLATE NOCASE ASC, a.id DESC",
+            "Nome A-Z": "LOWER(COALESCE(a.title,'')) ASC, a.id ASC",
+            "Nome Z-A": "LOWER(COALESCE(a.title,'')) DESC, a.id DESC",
+        }
+        order_by = order_map.get(sort or "Mais recentes", order_map["Mais recentes"])
+        where_sql = " AND ".join(where)
+        with self._conn() as c:
+            total = int(c.execute(f"SELECT COUNT(*) FROM anime a WHERE {where_sql}", tuple(params)).fetchone()[0] or 0)
+            offset = page * page_size
+            rows = c.execute(f"SELECT a.id FROM anime a WHERE {where_sql} ORDER BY {order_by} LIMIT ? OFFSET ?", tuple(params + [page_size, offset])).fetchall()
+            ids = [int(row["id"]) for row in rows]
+        items = self.catalog(anime_ids=ids) if ids else []
+        by_id = {int(item["id"]): item for item in items}
+        ordered = [by_id[anime_id] for anime_id in ids if anime_id in by_id]
+        return {"items": ordered, "page": page, "page_size": page_size, "total": total, "has_more": offset + len(ordered) < total}
+
+    def search_options(self):
+        """Return filter values without projecting the full visual catalog."""
+        with self._conn() as c:
+            seasons = [int(row[0]) for row in c.execute("SELECT DISTINCT season FROM episodes WHERE season IS NOT NULL ORDER BY season").fetchall()]
+            episode_types = [str(row[0]) for row in c.execute("SELECT DISTINCT episode_type FROM episodes WHERE episode_type IS NOT NULL AND episode_type!='' ORDER BY episode_type").fetchall()]
+            source_kinds = [str(row[0]) for row in c.execute("SELECT DISTINCT f.kind FROM episodes e JOIN folders f ON f.path=e.source_folder WHERE f.kind IS NOT NULL AND f.kind!='' ORDER BY f.kind").fetchall()]
+            tags_rows = c.execute("SELECT user_tags FROM anime WHERE user_tags IS NOT NULL").fetchall()
+        tags = {}
+        for row in tags_rows:
+            try: values = json.loads(row["user_tags"] or "[]")
+            except (TypeError, json.JSONDecodeError): values = []
+            for value in values if isinstance(values, list) else []:
+                text_value = str(value).strip()
+                if text_value: tags[text_value.casefold()] = text_value
+        return {"genres": [], "tags": sorted(tags.values(), key=str.casefold), "seasons": seasons, "episode_types": episode_types, "source_kinds": source_kinds, "media_types": ["Série/Anime", "Filme", "Especial", "Episódio"], "availability": ["Disponível", "Com missing", "Sem missing"], "metadata": ["Disponível", "Ausente"], "artwork": ["Disponível", "Ausente"], "states": ["Todos", "Favoritos", "Fixados", "Assistidos", "Não assistidos", "Em andamento", "Concluídos", "Não iniciados", "Com nota", "Sem nota", "Sem metadata", "Sem capa"], "sorts": ["Mais recentes", "Assistidos recentemente", "Progresso", "Episódio", "Temporada + episódio", "Modificação", "Duração", "Tamanho", "Favoritos primeiro", "Fixados primeiro", "Nome A-Z", "Nome Z-A"]}
+
+    def home_sections(self, limit=12):
+        """Build bounded Home sections without materializing the full catalog."""
+        page_limit = min(24, max(1, int(limit)))
+        def items(**filters):
+            return self.catalog_page(page=0, page_size=page_limit, **filters)["items"]
+
+        next_items = []
+        candidate_page_size = min(100, max(page_limit * 4, 24))
+        candidate_page = 0
+        while len(next_items) < page_limit:
+            result = self.catalog_page(
+                page=candidate_page,
+                page_size=candidate_page_size,
+                sort="Assistidos recentemente",
+            )
+            for item in result.get("items") or []:
+                if item.get("next_episode"):
+                    next_items.append(item)
+                    if len(next_items) >= page_limit:
+                        break
+            if not result.get("has_more"):
+                break
+            candidate_page += 1
+
+        return {
+            "continue_watching": self.continue_watching(limit=page_limit),
+            "next_episode": next_items[:page_limit],
+            "recently_added": items(sort="Mais recentes"),
+            "recently_watched": self.playback_history(limit=page_limit),
+            "favorites": items(state="Favoritos", sort="Mais recentes"),
+            "pinned": items(state="Fixados", sort="Mais recentes"),
+            "series": items(media_type="Série/Anime", sort="Mais recentes"),
+            "movies": items(media_type="Filme", sort="Mais recentes"),
+            "specials": items(media_type="Especial", sort="Mais recentes"),
+        }
+    def organize_summary(self):
+        """Return bounded Organize counters and genre summaries from SQLite."""
+        with self._conn() as c:
+            base = "EXISTS (SELECT 1 FROM episodes e0 WHERE e0.anime_id=a.id)"
+            completed_sql = "(e.watched=1 OR (e.duration>0 AND MIN(MAX(COALESCE(e.progress,0),0),e.duration)/e.duration >= 0.90))"
+            in_progress_sql = "(e.missing=0 AND COALESCE(e.progress,0)>0 AND NOT " + completed_sql + ")"
+            unwatched_sql = "(e.missing=0 AND COALESCE(e.progress,0)<=0 AND NOT " + completed_sql + ")"
+            states = {
+                "Todos": base,
+                "Favoritos": f"{base} AND a.favorite=1",
+                "Fixados": f"{base} AND a.is_pinned=1",
+                "Assistidos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {completed_sql})",
+                "Não assistidos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {unwatched_sql})",
+                "Em andamento": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {in_progress_sql})",
+                "Concluídos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND NOT {completed_sql})",
+                "Não iniciados": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND (e.watched=1 OR COALESCE(e.progress,0)>0))",
+            }
+            collections = []
+            for name, clause in states.items():
+                count = int(c.execute(f"SELECT COUNT(*) FROM anime a WHERE {clause}").fetchone()[0] or 0)
+                collections.append({"name": name, "count": count})
+            genre_rows = c.execute("""
+                SELECT g.id, g.canonical_name, COUNT(DISTINCT ag.anime_id) AS count,
+                       MIN(CASE WHEN NULLIF(TRIM(a.cover_cache),'') IS NOT NULL THEN a.cover_cache
+                                WHEN NULLIF(TRIM(a.cover_url),'') IS NOT NULL THEN a.cover_url END) AS cover
+                FROM genres g
+                JOIN anime_genres ag ON ag.genre_id=g.id
+                JOIN anime a ON a.id=ag.anime_id
+                JOIN episodes e ON e.anime_id=a.id
+                GROUP BY g.id, g.canonical_name, g.normalized_name
+                ORDER BY g.normalized_name
+            """).fetchall()
+        return {
+            "collections": collections,
+            "states": [item for item in collections if item["name"] in {"Todos","Favoritos","Em andamento","Concluídos"}],
+            "genres": [{"id": str(row["id"]), "name": str(row["canonical_name"]), "count": int(row["count"] or 0), "cover": row["cover"] or ""} for row in genre_rows],
+        }
     def set_episode_identification(self, path, *, season=None, number=None, episode_type="regular", title=None):
         """Persist an explicit user identification without changing consumption data."""
         if season is None:

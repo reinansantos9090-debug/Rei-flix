@@ -84,6 +84,11 @@ class OrganizeView:
         query = [view_state.get("query", "")]
         mode = [view_state.get("mode", "overview")]
         render_generation = [0]
+        search_generation = [0]
+        current_page = [0]
+        has_more = [True]
+        total_matches = [0]
+        page_loading = [False]
         catalog_load_failed = [False]
         scan_active = [False]
 
@@ -115,7 +120,7 @@ class OrganizeView:
         async def handle_add_folder(_event=None):
             await _invoke_callback(on_add_folder)
 
-        content = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=14)
+        content = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=14, scroll_interval=60)
         status = ft.Row(
             [
                 ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
@@ -123,6 +128,11 @@ class OrganizeView:
             ],
             spacing=8,
         )
+        collection_grid = ft.Row(wrap=True, spacing=14, run_spacing=20)
+        collection_summary = ft.Text("", color=TEXT_MUTED, size=12)
+        collection_search = None
+        collection_genre = None
+        collection_sort = None
 
         def artwork(source, height, icon_size=28, width=None):
             return media_artwork(source, height, width=width, icon_size=icon_size)
@@ -152,7 +162,15 @@ class OrganizeView:
 
         def make_anime_click_handler(anime):
             def handle(event):
-                page.run_task(lambda: select_anime(event, anime))
+                async def invoke():
+                    await select_anime(event, anime)
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    asyncio.run(invoke())
+                else:
+                    loop.create_task(invoke())
+                return None
             return handle
 
         def anime_card(anime):
@@ -191,6 +209,7 @@ class OrganizeView:
                 )
 
             return ft.Container(
+                key=f"anime:{anime.get('id', '-')}",
                 ink=True,
                 border_radius=14,
                 on_click=make_anime_click_handler(anime),
@@ -468,43 +487,110 @@ class OrganizeView:
                 selected_genre[0] = genre
             if state is not None:
                 selected_state[0] = state
-            mode[0] = "collection"
+            mode[0] = 'collection'
             save_view_state()
-            await render()
+            await render_collection(reset=True)
 
         async def back_to_overview(_event=None):
-            mode[0] = "overview"
+            mode[0] = 'overview'
             save_view_state()
             await render()
 
         async def clear_filters(_event=None):
-            selected_genre[0] = "Todos"
-            selected_state[0] = "Todos"
-            selected_sort[0] = "Mais recentes"
-            query[0] = ""
-            mode[0] = "collection"
+            selected_genre[0] = 'Todos'
+            selected_state[0] = 'Todos'
+            selected_sort[0] = 'Mais recentes'
+            query[0] = ''
+            mode[0] = 'collection'
             save_view_state()
-            await render()
+            await render_collection(reset=True)
 
         async def on_search(event):
-            query[0] = event.control.value or ""
+            query[0] = event.control.value or ''
             save_view_state()
-            await render_collection_only()
+            search_generation[0] += 1
+            token = search_generation[0]
+            await asyncio.sleep(0.18)
+            if token != search_generation[0]:
+                return
+            await render_collection(reset=True)
 
         async def on_sort(event):
-            selected_sort[0] = event.control.value or "Mais recentes"
+            selected_sort[0] = event.control.value or 'Mais recentes'
             save_view_state()
-            await render_collection_only()
+            await render_collection(reset=True)
 
         async def on_genre_change(event):
-            selected_genre[0] = event.control.value or "Todos"
-            selected_state[0] = "Todos"
+            selected_genre[0] = event.control.value or 'Todos'
+            selected_state[0] = 'Todos'
             save_view_state()
-            await render_collection_only()
+            await render_collection(reset=True)
 
+        async def load_next_collection_page():
+            await load_collection_page(reset=False)
+
+        async def load_collection_page(*, reset=False):
+            if page_loading[0] or (not reset and not has_more[0]):
+                return
+            if reset:
+                render_generation[0] += 1
+                current_page[0] = 0
+                has_more[0] = True
+                total_matches[0] = 0
+                catalog.clear()
+                collection_grid.controls.clear()
+            page_loading[0] = True
+            token = render_generation[0]
+            target_page = 0 if reset else current_page[0] + 1
+            try:
+                result = await asyncio.to_thread(
+                    library.browse_catalog_page,
+                    page=target_page, page_size=36,
+                    query=query[0], state=selected_state[0], genre=selected_genre[0],
+                    sort=selected_sort[0],
+                )
+            except Exception:
+                logger.exception('Organize paged query failed', extra={'screen':'organize','page':target_page})
+                page_loading[0] = False
+                if reset:
+                    collection_grid.controls.clear()
+                    collection_summary.value = 'Não foi possível aplicar os filtros.'
+                page.update()
+                return
+            if token != render_generation[0]:
+                page_loading[0] = False
+                return
+            items = result.get('items') or []
+            catalog.clear()
+            catalog.extend(items)
+            fresh = list(items)
+            current_page[0] = int(result.get('page') or target_page)
+            total_matches[0] = int(result.get('total') or 0)
+            has_more[0] = bool(result.get('has_more'))
+            collection_grid.controls.extend(anime_card(item) for item in fresh)
+            description = []
+            if query[0].strip(): description.append(f'busca "{query[0].strip()}"')
+            if selected_genre[0] != 'Todos': description.append(f'gênero {selected_genre[0]}')
+            if selected_state[0] != 'Todos': description.append(selected_state[0].lower())
+            if selected_sort[0] != 'Mais recentes': description.append(selected_sort[0].lower())
+            suffix = ' • '.join(description) if description else 'Todos os itens da biblioteca'
+            collection_summary.value = f'{total_matches[0]} anime(s) • {suffix}'
+            page_loading[0] = False
+            page.update()
+            await restore_scroll_position()
+
+        def on_collection_scroll(event):
+            try:
+                view_state['scroll_position'] = float(event.pixels)
+                remaining = float(event.max_scroll_extent - event.pixels)
+            except (TypeError, ValueError, AttributeError):
+                return
+            if remaining < 800 and has_more[0] and not page_loading[0] and mode[0] == 'collection':
+                page.run_task(load_next_collection_page)
         def render_overview():
             try:
-                summary = library.organize_summary(list(catalog))
+                bounded_summary = getattr(library, "organize_summary_bounded", None)
+                summary = bounded_summary() if callable(bounded_summary) else library.organize_summary(list(catalog))
             except Exception:
                 logger.exception(
                     "Organize summary failed",
@@ -531,12 +617,13 @@ class OrganizeView:
                         "Tente novamente para ler o catálogo local.",
                         ft.FilledButton(
                             "Tentar novamente",
-                            on_click=lambda _event: page.run_task(load_catalog),
+                            on_click=load_catalog,
                         ),
                     )
                 )
                 return
-            if not catalog:
+            total_overview = sum(int(item.get("count") or 0) for item in (summary.get("collections") or []))
+            if total_overview == 0:
                 if status.visible:
                     return
                 content.controls.append(empty_catalog())
@@ -560,14 +647,9 @@ class OrganizeView:
             )
             try:
                 registry_genres = library.genre_options(include_unused=False)
-                covers = {}
-                for anime in catalog:
-                    cover = (anime.get("meta") or {}).get("cover_cache") or (anime.get("meta") or {}).get("cover_url")
-                    for genre_id in anime.get("genre_ids") or []:
-                        if cover and genre_id not in covers:
-                            covers[genre_id] = cover
+                covers = {str(item.get('id')): item.get('cover', '') for item in (summary.get('genres') or [])}
                 registry_genres = [
-                    {**item, "cover": covers.get(item["id"], "")}
+                    {**item, "cover": covers.get(str(item.get("id")), item.get("cover", ""))}
                     for item in registry_genres
                 ]
             except Exception:
@@ -605,211 +687,106 @@ class OrganizeView:
                 style=chip_style(active),
             )
 
-        async def render_collection():
-            token = render_generation[0]
-            try:
-                filtered = await asyncio.to_thread(
-                    library.browse_catalog,
-                    list(catalog),
-                    query[0],
-                    selected_state[0],
-                    selected_genre[0],
-                    selected_sort[0],
-                )
-            except Exception:
-                logger.exception(
-                    "Organize collection projection failed",
-                    extra={"screen": "organize", "library_items": len(catalog)},
-                )
-                filtered = []
-                projection_failed = True
-            else:
-                projection_failed = False
+        async def render_collection(reset=True):
+            nonlocal collection_search, collection_genre, collection_sort
+            if mode[0] != 'collection':
+                mode[0] = 'collection'
+            content.controls.clear()
+            content.controls.extend([header(selected_genre[0] if selected_genre[0] != 'Todos' else selected_state[0], back_to_overview)])
+            if status.visible:
+                content.controls.append(status)
 
-            if token != render_generation[0]:
-                return
-
-            title = (
-                selected_genre[0]
-                if selected_genre[0] != "Todos"
-                else selected_state[0]
-            )
-            content.controls.extend(
-                [
-                    header(title, back_to_overview),
-                    status if status.visible else ft.Container(height=0),
-                ]
-            )
-
-            search_field = ft.TextField(
+            collection_search = ft.TextField(
                 value=query[0],
-                hint_text="Buscar título, gênero, alias ou episódio",
-                prefix_icon=ft.Icons.SEARCH,
-                border_radius=RADIUS,
-                border_width=0,
-                bgcolor=SURFACE,
-                color=TEXT,
-                content_padding=12,
-                text_size=14,
-                expand=True,
-                on_change=on_search,
-                on_submit=on_search,
+                hint_text='Buscar título, gênero, alias ou episódio',
+                prefix_icon=ft.Icons.SEARCH, border_radius=RADIUS, border_width=0,
+                bgcolor=SURFACE, color=TEXT, content_padding=12, text_size=14, expand=True,
+                on_change=on_search, on_submit=on_search,
             )
             clear_button = ft.TextButton(
-                "Limpar",
-                icon=ft.Icons.CLEAR_ALL,
-                on_click=clear_filters,
-                visible=(
-                    bool(query[0].strip())
-                    or selected_state[0] != "Todos"
-                    or selected_genre[0] != "Todos"
-                    or selected_sort[0] != "Mais recentes"
-                ),
+                'Limpar', icon=ft.Icons.CLEAR_ALL, on_click=clear_filters,
+                visible=bool(query[0].strip()) or selected_state[0] != 'Todos' or selected_genre[0] != 'Todos' or selected_sort[0] != 'Mais recentes'
             )
-            content.controls.append(
-                ft.Row([search_field, clear_button], spacing=8)
-            )
-            content.controls.append(
-                ft.Row(
-                    [state_chip(label) for label in OrganizeView._STATE_ORDER],
-                    scroll=ft.ScrollMode.AUTO,
-                    spacing=8,
-                )
-            )
+            content.controls.append(ft.Row([collection_search, clear_button], spacing=8))
+            content.controls.append(ft.Row([state_chip(label) for label in OrganizeView._STATE_ORDER], scroll=ft.ScrollMode.AUTO, spacing=8))
 
-            summary = await asyncio.to_thread(library.organize_summary, list(catalog))
-            genres = ["Todos"] + [item["name"] for item in summary.get("genres", [])]
+            try:
+                summary = await asyncio.to_thread(library.organize_summary_bounded)
+                genres = ['Todos'] + [item['name'] for item in summary.get('genres', [])]
+            except Exception:
+                logger.exception('Organize bounded summary failed')
+                genres = ['Todos']
             if selected_genre[0] not in genres:
-                selected_genre[0] = "Todos"
+                selected_genre[0] = 'Todos'
                 save_view_state()
-            genre = ft.Dropdown(
-                value=selected_genre[0],
-                label="Gênero",
-                width=235,
-                options=[ft.dropdown.Option(value, value) for value in genres],
-            )
-            genre.on_change = on_genre_change
-            sort = ft.Dropdown(
-                value=selected_sort[0],
-                label="Ordenar",
-                width=235,
-                options=[
-                    ft.dropdown.Option(value, value)
-                    for value in OrganizeView._SORTS
-                ],
-            )
-            sort.on_select = on_sort
-            content.controls.append(ft.Row([genre, sort], wrap=True, spacing=8))
-
-            active_description = []
-            if query[0].strip():
-                active_description.append(f'busca "{query[0].strip()}"')
-            if selected_genre[0] != "Todos":
-                active_description.append(f'gênero {selected_genre[0]}')
-            if selected_state[0] != "Todos":
-                active_description.append(selected_state[0].lower())
-            if selected_sort[0] != "Mais recentes":
-                active_description.append(selected_sort[0].lower())
-            summary_text = " • ".join(active_description) if active_description else "Todos os itens da biblioteca"
-            content.controls.append(
-                ft.Text(
-                    f"{count_label(len(filtered), 'anime')} • {summary_text}",
-                    color=TEXT_MUTED,
-                    size=12,
-                )
-            )
-
-            if projection_failed:
-                content.controls.append(
-                    empty_state(
-                        ft.Icons.ERROR_OUTLINE,
-                        "Não foi possível aplicar os filtros",
-                        "A biblioteca continua preservada. Tente novamente.",
-                    )
-                )
-            elif filtered:
-                content.controls.append(
-                    ft.Row(
-                        wrap=True,
-                        spacing=14,
-                        run_spacing=20,
-                        controls=[anime_card(anime) for anime in filtered],
-                    )
-                )
-            else:
-                if query[0].strip():
-                    title_empty = "Nenhum resultado encontrado"
-                    body_empty = "Tente outro título, episódio ou termo de busca."
-                elif selected_state[0] != "Todos" or selected_genre[0] != "Todos":
-                    title_empty = "Nenhum anime nesta coleção"
-                    body_empty = "Altere os filtros ou volte para todas as obras."
-                else:
-                    title_empty = "Sua biblioteca está vazia"
-                    body_empty = "Adicione vídeos locais para começar a organizar."
-                content.controls.append(
-                    ft.Container(
-                        empty_state(
-                            ft.Icons.FILTER_LIST_OFF,
-                            title_empty,
-                            body_empty,
-                        ),
-                        alignment=ft.Alignment(0, 0),
-                        height=190,
-                    )
-                )
+            collection_genre = ft.Dropdown(value=selected_genre[0], label='Gênero', width=235, options=[ft.dropdown.Option(value, value) for value in genres])
+            collection_genre.on_change = on_genre_change
+            collection_sort = ft.Dropdown(value=selected_sort[0], label='Ordenar', width=235, options=[ft.dropdown.Option(value, value) for value in OrganizeView._SORTS])
+            collection_sort.on_select = on_sort
+            content.controls.append(ft.Row([collection_sort, collection_genre], wrap=True, spacing=8))
+            content.controls.append(collection_summary)
+            collection_grid.controls.clear()
+            content.controls.append(collection_grid)
+            content.on_scroll = on_collection_scroll
+            await load_collection_page(reset=reset)
 
         async def render_collection_only():
-            if mode[0] != "collection":
-                mode[0] = "collection"
+            if mode[0] != 'collection':
+                mode[0] = 'collection'
                 save_view_state()
-            render_generation[0] += 1
-            content.controls.clear()
-            await render_collection()
+            await render_collection(reset=True)
             page.update()
-
         async def render():
-            render_generation[0] += 1
-            content.controls.clear()
-            if mode[0] == "overview":
+            if mode[0] == 'overview':
+                render_generation[0] += 1
+                content.controls.clear()
                 render_overview()
-            else:
-                await render_collection()
+                page.update()
+                return
+            await render_collection(reset=True)
             page.update()
+        async def refresh_from_catalog():
+            save_view_state()
+            if mode[0] == 'collection':
+                await render_collection(reset=True)
+            else:
+                render_overview()
+                page.update()
 
         async def load_catalog():
             try:
-                loaded = await asyncio.to_thread(library.catalog)
                 last_scan = await asyncio.to_thread(library.last_scan)
+                catalog_load_failed[0] = False
             except Exception:
-                logger.exception(
-                    "Organize catalog load failed",
-                    extra={"screen": "organize", "library_items": len(catalog)},
-                )
+                logger.exception('Organize local state load failed', extra={'screen':'organize'})
                 catalog_load_failed[0] = True
-                status.visible = False
-                await render()
-                return
-
-            catalog_load_failed[0] = False
-            catalog.clear()
-            catalog.extend(loaded or [])
-            scan_active[0] = bool(
-                last_scan
-                and str(last_scan.get("status") or "").casefold()
-                in {"running", "started"}
-            )
+                scan_active[0] = False
+            else:
+                scan_active[0] = bool(last_scan and str(last_scan.get('status') or '').casefold() in {'running','started'})
             status.visible = scan_active[0]
             if scan_active[0]:
                 status.controls = [
                     ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
-                    ft.Text(
-                        "Descobrindo vídeos locais…",
-                        color=TEXT_MUTED,
-                        size=12,
-                    ),
+                    ft.Text('Descobrindo vídeos locais…', color=TEXT_MUTED, size=12),
                 ]
             await render()
+            await restore_scroll_position()
+        content.on_scroll = on_collection_scroll
+        async def restore_scroll_position():
+            stored = view_state.get('scroll_position')
+            if stored is None:
+                return
+            try:
+                result = content.scroll_to(offset=float(stored), duration=0)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.debug('Organize scroll restoration unavailable', exc_info=True)
 
+        def schedule_refresh_from_catalog():
+            page.run_task(refresh_from_catalog)
+
+        view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
         save_view_state()
         render_generation[0] += 1
         render_overview()

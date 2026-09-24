@@ -10,6 +10,8 @@ from core.navigation import NavigationController, SafSelectionState
 from core.scan_coordinator import ScanCoordinator, ScanOrigin, ScanState, ScanTarget
 from core.storage_access import StorageAccessState, StorageCapabilities, ScanUiState, scan_ui_state_from_native, storage_access_state, storage_source_states
 from core.diagnostics import DiagnosticTimeline
+from core.diagnostic_service import DiagnosticsService
+from core.backup import BackupError, BackupService
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
 from core.settings import SettingsStore
@@ -44,6 +46,8 @@ async def main(page: ft.Page):
     library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]
     account_state=["connected" if store.account().get("email") else "disconnected"]
     diagnostics = DiagnosticTimeline()
+    backup_service = BackupService(store, settings=settings, app_version="0.2.1")
+    diagnostic_service = DiagnosticsService(store, timeline=diagnostics, app_version="0.2.1")
     diagnostics.record("APP_START", result="python_ui_initialized")
     scan_state = [{
         "state": ScanUiState.IDLE.value,
@@ -200,6 +204,11 @@ async def main(page: ft.Page):
                 on_resolve_match=resolve_match,
                 storage_snapshot=storage_capabilities[0], scan_snapshot=scan_state[0],
                 settings=settings,
+                on_create_backup=create_backup,
+                on_inspect_backup=inspect_backup,
+                on_restore_backup=restore_backup,
+                on_export_diagnostics=export_diagnostics,
+                on_integrity_check=integrity_check,
             )
         else:
             raise RuntimeError(f"Unknown navigation route: {route}")
@@ -359,13 +368,54 @@ async def main(page: ft.Page):
             safe_update()
 
     async def create_backup():
-        return await asyncio.to_thread(library.create_backup)
+        return await asyncio.to_thread(backup_service.create_backup_bytes)
 
-    async def restore_backup():
-        path = await asyncio.to_thread(library.restore_backup)
+    async def inspect_backup(raw):
+        return await asyncio.to_thread(backup_service.inspect_bytes, raw)
+
+    async def restore_backup(raw):
+        if scan_coordinator.active:
+            raise BackupError(
+                "SCAN_IN_PROGRESS",
+                "Finalize a atualização da biblioteca antes de restaurar um backup.",
+            )
+
+        def run_restore():
+            with library._metadata_lock:
+                library.artwork.invalidate_generation("restore_started")
+                try:
+                    result = backup_service.restore_bytes(raw)
+                except Exception:
+                    library.artwork.invalidate_generation("restore_failed")
+                    raise
+                library.artwork.invalidate_generation("restore_completed")
+                return result
+
+        result = await asyncio.to_thread(run_restore)
         on_catalog_changed()
         refresh_settings_if_active()
-        return path
+        diagnostics.record(
+            "RESTORE_COMPLETED",
+            result="success",
+            counts=(result.get("preview") or {}).get("counts") or {},
+        )
+        return result
+
+    async def export_diagnostics():
+        raw = await asyncio.to_thread(
+            diagnostic_service.diagnostic_bytes,
+            storage_snapshot=storage_capabilities[0],
+            scan_snapshot=scan_state[0],
+            text=False,
+        )
+        return raw
+
+    async def integrity_check():
+        return await asyncio.to_thread(
+            diagnostic_service.report,
+            storage_snapshot=storage_capabilities[0],
+            scan_snapshot=scan_state[0],
+        )
 
     def account(): return store.account()
     def navigate_settings():

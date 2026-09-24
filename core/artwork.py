@@ -1043,6 +1043,8 @@ class ArtworkEngine:
         self._closed = True
         for future in list(self._pending.values()):
             future.cancel()
+        for thread in self._workers:
+            thread.join(timeout=0.5)
 
 
 def _safe_http_url(url):

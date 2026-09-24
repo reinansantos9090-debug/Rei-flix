@@ -13,12 +13,14 @@ class Prompt2BackLifecycleTests(unittest.TestCase):
     def read(self, path):
         return path.read_text(encoding="utf-8")
 
-    def test_main_activity_does_not_intercept_system_back_for_mailbox_navigation(self):
+    def test_main_activity_forwards_system_back_to_flet_without_finishing_or_mailbox_navigation(self):
         source = self.read(MAIN_ACTIVITY)
-        self.assertNotIn("OnBackPressedCallback", source)
-        self.assertNotIn("backCallback", source)
+        self.assertIn("import androidx.activity.OnBackPressedCallback", source)
+        self.assertIn("onBackPressedDispatcher.addCallback(", source)
+        self.assertIn("flutterEngine?.navigationChannel?.popRoute()", source)
         self.assertNotIn('put("type", "android_back")', source)
-        self.assertNotIn("SystemClock", source)
+        handler = source[source.index("private fun installSystemBackHandler"):source.index("private fun persistedSafTreeUris")]
+        self.assertNotIn("finish()", handler)
 
     def test_flet_is_the_python_navigation_surface_for_system_back(self):
         source = self.read(MAIN)

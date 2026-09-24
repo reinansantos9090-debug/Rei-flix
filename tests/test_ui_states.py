@@ -21,7 +21,7 @@ class UiStateTests(unittest.TestCase):
             def pending_matches(self): return []
             def last_scan(self): return None
             def latest_backup(self): return None
-            def get_preference(self, key, default): return default
+            def get_preference(self, key, default=None): return default
             def set_preference(self, key, value): return None
 
         class Library:
@@ -79,7 +79,7 @@ class UiStateTests(unittest.TestCase):
 
     def test_settings_has_scan_diagnostics(self):
         source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
-        for token in ("SCAN:", "Fonte:", "Volume:", "Encontrados:", "Volumes removíveis:", "Timestamp:"):
+        for token in ("Varredura em andamento:", "Status:", "Última varredura:", "Volumes removíveis:"):
             self.assertIn(token, source)
 
     def test_main_passes_authoritative_snapshots_to_settings(self):
@@ -96,7 +96,9 @@ class UiStateTests(unittest.TestCase):
     def test_main_does_not_treat_library_rows_as_permission_authority(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         refresh = source[source.index("async def refresh_library"):source.index("async def login")]
-        self.assertIn("caps.can_scan", refresh)
+        self.assertIn("caps.known", refresh)
+        self.assertIn("scan_coordinator.request(", refresh)
+        self.assertIn("ScanOrigin.USER_REFRESH", refresh)
         self.assertNotIn("folder.get('authorization') == 'granted'", refresh)
 
 
@@ -126,14 +128,16 @@ class UiStateTests(unittest.TestCase):
     def test_settings_primary_sections_are_content_first(self):
         source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
         positions = [
-            source.index('section("CONTA"'),
-            source.index('section("BIBLIOTECA"'),
-            source.index('section("REPRODUÇÃO"'),
-            source.index('section("APARÊNCIA"'),
-            source.index('section("DADOS"'),
-            source.index('section("ANILIST"'),
-            source.index('section("ESTATÍSTICAS OFFLINE"'),
-            source.index('section("AVANÇADO / DIAGNÓSTICOS"'),
+            source.index('section("Conta"'),
+            source.index('section("Geral"'),
+            source.index('section("Aparência"'),
+            source.index('section("Biblioteca"'),
+            source.index('section("Player"'),
+            source.index('section("Áudio e Legendas"'),
+            source.index('section("Metadata"'),
+            source.index('section("Armazenamento"'),
+            source.index('section("Backup & Restore"'),
+            source.index('section("Diagnóstico"'),
         ]
         self.assertEqual(positions, sorted(positions))
 

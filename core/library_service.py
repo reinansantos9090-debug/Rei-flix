@@ -170,9 +170,9 @@ class LibraryService:
                         return self.store.anime_metadata(lookup_title) or cached
                     return {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "unresolved", "metadata_confidence": "low"}
 
-                search_result = self.anilist.search_detailed(display_title)
-                search_status = str(search_result.get("status") or "invalid_response")
-                if search_status != "ok":
+                candidates = self.anilist.search(display_title)
+                search_status = str(self.anilist.last_request_status or "idle")
+                if search_status in {"network_error", "rate_limited", "invalid_response", "http_error"}:
                     if search_status in {"network_error", "rate_limited"} and self.store.anilist_match(lookup_title):
                         self.store.set_anilist_match(
                             lookup_title,
@@ -189,7 +189,7 @@ class LibraryService:
                         "metadata_confidence": "low",
                     }
 
-                candidates = search_result.get("results") or []
+                candidates = candidates or []
                 if isinstance(match_context, dict):
                     context = MatchContext(
                         season_number=match_context.get("season_number"),
@@ -349,9 +349,10 @@ class LibraryService:
                 if anilist_id and cover_url and not cover_valid:
                     entity_type = 'movie' if str(cached.get('media_kind') or item.get('media_kind') or 'series').casefold() == 'movie' else 'anime'
                     if cached.get('id'):
-                        # ArtworkEngine is now the sole owner of persistent artwork
-                        # downloads. It deduplicates requests and applies retry/backoff
-                        # independently of AniList metadata refreshes.
+                        # Seed the ArtworkEngine from durable metadata before requesting.
+                        # This also repairs databases created before the artwork table
+                        # became the sole owner of remote cover downloads.
+                        self.artwork.sync_anime_metadata(cached['id'], cached)
                         resolved = self.artwork.request(
                             entity_type,
                             cached['id'],

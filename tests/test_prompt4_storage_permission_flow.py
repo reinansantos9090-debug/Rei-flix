@@ -49,9 +49,9 @@ class TestPrompt4StoragePermissionFlow(unittest.TestCase):
         self.assertEqual(states["broad"], StorageAccessState.BROAD_STORAGE_UNAVAILABLE.value)
 
     def test_main_activity_has_single_task_and_never_document_launch(self):
-        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
-        self.assertIn('android:launchMode="singleTask"', source)
-        self.assertIn('android:documentLaunchMode="never"', source)
+        manifest = MANIFEST.read_text(encoding="utf-8")
+        self.assertIn('android:launchMode="singleTask"', manifest)
+        self.assertIn('android:documentLaunchMode="never"', manifest)
 
     def test_permission_flow_does_not_use_flet_launch_mode_parameter(self):
         source = BRIDGE.read_text(encoding="utf-8")
@@ -66,7 +66,9 @@ class TestPrompt4StoragePermissionFlow(unittest.TestCase):
 
     def test_empty_check_is_scoped_to_current_volume(self):
         source = MEDIA_STORE.read_text(encoding="utf-8")
-        self.assertIn("volumeVideos++", source)
+        self.assertIn("var volumeWaitingForMediaStore=false", source)
+        self.assertIn("volumeName", source)
+        self.assertIn("probeHasMedia", source)
         self.assertIn("volumeVideos==0", source)
         self.assertNotIn("Thread.sleep(300L)", source)
 

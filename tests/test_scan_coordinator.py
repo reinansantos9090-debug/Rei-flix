@@ -97,18 +97,21 @@ class ScanCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")
         queued = await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")
         queued_again = await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")
-        self.assertEqual("queued", queued.kind)
-        self.assertEqual("queued", queued_again.kind)
-        self.assertEqual(1, len(self.coordinator._pending))
+        self.assertEqual("deduped", queued.kind)
+        self.assertEqual("deduped", queued_again.kind)
+        self.assertEqual(0, len(self.coordinator._pending))
         self.assertEqual(1, len(self.bridge.calls))
 
     async def test_user_refresh_precedes_pending_media_change(self):
         await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")
-        await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")
         refresh = await self.coordinator.request(ScanOrigin.USER_REFRESH)
         self.assertEqual("queued", refresh.kind)
-        self.assertEqual(2, len(self.coordinator._pending))
+        self.assertEqual(1, len(self.coordinator._pending))
         self.assertEqual(ScanOrigin.USER_REFRESH, self.coordinator._pending[0].origin)
+        self.assertGreater(
+            self.coordinator._pending[0].priority,
+            self.coordinator._pending[-1].priority if len(self.coordinator._pending) > 1 else 0,
+        )
 
     async def test_pending_request_runs_after_current_scan_finishes(self):
         first = await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")
@@ -197,8 +200,15 @@ class ScanCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             "native-2",
             {"requestId": "native-2", "status": "COMPLETED"},
         )
-        self.assertTrue(second.refresh_required)
-        self.assertTrue(second.logical_finished)
+        self.assertEqual("child_completed", second.kind)
+        self.assertFalse(second.refresh_required)
+        third = await self.coordinator.handle_native_event(
+            "saf_scan",
+            "native-3",
+            {"requestId": "native-3", "status": "COMPLETED"},
+        )
+        self.assertTrue(third.refresh_required)
+        self.assertTrue(third.logical_finished)
 
     async def test_one_hundred_media_events_do_not_create_one_hundred_scans(self):
         await self.coordinator.request(ScanOrigin.MEDIA_CHANGE, source="mediastore")

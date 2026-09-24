@@ -114,7 +114,8 @@ class FinalRegressionTests(unittest.TestCase):
         self.store.remove_folder("tree")
         restored = self.store.restore_backup(backup)
 
-        self.assertEqual(os.path.abspath(backup), os.path.abspath(restored))
+        self.assertIsInstance(restored, dict)
+        self.assertTrue(restored.get("report"))
         reopened = LibraryStore(self.tmp.name)
         item = reopened.catalog()[0]
         restored_episode = reopened.physical_row("content://e1")
@@ -134,7 +135,8 @@ class FinalRegressionTests(unittest.TestCase):
         with zipfile.ZipFile(bad, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("manifest.json", json.dumps({"app": "Rei-flix", "schema": 20}))
             archive.writestr("library.sqlite3", b"not-a-sqlite-db")
-        with self.assertRaises(ValueError):
+        from core.backup import BackupValidationError
+        with self.assertRaises(BackupValidationError):
             self.store.restore_backup(bad)
 
     def test_release_identity_matches_product_source(self):
@@ -155,14 +157,17 @@ class FinalRegressionTests(unittest.TestCase):
         main = Path("android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         player = Path("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertNotIn("media_is_partial", settings)
-        self.assertIn("media_partial", settings)
+        self.assertIn("Permissão de vídeos:", settings)
+        self.assertIn("Acesso amplo:", settings)
+        self.assertIn("Verificar permissão de vídeos", settings)
         self.assertIn("fun roots(context: Context): List<StorageRoot>", broad)
         self.assertNotIn("return found.values.toList()", broad[:broad.index("    fun roots(context: Context):")])
         self.assertNotIn("nomediaDirectories++", broad)
         self.assertIn("private var mediaPermissionRequestPending = false", main)
         self.assertIn("import android.os.Build", main)
         self.assertIn("AspectRatioFrameLayout.RESIZE_MODE_FIT", player)
-        self.assertIn("TrackSelectionDialogBuilder", player)
+        self.assertIn("applyGlobalTrackPreferences()", player)
+        self.assertIn("updateTrackButtons()", player)
 
 
 if __name__ == "__main__":

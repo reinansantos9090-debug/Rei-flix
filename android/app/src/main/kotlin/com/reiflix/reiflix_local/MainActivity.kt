@@ -14,6 +14,7 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.ViewCompat
@@ -391,6 +392,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installSystemBackHandler()
         nativeRequestState.bind(this)
         nativeRequestState.restore(
             savedInstanceState?.getString(STATE_LAST_NATIVE_REQUEST_ID),
@@ -580,6 +582,25 @@ class MainActivity : FlutterFragmentActivity() {
         lastObservedBroadAccess?.let { outState.putBoolean(STATE_LAST_OBSERVED_BROAD_ACCESS, it) }
         outState.putString(STATE_SEEN_NATIVE_REQUEST_IDS, nativeRequestState.seenRequestIdsState())
         super.onSaveInstanceState(outState)
+    }
+
+    /**
+     * Android owns the physical Back dispatch, while Flutter/Flet remains the
+     * single logical navigation owner. The callback deliberately never calls
+     * finish() and never emits a NativeMailbox back event; it forwards platform
+     * Back to Flutter so page.on_view_pop / NavigationController stay
+     * authoritative, including the double-back exit policy.
+     */
+    private fun installSystemBackHandler() {
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    Log.i(tag, "SYSTEM_BACK forward_to_flet route_dispatch")
+                    flutterEngine?.navigationChannel?.popRoute()
+                }
+            },
+        )
     }
 
     private fun persistedSafTreeUris(): List<String> =

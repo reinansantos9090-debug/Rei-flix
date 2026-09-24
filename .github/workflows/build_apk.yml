@@ -101,25 +101,13 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git status --short
 
-      - name: Run full Python regression suite (diagnostic)
+      - name: Run full Python regression suite (blocking)
         id: full-python-suite
-        continue-on-error: true
         shell: bash
         run: |
-          set +e
+          set -o pipefail
           python -m unittest discover -s tests -v 2>&1 | tee build/python-unittest.log
-          status=${PIPESTATUS[0]}
-          {
-            echo "## Full Python regression suite"
-            echo
-            if [ "$status" -eq 0 ]; then
-              echo "PASS: unittest discover completed successfully."
-            else
-              echo "FAIL: unittest discover exited with status $status."
-              echo "These historical failures are retained as diagnostics and do not by themselves block Prompt 11 Player validation."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit "$status"
+          echo "PASS: unittest discover completed successfully." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate Prompt 11 Player contracts
         shell: bash

@@ -710,12 +710,26 @@ class ArtworkEngine:
         artwork_type = self._type(artwork_type)
         self._log("request", entity_type=entity_type, entity_id=entity_id, artwork_type=artwork_type)
 
-        cached = self.get(entity_type, entity_id, artwork_type, allow_network=False)
-        if cached:
-            return cached
-
         rows = self.list_for(entity_type, entity_id, artwork_type)
-        row = next((item for item in rows if item.get("external_url")), None)
+        pending_remote = next(
+            (item for item in rows
+             if item.get("external_url")
+             and not (item.get("local_path") and self._is_file(item.get("local_path")))
+             and item.get("status") != STATUS_INVALID),
+            None,
+        )
+        cached = self.get(entity_type, entity_id, artwork_type, allow_network=False)
+        if cached and not pending_remote:
+            return cached
+        if cached and pending_remote and cached.get("external_url") == pending_remote.get("external_url"):
+            return cached
+        external_rows = [item for item in rows if item.get("external_url")]
+        row = next(
+            (item for item in external_rows
+             if not (item.get("local_path") and self._is_file(item.get("local_path")))),
+            None,
+        )
+        row = row or (external_rows[0] if external_rows else None)
         if row is None:
             self._log("miss", entity_type=entity_type, entity_id=entity_id, artwork_type=artwork_type)
             return None
@@ -806,10 +820,10 @@ class ArtworkEngine:
                 return None
             with self.store._conn() as con:
                 con.execute(
-                    """UPDATE artwork SET source='cache',local_path=?,status=?,
+                    """UPDATE artwork SET source='cache',local_path=?,status=?,priority=?,
                        updated_at=?,last_access=?,byte_size=?,checksum=?,content_type=?,
                        next_retry_at=NULL,http_status=?,failure_count=0 WHERE id=?""",
-                    (str(target), STATUS_READY, now, now, len(payload), checksum,
+                    (str(target), STATUS_READY, _SOURCE_PRIORITY["cache"], now, now, len(payload), checksum,
                      content_type or _mime_from_path(str(target)), http_status, row_id),
                 )
                 if row["entity_type"] in {"anime", "movie"} and row["artwork_type"] == "poster":

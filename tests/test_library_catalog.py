@@ -1,3 +1,4 @@
+from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -89,9 +90,9 @@ class LibraryCatalogTests(unittest.TestCase):
             episode_path = f"{media}/S01E01.mkv"
             season_path = f"{media}/Season 1.jpg"
             poster_path = f"{media}/poster.jpg"
-            open(episode_path, "wb").close()
-            open(season_path, "wb").close()
-            open(poster_path, "wb").close()
+            Path(episode_path).write_bytes(b"video")
+            Path(season_path).write_bytes(b"image")
+            Path(poster_path).write_bytes(b"image")
             anime = self.store.upsert_anime(
                 "art", {"title": "Art", "genres": "[]", "media_kind": "series"},
             )

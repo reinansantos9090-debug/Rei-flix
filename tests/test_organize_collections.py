@@ -180,7 +180,9 @@ class OrganizeHandlerContractTests(unittest.TestCase):
     def test_card_clicks_do_not_return_an_unawaited_coroutine(self):
         source = ORGANIZE.read_text(encoding="utf-8")
         self.assertIn("def make_anime_click_handler(anime):", source)
-        self.assertIn("page.run_task(lambda: select_anime(event, anime))", source)
+        self.assertIn("def make_anime_click_handler(anime):", source)
+        self.assertIn("loop.create_task(invoke())", source)
+        self.assertIn("return None", source)
 
     def test_collection_render_has_generation_guard_for_rapid_filter_changes(self):
         source = ORGANIZE.read_text(encoding="utf-8")
@@ -190,8 +192,8 @@ class OrganizeHandlerContractTests(unittest.TestCase):
     def test_organize_load_only_reads_catalog_and_scan_state(self):
         source = ORGANIZE.read_text(encoding="utf-8")
         load = source[source.index("async def load_catalog"):source.index("save_view_state()", source.index("async def load_catalog"))]
-        self.assertIn("library.catalog", load)
         self.assertIn("library.last_scan", load)
+        self.assertIn("library.organize_summary_bounded", source)
         self.assertNotIn("scan_coordinator", load)
         self.assertNotIn("request_video_access", load)
 

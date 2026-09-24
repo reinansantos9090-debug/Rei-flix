@@ -132,7 +132,7 @@ class SettingsView:
                     ], spacing=2, expand=True),
                     control,
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                padding=ft.padding.symmetric(vertical=7),
+                padding=ft.Padding(left=0, top=7, right=0, bottom=7),
             )
 
         def action_row(label, description, button_text, callback):
@@ -144,7 +144,7 @@ class SettingsView:
                     ], spacing=2, expand=True),
                     ft.OutlinedButton(button_text, on_click=callback),
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                padding=ft.padding.symmetric(vertical=7),
+                padding=ft.Padding(left=0, top=7, right=0, bottom=7),
             )
 
         def section(title, icon, items, tags=()):
@@ -309,7 +309,7 @@ class SettingsView:
                     field,
                     ft.OutlinedButton("Salvar", on_click=lambda _, k=key, control=field: save(k, control.value, control)),
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                padding=ft.padding.symmetric(vertical=7),
+                padding=ft.Padding(left=0, top=7, right=0, bottom=7),
             )
 
         def apply_theme_from_settings():
@@ -556,8 +556,9 @@ class SettingsView:
                     ft.dropdown.Option("light", "Claro"),
                     ft.dropdown.Option("dark", "Escuro"),
                 ],
-                on_change=theme_changed, dense=True, width=180,
+                dense=True, width=180,
             )
+            theme.on_change = theme_changed
             items.append(section("Aparência", ft.Icons.DARK_MODE_OUTLINED, [
                 ft.Row([
                     ft.Column([

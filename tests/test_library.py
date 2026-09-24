@@ -810,7 +810,8 @@ class IdentificationTests(unittest.TestCase):
                 ambiguous = service._identify('naruto shipuden', 'Naruto Shipuden', lambda _: None)
             with patch.object(service.anilist, 'search', return_value=[]):
                 missing = service._identify('arquivo local', 'Arquivo Local', lambda _: None)
-            self.assertNotIn('anilist_id', ambiguous)
+            self.assertIsNone(ambiguous.get('anilist_id'))
+            self.assertEqual(ambiguous.get('metadata_status'), 'ambiguous')
             self.assertEqual(store.pending_matches()[0]['lookup_title'], 'naruto shipuden')
             self.assertEqual(missing['title'], 'Arquivo Local')
 
@@ -1710,11 +1711,14 @@ class OrganizeTests(unittest.TestCase):
         return store, action, comedy, plain, paths
 
     def test_organize_summary_empty_and_uses_only_real_genres(self):
-        self.assertEqual(LibraryService.organize_summary([]), {
-            'genres': [],
-            'states': [{'name': 'Todos', 'count': 0}, {'name': 'Favoritos', 'count': 0},
-                       {'name': 'Em andamento', 'count': 0}, {'name': 'Concluídos', 'count': 0}],
-        })
+        empty = LibraryService.organize_summary([])
+        self.assertEqual(empty['genres'], [])
+        self.assertEqual(
+            [(item['name'], item['count']) for item in empty['states']],
+            [('Todos', 0), ('Favoritos', 0), ('Em andamento', 0), ('Concluídos', 0)],
+        )
+        self.assertTrue(empty['collections'])
+        self.assertTrue(all(int(item['count']) == 0 for item in empty['collections']))
         with tempfile.TemporaryDirectory() as d:
             store, *_ = self._catalog(d)
             genres = LibraryService.organize_summary(store.catalog())['genres']
@@ -1945,13 +1949,18 @@ class OrganizeTests(unittest.TestCase):
             # Verify header action buttons exist
             icon_btns = [c for c in walk(header_row) if c.__class__.__name__ == 'IconButton']
             req_btn = next((b for b in icon_btns if getattr(b, 'tooltip', '') == 'Solicitar acesso ao armazenamento'), None)
-            scn_btn = next((b for b in icon_btns if getattr(b, 'tooltip', '') == 'Varrer armazenamento'), None)
+            scn_btn = next((btn for btn in icon_btns if getattr(btn, "tooltip", "") == "Atualizar biblioteca"), None)
             self.assertIsNotNone(req_btn)
             self.assertIsNotNone(scn_btn)
 
-            asyncio.run(req_btn.on_click(None))
+            req_result = req_btn.on_click(None)
+            self.assertTrue(asyncio.iscoroutine(req_result))
+            asyncio.run(req_result)
             self.assertTrue(requested[0])
-            asyncio.run(scn_btn.on_click(None))
+
+            scan_result = scn_btn.on_click(None)
+            self.assertTrue(asyncio.iscoroutine(scan_result))
+            asyncio.run(scan_result)
             self.assertTrue(scanned[0])
 
     def test_android_bridge_drains_independent_native_event_files_without_shared_lock(self):

@@ -44,8 +44,9 @@ class Prompt13PlaybackHardeningTests(unittest.TestCase):
         self.assertIn("onTracksChanged", player)
         self.assertIn("TRACKS_NO_AUDIO", player)
         self.assertIn("TRACKS_NO_SUBTITLE", player)
-        self.assertIn("group.type == C.TRACK_TYPE_AUDIO", player)
-        self.assertIn("group.type == C.TRACK_TYPE_TEXT", player)
+        self.assertIn("it.type == C.TRACK_TYPE_AUDIO", player)
+        self.assertIn("it.type == C.TRACK_TYPE_TEXT", player)
+        self.assertIn("it.isSupported", player)
 
     def test_player_has_decoder_diagnostics_and_categorized_recovery(self):
         player = PLAYER.read_text(encoding="utf-8")

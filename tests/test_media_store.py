@@ -154,7 +154,11 @@ class TestFinalStorageHardening(unittest.TestCase):
         index = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativeIndex.kt").read_text(encoding="utf-8")
         self.assertIn("ContentObserver", source)
         self.assertIn("WAITING_FOR_MEDIASTORE", source)
-        self.assertIn("Thread.sleep(300L)", source)
+        self.assertIn("postVersion!=version", source)
+        self.assertIn("postGeneration!=generation", source)
+        self.assertIn("stableVersion!=postVersion", source)
+        self.assertIn("stableGeneration!=postGeneration", source)
+        self.assertIn("probeHasMedia", source)
         self.assertIn("getGeneration", source)
         self.assertIn("STATUS_WAITING_FOR_MEDIASTORE", index)
 

@@ -10,12 +10,10 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
-import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.ViewCompat
@@ -117,25 +115,6 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_LAST_OBSERVED_BROAD_ACCESS = "reiflix.lastObservedBroadAccess"
     }
     private val activeNativeScanJobs = mutableMapOf<String, Job>()
-    private val backCallback = object : OnBackPressedCallback(true) {
-        override fun handleOnBackPressed() {
-            val now = SystemClock.uptimeMillis()
-            if (now - lastBackEventAt < backEventDebounceMs) {
-                Log.i(tag, "ANDROID_BACK duplicate_suppressed deltaMs=" + (now - lastBackEventAt))
-                return
-            }
-            lastBackEventAt = now
-            val requestId = UUID.randomUUID().toString()
-            Log.i(tag, "ANDROID_BACK requestId=" + requestId + " lifecycle=RESUMED task=" + taskId)
-            NativeMailbox.write(
-                this@MainActivity,
-                JSONObject()
-                    .put("type", "android_back")
-                    .put("requestId", requestId)
-                    .put("payload", JSONObject().put("source", "android").put("action", "back")),
-            )
-        }
-    }
     private var storageReceiverRegistered = false
     private var safInventoryRunning = false
     private var lastBackEventAt = 0L
@@ -403,7 +382,6 @@ class MainActivity : FlutterFragmentActivity() {
         logLifecycle("onCreate", intent)
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
-        onBackPressedDispatcher.addCallback(this, backCallback)
         applyImmersiveSystemUi()
         // Permission-sensitive actions are queued until the Activity is resumed.
         handleNativeIntent(intent)
@@ -1511,8 +1489,17 @@ class MainActivity : FlutterFragmentActivity() {
             " uri_original=" + episodeUri + " uri_normalized=" + localUri +
             " scheme=" + localUri.scheme + " authority=" + authority.ifEmpty { "-" } +
             " source=" + mediaSource + " activityResumed=" + activityResumed + " task=" + taskId)
-        if (requestId.isNotBlank() && activePlayerRequestId == requestId) {
-            Log.i(tag, "PLAY_HANDOFF_DUPLICATE requestId=$requestId ignored=true")
+        if (activePlayerRequestId != null) {
+            val activeRequestId = activePlayerRequestId.orEmpty()
+            if (activeRequestId == requestId && requestId.isNotBlank()) {
+                Log.i(tag, "PLAY_HANDOFF_DUPLICATE requestId=$requestId ignored=true")
+            } else {
+                Log.i(
+                    tag,
+                    "PLAY_HANDOFF_BUSY activeRequestId=" + activeRequestId.ifBlank { "-" } +
+                        " incomingRequestId=" + requestId.ifBlank { "-" } + " ignored=true",
+                )
+            }
             return
         }
         activePlayerRequestId = requestId.takeIf { it.isNotBlank() }

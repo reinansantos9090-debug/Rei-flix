@@ -62,6 +62,7 @@ class Prompt3PlayerReconstructionTests(unittest.TestCase):
         self.assertIn('arrayOf("Ajustar", "Preencher", "Zoom")', self.player)
         self.assertIn('"Preencher", "Zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM', self.player)
         self.assertIn('else -> AspectRatioFrameLayout.RESIZE_MODE_FIT', self.player)
+        self.assertIn("enterManualZoomMode()", self.player)
         self.assertNotIn("scaleX != scaleY", self.player)
 
     def test_speed_audio_subtitle_and_seekbar_reflect_real_player(self):

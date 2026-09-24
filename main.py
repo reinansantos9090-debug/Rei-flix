@@ -412,9 +412,12 @@ async def main(page: ft.Page):
     def navigate_home():
         navigation.reset_to_root()
         render_current()
+        persist_navigation_state()
+
     def navigate_organize():
         navigation.push("organize")
         render_current()
+        persist_navigation_state()
     async def start_native_player(path, title, position_ms=0):
         # Sequence decisions stay in LibraryStore; Android receives only the
         # selected local URI and the already-derived autoplay preference.
@@ -481,6 +484,7 @@ async def main(page: ft.Page):
         screen_cache.pop("details", None)
         navigation.push("details")
         render_current()
+        persist_navigation_state()
     async def refresh_current_details():
         """Reload the durable record after an in-place Details edit."""
         anime_id = current[0].get("id") if current[0] else None
@@ -642,9 +646,13 @@ async def main(page: ft.Page):
 
     def account(): return store.account()
     def navigate_settings():
-        navigation.push("settings")
+        if navigation.current == "settings":
+            navigation.replace("settings")
+        else:
+            navigation.push("settings")
         screen_cache.pop("settings", None)
         render_current()
+        persist_navigation_state()
         if bridge.available:
             diagnostics.record("PERMISSION_CHECK", source="android")
             page.run_task(bridge.check_storage_access)
@@ -654,6 +662,7 @@ async def main(page: ft.Page):
         navigation.push_settings(label)
         screen_cache.pop("settings", None)
         render_current()
+        persist_navigation_state()
 
     def close_home_search():
         if not home_state.get("search_visible"):
@@ -663,6 +672,7 @@ async def main(page: ft.Page):
         screen_cache.pop("home", None)
         logger.info("[NAV] SEARCH_BACK consumed on Home")
         render_current()
+        persist_navigation_state()
         return True
 
     def navigate_back(source="unknown"):
@@ -716,12 +726,15 @@ async def main(page: ft.Page):
             if navigation.current == "organize":
                 screen_cache.pop("organize", None)
             render_current()
+            persist_navigation_state()
         elif action == "prompt_exit":
+            persist_navigation_state()
             page.snack_bar=ft.SnackBar(ft.Text("Pressione voltar novamente para sair"))
             page.snack_bar.open=True
             safe_update()
         elif action == "exit":
             logger.info("[NAV] NAVIGATE_BACK exit source=%s", source)
+            clear_persisted_navigation_state()
             page.window.close()
     page.on_view_pop = handle_flet_view_pop
     def refresh_settings_if_active():
@@ -1913,10 +1926,16 @@ async def main(page: ft.Page):
         ))
         page.snack_bar.open = True
         safe_update()
+    # Rebuild only the durable Details target when lifecycle restoration says
+    # the last Flet screen was Details. The player remains a separate Android
+    # Activity and is never serialized into Python navigation state.
+    restore_details_context()
+
     # MainActivity publishes the authoritative SAF grant inventory from
     # onResume. There is intentionally no Python -> reiflix://native startup
     # verification call.
     render_current()
+    persist_navigation_state()
 
 if __name__ == "__main__":
     ft.run(main)

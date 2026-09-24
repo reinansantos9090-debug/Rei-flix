@@ -710,11 +710,19 @@ class ArtworkEngine:
         artwork_type = self._type(artwork_type)
         self._log("request", entity_type=entity_type, entity_id=entity_id, artwork_type=artwork_type)
 
-        cached = self.get(entity_type, entity_id, artwork_type, allow_network=False)
-        if cached:
-            return cached
-
         rows = self.list_for(entity_type, entity_id, artwork_type)
+        pending_remote = next(
+            (item for item in rows
+             if item.get("external_url")
+             and not (item.get("local_path") and self._is_file(item.get("local_path")))
+             and item.get("status") != STATUS_INVALID),
+            None,
+        )
+        cached = self.get(entity_type, entity_id, artwork_type, allow_network=False)
+        if cached and not pending_remote:
+            return cached
+        if cached and pending_remote and cached.get("external_url") == pending_remote.get("external_url"):
+            return cached
         external_rows = [item for item in rows if item.get("external_url")]
         row = next(
             (item for item in external_rows

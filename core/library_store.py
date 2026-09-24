@@ -884,7 +884,7 @@ class LibraryStore:
         if incoming_kind not in {"series", "movie", "unknown"}:
             incoming_kind = "series"
         source = str(source or metadata.get("metadata_source") or "local").casefold()
-        if source not in {"local", "anilist", "manual", "unknown"}:
+        if source not in {"local", "anilist", "manual", "classifier", "user", "system", "unknown"}:
             source = "unknown"
         confidence = str(confidence or metadata.get("metadata_confidence") or ("high" if source == "manual" else "low")).casefold()
         status = str(status or metadata.get("metadata_status") or ("manual" if source == "manual" else "available" if source == "anilist" else "unresolved")).casefold()

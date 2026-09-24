@@ -956,7 +956,7 @@ async def main(page: ft.Page):
                             except Exception:
                                 page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; safe_update()
                             finally:
-                                                on_catalog_changed()
+                                on_catalog_changed()
                                 refresh_settings_if_active()
                         elif event_type == 'broad_storage_status':
                             granted = bool(payload.get('hasAccess'))

@@ -28,7 +28,8 @@ class HomeResilienceContractTests(unittest.TestCase):
 
     def test_home_diagnostic_log_keeps_failure_context_without_exposing_traceback(self):
         source = (ROOT / 'views' / 'home_view.py').read_text(encoding='utf-8')
-        self.assertIn("Home local state load failed", source)
+        self.assertIn("Home local projections load failed", source)
+        self.assertIn("'screen':'home'", source)
         self.assertIn("\"screen\":\"home\"", source)
         self.assertNotIn('traceback' , source.lower())
 

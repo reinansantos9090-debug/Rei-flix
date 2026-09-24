@@ -367,22 +367,13 @@ E: manifest
         self.assertNotIn("startActivity(globalIntent)", main)
         self.assertNotIn("startActivity(appDetailsIntent)", main)
 
-    def test_android_back_emits_one_correlated_mailbox_event(self):
+    def test_android_back_is_not_translated_into_a_mailbox_event(self):
         main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
-        start = main.index("private val backCallback")
-        end = main.index("private var storageReceiverRegistered", start)
-        block = main[start:end]
-        self.assertIn("UUID.randomUUID().toString()", block)
-        self.assertIn('put("requestId", requestId)', block)
-        self.assertIn('put("source", "android")', block)
-        self.assertIn('put("action", "back")', block)
-    def test_android_back_has_native_duplicate_suppression(self):
-        main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
-        block = main[main.index("private val backCallback"):main.index("private var storageReceiverRegistered", main.index("private val backCallback"))]
-        self.assertIn("lastBackEventAt", main)
-        self.assertIn("backEventDebounceMs = 300L", main)
-        self.assertIn("duplicate_suppressed", block)
-        self.assertIn("SystemClock.uptimeMillis()", block)
+        self.assertNotIn("private val backCallback", main)
+        self.assertNotIn('put("type", "android_back")', main)
+        self.assertNotIn("lastBackEventAt", main)
+        self.assertNotIn("backEventDebounceMs", main)
+        self.assertNotIn("SystemClock.uptimeMillis()", main)
 
 
     def test_native_player_back_logs_use_explicit_player_back_marker(self):
@@ -400,17 +391,20 @@ E: manifest
         self.assertNotIn("finally {\n                externalSettingsKind = null", block)
 
 
-    def test_main_activity_uses_lifecycle_aware_back_and_activity_result_callbacks(self):
+    def test_main_activity_delegates_back_to_flet_and_keeps_activity_result_callbacks(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
-        self.assertIn("import androidx.activity.OnBackPressedCallback", main)
-        self.assertIn("onBackPressedDispatcher.addCallback(this, backCallback)", main)
-        self.assertIn("override fun handleOnBackPressed()", main)
+        self.assertNotIn("import androidx.activity.OnBackPressedCallback", main)
+        self.assertNotIn("onBackPressedDispatcher.addCallback(this, backCallback)", main)
         self.assertNotIn("override fun onBackPressed()", main)
         self.assertNotIn("return@registerForActivityResult", main)
         self.assertIn("handleTreePickerResult(result)", main)
         self.assertIn("import io.flutter.embedding.android.FlutterFragmentActivity", main)
         self.assertIn("class MainActivity : FlutterFragmentActivity()", main)
         self.assertNotIn("import io.flutter.embedding.android.FlutterActivity", main)
+
+        python = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("page.on_view_pop = handle_flet_view_pop", python)
+        self.assertIn("page.views.extend(views)", python)
 
     def test_settings_permission_controls_are_wired(self):
         settings = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")

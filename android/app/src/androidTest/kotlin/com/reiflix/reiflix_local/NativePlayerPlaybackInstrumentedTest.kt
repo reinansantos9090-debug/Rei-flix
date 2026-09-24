@@ -188,8 +188,20 @@ class NativePlayerPlaybackInstrumentedTest {
         val controlsBefore = onMain { controls.visibility }
 
         tap(gestureLayer, gestureSize.first * 0.5f, gestureSize.second * 0.5f)
-        await("Single tap must toggle controls without a double-tap delay") {
+        await("Single tap must toggle controls") {
             controls.visibility != controlsBefore
+        }
+
+        val moreButton = awaitView<View>("reiflix_more_button")
+        onMain { moreButton.performClick() }
+        val volumeGesture = awaitView<View>("reiflix_gesture_volume")
+        val brightnessGesture = awaitView<View>("reiflix_gesture_brightness")
+        val doubleTapGesture = awaitView<View>("reiflix_gesture_double_tap")
+        onMain {
+            volumeGesture.performClick()
+            brightnessGesture.performClick()
+            doubleTapGesture.performClick()
+            moreButton.performClick()
         }
 
         onMain {
@@ -212,7 +224,6 @@ class NativePlayerPlaybackInstrumentedTest {
 
         val feedback = awaitView<TextView>("reiflix_feedback")
         val systemAudio = target.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
-        val volumeBefore = systemAudio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
 
         swipe(
             gestureLayer,
@@ -221,6 +232,12 @@ class NativePlayerPlaybackInstrumentedTest {
             gestureSize.first * 0.12f,
             gestureSize.second * 0.30f,
         )
+        SystemClock.sleep(120L)
+        assertTrue(
+            "Enabled left vertical gesture must expose brightness feedback",
+            onMain { feedback.text?.contains("BRILHO") == true },
+        )
+
         swipe(
             gestureLayer,
             gestureSize.first * 0.88f,
@@ -228,10 +245,19 @@ class NativePlayerPlaybackInstrumentedTest {
             gestureSize.first * 0.88f,
             gestureSize.second * 0.30f,
         )
-        SystemClock.sleep(300L)
-        assertFalse("Vertical swipes must not expose brightness feedback", onMain { feedback.text?.contains("BRILHO") == true })
-        assertFalse("Vertical swipes must not expose volume feedback", onMain { feedback.text?.contains("VOLUME") == true })
-        assertEquals("Vertical swipes must not change Android media volume", volumeBefore, systemAudio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC))
+        SystemClock.sleep(120L)
+        assertTrue(
+            "Enabled right vertical gesture must expose volume feedback",
+            onMain { feedback.text?.contains("VOLUME") == true },
+        )
+
+        onMain { player.seekTo(3_000L) }
+        await("Double tap precondition") { player.currentPosition >= 2_500L }
+        tap(gestureLayer, gestureSize.first * 0.88f, gestureSize.second * 0.50f)
+        tap(gestureLayer, gestureSize.first * 0.88f, gestureSize.second * 0.50f)
+        await("Enabled right double tap must seek forward") {
+            player.currentPosition >= 10_000L
+        }
 
         logStage("PINCH_ZOOM")
         pinch(gestureLayer, zoom = true)
@@ -283,6 +309,13 @@ class NativePlayerPlaybackInstrumentedTest {
         )
 
         logStage("VISUAL_BACK")
+        val lockButton = awaitView<View>("reiflix_lock_button")
+        onMain { lockButton.performClick() }
+        await("Lock button must keep the player in a locked interaction state") {
+            !awaitView<View>("reiflix_back_button").isShown
+        }
+        onMain { lockButton.performClick() }
+
         val back = awaitView<View>("reiflix_back_button")
         assertTrue("Visual Back control must be clickable", onMain { back.performClick() })
         await("Visual Back must finish the native player Activity") { activity!!.isFinishing }

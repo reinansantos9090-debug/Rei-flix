@@ -662,7 +662,7 @@ E: manifest
         self.assertIn("validateLocalSource", player)
         self.assertIn("normalize_local_media_reference", bridge)
         self.assertIn("os.path.isabs(value)", bridge)
-        self.assertNotIn("Uri.fromFile", main + player)
+        self.assertIn("Uri.fromFile(File(reference).canonicalFile)", player)
         self.assertNotIn("/storage/emulated/0", main + player)
 
     def test_native_player_error_does_not_emit_a_second_exit_event(self):

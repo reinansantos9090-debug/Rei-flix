@@ -2047,7 +2047,12 @@ class NativePlayerActivity : ComponentActivity() {
         when (localUri.scheme?.lowercase(Locale.ROOT)) {
             "file" -> runCatching { File(localUri.path ?: "").length() }.getOrNull()
             "content" -> {
-                val queried = runCatching {
+                val descriptorSize = runCatching {
+                    contentResolver.openFileDescriptor(localUri, "r")?.use { descriptor ->
+                        descriptor.statSize.takeIf { it >= 0L }
+                    }
+                }.getOrNull()
+                descriptorSize ?: runCatching {
                     contentResolver.query(
                         localUri,
                         arrayOf(MediaStore.MediaColumns.SIZE),
@@ -2056,11 +2061,6 @@ class NativePlayerActivity : ComponentActivity() {
                         if (!cursor.moveToFirst()) return@use null
                         val index = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
                         if (index >= 0 && !cursor.isNull(index)) cursor.getLong(index) else null
-                    }
-                }.getOrNull()
-                queried ?: runCatching {
-                    contentResolver.openFileDescriptor(localUri, "r")?.use { descriptor ->
-                        descriptor.statSize.takeIf { it >= 0L }
                     }
                 }.getOrNull()
             }

@@ -377,9 +377,10 @@ async def main(page: ft.Page):
     def apply_settings_runtime(key, _value):
         library.configure_settings(settings)
         if str(key).startswith(("appearance.", "library.")):
+            screen_cache.pop("home", None)
+            screen_cache.pop("organize", None)
             current_route = navigation.current
             if current_route in {"home", "organize"}:
-                screen_cache.pop(current_route, None)
                 render_current()
     async def remove_folder(reference):
         if scan_coordinator.active or saf_selection.pending:

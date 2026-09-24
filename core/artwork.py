@@ -715,7 +715,13 @@ class ArtworkEngine:
             return cached
 
         rows = self.list_for(entity_type, entity_id, artwork_type)
-        row = next((item for item in rows if item.get("external_url")), None)
+        external_rows = [item for item in rows if item.get("external_url")]
+        row = next(
+            (item for item in external_rows
+             if not (item.get("local_path") and self._is_file(item.get("local_path")))),
+            None,
+        )
+        row = row or (external_rows[0] if external_rows else None)
         if row is None:
             self._log("miss", entity_type=entity_type, entity_id=entity_id, artwork_type=artwork_type)
             return None

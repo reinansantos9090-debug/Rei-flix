@@ -95,6 +95,21 @@ class Prompt9StorePaginationTests(unittest.TestCase):
             self.assertLessEqual(len(sections["favorites"]), 8)
             self.assertLessEqual(len(sections["series"]), 8)
 
+    def test_home_sections_keep_next_episode_semantics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            anime_id = store.upsert_anime("watch-next", {"title": "Watch Next", "genres": "[]"})
+            first = "/library/watch-next-01.mkv"
+            second = "/library/watch-next-02.mkv"
+            store.upsert_episode(anime_id, first, "Watch Next 01", 1, 1, duration=100)
+            store.upsert_episode(anime_id, second, "Watch Next 02", 1, 2, duration=100)
+            store.save_progress(first, 100, 100)
+
+            sections = store.home_sections(limit=4)
+
+            self.assertEqual(1, len(sections["next_episode"]))
+            self.assertEqual(second, sections["next_episode"][0]["next_episode"]["path"])
+
 
 class Prompt9ServiceAndSourceTests(unittest.TestCase):
     def test_service_exposes_paged_catalog_and_bounded_home_sections(self):

@@ -130,6 +130,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var decoderAudioName: String? = null
     private var videoFormatSummary: String? = null
     private var audioFormatSummary: String? = null
+    private var subtitleFormatSummary: String? = null
     private var currentErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN
     private var pendingPreparation: Future<*>? = null
     private val playbackWorker: ExecutorService = Executors.newSingleThreadExecutor { runnable ->

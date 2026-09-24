@@ -51,6 +51,12 @@ class SettingsView:
             safe_update()
 
         def confirm(title, body, action_label, action):
+            if not settings.get("app.confirm_destructive"):
+                result = action()
+                if inspect.isawaitable(result):
+                    page.run_task(lambda: result)
+                return
+
             async def run(_):
                 page.pop_dialog()
                 try:
@@ -145,16 +151,22 @@ class SettingsView:
             container.data = " ".join((title, *tags)).casefold()
             return container
 
+        section_cache = []
+
         def rebuild(_=None):
+            nonlocal section_cache
+            section_cache = build_sections()
+            filter_sections()
+
+        def filter_sections(_=None):
             query = (search.value or "").strip().casefold()
-            sections = build_sections()
             sections_host.controls = [
-                item for item in sections
+                item for item in section_cache
                 if not query or query in getattr(item, "data", "")
             ]
             safe_update()
 
-        search.on_change = rebuild
+        search.on_change = filter_sections
 
         normalized = normalize_storage_snapshot(storage_snapshot)
         snap = normalized.as_mapping()
@@ -266,6 +278,86 @@ class SettingsView:
                 lambda: (settings.reset_all(), notice("Configurações restauradas."), rebuild()),
             )
 
+
+        def language_row(key, label, description):
+            value = settings.get(key)
+            field = ft.TextField(
+                value=value,
+                hint_text="Automático",
+                width=150,
+                dense=True,
+                on_submit=lambda e, k=key: save(k, e.control.value, e.control),
+            )
+            return ft.Container(
+                content=ft.Row([
+                    ft.Column([
+                        ft.Text(label, color=TEXT, size=13, weight=ft.FontWeight.BOLD),
+                        ft.Text(description, color=TEXT_MUTED, size=10),
+                    ], spacing=2, expand=True),
+                    field,
+                    ft.OutlinedButton("Salvar", on_click=lambda _, k=key, control=field: save(k, control.value, control)),
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=ft.padding.symmetric(vertical=7),
+            )
+
+        def apply_theme_from_settings():
+            page.theme_mode = {
+                "system": ft.ThemeMode.SYSTEM,
+                "light": ft.ThemeMode.LIGHT,
+                "dark": ft.ThemeMode.DARK,
+            }[settings.get("appearance.theme")]
+
+        async def export_settings(_):
+            try:
+                raw = settings.export_json().encode("utf-8")
+                path = await ft.FilePicker().save_file(
+                    dialog_title="Exportar configurações",
+                    file_name="reiflix-settings.json",
+                    file_type=ft.FilePickerFileType.CUSTOM,
+                    allowed_extensions=["json"],
+                    src_bytes=raw,
+                )
+                if path:
+                    notice("Configurações exportadas com sucesso.")
+                else:
+                    notice("Exportação cancelada.")
+            except Exception:
+                logger.exception("settings export failed")
+                notice("Não foi possível exportar as configurações.", True)
+
+        async def import_settings(_):
+            try:
+                files = await ft.FilePicker().pick_files(
+                    dialog_title="Importar configurações",
+                    allow_multiple=False,
+                    with_data=True,
+                    file_type=ft.FilePickerFileType.CUSTOM,
+                    allowed_extensions=["json"],
+                )
+                if not files:
+                    notice("Importação cancelada.")
+                    return
+                selected = files[0]
+                raw = selected.bytes or b""
+                if not raw:
+                    notice("O arquivo selecionado está vazio.", True)
+                    return
+                result = settings.import_json(raw.decode("utf-8"))
+                apply_theme_from_settings()
+                on_catalog_changed()
+                unknown = len(result.get("unknown", []))
+                message = f"{result['imported']} configurações importadas."
+                if unknown:
+                    message += f" {unknown} chave(s) desconhecida(s) foram ignoradas."
+                notice(message)
+                rebuild()
+            except (UnicodeDecodeError, SettingsValidationError):
+                logger.exception("invalid settings import")
+                notice("Arquivo de configurações inválido ou incompatível.", True)
+            except Exception:
+                logger.exception("settings import failed")
+                notice("Não foi possível importar as configurações.", True)
+
         def build_sections():
             items = []
             connected = bool(account.get("email"))
@@ -292,8 +384,7 @@ class SettingsView:
             ], ("google", "login", "conta")))
 
             items.append(section("Geral", ft.Icons.SETTINGS_OUTLINED, [
-                row("app.confirm_destructive", "Confirmar ações destrutivas", "Pede confirmação antes de ações destrutivas."),
-                row("app.animations", "Animações", "Mantém as animações existentes quando suportadas."),
+                row("app.confirm_destructive", "Confirmar ações destrutivas", "Pede confirmação antes de ações como limpar cache e restaurar configurações."),
             ], ("geral", "confirmação", "animações")))
 
             def theme_changed(e):
@@ -350,9 +441,26 @@ class SettingsView:
             ], ("gestos","volume","brilho","double tap","long press","swipe")))
 
             items.append(section("Áudio e Legendas", ft.Icons.HEADPHONES_OUTLINED, [
-                ft.Text("A seleção de faixas continua sendo feita pelo Media3 com base nas tracks disponíveis no arquivo.", color=TEXT_MUTED, size=11),
-                ft.Text("Preferências globais de idioma e delay não são exibidas enquanto não houver API persistente para aplicá-las de forma real.", color=TEXT_MUTED, size=10),
-            ], ("áudio","legenda","subtitle","audio")))
+                language_row(
+                    "audio.preferred_language",
+                    "Idioma de áudio",
+                    "Use uma tag BCP-47 como pt-BR, en ou ja. Se não existir no arquivo, o Media3 usa fallback seguro.",
+                ),
+                language_row(
+                    "audio.preferred_subtitle_language",
+                    "Idioma da legenda",
+                    "Use uma tag BCP-47. A seleção ocorre somente entre tracks existentes no arquivo.",
+                ),
+                row(
+                    "audio.subtitles",
+                    "Legendas",
+                    "Automático respeita as preferências do arquivo; Sempre tenta selecionar uma legenda; Nunca desativa a track de texto.",
+                    "enum",
+                    ("auto", "always", "never"),
+                    {"auto": "Automático", "always": "Sempre", "never": "Nunca"},
+                ),
+                ft.Text("Delay global de legenda: NÃO IMPLEMENTADO. Media3 1.5.1 não expõe uma preferência persistente de offset nessa camada; nenhuma configuração falsa é exibida.", color=TEXT_MUTED, size=10),
+            ], ("áudio","legenda","subtitle","audio","pt-br","en","ja")))
 
             items.append(section("Metadata", ft.Icons.MANAGE_SEARCH_OUTLINED, [
                 ft.Text("AniList continua opcional. Associações e decisões manuais permanecem no catálogo existente.", color=TEXT_MUTED, size=11),
@@ -387,8 +495,12 @@ class SettingsView:
             items.append(section("Dados e Cache", ft.Icons.CACHED_OUTLINED, [
                 ft.Text(f"{summary['folders']} pasta(s) • {summary['animes']} anime(s) • {summary['episodes']} episódio(s)", color=TEXT, size=12),
                 ft.Text("Limpar cache não remove catálogo, consumo, favoritos, tags, notas, pins, IDs AniList ou arquivos.", color=TEXT_MUTED, size=10),
+                ft.Row([
+                    ft.OutlinedButton("Exportar configurações", icon=ft.Icons.UPLOAD_FILE, on_click=lambda e: page.run_task(export_settings, e)),
+                    ft.OutlinedButton("Importar configurações", icon=ft.Icons.DOWNLOAD, on_click=lambda e: page.run_task(import_settings, e)),
+                ], wrap=True, spacing=8),
                 action_row("Restaurar configurações", "Reseta somente Settings; não é backup/restore completo.", "Restaurar", reset_all),
-            ], ("dados","cache","reset")))
+            ], ("dados","cache","reset","exportar","importar","backup de configurações")))
 
             items.append(section("Privacidade", ft.Icons.PRIVACY_TIP_OUTLINED, [
                 ft.Text("Biblioteca, histórico e caminhos locais permanecem locais.", color=TEXT, size=12),

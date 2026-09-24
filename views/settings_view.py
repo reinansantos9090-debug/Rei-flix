@@ -319,7 +319,6 @@ class SettingsView:
         async def export_settings(_):
             try:
                 raw = settings.export_json().encode("utf-8")
-                notice("Backup validado. Escolha o local de destino…")
                 path = await ft.FilePicker().save_file(
                     dialog_title="Exportar configurações",
                     file_name="reiflix-settings.json",

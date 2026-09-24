@@ -289,7 +289,17 @@ class HomeView:
             page.update()
             await restore_scroll_position()
             if fresh_items:
-                page.run_task(hydrate_metadata_and_artwork, list(fresh_items), token)
+                async def run_hydration_batch():
+                    await hydrate_metadata_and_artwork(list(fresh_items), token)
+                schedule_background(run_hydration_batch)
+
+        def schedule_background(coro_factory):
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                page.run_task(coro_factory)
+                return
+            loop.create_task(coro_factory())
 
         async def load_next_page():
             await load_library_page(reset=False)
@@ -301,7 +311,7 @@ class HomeView:
             except (TypeError, ValueError, AttributeError):
                 return
             if remaining < 800 and has_more[0] and not page_loading[0]:
-                page.run_task(load_next_page)
+                schedule_background(load_next_page)
         def card(anime):
             available_count = int(anime.get("available_count") or 0)
             completed = int(anime.get("watched_count") or 0)
@@ -469,8 +479,6 @@ class HomeView:
             await load_library_page(reset=True)
 
         async def retry_load_catalog(_event=None):
-            await load_catalog()
-
             await load_catalog()
 
         async def load_catalog():

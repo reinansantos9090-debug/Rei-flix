@@ -134,8 +134,8 @@ class OrganizeView:
         collection_genre = None
         collection_sort = None
 
-        def artwork(source, height, icon_size=28, width=None):
-            return media_artwork(source, height, width=width, icon_size=icon_size)
+        def artwork(source, height, icon_size=28, width=None, label="Sem capa"):
+            return media_artwork(source, height, width=width, icon_size=icon_size, label=label)
 
         def progress(anime):
             current = anime.get("current_episode") or {}
@@ -179,10 +179,17 @@ class OrganizeView:
             ratio = progress(anime)
             meta = anime.get("meta") or {}
             cover = meta.get("cover_cache") or meta.get("cover_url")
-            subtitle = (
-                count_label(available_count, "episódio")
-                if available_count
-                else "Sem arquivos disponíveis"
+            subtitle = count_label(available_count, "episódio")
+            metadata_status = str(meta.get("metadata_status") or "unresolved").casefold()
+            identified = bool(meta.get("anilist_id")) or metadata_status in {"available", "manual", "stale"}
+            artwork_state = "ready" if cover else (
+                "pending"
+                if metadata_status in {"refreshing", "available", "stale"} and meta.get("cover_url")
+                else "unmatched"
+            )
+            state_prefix = "" if identified else "Não identificado • "
+            artwork_label = "Capa" if cover else (
+                "Capa pendente" if artwork_state == "pending" else "Sem capa"
             )
             indicators = []
             if anime.get("favorite"):
@@ -210,6 +217,7 @@ class OrganizeView:
 
             return ft.Container(
                 key=f"anime:{anime.get('id', '-')}",
+                width=148,
                 ink=True,
                 border_radius=14,
                 on_click=make_anime_click_handler(anime),
@@ -218,8 +226,9 @@ class OrganizeView:
                         ft.Stack(
                             [
                                 ft.Container(
-                                    artwork(cover, 188, width=None),
-                                    height=188,
+                                    artwork(cover, 210, width=148, label=artwork_label),
+                                    width=148,
+                                    height=210,
                                 ),
                                 *indicators,
                             ]
@@ -231,6 +240,12 @@ class OrganizeView:
                             color="#F7F5FA",
                             max_lines=2,
                             overflow=ft.TextOverflow.ELLIPSIS,
+                        ),
+                        ft.Text(
+                            "Não identificado",
+                            size=10,
+                            color="#F2B84B",
+                            visible=not identified,
                         ),
                         ft.Text(
                             f"{watched}/{available_count} assistidos" if available_count else subtitle,
@@ -574,7 +589,7 @@ class OrganizeView:
             if selected_state[0] != 'Todos': description.append(selected_state[0].lower())
             if selected_sort[0] != 'Mais recentes': description.append(selected_sort[0].lower())
             suffix = ' • '.join(description) if description else 'Todos os itens da biblioteca'
-            collection_summary.value = f'{total_matches[0]} anime(s) • {suffix}'
+            collection_summary.value = f'{count_label(total_matches[0], "anime")} • {suffix}'
             page_loading[0] = False
             page.update()
             await restore_scroll_position()

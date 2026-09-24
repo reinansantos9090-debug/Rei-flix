@@ -137,7 +137,7 @@ class UiStateTests(unittest.TestCase):
             source.index('section("Áudio e Legendas"'),
             source.index('section("Metadata"'),
             source.index('section("Armazenamento"'),
-            source.index('section("Backup & Restore"'),
+            source.index('section("Backup e Restauração"'),
             source.index('section("Diagnóstico"'),
         ]
         self.assertEqual(positions, sorted(positions))

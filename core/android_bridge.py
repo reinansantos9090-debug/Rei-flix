@@ -59,15 +59,25 @@ class AndroidBridge:
         query = urlencode({"action": action, "request_id": request_id, **{k: v for k, v in params.items() if v is not None}})
         url = f"reiflix://native?{query}"
         logger.info(
-            "[STORAGE] request_id=%s action=%s python_callback=dispatch launch_url=true",
+            "[ANDROID_BRIDGE] request_id=%s action=%s url=%s python_callback=dispatch",
             request_id,
             action,
+            url,
         )
-        # Flet 0.86.5 exposes `Page.launch_url(url)` only. Passing `mode=` raises
-        # a runtime TypeError even though the Android intent still needs to open the
-        # custom scheme as an external app intent. Keep the URL launch compatible
-        # with the real API and let Android's resolver handle the native intent.
-        await self.page.launch_url(url)
+        # Flet 0.86.5 exposes Page.launch_url(url) without a mode parameter.
+        try:
+            await self.page.launch_url(url)
+        except Exception as exc:
+            logger.exception(
+                "[ANDROID_BRIDGE] launch failed request_id=%s action=%s url=%s",
+                request_id,
+                action,
+                url,
+            )
+            raise RuntimeError(
+                f"Falha ao enviar a ação Android '{action}' (request {request_id})."
+            ) from exc
+        logger.info("[ANDROID_BRIDGE] launch accepted request_id=%s action=%s", request_id, action)
         return request_id
 
     async def select_tree(self): return await self._launch("select_tree")
@@ -88,7 +98,7 @@ class AndroidBridge:
         normalized_uri = self.normalize_local_media_reference(uri)
         if normalized_uri is None:
             raise ValueError("A reprodução aceita somente arquivos locais ou URIs content://.")
-        await self._launch(
+        return await self._launch(
             "play",
             uri=normalized_uri,
             title=title,

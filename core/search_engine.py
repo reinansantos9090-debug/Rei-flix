@@ -130,6 +130,13 @@ def _media_types(anime: dict) -> set[str]:
 
 
 def _search_values(anime: dict) -> list[str]:
+    """Return the persisted fields that define full-text search.
+
+    Search intentionally covers visible and alternate titles, metadata text,
+    genres/aliases/user state, plus persisted episode identifiers and file
+    fields. A hit outside the visible title is therefore data-driven rather
+    than an arbitrary UI match.
+    """
     meta = _metadata(anime)
     values = [
         _title(anime), meta.get("title"), meta.get("title_official"),

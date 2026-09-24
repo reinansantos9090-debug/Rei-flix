@@ -101,6 +101,26 @@ async def main(page: ft.Page):
     def set_scan_state(state, *, source=None, volume=None, scan_id=None, found=None,
                        files=None, directories=None, error=None, timestamp=None):
         current = scan_state[0]
+        incoming = str(state.value if isinstance(state, ScanUiState) else state)
+        terminal_states = {
+            ScanUiState.COMPLETED.value,
+            ScanUiState.CANCELLED.value,
+            ScanUiState.FAILED.value,
+            ScanUiState.PARTIAL.value,
+        }
+        # Ignore a late progress callback from the same native operation after
+        # a terminal result has already reached Python.
+        if (
+            str(current.get("state") or "") in terminal_states
+            and incoming in {ScanUiState.SCANNING.value, ScanUiState.CHECKING.value}
+            and scan_id is not None
+            and str(scan_id) == str(current.get("scanId") or "")
+        ):
+            logger.warning(
+                "[SCAN] stale progress ignored scan_id=%s state=%s current=%s",
+                scan_id, incoming, current.get("state"),
+            )
+            return
         scan_state[0] = {
             "state": str(state.value if isinstance(state, ScanUiState) else state),
             "source": source if source is not None else current.get("source"),
@@ -239,6 +259,7 @@ async def main(page: ft.Page):
                 on_resolve_match=resolve_match,
                 storage_snapshot=storage_capabilities[0], scan_snapshot=scan_state[0],
                 settings=settings,
+                on_check_video_access=check_video_access,
                 on_create_backup=create_backup,
                 on_inspect_backup=inspect_backup,
                 on_restore_backup=restore_backup,
@@ -321,10 +342,17 @@ async def main(page: ft.Page):
         async def launch_native_player():
             try:
                 await start_native_player(path, title, max(0, int(progress_seconds * 1000)))
-            except Exception:
+            except Exception as exc:
                 logger.exception("[PLAYER] native handoff failed path=%s", path)
-                page.snack_bar = ft.SnackBar(ft.Text("Não foi possível abrir o player local."))
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("Não foi possível enviar este episódio ao player Android.")
+                )
                 page.snack_bar.open = True
+                diagnostics.record(
+                    "PLAYER_HANDOFF_PYTHON_FAILED",
+                    source="android_bridge",
+                    error=str(exc),
+                )
                 safe_update()
 
         # NativePlayerActivity is the only player. Do not push a synthetic Flet
@@ -567,10 +595,16 @@ async def main(page: ft.Page):
             saf_selection.finish()
             page.snack_bar=ft.SnackBar(ft.Text(str(exc))); page.snack_bar.open=True; safe_update()
             raise
+    async def check_video_access(_=None):
+        if not bridge.available:
+            return
+        logger.info("[STORAGE] action=check_storage_access python_callback=dispatch")
+        await bridge.check_storage_access()
+
     async def request_video_access(_=None):
         if not bridge.available:
             return
-        logger.info("[STORAGE] action=media_permission python_callback=dispatch")
+        logger.info("[STORAGE] action=request_media_access python_callback=dispatch")
         await bridge.request_media_access()
 
     async def open_broad_storage_access(_=None):

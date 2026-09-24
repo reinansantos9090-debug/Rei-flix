@@ -676,7 +676,14 @@ class MainActivity : FlutterFragmentActivity() {
             Log.i(tag, "Ignoring duplicate native request: action=$action requestId=$requestId")
             return
         }
-        Log.i(tag, "NATIVE_INTENT action=$action requestId=${requestId ?: "-"} task=$taskId resumed=$activityResumed focus=${window?.decorView?.hasWindowFocus() == true} flags=0x${intent.flags.toString(16)}")
+        Log.i(
+            tag,
+            "NATIVE_INTENT action=$action requestId=${requestId ?: "-"} " +
+                "data=${intent.dataString ?: "-"} task=$taskId resumed=$activityResumed " +
+                "focus=${window?.decorView?.hasWindowFocus() == true} " +
+                "flags=0x${intent.flags.toString(16)} " +
+                "extras=${intent.extras?.keySet()?.joinToString(",") ?: "-"}",
+        )
         when (action) {
             "select_tree" -> {
                 if (!activityResumed) {
@@ -1621,6 +1628,52 @@ class MainActivity : FlutterFragmentActivity() {
                 .putExtra("setting_audio_subtitle_bottom_padding", source.getQueryParameter("setting_audio_subtitle_bottom_padding")?.toIntOrNull() ?: 8)
                 .putExtra("setting_audio_subtitle_embedded_style", source.getQueryParameter("setting_audio_subtitle_embedded_style")?.toBooleanStrictOrNull() ?: true)
 
+            val resolvedActivity = intent.resolveActivity(packageManager)
+            if (resolvedActivity == null) {
+                activePlayerRequestId = previousActiveRequestId
+                Log.e(
+                    tag,
+                    "PLAY_HANDOFF_FAILED requestId=" + requestId.ifEmpty { "-" } +
+                        " reason=activity_not_resolvable component=" + intent.component,
+                )
+                NativeMailbox.write(
+                    this,
+                    JSONObject()
+                        .put("type", "player_error")
+                        .put("requestId", requestId)
+                        .put("message", "O player nativo não está disponível nesta instalação.")
+                        .put(
+                            "payload",
+                            JSONObject()
+                                .put("stage", "resolve_intent")
+                                .put("reason", "activity_not_resolvable")
+                                .put("component", intent.component?.flattenToShortString() ?: ""),
+                        ),
+                )
+                return
+            }
+            Log.i(
+                tag,
+                "PLAY_INTENT_RESOLVED requestId=" + requestId.ifEmpty { "-" } +
+                    " resolved=" + resolvedActivity.flattenToShortString() +
+                    " flags=0x" + intent.flags.toString(16) +
+                    " reuse=" + reusingPlayerActivity,
+            )
+            NativeMailbox.write(
+                this,
+                JSONObject()
+                    .put("type", "diagnostic")
+                    .put("requestId", requestId)
+                    .put(
+                        "payload",
+                        JSONObject()
+                            .put("event", "PLAYER_HANDOFF_START")
+                            .put("stage", "start_activity")
+                            .put("uri", localUri.toString())
+                            .put("component", resolvedActivity.flattenToShortString())
+                            .put("reuse", reusingPlayerActivity),
+                    ),
+            )
             Log.i(tag, "PLAY_HANDOFF_START requestId=" + requestId.ifEmpty { "-" } + " component=" + intent.component)
 
             if (reusingPlayerActivity) {
@@ -1632,6 +1685,11 @@ class MainActivity : FlutterFragmentActivity() {
                 )
             } else {
                 playerActivityLauncher.launch(intent)
+                Log.i(
+                    tag,
+                    "PLAY_HANDOFF_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
+                        " launcher=activity_result",
+                )
             }
         } catch (exception: Exception) {
             activePlayerRequestId = previousActiveRequestId

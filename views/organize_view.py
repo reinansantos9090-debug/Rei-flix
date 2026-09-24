@@ -735,6 +735,14 @@ class OrganizeView:
                 return
             await render_collection(reset=True)
             page.update()
+        async def refresh_from_catalog():
+            save_view_state()
+            if mode[0] == 'collection':
+                await render_collection(reset=True)
+            else:
+                render_overview()
+                page.update()
+
         async def load_catalog():
             try:
                 last_scan = await asyncio.to_thread(library.last_scan)
@@ -765,6 +773,7 @@ class OrganizeView:
             except Exception:
                 logger.debug('Organize scroll restoration unavailable', exc_info=True)
 
+        view_state['_refresh_from_catalog'] = refresh_from_catalog
         save_view_state()
         render_generation[0] += 1
         render_overview()

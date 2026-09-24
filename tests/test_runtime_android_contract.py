@@ -104,26 +104,30 @@ class RuntimeAndroidContractTests(unittest.TestCase):
     def test_native_player_gesture_contract_is_clean_and_non_stretching(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         for token in (
-            "HORIZONTAL_SEEK",
             "ScaleGestureDetector",
             "RESIZE_MODE_ZOOM",
             "RESIZE_MODE_FIT",
+            "RESIZE_MODE_FILL",
             "showFeedback",
             "setControlsVisible",
             "CONTROL_TIMEOUT_MS",
-            "pendingSeekPosition",
-            "ViewConfiguration.getDoubleTapTimeout()",
             "BACK_BUTTON_TOUCH",
             "ANDROID_BACK",
             "PLAYER_SINGLE_TAP",
-            "PLAYER_DOUBLE_TAP",
             "GESTURE_START",
             "GESTURE_END",
             "controls.bringToFront()",
             'tag = "reiflix_back_button"',
+            'actionButton("Aspecto", 92)',
+            '"Ajustar", "Preencher", "Zoom", "Original", "Auto"',
         ):
             self.assertIn(token, source)
         for token in (
+            "HORIZONTAL_SEEK",
+            "calculateCloudStreamSeekTarget",
+            "PLAYER_DOUBLE_TAP",
+            "handleDoubleTap",
+            "ViewConfiguration.getDoubleTapTimeout()",
             "VERTICAL_BRIGHTNESS",
             "VERTICAL_VOLUME",
             "adjustBrightness",
@@ -134,7 +138,46 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "brightnessLevel",
         ):
             self.assertNotIn(token, source)
-        self.assertNotIn("RESIZE_MODE_FILL", source)
+
+    def test_native_player_reuses_one_activity_for_episode_changes(self):
+        player = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        main = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        self.assertIn("override fun onNewIntent(newIntent: Intent)", player)
+        self.assertIn("keepActivity=true", player)
+        self.assertIn("episodeChangePending", player)
+        self.assertIn('android:launchMode="singleTop"', manifest)
+        self.assertIn("FLAG_ACTIVITY_REORDER_TO_FRONT", main)
+        self.assertIn("validatePlayerSource", main)
+        self.assertIn("openFileDescriptor(uri, \"r\")", main)
+
+    def test_native_player_exit_contract_contains_playback_context(self):
+        player = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        for token in ("mediaId", "episodeId", "positionMs", "durationMs", "completion", "timestamp"):
+            self.assertIn(token, player)
+
+    def test_native_player_error_recovery_is_bounded_and_structured(self):
+        player = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        for token in (
+            'tag = "reiflix_error_retry"',
+            "retryCurrentMedia",
+            "MAX_RETRY_ATTEMPTS = 2",
+            "PLAYER_RETRY",
+            "PLAYER_PLAY",
+            "PLAYER_PAUSE",
+            "PLAYER_SEEK",
+            "PLAYER_TRACK_CHANGE",
+            "PLAYER_PIP",
+        ):
+            self.assertIn(token, player)
+
+    def test_host_activity_restores_normal_system_bars(self):
+        main = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        system_ui = SYSTEM_UI.read_text(encoding="utf-8")
+        self.assertIn("applyNormalSystemUi()", main)
+        self.assertIn("applyNormal()", system_ui)
+        self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, true)", system_ui)
+        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", system_ui)
 
     def test_native_player_primary_surface_does_not_expose_secondary_controls(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
@@ -203,6 +246,9 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "library.previous_episode(current_path)",
             "await start_native_player(",
             "event_type == 'player_exited'",
+            "event_created_at=event.get('createdAt') or event.get('timestamp')",
+            "exit_updated = await asyncio.to_thread(",
+            "store.save_progress",
             "on_catalog_changed()",
         ):
             self.assertIn(token, source)

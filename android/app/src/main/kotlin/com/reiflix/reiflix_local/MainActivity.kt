@@ -421,7 +421,7 @@ class MainActivity : FlutterFragmentActivity() {
         logLifecycle("onCreate", intent)
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
-        applyImmersiveSystemUi()
+        applyNormalSystemUi()
         // Permission-sensitive actions are queued until the Activity is resumed.
         handleNativeIntent(intent)
     }
@@ -445,7 +445,7 @@ class MainActivity : FlutterFragmentActivity() {
         activityResumed = true
         logLifecycle("onResume")
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "ON_RESUME").put("lifecycle", "onResume")))
-        applyImmersiveSystemUi()
+        applyNormalSystemUi()
 
         // A lifecycle-sensitive command may have been queued because the
         // Activity was not resumed when Python delivered the request. Do not
@@ -591,9 +591,9 @@ class MainActivity : FlutterFragmentActivity() {
             .sorted()
             .toList()
 
-    private fun applyImmersiveSystemUi() {
+    private fun applyNormalSystemUi() {
         if (::systemUiController.isInitialized) {
-            systemUiController.applyImmersive()
+            systemUiController.applyNormal()
         }
     }
 
@@ -1501,6 +1501,7 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject().put("stage", "handoff").put("reason", "missing_uri")))
             return
         }
+
         val localUri = runCatching { Uri.parse(episodeUri) }.getOrNull()
         if (localUri == null || localUri.scheme?.lowercase() !in setOf("content", "file")) {
             Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId + " uri=" + episodeUri + " reason=unsupported_scheme")
@@ -1510,10 +1511,11 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject().put("uri", episodeUri).put("stage", "handoff").put("reason", "unsupported_scheme")))
             return
         }
+
         val authority = localUri.authority.orEmpty()
         val authorized = when {
             localUri.scheme.equals("content", true) -> {
-                localUri.scheme == "content" && SafScanner.isAuthorizedDocument(this, localUri) ||
+                SafScanner.isAuthorizedDocument(this, localUri) ||
                     MediaStoreScanner.isAuthorizedDocument(this, localUri)
             }
             localUri.scheme.equals("file", true) -> BroadStorageScanner.isAuthorizedFile(this, localUri)
@@ -1527,6 +1529,20 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", JSONObject().put("uri", episodeUri).put("stage", "handoff").put("reason", "unauthorized")))
             return
         }
+
+        val preflightError = validatePlayerSource(localUri)
+        if (preflightError != null) {
+            Log.e(tag, "PLAY_HANDOFF_FAILED requestId=$requestId reason=preflight error=$preflightError")
+            NativeMailbox.write(this, JSONObject().put("type", "player_error")
+                .put("requestId", requestId)
+                .put("message", "O arquivo local não está disponível para reprodução.")
+                .put("payload", JSONObject()
+                    .put("uri", episodeUri)
+                    .put("stage", "preflight")
+                    .put("reason", preflightError)))
+            return
+        }
+
         val mediaSource = when {
             localUri.scheme.equals("content", true) && authority == MediaStore.AUTHORITY -> "mediastore"
             localUri.scheme.equals("content", true) -> "saf_or_local_provider"
@@ -1536,41 +1552,88 @@ class MainActivity : FlutterFragmentActivity() {
             " uri_original=" + episodeUri + " uri_normalized=" + localUri +
             " scheme=" + localUri.scheme + " authority=" + authority.ifEmpty { "-" } +
             " source=" + mediaSource + " activityResumed=" + activityResumed + " task=" + taskId)
-        if (activePlayerRequestId != null) {
-            val activeRequestId = activePlayerRequestId.orEmpty()
-            if (activeRequestId == requestId && requestId.isNotBlank()) {
-                Log.i(tag, "PLAY_HANDOFF_DUPLICATE requestId=$requestId ignored=true")
-            } else {
-                Log.i(
-                    tag,
-                    "PLAY_HANDOFF_BUSY activeRequestId=" + activeRequestId.ifBlank { "-" } +
-                        " incomingRequestId=" + requestId.ifBlank { "-" } + " ignored=true",
-                )
-            }
+
+        val previousActiveRequestId = activePlayerRequestId
+        val reusingPlayerActivity = !previousActiveRequestId.isNullOrBlank()
+        if (reusingPlayerActivity && previousActiveRequestId == requestId && requestId.isNotBlank()) {
+            Log.i(tag, "PLAY_HANDOFF_DUPLICATE requestId=$requestId ignored=true")
             return
         }
+
         activePlayerRequestId = requestId.takeIf { it.isNotBlank() }
-        Log.i(tag, "PLAY_HANDOFF_ACCEPTED requestId=" + requestId.ifEmpty { "-" })
+        Log.i(
+            tag,
+            "PLAY_HANDOFF_ACCEPTED requestId=" + requestId.ifEmpty { "-" } +
+                " reusePlayerActivity=" + reusingPlayerActivity,
+        )
+
         try {
             val intent = Intent(this, NativePlayerActivity::class.java)
                 .putExtra("requestId", requestId)
                 .putExtra("uri", localUri.toString())
+                .putExtra("mediaId", localUri.toString())
+                .putExtra("episodeId", source.getQueryParameter("episode_id").orEmpty())
                 .putExtra("title", source.getQueryParameter("title") ?: "Episódio")
                 .putExtra("positionMs", source.getQueryParameter("position_ms")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L)
                 .putExtra("canNext", source.getQueryParameter("can_next")?.toBooleanStrictOrNull() ?: false)
                 .putExtra("canPrevious", source.getQueryParameter("can_previous")?.toBooleanStrictOrNull() ?: false)
                 .putExtra("autoplay", source.getQueryParameter("autoplay")?.toBooleanStrictOrNull() ?: true)
+
             Log.i(tag, "PLAY_HANDOFF_START requestId=" + requestId.ifEmpty { "-" } + " component=" + intent.component)
-            playerActivityLauncher.launch(intent)
-        } catch (exception: Exception) {
-            if (activePlayerRequestId == requestId.takeIf { it.isNotBlank() }) {
-                activePlayerRequestId = null
+
+            if (reusingPlayerActivity) {
+                startActivity(
+                    intent.addFlags(
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
+                    ),
+                )
+            } else {
+                playerActivityLauncher.launch(intent)
             }
+        } catch (exception: Exception) {
+            activePlayerRequestId = previousActiveRequestId
             Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId.ifEmpty { "-" } + " reason=start_activity", exception)
             NativeMailbox.write(this, JSONObject().put("type", "player_error")
                 .put("requestId", requestId)
                 .put("message", "Não foi possível abrir o player local.")
-                .put("payload", JSONObject().put("uri", localUri.toString()).put("stage", "start_activity").put("error", exception.message ?: exception::class.java.simpleName)))
+                .put("payload", JSONObject()
+                    .put("uri", localUri.toString())
+                    .put("stage", "start_activity")
+                    .put("error", exception.message ?: exception::class.java.simpleName)))
+        }
+    }
+
+    private fun validatePlayerSource(uri: Uri): String? {
+        return try {
+            when {
+                uri.scheme.equals("file", true) -> {
+                    val file = java.io.File(uri.path.orEmpty())
+                    when {
+                        !file.isFile -> "file_not_found"
+                        !file.canRead() -> "file_not_readable"
+                        file.length() <= 0L -> "file_empty"
+                        else -> null
+                    }
+                }
+                uri.scheme.equals("content", true) -> {
+                    val mime = contentResolver.getType(uri)
+                    if (!mime.isNullOrBlank() && !mime.startsWith("video/", ignoreCase = true) &&
+                        mime != "application/octet-stream"
+                    ) {
+                        return "mime_not_video"
+                    }
+                    contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
+                        val statSize = descriptor.statSize
+                        if (statSize == 0L) "file_empty" else null
+                    } ?: "file_open_failed"
+                }
+                else -> "unsupported_scheme"
+            }
+        } catch (exception: SecurityException) {
+            "permission_denied"
+        } catch (exception: Exception) {
+            "preflight_exception"
         }
     }
 
@@ -1621,7 +1684,7 @@ class MainActivity : FlutterFragmentActivity() {
         super.onWindowFocusChanged(hasFocus)
         logLifecycle("onWindowFocusChanged")
         if (hasFocus) {
-            applyImmersiveSystemUi()
+            applyNormalSystemUi()
             ViewCompat.requestApplyInsets(window.decorView)
         }
     }
@@ -1629,7 +1692,7 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         Log.i(tag, "CONFIGURATION_CHANGED orientation=${newConfig.orientation}")
-        applyImmersiveSystemUi()
+        applyNormalSystemUi()
         ViewCompat.requestApplyInsets(window.decorView)
     }
     private fun signInWithGoogle(serverClientId: String?) {

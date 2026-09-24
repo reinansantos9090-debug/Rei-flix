@@ -1,5 +1,6 @@
 package com.reiflix.reiflix_local
 
+import android.app.AlertDialog
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
@@ -88,8 +89,6 @@ class NativePlayerActivity : ComponentActivity() {
     private var restoredPositionMs: Long? = null
     internal var firstFrameRenderedForTesting = false
         private set
-    private enum class GestureMode { NONE, HORIZONTAL_SEEK }
-    private var pendingSeekPosition: Long? = null
     private var feedbackHideAt = 0L
 
     private val titleValue: String
@@ -138,6 +137,7 @@ class NativePlayerActivity : ComponentActivity() {
         enterImmersiveMode()
         configureWindow()
         restoredPositionMs = savedInstanceState?.takeIf { it.containsKey("position_ms") }?.getLong("position_ms")
+        aspectModeLabel = savedInstanceState?.getString("aspect_mode_label") ?: "Ajustar"
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             clipChildren = false
@@ -214,39 +214,122 @@ class NativePlayerActivity : ComponentActivity() {
                 ?: AspectRatioFrameLayout.RESIZE_MODE_FIT
             playerView.resizeMode = savedResize
 
-            val subtitleTracks = LocalSubtitleResolver.resolve(this, uri)
-            val mediaItemBuilder = MediaItem.Builder()
-                .setUri(uri)
-                .setMediaId(uri.toString())
-            if (subtitleTracks.isNotEmpty()) {
-                mediaItemBuilder.setSubtitleConfigurations(
-                    subtitleTracks.map { track ->
-                        MediaItem.SubtitleConfiguration.Builder(track.uri)
-                            .setMimeType(track.mimeType)
-                            .setLanguage(track.language)
-                            .setSelectionFlags(if (track.isDefault) C.SELECTION_FLAG_DEFAULT else 0)
-                            .build()
-                    }
-                )
-            }
-
-            val mediaItem = mediaItemBuilder.build()
-            logPlayer("MEDIA_ITEM requestId=" + requestId.ifEmpty { "-" } + " uri=" + mediaItem.localConfiguration?.uri)
-            val shouldPlayWhenReady = savedInstanceState?.takeIf { it.containsKey("play_when_ready") }
-                ?.getBoolean("play_when_ready")
-                ?: intent.getBooleanExtra("autoplay", true)
-            player.setMediaItem(mediaItem)
-            // Set the desired playWhenReady state before prepare(). This prevents a
-            // transient autoplay race when callers explicitly request autoplay=false.
-            player.playWhenReady = shouldPlayWhenReady
-            logPlayer("PLAY_WHEN_READY=" + player.playWhenReady + " requestId=" + requestId.ifEmpty { "-" })
-            logPlayer("PREPARE requestId=" + requestId.ifEmpty { "-" })
-            player.prepare()
+            prepareCurrentMedia("initial", savedInstanceState?.takeIf { it.containsKey("play_when_ready") }?.getBoolean("play_when_ready"))
         } catch (exception: Exception) {
             if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
             logPlayer("EXOPLAYER_INIT_FAILED requestId=" + requestId.ifEmpty { "-" }, exception)
             showPlayerError("Não foi possível iniciar o player local.", "player_initialization")
         }
+    }
+
+    override fun onNewIntent(newIntent: Intent) {
+        super.onNewIntent(newIntent)
+        setIntent(newIntent)
+        logPlayer(
+            "PLAYER_REUSE_INTENT requestId=" +
+                (newIntent.getStringExtra("requestId")?.trim().orEmpty().ifBlank { "-" }),
+        )
+
+        val rawUri = newIntent.getStringExtra("uri")
+        if (rawUri.isNullOrBlank()) {
+            episodeChangePending = false
+            showPlayerError("Arquivo local inválido.", "missing_uri_on_reuse")
+            return
+        }
+        val normalized = normalizeLocalReference(rawUri)
+        if (normalized == null) {
+            episodeChangePending = false
+            showPlayerError("Referência local inválida.", "invalid_uri_on_reuse")
+            return
+        }
+        val preflightError = validateLocalSource(normalized)
+        if (preflightError != null) {
+            episodeChangePending = false
+            showPlayerError(preflightError, "preflight_on_reuse")
+            return
+        }
+
+        uri = normalized
+        requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
+        episodeChangePending = false
+        restoredPositionMs = null
+        initialSeekApplied = false
+        completionReported = false
+        openedReported = false
+        exitReported = false
+        suppressExitEvent = false
+        errorVisible = false
+        aspectModeLabel = findViewByTag<TextView>("reiflix_aspect_button")?.text?.toString() ?: aspectModeLabel
+
+        findViewByTag<TextView>("reiflix_player_title")?.text =
+            newIntent.getStringExtra("title") ?: "Episódio"
+        findViewByTag<TextView>("reiflix_next_episode")?.isEnabled =
+            newIntent.getBooleanExtra("canNext", false)
+        findViewByTag<TextView>("reiflix_previous_episode")?.isEnabled =
+            newIntent.getBooleanExtra("canPrevious", false)
+        findViewByTag<View>("reiflix_error_panel")?.visibility = View.GONE
+        if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
+        moreVisible = false
+        findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
+        setControlsVisible(true)
+
+        try {
+            prepareCurrentMedia("reuse")
+        } catch (exception: Exception) {
+            logPlayer("MEDIA_REUSE_FAILED requestId=" + requestId.ifEmpty { "-" }, exception)
+            showPlayerError("Não foi possível iniciar o próximo episódio local.", "player_reuse", JSONObject()
+                .put("error", exception.message ?: exception::class.java.simpleName))
+        }
+    }
+
+    private fun buildMediaItem(mediaUri: Uri): MediaItem {
+        val mediaItemBuilder = MediaItem.Builder()
+            .setUri(mediaUri)
+            .setMediaId(mediaUri.toString())
+        val subtitleTracks = LocalSubtitleResolver.resolve(this, mediaUri)
+        if (subtitleTracks.isNotEmpty()) {
+            mediaItemBuilder.setSubtitleConfigurations(
+                subtitleTracks.map { track ->
+                    MediaItem.SubtitleConfiguration.Builder(track.uri)
+                        .setMimeType(track.mimeType)
+                        .setLanguage(track.language)
+                        .setSelectionFlags(if (track.isDefault) C.SELECTION_FLAG_DEFAULT else 0)
+                        .build()
+                }
+            )
+        }
+        return mediaItemBuilder.build()
+    }
+
+    private fun prepareCurrentMedia(reason: String, playWhenReadyOverride: Boolean? = null) {
+        if (!::player.isInitialized) return
+        initialSeekApplied = false
+        completionReported = false
+        firstFrameRenderedForTesting = false
+        if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
+
+        val mediaItem = buildMediaItem(uri)
+        val shouldPlayWhenReady = playWhenReadyOverride
+            ?: intent.getBooleanExtra("autoplay", true)
+
+        logPlayer(
+            "MEDIA_ITEM requestId=" + requestId.ifEmpty { "-" } +
+                " uri=" + mediaItem.localConfiguration?.uri +
+                " reason=" + reason,
+        )
+        player.pause()
+        player.setMediaItem(mediaItem)
+        player.playWhenReady = shouldPlayWhenReady
+        logPlayer(
+            "PLAY_WHEN_READY=" + player.playWhenReady +
+                " requestId=" + requestId.ifEmpty { "-" } +
+                " reason=" + reason,
+        )
+        logPlayer("PREPARE requestId=" + requestId.ifEmpty { "-" } + " reason=" + reason)
+        player.prepare()
+        updateTrackButtons()
+        updatePlayPauseButton()
+        updateProgressUi()
     }
 
     private val playerListener = object : Player.Listener {
@@ -271,6 +354,7 @@ class NativePlayerActivity : ComponentActivity() {
                 " positionMs=" + if (::player.isInitialized) player.currentPosition else 0L)
             when (state) {
                 Player.STATE_READY -> {
+                    retryCount = 0
                     // READY means the media is prepared, but keep the preparation
                     // indicator until Media3 actually renders the first frame.
                     if (!openedReported) {
@@ -283,6 +367,8 @@ class NativePlayerActivity : ComponentActivity() {
                                     .put("uri", uri.toString())
                                     .put("source", sourceFor(uri))
                                     .put("title", titleValue)
+                                    .put("mediaId", uri.toString())
+                                    .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
                                     .put("state", "READY"))
                         )
                         if (!opened) {
@@ -331,13 +417,23 @@ class NativePlayerActivity : ComponentActivity() {
             reason: Int,
         ) {
             if (reason == Player.DISCONTINUITY_REASON_SEEK ||
-                reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
+                reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT
+            ) {
+                logPlayer(
+                    "PLAYER_SEEK requestId=" + requestId.ifEmpty { "-" } +
+                        " positionMs=" + newPosition.positionMs,
+                )
                 saveProgress("player_progress", force = true)
             }
             updateProgressUi()
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            logPlayer(
+                "PLAYER_TRACK_CHANGE requestId=" + requestId.ifEmpty { "-" } +
+                    " audio=" + tracks.groups.count { it.type == C.TRACK_TYPE_AUDIO && it.isSupported } +
+                    " text=" + tracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported },
+            )
             updateTrackButtons()
         }
 
@@ -477,6 +573,7 @@ class NativePlayerActivity : ComponentActivity() {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
             gravity = Gravity.CENTER_VERTICAL
+            tag = "reiflix_player_title"
             contentDescription = "Título do episódio"
         }
         topBar.addView(title, LinearLayout.LayoutParams(0, dp(48), 1f))
@@ -545,13 +642,22 @@ class NativePlayerActivity : ComponentActivity() {
         }, LinearLayout.LayoutParams(dp(320), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(8)
         })
+        val errorRetry = actionButton("Tentar novamente", 170) {
+            retryCurrentMedia()
+        }
+        errorRetry.tag = "reiflix_error_retry"
+        errorPanel.addView(errorRetry, LinearLayout.LayoutParams(dp(190), dp(48)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = dp(14)
+        })
+
         val errorBack = actionButton("Voltar ao Rei-Flix", 170) {
             finishPlayer("player_error_back")
         }
         errorBack.tag = "reiflix_error_back"
         errorPanel.addView(errorBack, LinearLayout.LayoutParams(dp(190), dp(48)).apply {
             gravity = Gravity.CENTER_HORIZONTAL
-            topMargin = dp(14)
+            topMargin = dp(8)
         })
         controls.addView(errorPanel, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -670,10 +776,11 @@ class NativePlayerActivity : ComponentActivity() {
         val subtitle = actionButton("Legenda", 92) { showTrackSelection(C.TRACK_TYPE_TEXT, "Legendas") }.apply {
             tag = "reiflix_subtitle_button"
         }
-        val speed = actionButton("Velocidade", 92) { button -> cycleSpeed(button) }.apply {
+        val speed = actionButton("Velocidade", 92) { button -> showSpeedSelection(button) }.apply {
             tag = "reiflix_speed_button"
         }
-        val aspect = actionButton("Ajuste", 92) { button -> cycleAspect(button) }.apply {
+        val aspect = actionButton("Aspecto", 92) { button -> showAspectSelection(button) }.apply {
+            text = aspectModeLabel
             tag = "reiflix_aspect_button"
         }
         addMoreRow(previousEpisode, nextEpisode)
@@ -716,6 +823,12 @@ class NativePlayerActivity : ComponentActivity() {
             object : androidx.activity.OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     logPlayer("PLAYER_BACK ANDROID_BACK requestId=" + requestId.ifEmpty { "-" })
+                    if (moreVisible) {
+                        moreVisible = false
+                        findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
+                        touchControls()
+                        return
+                    }
                     finishPlayer("android_back")
                 }
             },
@@ -752,13 +865,16 @@ class NativePlayerActivity : ComponentActivity() {
                 // item, so tapping it must explicitly rewind before playback.
                 player.seekTo(0L)
                 player.play()
+                logPlayer("PLAYER_PLAY requestId=" + requestId.ifEmpty { "-" } + " reason=replay")
             }
             player.isPlaying -> {
                 player.pause()
+                logPlayer("PLAYER_PAUSE requestId=" + requestId.ifEmpty { "-" })
                 saveProgress("player_paused", force = true)
             }
             else -> {
                 player.play()
+                logPlayer("PLAYER_PLAY requestId=" + requestId.ifEmpty { "-" })
             }
         }
         touchControls()
@@ -776,12 +892,14 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun updateTrackButtons() {
-        val audioAvailable = ::player.isInitialized && player.currentTracks.groups.any {
-            it.type == C.TRACK_TYPE_AUDIO && it.isSupported
-        }
-        val subtitleAvailable = ::player.isInitialized && player.currentTracks.groups.any {
-            it.type == C.TRACK_TYPE_TEXT && it.isSupported
-        }
+        val audioCount = if (::player.isInitialized) {
+            player.currentTracks.groups.count { it.type == C.TRACK_TYPE_AUDIO && it.isSupported }
+        } else 0
+        val subtitleCount = if (::player.isInitialized) {
+            player.currentTracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported }
+        } else 0
+        val audioAvailable = audioCount > 1
+        val subtitleAvailable = subtitleCount > 0
         findViewByTag<View>("reiflix_audio_button")?.isEnabled = audioAvailable
         findViewByTag<View>("reiflix_subtitle_button")?.isEnabled = subtitleAvailable
     }
@@ -805,30 +923,59 @@ class NativePlayerActivity : ComponentActivity() {
         handler.post(progressReporter)
     }
 
-    private fun cycleSpeed(button: TextView) {
+    private fun showSpeedSelection(button: TextView) {
         if (!::player.isInitialized) return
         val speeds = floatArrayOf(.5f, .75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
-        val current = player.playbackParameters.speed
-        val index = speeds.indexOfFirst { abs(it - current) < 0.01f }.takeIf { it >= 0 } ?: 2
-        val next = speeds[(index + 1) % speeds.size]
-        player.setPlaybackSpeed(next)
-        button.text = String.format(java.util.Locale.US, "%.2fx", next)
-        showFeedback(button.text.toString())
+        val labels = speeds.map { String.format(java.util.Locale.US, "%.2fx", it) }.toTypedArray()
+        val currentIndex = speeds.indices.minByOrNull { abs(speeds[it] - player.playbackParameters.speed) } ?: 2
         touchControls()
+        AlertDialog.Builder(this)
+            .setTitle("Velocidade")
+            .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
+                player.setPlaybackSpeed(speeds[which])
+                button.text = labels[which]
+                showFeedback(labels[which])
+                touchControls()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
-    private fun cycleAspect(button: TextView) {
-        if (!::playerView.isInitialized) return
-        val current = playerView.resizeMode
-        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.resetZoomToFit()
-        val next = if (current == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) {
-            AspectRatioFrameLayout.RESIZE_MODE_FIT
-        } else {
-            AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    private fun showAspectSelection(button: TextView) {
+        val labels = arrayOf("Ajustar", "Preencher", "Zoom", "Original", "Auto")
+        val current = when (button.text.toString()) {
+            in labels -> button.text.toString()
+            else -> "Ajustar"
         }
-        playerView.resizeMode = next
-        button.text = if (next == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) "Preencher" else "Ajustar"
-        showFeedback(button.text.toString())
+        val currentIndex = labels.indexOf(current).coerceAtLeast(0)
+        touchControls()
+        AlertDialog.Builder(this)
+            .setTitle("Aspecto")
+            .setSingleChoiceItems(labels, currentIndex) { dialog, which ->
+                applyAspectMode(labels[which], button)
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun applyAspectMode(mode: String, button: TextView) {
+        if (!::playerView.isInitialized) return
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.resetZoomToFit()
+        playerView.resizeMode = when (mode) {
+            "Preencher" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            "Zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            "Original", "Auto" -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+        button.text = mode
+        showFeedback(
+            when (mode) {
+                "Original", "Auto" -> "$mode • Ajustar"
+                else -> mode
+            }
+        )
         touchControls()
         playerView.requestLayout()
     }
@@ -889,6 +1036,31 @@ class NativePlayerActivity : ComponentActivity() {
         touchControls()
     }
 
+    private fun retryCurrentMedia() {
+        if (!::player.isInitialized) {
+            logPlayer("PLAYER_RETRY_UNAVAILABLE requestId=" + requestId.ifEmpty { "-" })
+            return
+        }
+        if (retryCount >= MAX_RETRY_ATTEMPTS) {
+            showFeedback("Limite de tentativas atingido", 1400L)
+            return
+        }
+        retryCount += 1
+        errorVisible = false
+        moreVisible = false
+        findViewByTag<View>("reiflix_error_panel")?.visibility = View.GONE
+        findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
+        if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
+        logPlayer(
+            "PLAYER_RETRY requestId=" + requestId.ifEmpty { "-" } +
+                " attempt=" + retryCount,
+        )
+        prepareCurrentMedia(
+            "retry",
+            playWhenReadyOverride = intent.getBooleanExtra("autoplay", true),
+        )
+    }
+
     private fun showPlayerError(
         message: String,
         reason: String,
@@ -900,6 +1072,8 @@ class NativePlayerActivity : ComponentActivity() {
         setControlsVisible(true)
         findViewByTag<View>("reiflix_error_text")?.let { (it as TextView).text = message }
         findViewByTag<View>("reiflix_error_reason")?.let { (it as TextView).text = "Detalhe: " + reason }
+        findViewByTag<View>("reiflix_error_retry")?.visibility =
+            if (::player.isInitialized) View.VISIBLE else View.GONE
         findViewByTag<View>("reiflix_error_panel")?.visibility = View.VISIBLE
         findViewByTag<View>("reiflix_error_back")?.requestFocus()
         if (::feedback.isInitialized) feedback.visibility = View.GONE
@@ -926,9 +1100,17 @@ class NativePlayerActivity : ComponentActivity() {
         if (exitReported) return
         exitReported = true
         suppressExitEvent = true
+        val currentPosition = if (::player.isInitialized) player.currentPosition.coerceAtLeast(0L) else 0L
+        val currentDuration = if (::player.isInitialized) player.duration.coerceAtLeast(0L) else 0L
         val payload = JSONObject()
             .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
+            .put("mediaId", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("mediaId").orEmpty())
+            .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
+            .put("positionMs", currentPosition)
+            .put("durationMs", currentDuration)
+            .put("completion", completionReported)
             .put("reason", reason)
+            .put("timestamp", System.currentTimeMillis())
         val ok = NativeMailbox.write(
             this,
             JSONObject().put("type", "player_exited")
@@ -951,26 +1133,21 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun requestEpisode(eventType: String) {
-        if (!::player.isInitialized) return
+        if (!::player.isInitialized || episodeChangePending || errorVisible) return
         if (!completionReported) saveProgress("player_progress", force = true)
-        suppressExitEvent = true
+        episodeChangePending = true
         val payload = JSONObject()
             .put("uri", uri.toString())
             .put("requestId", requestId)
+            .put("positionMs", player.currentPosition.coerceAtLeast(0L))
+            .put("durationMs", player.duration.coerceAtLeast(0L))
         NativeMailbox.write(
             this,
             JSONObject().put("type", eventType)
                 .put("requestId", requestId)
                 .put("payload", payload)
         )
-        logPlayer(eventType + " requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri)
-        setResult(
-            RESULT_OK,
-            Intent()
-                .putExtra("requestId", requestId)
-                .putExtra("reason", eventType),
-        )
-        finish()
+        logPlayer(eventType + " requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri + " keepActivity=true")
     }
 
     private fun seekToSavedPosition(savedPositionMs: Long) {
@@ -1044,7 +1221,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        logPlayer("onPictureInPictureModeChanged inPip=" + isInPictureInPictureMode)
+        logPlayer("PLAYER_PIP inPip=" + isInPictureInPictureMode + " requestId=" + requestId.ifEmpty { "-" })
         if (isInPictureInPictureMode) {
             handler.removeCallbacks(controlsHider)
             setControlsVisible(false)
@@ -1077,6 +1254,7 @@ class NativePlayerActivity : ComponentActivity() {
             outState.putInt("resize_mode", playerView.resizeMode)
         }
         outState.putBoolean("autoplay_next", autoplayNext)
+        outState.putString("aspect_mode_label", findViewByTag<TextView>("reiflix_aspect_button")?.text?.toString() ?: "Ajustar")
         super.onSaveInstanceState(outState)
     }
 
@@ -1265,11 +1443,8 @@ class NativePlayerActivity : ComponentActivity() {
                         return false
                     }
                     pinchActive = true
-                    gestureConsumed = true
-                    logPlayer("GESTURE_START type=pinch requestId=" + requestId.ifEmpty { "-" })
-                    gestureMode = GestureMode.NONE
-                    cancelPendingTap()
-                    touchControls()
+                            logPlayer("GESTURE_START type=pinch requestId=" + requestId.ifEmpty { "-" })
+                                    touchControls()
                     lastPanX = (detector.focusX)
                     lastPanY = detector.focusY
                     return true
@@ -1307,27 +1482,14 @@ class NativePlayerActivity : ComponentActivity() {
 
         private var downX = 0f
         private var downY = 0f
-        private var lastX = 0f
-        private var lastY = 0f
-        private var seekStartPosition = 0L
-        private var gestureMode = GestureMode.NONE
-        private var gestureConsumed = false
         private var pinchActive = false
         private var wasPinchGesture = false
         private var lastPanX: Float? = null
         private var lastPanY: Float? = null
-
-        private var lastTapAt = 0L
-        private var tapToken = 0L
-        private var pendingSingleTap: Runnable? = null
-        private val doubleTapWindowMs: Long =
-            ViewConfiguration.getDoubleTapTimeout().toLong().coerceAtMost(DOUBLE_TAP_WINDOW_MS)
-
         private var zoomScale = 1f
         private var zoomTranslationX = 0f
         private var zoomTranslationY = 0f
         private var zoomAnimator: ValueAnimator? = null
-
         private var ignoredVerticalGesture = false
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -1338,7 +1500,6 @@ class NativePlayerActivity : ComponentActivity() {
                     MotionEvent.ACTION_POINTER_DOWN -> {
                         lastPanX = pointerCenterX(event)
                         lastPanY = pointerCenterY(event)
-                        cancelPendingTap()
                     }
                     MotionEvent.ACTION_MOVE -> {
                         if (event.pointerCount >= 2) {
@@ -1368,73 +1529,34 @@ class NativePlayerActivity : ComponentActivity() {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.x
                     downY = event.y
-                    lastX = event.x
-                    lastY = event.y
-                    seekStartPosition = if (::player.isInitialized) player.currentPosition.coerceAtLeast(0L) else 0L
-                    gestureMode = GestureMode.NONE
-                    gestureConsumed = false
                     ignoredVerticalGesture = false
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (errorVisible) return true
                     val dx = event.x - downX
                     val dy = event.y - downY
-                    val absX = abs(dx)
-                    val absY = abs(dy)
-                    if (gestureMode == GestureMode.NONE && !ignoredVerticalGesture && (absX > dp(18) || absY > dp(18))) {
-                        cancelPendingTap()
-                        gestureConsumed = true
-                        when {
-                            absX > dp(24) && absX > absY * 1.15f -> {
-                                gestureMode = GestureMode.HORIZONTAL_SEEK
-                                logPlayer("GESTURE_START type=horizontal_seek requestId=" + requestId.ifEmpty { "-" })
-                                touchControls()
-                            }
-                            absY > dp(24) && absY > absX * 1.15f -> {
-                                ignoredVerticalGesture = true
-                                logPlayer("GESTURE_START type=vertical_ignored requestId=" + requestId.ifEmpty { "-" })
-                            }
-                        }
+                    if (!ignoredVerticalGesture && abs(dy) > dp(24) && abs(dy) > abs(dx) * 1.15f) {
+                        ignoredVerticalGesture = true
+                        logPlayer("GESTURE_START type=vertical_ignored requestId=" + requestId.ifEmpty { "-" })
                     }
-                    if (gestureMode == GestureMode.HORIZONTAL_SEEK) {
-                        if (!::player.isInitialized || player.duration <= 0L) return true
-                        val target = calculateCloudStreamSeekTarget(seekStartPosition, dx, player.duration)
-                        pendingSeekPosition = target
-                        showFeedback(formatSeekPreview(target, target - seekStartPosition), 250L)
-                    }
-                    lastX = event.x
-                    lastY = event.y
                 }
                 MotionEvent.ACTION_UP -> {
-                    val hadSwipe = gestureMode != GestureMode.NONE || gestureConsumed
-                    if (gestureMode == GestureMode.HORIZONTAL_SEEK && pendingSeekPosition != null && ::player.isInitialized && player.duration > 0L) {
-                        val target = pendingSeekPosition!!.coerceIn(0L, player.duration)
-                        val delta = target - seekStartPosition
-                        if (abs(delta) >= MIN_SEEK_COMMIT_MS) {
-                            player.seekTo(target)
-                            saveProgress("player_progress", force = true)
-                            showFeedback(formatSeekPreview(target, delta), 900L)
-                        } else {
-                            showFeedback(formatTime(seekStartPosition), 700L)
-                        }
-                        logPlayer("GESTURE_END type=horizontal_seek requestId=" + requestId.ifEmpty { "-" })
-                        touchControls()
-                    } else if (ignoredVerticalGesture) {
+                    if (ignoredVerticalGesture) {
                         logPlayer("GESTURE_END type=vertical_ignored requestId=" + requestId.ifEmpty { "-" })
-                    } else if (!hadSwipe && !wasPinchGesture && !errorVisible) {
-                        handleTap(event.x)
+                    } else if (!wasPinchGesture && !errorVisible) {
+                        handleTap()
                     }
                     wasPinchGesture = false
-                    resetSingleFingerState()
+                    ignoredVerticalGesture = false
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     logPlayer("GESTURE_END type=cancel requestId=" + requestId.ifEmpty { "-" })
-                    cancelPendingTap()
-                    resetSingleFingerState()
+                    ignoredVerticalGesture = false
                 }
             }
             return true
         }
+
         fun refreshZoomForLayout() {
             if (zoomScale > 1.01f) {
                 applyZoomTransform()
@@ -1459,7 +1581,6 @@ class NativePlayerActivity : ComponentActivity() {
         fun dispose() {
             zoomAnimator?.cancel()
             zoomAnimator = null
-            cancelPendingTap()
             lastPanX = null
             lastPanY = null
             pinchActive = false
@@ -1472,7 +1593,6 @@ class NativePlayerActivity : ComponentActivity() {
             zoomScale = 1f
             zoomTranslationX = 0f
             zoomTranslationY = 0f
-            pendingSeekPosition = null
             if (::playerView.isInitialized) {
                 playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 val video = playerView.videoSurfaceView
@@ -1496,9 +1616,6 @@ class NativePlayerActivity : ComponentActivity() {
             logPlayer("GESTURE_END type=pinch requestId=" + requestId.ifEmpty { "-" })
             lastPanX = null
             lastPanY = null
-            pendingSeekPosition = null
-            gestureMode = GestureMode.NONE
-            gestureConsumed = true
 
             if (zoomScale <= ZOOM_SNAP_THRESHOLD) {
                 animateZoomToFit()
@@ -1542,85 +1659,9 @@ class NativePlayerActivity : ComponentActivity() {
             }
         }
 
-        private fun calculateCloudStreamSeekTarget(start: Long, dx: Float, duration: Long): Long {
-            if (width <= 1) return start.coerceIn(0L, duration)
-            val normalized = (dx / width.toFloat()) * 2f
-            val magnitude = normalized * normalized
-            val signedDelta = (duration.toDouble() * magnitude.toDouble()).toLong() *
-                if (dx < 0f) -1 else 1
-            return (start + signedDelta).coerceIn(0L, duration)
-        }
-
-        private fun formatSeekPreview(target: Long, delta: Long): String {
-            val sign = when {
-                delta > 0L -> "+"
-                delta < 0L -> "−"
-                else -> ""
-            }
-            val deltaText = if (abs(delta) < 1000L) "" else sign + formatTime(abs(delta))
-            return if (deltaText.isBlank()) formatTime(target) else formatTime(target) + " [" + deltaText + "]"
-        }
-
-        private fun handleTap(x: Float) {
-            val now = android.os.SystemClock.uptimeMillis()
-            val elapsed = now - lastTapAt
-            if (lastTapAt > 0L && elapsed <= doubleTapWindowMs) {
-                cancelPendingTap()
-                lastTapAt = 0L
-                handleDoubleTap(x)
-                return
-            }
-
-            cancelPendingTap()
-            lastTapAt = now
-            val token = ++tapToken
-            val runnable = Runnable {
-                if (token != tapToken || errorVisible) return@Runnable
-                logPlayer("PLAYER_SINGLE_TAP requestId=" + requestId.ifEmpty { "-" })
-                lastTapAt = 0L
-                pendingSingleTap = null
-                setControlsVisible(!controlsVisible)
-            }
-            pendingSingleTap = runnable
-            handler.postDelayed(runnable, doubleTapWindowMs)
-        }
-
-        private fun handleDoubleTap(x: Float) {
-            if (errorVisible || !::player.isInitialized) return
-            logPlayer("PLAYER_DOUBLE_TAP requestId=" + requestId.ifEmpty { "-" })
-            val leftZone = width * 0.30f
-            val rightZone = width * 0.70f
-            when {
-                x < leftZone -> seekBy(-10_000L, "−10s")
-                x > rightZone -> seekBy(10_000L, "+10s")
-                else -> {
-                    if (player.playbackState == Player.STATE_ENDED) {
-                        player.seekTo(0L)
-                        player.play()
-                    } else if (player.isPlaying) {
-                        player.pause()
-                    } else {
-                        player.play()
-                    }
-                    updatePlayPauseButton()
-                    showFeedback(if (player.isPlaying) "▶" else "❚❚", 700L)
-                }
-            }
-        }
-
-        private fun cancelPendingTap() {
-            tapToken++
-            pendingSingleTap?.let(handler::removeCallbacks)
-            pendingSingleTap = null
-            lastTapAt = 0L
-        }
-
-        private fun resetSingleFingerState() {
-            gestureMode = GestureMode.NONE
-            gestureConsumed = false
-            pendingSeekPosition = null
-            lastX = 0f
-            lastY = 0f
+        private fun handleTap() {
+            logPlayer("PLAYER_SINGLE_TAP requestId=" + requestId.ifEmpty { "-" })
+            setControlsVisible(!controlsVisible)
         }
 
         private fun pointerCenterX(event: MotionEvent): Float =
@@ -1682,10 +1723,9 @@ class NativePlayerActivity : ComponentActivity() {
         private const val PROGRESS_INTERVAL_MS = 15_000L
         private const val CONTROL_TIMEOUT_MS = 3_500L
         private const val SEEK_PROGRESS_MAX = 1000
-        private const val DOUBLE_TAP_WINDOW_MS = 200L
-        private const val MIN_SEEK_COMMIT_MS = 7_000L
         private const val MIN_ZOOM = 1f
         private const val MAX_ZOOM = 4f
         private const val ZOOM_SNAP_THRESHOLD = 1.07f
+        private const val MAX_RETRY_ATTEMPTS = 2
     }
 }

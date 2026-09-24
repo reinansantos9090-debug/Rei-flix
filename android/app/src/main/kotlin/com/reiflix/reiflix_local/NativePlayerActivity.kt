@@ -573,6 +573,14 @@ class NativePlayerActivity : ComponentActivity() {
             }
         }
 
+        override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
+            if (!isCurrent()) return
+            logPlayer(
+                "PLAYBACK_SPEED_CHANGED generation=$generation speed=" +
+                    playbackParameters.speed + " pitch=" + playbackParameters.pitch,
+            )
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (!isCurrent()) return
             logPlayer("IS_PLAYING_CHANGED=" + isPlaying)

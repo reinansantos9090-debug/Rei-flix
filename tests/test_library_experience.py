@@ -91,6 +91,13 @@ class LibraryExperienceTests(unittest.TestCase):
             self.assertIn('ft.dropdown.Option(v)', home)
             self.assertIn(state, home)
 
+    def test_home_filters_have_clear_all_action(self):
+        home = (Path(__file__).resolve().parents[1] / "views" / "home_view.py").read_text(encoding="utf-8")
+        self.assertIn("async def clear_filters", home)
+        self.assertIn('selected_sort[0] = "Mais recentes"', home)
+        self.assertIn('search.value = ""', home)
+        self.assertIn('ft.TextButton("Limpar"', home)
+
 
 if __name__ == "__main__":
     unittest.main()

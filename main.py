@@ -12,6 +12,7 @@ from core.storage_access import StorageAccessState, StorageCapabilities, ScanUiS
 from core.diagnostics import DiagnosticTimeline
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
+from core.settings import SettingsStore
 from core.google_account import normalize_google_profile
 from views.home_view import HomeView
 from views.details_view import DetailView
@@ -33,6 +34,7 @@ async def main(page: ft.Page):
     page.theme=ft.Theme(color_scheme_seed='#E50914',font_family='Roboto')
     data_dir=os.getenv("FLET_APP_STORAGE_DATA") or os.path.join(os.path.dirname(__file__),'.reiflix-data')
     store=LibraryStore(data_dir)
+    settings=SettingsStore(store)
     recovered_scans=store.interrupted_scans()
     library=LibraryService(store); bridge=AndroidBridge(data_dir, page); current=[None]
     account_state=["connected" if store.account().get("email") else "disconnected"]
@@ -191,8 +193,8 @@ async def main(page: ft.Page):
                 account(), account_state[0],
                 folder_selection_pending=lambda: saf_selection.pending,
                 on_resolve_match=resolve_match,
-                on_create_backup=create_backup, on_restore_backup=restore_backup,
                 storage_snapshot=storage_capabilities[0], scan_snapshot=scan_state[0],
+                settings=settings,
             )
         else:
             raise RuntimeError(f"Unknown navigation route: {route}")
@@ -235,11 +237,23 @@ async def main(page: ft.Page):
             position_ms,
             can_next=library.next_episode(path) is not None,
             can_previous=library.previous_episode(path) is not None,
-            autoplay=store.get_preference("autoplay_next", "true") == "true",
+            autoplay=settings.get("player.autoplay_next"),
+            player_settings={
+                "player.default_speed": settings.get("player.default_speed"),
+                "player.aspect_ratio": settings.get("player.aspect_ratio"),
+                "player.immersive": settings.get("player.immersive"),
+                "player.rotation": settings.get("player.rotation"),
+                "player.pip": settings.get("player.pip"),
+                "player.auto_hide_seconds": settings.get("player.auto_hide_seconds"),
+                "gestures.volume": settings.get("gestures.volume"),
+                "gestures.brightness": settings.get("gestures.brightness"),
+                "gestures.double_tap": settings.get("gestures.double_tap"),
+                "gestures.long_press": settings.get("gestures.long_press"),
+            },
         )
 
     def play_episode(path, title, on_next=None, progress_seconds=0):
-        if store.get_preference("resume_playback", "true") != "true":
+        if not settings.get("player.resume"):
             progress_seconds = 0
 
         async def launch_native_player():

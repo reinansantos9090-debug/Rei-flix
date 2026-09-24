@@ -134,7 +134,8 @@ class Prompt9ServiceAndSourceTests(unittest.TestCase):
         source = Path("views/home_view.py").read_text(encoding="utf-8")
 
         self.assertIn("browse_catalog_page", source)
-        self.assertIn("page_size=36", source)
+        self.assertIn('page_size = settings.get("library.page_size")', source)
+        self.assertIn("page_size=page_size", source)
         self.assertIn("on_scroll=on_home_scroll", source)
         self.assertIn("search_generation", source)
         self.assertIn("if token != search_generation[0]:", source)

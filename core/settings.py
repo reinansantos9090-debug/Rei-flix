@@ -83,6 +83,7 @@ class SettingsValidationError(ValueError):
 class SettingsStore:
     SCHEMA_VERSION = 1
     EXPORT_FORMAT = "reiflix-settings"
+    EXPORT_KEYS = SettingsDefaults.EXPORT_KEYS
 
 
     def __init__(self, store):

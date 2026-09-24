@@ -41,6 +41,58 @@ class NavigationControllerTests(unittest.TestCase):
         self.assertEqual(self.navigation.back(), "previous")
         self.assertEqual(self.navigation.current, "organize")
 
+    def test_settings_nested_back_is_owned_by_the_same_navigation_controller(self):
+        self.navigation.push("settings")
+        self.navigation.push_settings("Player")
+        self.navigation.push_settings("Legenda")
+
+        self.assertEqual(self.navigation.settings_path, ("Player", "Legenda"))
+        self.assertEqual(self.navigation.back(), "settings_inner")
+        self.assertEqual(self.navigation.current, "settings")
+        self.assertEqual(self.navigation.settings_path, ("Player",))
+        self.assertEqual(self.navigation.back(), "settings_inner")
+        self.assertEqual(self.navigation.settings_path, ())
+        self.assertEqual(self.navigation.back(), "prompt_exit")
+
+    def test_switching_top_level_screen_clears_nested_settings_path(self):
+        self.navigation.push("settings")
+        self.navigation.push_settings("Aparência")
+        self.navigation.push("organize")
+        self.assertEqual(self.navigation.settings_path, ())
+        self.assertEqual(self.navigation.back(), "previous")
+        self.assertEqual(self.navigation.current, "home")
+
+    def test_invalid_top_level_route_cannot_enter_navigation_stack(self):
+        with self.assertRaises(ValueError):
+            self.navigation.push("search")
+
+    def test_navigation_snapshot_restores_top_level_and_nested_settings_state(self):
+        self.navigation.push("details")
+        snapshot = self.navigation.snapshot()
+
+        restored = NavigationController(clock=lambda: self.now[0])
+        self.assertTrue(restored.restore(snapshot))
+        self.assertEqual(restored.stack, ("home", "details"))
+        self.assertEqual(restored.settings_path, ())
+
+        settings_snapshot = {
+            "stack": ["home", "settings"],
+            "settings_path": ["Player", "Legenda"],
+        }
+        self.assertTrue(restored.restore(settings_snapshot))
+        self.assertEqual(restored.current, "settings")
+        self.assertEqual(restored.settings_path, ("Player", "Legenda"))
+
+    def test_invalid_navigation_snapshot_is_rejected_without_mutating_state(self):
+        self.navigation.push("details")
+        self.assertFalse(
+            self.navigation.restore(
+                {"stack": ["details"], "settings_path": ["Player"]}
+            )
+        )
+        self.assertEqual(self.navigation.stack, ("home", "details"))
+        self.assertEqual(self.navigation.settings_path, ())
+
     def test_native_player_is_not_a_second_navigation_route(self):
         self.navigation.push("details")
         self.assertEqual(self.navigation.current, "details")
@@ -54,6 +106,9 @@ class NavigationControllerTests(unittest.TestCase):
         self.assertIn("duplicate BACK suppressed", source)
         self.assertIn('"[NAV] DIALOG_BACK', source)
         self.assertIn('"[NAV] NAVIGATE_BACK', source)
+        self.assertNotIn("settings_system_back", source)
+        self.assertIn("def close_home_search():", source)
+        self.assertIn('"[NAV] SEARCH_BACK consumed on Home"', source)
 
     def test_visual_back_callbacks_identify_their_origin_screen(self):
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")

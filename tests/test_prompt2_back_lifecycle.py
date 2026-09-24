@@ -32,10 +32,14 @@ class Prompt2BackLifecycleTests(unittest.TestCase):
 
     def test_navigation_controller_remains_single_logical_source_of_truth(self):
         source = self.read(MAIN)
+        navigation = self.read(ROOT / "core/navigation.py")
         self.assertIn("navigation = NavigationController()", source)
         self.assertIn("for index, route in enumerate(navigation.stack)", source)
         self.assertIn("handle_flet_view_pop", source)
         self.assertIn('navigate_back("flet_view_pop")', source)
+        self.assertIn("push_settings", navigation)
+        self.assertIn("settings_inner", navigation)
+        self.assertNotIn("settings_system_back", source)
 
     def test_manifest_uses_single_task_and_predictive_back_enabled(self):
         manifest = self.read(MANIFEST)
@@ -49,6 +53,50 @@ class Prompt2BackLifecycleTests(unittest.TestCase):
         self.assertIn('finishPlayer("android_back")', source)
         self.assertIn("player.release()", source)
         self.assertIn("setResult(", source)
+
+    def test_legacy_back_overrides_are_absent_from_both_activities(self):
+        for path in (MAIN_ACTIVITY, PLAYER_ACTIVITY):
+            source = self.read(path)
+            self.assertNotIn("override fun onBackPressed()", source)
+            self.assertNotIn("KEYCODE_BACK", source)
+
+    def test_settings_is_nested_under_the_same_navigation_controller(self):
+        source = self.read(MAIN)
+        settings = self.read(ROOT / "views/settings_view.py")
+        self.assertIn("on_open_settings_category=navigate_settings_category", source)
+        self.assertIn("settings_path_provider=lambda: navigation.settings_path", source)
+        self.assertIn("on_open_settings_category=None", settings)
+        self.assertNotIn("active_category = [None]", settings)
+        self.assertNotIn("on_register_system_back", settings)
+
+    def test_back_has_no_generic_activity_exit_shortcut(self):
+        source = self.read(MAIN)
+        activity = self.read(MAIN_ACTIVITY)
+        self.assertNotIn("finishAffinity(", source)
+        self.assertNotIn("finishAffinity(", activity)
+        self.assertEqual(source.count("page.on_view_pop = handle_flet_view_pop"), 1)
+
+    def test_navigation_lifecycle_state_is_reconstructible_without_android_objects(self):
+        source = self.read(MAIN)
+        navigation = self.read(ROOT / "core" / "navigation.py")
+        self.assertIn("navigation_state.json", source)
+        self.assertIn("navigation.snapshot()", source)
+        self.assertIn("navigation.restore(", source)
+        self.assertIn("asyncio.to_thread(", source)
+        self.assertIn("def snapshot(self)", navigation)
+        self.assertIn("def restore(self, state", navigation)
+        self.assertNotIn("Activity", navigation)
+
+    def test_android_host_uses_one_lifecycle_back_callback_and_reapplies_ui_without_resetting_python_stack(self):
+        activity = self.read(MAIN_ACTIVITY)
+        manifest = self.read(MANIFEST)
+        self.assertEqual(activity.count("onBackPressedDispatcher.addCallback"), 1)
+        self.assertIn("override fun onResume()", activity)
+        self.assertIn("override fun onDestroy()", activity)
+        self.assertNotIn("finishAffinity(", activity)
+        self.assertIn('android:launchMode="singleTask"', manifest)
+        self.assertIn('android:documentLaunchMode="never"', manifest)
+        self.assertIn('android:enableOnBackInvokedCallback="true"', manifest)
 
     def test_player_launch_is_single_flight(self):
         source = self.read(MAIN_ACTIVITY)

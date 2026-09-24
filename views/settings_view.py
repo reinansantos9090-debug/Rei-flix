@@ -32,7 +32,8 @@ class SettingsView:
         on_create_backup=None, on_inspect_backup=None, on_restore_backup=None,
         on_export_diagnostics=None, on_integrity_check=None, on_reconcile_after_restore=None,
         on_settings_changed=None,
-        on_register_system_back=None,
+        on_open_settings_category=None,
+        settings_path_provider=lambda: (),
     ):
         settings = settings or SettingsStore(store)
         busy = {"scan": False, "folder": False, "permission": False, "cache": False}
@@ -175,7 +176,6 @@ class SettingsView:
             return container
 
         section_cache = []
-        active_category = [None]
         back_button = ft.IconButton(icon=ft.Icons.ARROW_BACK, tooltip="Voltar")
         header_title = ft.Text("Configurações", size=20, weight=ft.FontWeight.BOLD, color=TEXT)
 
@@ -198,25 +198,28 @@ class SettingsView:
             "Sobre": ("Versão e componentes do Rei-Flix", ft.Icons.INFO_OUTLINE),
         }
 
+        def current_settings_path():
+            try:
+                path = tuple(settings_path_provider() or ())
+            except Exception:
+                logger.exception("settings navigation path lookup failed")
+                return ()
+            return tuple(str(item) for item in path if str(item).strip())
+
+        def current_category():
+            path = current_settings_path()
+            return path[-1] if path else None
+
         def open_category(label):
-            active_category[0] = label
             search.value = ""
-            render_settings()
+            if on_open_settings_category is not None:
+                on_open_settings_category(label)
+            else:
+                logger.warning("settings category requested without navigation callback: %s", label)
 
         def back_to_categories():
-            active_category[0] = None
             search.value = ""
-            render_settings()
-
-        def handle_system_back():
-            """Return True only when Android Back should close an inner category."""
-            if active_category[0] is None:
-                return False
-            back_to_categories()
-            return True
-
-        if on_register_system_back is not None:
-            on_register_system_back(handle_system_back)
+            on_back()
 
         def build_category_tile(label):
             description, icon = category_meta.get(label, ("Configurações Rei-Flix", ft.Icons.SETTINGS_OUTLINED))
@@ -238,7 +241,8 @@ class SettingsView:
 
         def render_settings(_=None):
             query = (search.value or "").strip().casefold()
-            if active_category[0] is None:
+            active_category = current_category()
+            if active_category is None:
                 labels = [
                     label for label in category_meta
                     if any(
@@ -261,15 +265,15 @@ class SettingsView:
             else:
                 controls = [
                     item for item in section_cache
-                    if f"__category:{str(active_category[0]).casefold()}__" in str(getattr(item, "data", ""))
+                    if f"__category:{str(active_category).casefold()}__" in str(getattr(item, "data", ""))
                     and (not query or query in getattr(item, "data", ""))
                 ]
             sections_host.controls = controls or [
                 ft.Text("Nenhuma configuração corresponde à pesquisa.", color=TEXT_MUTED, size=12),
             ]
-            header_title.value = "Configurações" if active_category[0] is None else str(active_category[0])
-            back_button.tooltip = "Voltar ao menu de configurações" if active_category[0] is not None else "Voltar"
-            back_button.on_click = (lambda _event: back_to_categories()) if active_category[0] is not None else (lambda _event: on_back())
+            header_title.value = "Configurações" if active_category is None else str(active_category)
+            back_button.tooltip = "Voltar ao menu de configurações" if active_category is not None else "Voltar"
+            back_button.on_click = (lambda _event: back_to_categories()) if active_category is not None else (lambda _event: on_back())
             safe_update()
 
         def rebuild(_=None):

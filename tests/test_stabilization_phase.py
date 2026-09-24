@@ -56,9 +56,11 @@ class StabilizationPhaseTests(unittest.TestCase):
 
     def test_settings_has_hierarchical_entry_point(self):
         source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
-        self.assertIn("active_category = [None]", source)
+        self.assertNotIn("active_category = [None]", source)
         self.assertIn("def open_category", source)
         self.assertIn("def back_to_categories", source)
+        self.assertIn("settings_path_provider", source)
+        self.assertIn("on_open_settings_category", source)
         self.assertIn("Solicitar permissão de vídeos", source)
         self.assertIn("Verificar permissão de vídeos", source)
         self.assertIn("Backup e Restauração", source)

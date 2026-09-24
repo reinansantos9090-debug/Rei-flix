@@ -101,6 +101,14 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git status --short
 
+      - name: Run required generic Python checks
+        shell: bash
+        run: |
+          python -m compileall .
+          python -m pip install pytest
+          python -m pytest -q
+          git diff --check
+
       - name: Run full Python regression suite (blocking)
         id: full-python-suite
         shell: bash

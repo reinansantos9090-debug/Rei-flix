@@ -29,7 +29,7 @@ class Prompt14DeviceCompatibilityContractTests(unittest.TestCase):
         normal = source[source.index("fun applyNormal()"):source.index("private fun applyEdgeToEdgeWindow")]
         immersive = source[source.index("fun applyImmersive()"):source.index("fun applyNormal()")]
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", normal)
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", immersive)
+        self.assertIn("systemUiController.applyImmersive()", immersive)
         self.assertIn("UI_MODE_NIGHT_MASK", source)
         self.assertIn("isAppearanceLightStatusBars = !darkTheme", source)
         self.assertIn("isAppearanceLightNavigationBars = !darkTheme", source)
@@ -48,12 +48,13 @@ class Prompt14DeviceCompatibilityContractTests(unittest.TestCase):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         self.assertIn("getInsetsIgnoringVisibility(WindowInsetsCompat.Type.displayCutout())", source)
         self.assertIn("getInsetsIgnoringVisibility(", source)
-        self.assertIn("LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS", source)
-        self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", source)
+        self.assertIn("LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS", SYSTEM_UI.read_text(encoding="utf-8"))
+        self.assertIn("systemUiController = SystemUiController(window)", source)
+        self.assertIn("ViewCompat.setOnApplyWindowInsetsListener(root)", source)
         exit_start = source.index("private fun restoreSystemUiBeforeExit")
         exit_end = source.index("private fun applyImmersiveAfterLayout", exit_start)
         exit_policy = source[exit_start:exit_end]
-        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", exit_policy)
+        self.assertIn("systemUiController.applyNormal()", exit_policy)
         immersive_start = source.index("private fun enterImmersiveMode")
         immersive_end = source.index("private fun restoreSystemUiBeforeExit", immersive_start)
         immersive = source[immersive_start:immersive_end]
@@ -63,6 +64,8 @@ class Prompt14DeviceCompatibilityContractTests(unittest.TestCase):
         manifest = MANIFEST.read_text(encoding="utf-8")
         self.assertNotIn("PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY", manifest)
         self.assertNotIn("windowOptOutEdgeToEdgeEnforcement", manifest)
+        workflow = INSTRUMENTED_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("pull_request:", workflow)
         player = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         self.assertIn("SCREEN_ORIENTATION_FULL_SENSOR", player)
         self.assertIn("requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR", player)
@@ -85,6 +88,12 @@ class Prompt14DeviceCompatibilityContractTests(unittest.TestCase):
         self.assertIn("34|35|36)", script)
         self.assertNotIn("api: [30, 36]", workflow)
         self.assertNotIn("30|36)", script)
+        self.assertIn("com.android.internal.systemui.navbar.gestural", script)
+        self.assertIn("com.android.internal.systemui.navbar.threebutton", script)
+        self.assertIn("settings put secure navigation_mode", script)
+        self.assertIn("font_scale", script)
+        self.assertIn("wm density", script)
+        self.assertIn("Prompt14ResponsiveInstrumentedTest", script)
 
     def test_predictive_back_uses_androidx_dispatcher_without_fake_gesture_implementation(self):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")

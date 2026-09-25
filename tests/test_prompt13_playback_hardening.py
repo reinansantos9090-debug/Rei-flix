@@ -80,7 +80,7 @@ class Prompt13PlaybackHardeningTests(unittest.TestCase):
         for token in (
             "horizontal_ignored",
             "PlayerGesturePolicy",
-            "WindowInsetsControllerCompat",
+            "systemUiController",
             "restoreSystemUiBeforeExit",
             "onBackPressedDispatcher",
             "onPictureInPictureModeChanged",

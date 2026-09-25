@@ -588,7 +588,6 @@ async def main(page: ft.Page):
         render_current()
 
     def apply_settings_runtime(key, _value):
-        library.configure_settings(settings)
         setting_key = str(key)
         if setting_key == "appearance.theme":
             # Theme changes invalidate only Python/Flet control trees. Navigation,
@@ -598,6 +597,7 @@ async def main(page: ft.Page):
             screen_cache.clear()
             render_current(force=True)
             return
+        library.configure_settings(settings)
         if setting_key.startswith(("appearance.", "library.")):
             screen_cache.pop("home", None)
             screen_cache.pop("organize", None)

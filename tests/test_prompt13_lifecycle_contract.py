@@ -168,6 +168,17 @@ class Prompt13LifecycleContractTests(unittest.TestCase):
         self.assertIn("if event_time <= last_seen", progress_block)
         self.assertIn("durable_time", progress_block)
 
+    def test_thumbnail_callbacks_are_media_version_guarded(self):
+        source = MAIN_PY.read_text(encoding="utf-8")
+        start = source.index("elif event_type == 'thumbnail_ready':")
+        end = source.index("elif event_type == 'player_opened':", start)
+        block = source[start:end]
+        self.assertIn("thumbnail_key = (uri, size, modified_at)", block)
+        self.assertIn("pending_same_uri = any(key[0] == uri for key in thumbnail_requests)", block)
+        self.assertIn("if pending_same_uri and thumbnail_key not in thumbnail_requests:", block)
+        self.assertIn("thumbnail_requests.discard(thumbnail_key)", block)
+        self.assertNotIn("for key in thumbnail_requests if key[0] == uri", block)
+
     def test_python_stale_screen_work_is_generation_guarded(self):
         home = HOME.read_text(encoding="utf-8")
         organize = ORGANIZE.read_text(encoding="utf-8")

@@ -647,7 +647,7 @@ class HomeView:
             try:
                 last_scan = await asyncio.to_thread(library.last_scan)
             except Exception:
-                logger.exception("Home local projection load failed", extra={"screen":"home","requestId":"-"})
+                logger.exception("Home local projections load failed", extra={"screen":"home","requestId":"-"})
                 status.controls = [
                     ft.Icon(ft.Icons.ERROR_OUTLINE, color=theme.error, size=18),
                     ft.Text("Não foi possível ler a biblioteca local agora.", color=theme.error, size=12),

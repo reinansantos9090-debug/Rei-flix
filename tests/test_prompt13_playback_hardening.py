@@ -78,7 +78,8 @@ class Prompt13PlaybackHardeningTests(unittest.TestCase):
     def test_prompt12_contract_remains_present(self):
         player = PLAYER.read_text(encoding="utf-8")
         for token in (
-            "horizontal_ignored",
+            "horizontal_seek",
+            "horizontalSeekDelta",
             "PlayerGesturePolicy",
             "systemUiController",
             "restoreSystemUiBeforeExit",

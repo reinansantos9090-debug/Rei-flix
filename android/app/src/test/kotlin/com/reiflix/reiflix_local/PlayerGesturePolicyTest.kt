@@ -5,13 +5,37 @@ import org.junit.Test
 
 class PlayerGesturePolicyTest {
     @Test
-    fun horizontalDominatesAndIsNotASeekGesture() {
+    fun horizontalDominatesAndProducesSeekDelta() {
         assertEquals(
             NativePlayerActivity.PlayerGesturePolicy.Direction.HORIZONTAL,
             NativePlayerActivity.PlayerGesturePolicy.direction(
                 dx = 240f,
                 dy = 20f,
                 touchSlop = 12f,
+            ),
+        )
+        assertEquals(
+            30_000L,
+            NativePlayerActivity.PlayerGesturePolicy.horizontalSeekDelta(
+                distancePx = 1000f,
+                viewportWidthPx = 1000,
+                durationMs = 120_000L,
+            ),
+        )
+        assertEquals(
+            -15_000L,
+            NativePlayerActivity.PlayerGesturePolicy.horizontalSeekDelta(
+                distancePx = -500f,
+                viewportWidthPx = 1000,
+                durationMs = 120_000L,
+            ),
+        )
+        assertEquals(
+            120_000L,
+            NativePlayerActivity.PlayerGesturePolicy.horizontalSeekDelta(
+                distancePx = 1000f,
+                viewportWidthPx = 1000,
+                durationMs = 3_600_000L,
             ),
         )
     }

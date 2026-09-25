@@ -239,7 +239,7 @@ class HomeView:
                 content=ft.Column([holder,
                     ft.Text(title, size=12, weight=ft.FontWeight.BOLD, color=TEXT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.Text(subtitle, size=10, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                    ft.ProgressBar(value=ratio(item), color=ACCENT, bgcolor="#3C3948", height=3, visible=consumption_state(item).value == "in_progress"),
+                    ft.ProgressBar(value=ratio(item), color=ACCENT, bgcolor=theme.surface_variant, height=3, visible=consumption_state(item).value == "in_progress"),
                 ], spacing=4),
             )
 
@@ -356,11 +356,11 @@ class HomeView:
             if anime.get("favorite"):
                 indicators.append(ft.Container(ft.Icon(ft.Icons.STAR, color=theme.favorite, size=15), top=5, right=5, bgcolor=theme.overlay, border_radius=12, padding=3))
             if current_state and current_state.value in {"completed", "watched"}:
-                indicators.append(ft.Container(ft.Icon(ft.Icons.CHECK, color=theme.text_on_overlay, size=14), bottom=5, right=5, bgcolor="#27845ACC", border_radius=12, padding=3))
+                indicators.append(ft.Container(ft.Icon(ft.Icons.CHECK, color=theme.text_on_overlay, size=14), bottom=5, right=5, bgcolor=theme.success + "CC", border_radius=12, padding=3))
             if anime.get("is_pinned"):
                 indicators.append(ft.Container(
                     ft.Icon(ft.Icons.PUSH_PIN, color=ACCENT, size=14),
-                    top=5, left=5, bgcolor="#181720CC", border_radius=12, padding=3,
+                    top=5, left=5, bgcolor=theme.overlay, border_radius=12, padding=3,
                 ))
             return ft.Container(
                 key=f"anime:{anime.get('id', '-')}",
@@ -369,7 +369,7 @@ class HomeView:
                     ft.Stack([artwork_holder(anime, card_width, card_height, source=cover), *indicators]),
                     ft.Text(anime.get("main_title", "Anime local"), size=12, weight=ft.FontWeight.BOLD, color=TEXT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.Text(status_value, size=10, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                    ft.ProgressBar(value=progress, color=ACCENT, bgcolor="#3C3948", height=3, visible=current_state is not None and current_state.value == "in_progress"),
+                    ft.ProgressBar(value=progress, color=ACCENT, bgcolor=theme.surface_variant, height=3, visible=current_state is not None and current_state.value == "in_progress"),
                 ], spacing=4),
             )
 
@@ -418,7 +418,7 @@ class HomeView:
                         ft.Column([
                             ft.Text(item.get("anime_title", "Anime local"), color=TEXT, size=12, weight=ft.FontWeight.BOLD, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                             ft.Text(label, color=TEXT_MUTED, size=10),
-                            ft.ProgressBar(value=progress, color=ACCENT, bgcolor="#454252", height=3, visible=bool(item.get("duration"))),
+                            ft.ProgressBar(value=progress, color=ACCENT, bgcolor=theme.surface_variant, height=3, visible=bool(item.get("duration"))),
                             ft.Row([
                                 ft.TextButton("Continuar", icon=ft.Icons.PLAY_ARROW, on_click=lambda _, entry=item: play_continuation(entry)),
                                 ft.TextButton(
@@ -601,7 +601,7 @@ class HomeView:
                 logger.exception('Home local projections load failed', extra={'screen':'home','requestId':'-'})
                 status.controls = [
                     ft.Icon(ft.Icons.ERROR_OUTLINE, color=theme.error, size=18),
-                    ft.Text('Não foi possível ler a biblioteca local agora.', color='#FFB4AB', size=12),
+                    ft.Text('Não foi possível ler a biblioteca local agora.', color=theme.error, size=12),
                     ft.TextButton('Tentar novamente', on_click=retry_load_catalog),
                 ]
                 status.visible = True

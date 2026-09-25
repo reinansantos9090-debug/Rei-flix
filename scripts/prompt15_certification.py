@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, hashlib, json, os, platform, re, shutil, subprocess, time, zipfile
+import argparse, hashlib, json, os, platform, re, shutil, subprocess, sys, time, zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -75,10 +75,11 @@ def run_command(area,test,command,*,cwd,timeout=1800):
     if exe is None:
         return Result(area,test,BLOCKED,"command unavailable: "+str(command[0]),command=" ".join(map(str,command)))
     try:
-        p=subprocess.run(list(command),cwd=cwd,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout,check=False)
+        p=subprocess.run(list(command),cwd=cwd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout,check=False)
     except subprocess.TimeoutExpired as e:
         out=str(e.stdout or "")
-        return Result(area,test,BLOCKED,"timeout after %ss\n%s"%(timeout,out[-8000:]),time.monotonic()-start," ".join(map(str,command)),None,out[-8000:])
+        err=str(e.stderr or "")
+        return Result(area,test,BLOCKED,"timeout after %ss\nstdout:\n%s\nstderr:\n%s"%(timeout,out[-6000:],err[-6000:]),time.monotonic()-start," ".join(map(str,command)),None,out[-6000:],err[-6000:])
     except OSError as e:
         return Result(area,test,BLOCKED,str(e),time.monotonic()-start," ".join(map(str,command)))
     out=p.stdout or ""; err=p.stderr or ""
@@ -220,7 +221,7 @@ def make_row(root,item,results,apk,collection):
     return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":command,"Execution status":"YES" if executed else "NO","Result":status,"Evidence":evidence,"Limitation":limit}
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/prompt15-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/prompt15-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/prompt15-201-matrix.json")); ap.add_argument("--gradle-root",type=Path); ap.add_argument("--apk",type=Path); ap.add_argument("--aapt2",type=Path); ap.add_argument("--skip-gradle",action="store_true"); a=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/prompt15-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/prompt15-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/prompt15-201-matrix.json")); ap.add_argument("--gradle-root",type=Path); ap.add_argument("--apk",type=Path); ap.add_argument("--aapt2",type=Path); ap.add_argument("--skip-gradle",action="store_true"); ap.add_argument("--prevalidated-compileall",action="store_true"); ap.add_argument("--prevalidated-gradle",action="store_true"); a=ap.parse_args()
     root=a.root.resolve(); a.output.parent.mkdir(parents=True,exist_ok=True); a.report.parent.mkdir(parents=True,exist_ok=True); a.matrix.parent.mkdir(parents=True,exist_ok=True)
     py=sys.executable; r={}
     r["compileall"]=Result("Python","compileall",PASS,"Exact `python -m compileall .` completed successfully in the preceding blocking workflow step.",command="python -m compileall .") if a.prevalidated_compileall else run_command("Python","compileall",[py,"-m","compileall","."],cwd=root,timeout=900)

@@ -60,7 +60,8 @@ class Prompt141SettingsContractTests(unittest.TestCase):
 
     def test_prompt14_player_contracts_stay_intact(self):
         player = self.read(PLAYER)
-        self.assertIn("horizontal_ignored", player)
+        self.assertIn("horizontal_seek", player)
+        self.assertIn("horizontalSeekDelta", player)
         self.assertIn("ExoPlayer.Builder(this).build()", player)
         self.assertIn("MediaItem.Builder()", player)
         self.assertIn("restoreSystemUiBeforeExit", player)

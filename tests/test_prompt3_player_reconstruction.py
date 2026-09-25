@@ -35,12 +35,13 @@ class Prompt3PlayerReconstructionTests(unittest.TestCase):
             "PLAYER_DOUBLE_TAP",
             "gestureConsumed",
             "pinchActive",
-            "horizontal_ignored",
+            "horizontal_seek",
+            "horizontalSeekDelta",
             "vertical_ignored_or_applied",
         ):
             self.assertIn(token, self.player)
-        self.assertNotIn("HORIZONTAL_SEEK", self.player)
-        self.assertNotIn("GestureMode.HORIZONTAL_SEEK", self.player)
+        self.assertIn("HORIZONTAL_SEEK", self.player)
+        self.assertIn("GestureMode.HORIZONTAL_SEEK", self.player)
 
     def test_double_tap_seek_is_enabled_by_default_and_uses_configured_delta(self):
         self.assertIn("private var doubleTapEnabled = true", self.player)

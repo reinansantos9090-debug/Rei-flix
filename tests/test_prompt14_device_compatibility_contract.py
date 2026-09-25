@@ -48,21 +48,23 @@ class Prompt14DeviceCompatibilityContractTests(unittest.TestCase):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         self.assertIn("getInsetsIgnoringVisibility(WindowInsetsCompat.Type.displayCutout())", source)
         self.assertIn("getInsetsIgnoringVisibility(", source)
-        self.assertIn("LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS", source)
-        self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", source)
+        self.assertIn("LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS", SYSTEM_UI.read_text(encoding="utf-8"))
+        self.assertIn("systemUiController = SystemUiController(window)", source)
+        self.assertIn("ViewCompat.setOnApplyWindowInsetsListener(root)", source)
         exit_start = source.index("private fun restoreSystemUiBeforeExit")
         exit_end = source.index("private fun applyImmersiveAfterLayout", exit_start)
         exit_policy = source[exit_start:exit_end]
-        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", exit_policy)
+        self.assertIn("systemUiController.applyNormal()", exit_policy)
         immersive_start = source.index("private fun enterImmersiveMode")
         immersive_end = source.index("private fun restoreSystemUiBeforeExit", immersive_start)
         immersive = source[immersive_start:immersive_end]
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", immersive)
+        self.assertIn("systemUiController.applyImmersive()", immersive)
 
     def test_android16_large_screen_does_not_introduce_an_opt_out_hack(self):
         manifest = MANIFEST.read_text(encoding="utf-8")
         self.assertNotIn("PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY", manifest)
         self.assertNotIn("windowOptOutEdgeToEdgeEnforcement", manifest)
+        workflow = INSTRUMENTED_WORKFLOW.read_text(encoding="utf-8")
         player = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         self.assertIn("SCREEN_ORIENTATION_FULL_SENSOR", player)
         self.assertIn("requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR", player)
@@ -78,13 +80,19 @@ class Prompt14DeviceCompatibilityContractTests(unittest.TestCase):
         self.assertIn("wrap=True", block)
         self.assertNotIn("width=470)", block)
 
-    def test_android14_15_16_instrumented_matrix_is_explicit(self):
+    def test_prompt14_2_certification_has_no_emulator_matrix(self):
         workflow = INSTRUMENTED_WORKFLOW.read_text(encoding="utf-8")
-        script = INSTRUMENTED_SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("api: [34, 35, 36]", workflow)
-        self.assertIn("34|35|36)", script)
-        self.assertNotIn("api: [30, 36]", workflow)
-        self.assertNotIn("30|36)", script)
+        self.assertIn("ReiFlix Prompt 14.2 No-Emulator Contract Checks", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("pytest -q", workflow)
+        self.assertIn("python -m unittest discover", workflow)
+        self.assertNotIn("pull_request:", workflow)
+        self.assertNotIn("push:", workflow)
+        self.assertNotIn("matrix:", workflow)
+        self.assertNotIn("reactivecircus/android-emulator-runner@v2", workflow)
+        self.assertNotIn("run_android_instrumented_diagnostic.sh", workflow)
+        self.assertNotIn("connectedDebugAndroidTest", workflow)
+        self.assertNotIn("connectedCheck", workflow)
 
     def test_predictive_back_uses_androidx_dispatcher_without_fake_gesture_implementation(self):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")
@@ -99,7 +107,7 @@ class Prompt14DeviceCompatibilityContractTests(unittest.TestCase):
         self.assertIn("WindowInsetsCompat.Type.mandatorySystemGestures()", player)
         self.assertIn("isSystemGestureEdge", player)
         self.assertIn("PlayerGesturePolicy.Direction.HORIZONTAL", player)
-        self.assertIn("type=horizontal_ignored", player)
+        self.assertIn("type=horizontal_seek", player)
         self.assertIn("ACTION_POINTER_DOWN", player)
         self.assertIn("ACTION_POINTER_UP", player)
         self.assertIn("ACTION_CANCEL", player)

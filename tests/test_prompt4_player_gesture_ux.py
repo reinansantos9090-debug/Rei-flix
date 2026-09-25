@@ -19,7 +19,7 @@ class Prompt4PlayerGestureUxTests(unittest.TestCase):
         self.assertIn("GestureMode.DOUBLE_TAP", self.player)
         self.assertIn("GestureMode.PINCH", self.player)
         self.assertIn("GestureMode.PAN", self.player)
-        self.assertIn("GestureMode.HORIZONTAL", self.player)
+        self.assertIn("GestureMode.HORIZONTAL_SEEK", self.player)
         self.assertIn("GestureMode.VERTICAL", self.player)
         self.assertNotIn("manualDoubleTap", self.player)
         self.assertNotIn("lastTapUpTime", self.player)
@@ -75,10 +75,10 @@ class Prompt4PlayerGestureUxTests(unittest.TestCase):
         self.assertNotIn("Gesto de volume desligado", self.player[self.player.index("private fun handleVerticalGesture"):self.player.index("private fun cancelGestureDetector")])
         self.assertNotIn("Gesto de brilho desligado", self.player[self.player.index("private fun handleVerticalGesture"):self.player.index("private fun cancelGestureDetector")])
 
-    def test_horizontal_swipe_remains_explicitly_non_seek(self):
-        self.assertIn("type=horizontal_ignored", self.player)
-        self.assertNotIn("HORIZONTAL_SEEK", self.player)
-        self.assertNotIn("GestureMode.HORIZONTAL_SEEK", self.player)
+    def test_horizontal_swipe_is_a_single_arbitrated_seek_gesture(self):
+        self.assertIn("type=horizontal_seek", self.player)
+        self.assertIn("HORIZONTAL_SEEK", self.player)
+        self.assertIn("GestureMode.HORIZONTAL_SEEK", self.player)
 
     def test_reusable_feedback_overlay_and_overlay_cancellation(self):
         self.assertEqual(1, self.player.count("private lateinit var feedback: TextView"))

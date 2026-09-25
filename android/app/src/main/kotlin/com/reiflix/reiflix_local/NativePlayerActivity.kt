@@ -43,7 +43,6 @@ import androidx.activity.ComponentActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.Format
 import androidx.media3.common.C
@@ -84,6 +83,7 @@ class NativePlayerActivity : ComponentActivity() {
     private lateinit var preparingIndicator: ProgressBar
     private lateinit var lockButton: TextView
     private lateinit var gesturePreferences: SharedPreferences
+    private lateinit var systemUiController: SystemUiController
 
     private var locked = false
     private var inPictureInPicture = false
@@ -238,8 +238,9 @@ class NativePlayerActivity : ComponentActivity() {
         )
 
         applyConfiguredRotation()
-        if (shouldUseImmersive()) enterImmersiveMode() else restoreSystemUiBeforeExit()
+        systemUiController = SystemUiController(window)
         configureWindow()
+        if (shouldUseImmersive()) enterImmersiveMode() else restoreSystemUiBeforeExit()
         savedInstanceState?.getFloat("window_brightness", WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
             ?.takeIf { it.isFinite() && it >= 0f && it <= 1f }
             ?.let { setWindowBrightness(it) }
@@ -261,6 +262,11 @@ class NativePlayerActivity : ComponentActivity() {
         }
         installBackHandler()
         configurePictureInPicture()
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            applyRootInsets(insets)
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
         ViewCompat.getRootWindowInsets(window.decorView)?.let { applyRootInsets(it) }
 
         val rawUri = intent.getStringExtra("uri")
@@ -873,19 +879,6 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun configureWindow() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = Color.TRANSPARENT
-        window.navigationBarColor = Color.TRANSPARENT
-        if (Build.VERSION.SDK_INT >= 29) {
-            window.isStatusBarContrastEnforced = false
-            window.isNavigationBarContrastEnforced = false
-        }
-        if (Build.VERSION.SDK_INT >= 30) {
-            window.attributes = window.attributes.apply {
-                layoutInDisplayCutoutMode =
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            }
-        }
     }
 
     private fun canEnterPictureInPicture(): Boolean {
@@ -963,6 +956,7 @@ class NativePlayerActivity : ComponentActivity() {
         controls.bringToFront()
 
         topBar = LinearLayout(this).apply {
+            tag = "reiflix_top_bar"
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(6), dp(8), dp(6))
@@ -1120,6 +1114,7 @@ class NativePlayerActivity : ComponentActivity() {
         centerControls.addView(nextButton, weightParams(70))
 
         bottomBar = LinearLayout(this).apply {
+            tag = "reiflix_bottom_bar"
             orientation = LinearLayout.VERTICAL
             setPadding(dp(8), dp(4), dp(8), dp(8))
             setBackgroundColor(0x88000000.toInt())
@@ -2094,34 +2089,18 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun enterImmersiveMode() {
-        // Android 15/16 enforce edge-to-edge for target 35+; fullscreen is
-        // therefore controlled by WindowInsetsControllerCompat hiding system bars.
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            hide(WindowInsetsCompat.Type.systemBars())
+        runCatching {
+            systemUiController.applyImmersive()
+            ViewCompat.requestApplyInsets(window.decorView)
+            logPlayer("PLAYER_IMMERSIVE applied requestId=" + requestId.ifEmpty { "-" })
+        }.onFailure { error ->
+            logPlayer("PLAYER_IMMERSIVE_POLICY_FAILED", error)
         }
-        ViewCompat.requestApplyInsets(window.decorView)
-        logPlayer("PLAYER_IMMERSIVE applied requestId=" + requestId.ifEmpty { "-" })
     }
 
     private fun restoreSystemUiBeforeExit() {
         runCatching {
-            // The normal app surface keeps edge-to-edge layout but exposes the
-            // platform bars. MainActivity applies the same policy on resume.
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            val controller = WindowInsetsControllerCompat(window, window.decorView)
-            val nightMode = resources.configuration.uiMode and
-                android.content.res.Configuration.UI_MODE_NIGHT_MASK
-            val darkTheme = nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
-            controller.apply {
-                isAppearanceLightStatusBars = !darkTheme
-                isAppearanceLightNavigationBars = !darkTheme
-                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                show(WindowInsetsCompat.Type.systemBars())
-            }
+            systemUiController.applyNormal()
             ViewCompat.requestApplyInsets(window.decorView)
             logPlayer("PLAYER_SYSTEM_UI_RESTORED requestId=" + requestId.ifEmpty { "-" })
         }.onFailure { error ->
@@ -2322,7 +2301,7 @@ class NativePlayerActivity : ComponentActivity() {
         DOUBLE_TAP,
         PINCH,
         PAN,
-        HORIZONTAL,
+        HORIZONTAL_SEEK,
         VERTICAL,
     }
 
@@ -2462,6 +2441,7 @@ class NativePlayerActivity : ComponentActivity() {
         private var systemGestureEdge = false
         private var pinchActive = false
         private var lastVerticalY: Float? = null
+        private var horizontalSeekStartPosition: Long? = null
         private var lastPanX: Float? = null
         private var lastPanY: Float? = null
         private var zoomScale = 1f
@@ -2567,6 +2547,16 @@ class NativePlayerActivity : ComponentActivity() {
                         return true
                     }
 
+                    if (gestureMode == GestureMode.HORIZONTAL_SEEK) {
+                        val previewDeltaMs = PlayerGesturePolicy.horizontalSeekDelta(
+                            distancePx = dx,
+                            viewportWidthPx = width,
+                            durationMs = player.duration,
+                        )
+                        showFeedback(formatSeekDelta(previewDeltaMs), 350L)
+                        return true
+                    }
+
                     when (PlayerGesturePolicy.direction(dx, dy, touchSlop)) {
                         PlayerGesturePolicy.Direction.VERTICAL -> {
                             if (gestureMode == GestureMode.IDLE) {
@@ -2593,11 +2583,12 @@ class NativePlayerActivity : ComponentActivity() {
                         PlayerGesturePolicy.Direction.HORIZONTAL -> {
                             if (gestureMode == GestureMode.IDLE) {
                                 gestureConsumed = true
-                                gestureMode = GestureMode.HORIZONTAL
+                                gestureMode = GestureMode.HORIZONTAL_SEEK
                                 cancelGestureDetector(event)
                                 restoreLongPressSpeed()
+                                horizontalSeekStartPosition = player.currentPosition.coerceAtLeast(0L)
                                 logPlayer(
-                                    "GESTURE_START type=horizontal_ignored requestId=" +
+                                    "GESTURE_START type=horizontal_seek requestId=" +
                                         requestId.ifEmpty { "-" },
                                 )
                             }
@@ -2619,10 +2610,27 @@ class NativePlayerActivity : ComponentActivity() {
                             return true
                         }
 
-                        GestureMode.HORIZONTAL -> {
+                        GestureMode.HORIZONTAL_SEEK -> {
+                            val startPosition = horizontalSeekStartPosition ?: player.currentPosition
+                            val deltaMs = PlayerGesturePolicy.horizontalSeekDelta(
+                                distancePx = event.x - downX,
+                                viewportWidthPx = width,
+                                durationMs = player.duration,
+                            )
+                            val target = PlayerGesturePolicy.seekTarget(
+                                currentPositionMs = startPosition,
+                                deltaMs = deltaMs,
+                                durationMs = player.duration,
+                            )
+                            if (player.duration > 0L && target != player.currentPosition) {
+                                player.seekTo(target)
+                                saveProgress("player_progress", force = true)
+                                showFeedback(formatSeekDelta(target - startPosition))
+                            }
                             logPlayer(
-                                "GESTURE_END type=horizontal_ignored requestId=" +
-                                    requestId.ifEmpty { "-" },
+                                "GESTURE_END type=horizontal_seek deltaMs=" +
+                                    deltaMs + " targetMs=" + target +
+                                    " requestId=" + requestId.ifEmpty { "-" },
                             )
                             touchControls()
                             resetTransientState()
@@ -2673,6 +2681,13 @@ class NativePlayerActivity : ComponentActivity() {
                 x > width - gestureSafeRight ||
                 y < gestureSafeTop ||
                 y > height - gestureSafeBottom
+
+        private fun formatSeekDelta(deltaMs: Long): String {
+            val seconds = kotlin.math.abs(deltaMs) / 1000L
+            if (seconds == 0L) return "0s"
+            val sign = if (deltaMs >= 0L) "+" else "−"
+            return sign + seconds + "s"
+        }
 
         private fun handleVerticalGestureDelta(startX: Float, deltaY: Float) {
             if (height <= 0) return
@@ -2756,6 +2771,7 @@ class NativePlayerActivity : ComponentActivity() {
             gestureConsumed = true
             gestureMode = GestureMode.IDLE
             lastVerticalY = null
+            horizontalSeekStartPosition = null
             systemGestureEdge = false
             restoreLongPressSpeed()
             cancelGestureDetector()
@@ -3059,6 +3075,18 @@ class NativePlayerActivity : ComponentActivity() {
             } else {
                 (currentPositionMs + deltaMs).coerceIn(0L, durationMs)
             }
+
+        fun horizontalSeekDelta(
+            distancePx: Float,
+            viewportWidthPx: Int,
+            durationMs: Long,
+            maxPerGestureMs: Long = 120_000L,
+        ): Long {
+            if (viewportWidthPx <= 0 || durationMs <= 0L || maxPerGestureMs <= 0L) return 0L
+            val normalizedDistance = (distancePx / viewportWidthPx.toFloat()).coerceIn(-1f, 1f)
+            val seekWindow = minOf(durationMs / 4L, maxPerGestureMs).coerceAtLeast(1L)
+            return (normalizedDistance * seekWindow.toFloat()).toLong()
+        }
 
         fun verticalDeltaFraction(deltaY: Float, viewportHeight: Int): Float =
             if (viewportHeight <= 0) {

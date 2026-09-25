@@ -127,20 +127,21 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertNotIn("gh run cancel", workflow)
         self.assertNotIn("|| true", workflow)
 
-    def test_workflow_android_instrumented_tests_are_manual_and_separate(self):
+    def test_android_certification_is_manual_without_emulators(self):
         workflow = (ROOT / ".github/workflows/android_instrumented.yml").read_text(encoding="utf-8")
+        self.assertIn("ReiFlix Prompt 14.2 No-Emulator Contract Checks", workflow)
         self.assertIn("workflow_dispatch:", workflow)
-        self.assertNotIn("push:", workflow)
+        self.assertIn("pytest -q", workflow)
+        self.assertIn("python -m unittest discover", workflow)
         self.assertNotIn("pull_request:", workflow)
-        self.assertIn("matrix:", workflow)
-        self.assertIn("api: [34, 35, 36]", workflow)
-        self.assertIn("reactivecircus/android-emulator-runner@v2", workflow)
-        self.assertIn('REIFLIX_ANDROID_API_LEVEL: "${{ matrix.api }}"', workflow)
-        self.assertIn("run_android_instrumented_diagnostic.sh", workflow)
-        self.assertIn("android${{ matrix.api }}-instrumentation-diagnostics", workflow)
-        self.assertIn("flet build apk", workflow)
-        self.assertNotIn("continue-on-error: true", workflow)
-        self.assertNotIn("|| true", workflow)
+        self.assertNotIn("push:", workflow)
+        self.assertNotIn("matrix:", workflow)
+        self.assertNotIn("reactivecircus/android-emulator-runner@v2", workflow)
+        self.assertNotIn("run_android_instrumented_diagnostic.sh", workflow)
+        self.assertNotIn("connectedDebugAndroidTest", workflow)
+        self.assertNotIn("connectedCheck", workflow)
+        self.assertNotIn("flet build apk", workflow)
+        self.assertNotIn("testDebugUnitTest", workflow)
 
     def test_android_build_declares_runtime_python_dependencies(self):
         project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
@@ -153,10 +154,13 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertNotIn('"$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"', workflow)
         self.assertNotIn("./scripts/run_android_instrumented_diagnostic.sh", workflow)
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")
-    def test_android_instrumented_diagnostic_is_api_scoped_and_device_diagnostic_rich(self):
+    def test_android_instrumented_diagnostic_remains_manual_device_only(self):
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")
         self.assertIn("REIFLIX_ANDROID_API_LEVEL:-", source)
-        self.assertIn("build/android${API_LEVEL}-diagnostics", source)
+        self.assertIn("build/android${API_LEVEL}-certification", source)
+        self.assertIn("com.android.internal.systemui.navbar.gestural", source)
+        self.assertIn("com.android.internal.systemui.navbar.threebutton", source)
+        self.assertIn("settings put secure navigation_mode", source)
         self.assertIn("34|35|36)", source)
         for token in (
             "adb devices -l",
@@ -520,9 +524,12 @@ E: manifest
         self.assertIn("setDecorFitsSystemWindows(window, false)", controller)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", player)
-        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", player)
-        self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", player)
+        self.assertIn("systemUiController = SystemUiController(window)", player)
+        self.assertIn("systemUiController.applyImmersive()", player)
+        self.assertIn("systemUiController.applyNormal()", player)
+        self.assertIn("ViewCompat.setOnApplyWindowInsetsListener(root)", player)
+        self.assertNotIn("WindowInsetsControllerCompat(window, window.decorView)", player)
+        self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", controller)
 
     def test_player_exit_is_not_suppressed_after_normal_completion(self):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")

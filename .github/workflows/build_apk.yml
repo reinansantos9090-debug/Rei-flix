@@ -149,7 +149,7 @@ jobs:
               "tests.test_broad_storage.TestBroadStorageArchitecture.test_player_pip_has_manifest_and_device_feature_fallback",
               "tests.test_prompt13_playback_hardening",
               "tests.test_prompt13_lifecycle_contract",
-              "tests.test_prompt1_regression_baseline.Prompt1RegressionBaselineTests.test_player_contracts_and_horizontal_seek_are_removed",
+              "tests.test_prompt1_regression_baseline.Prompt1RegressionBaselineTests.test_player_contracts_and_horizontal_seek_are_present",
           ]
 
           suite = unittest.TestSuite(

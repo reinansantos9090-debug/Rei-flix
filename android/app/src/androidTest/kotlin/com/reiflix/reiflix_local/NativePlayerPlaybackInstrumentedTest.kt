@@ -2,6 +2,7 @@ package com.reiflix.reiflix_local
 
 import android.content.ContentValues
 import android.graphics.Matrix
+import android.app.PictureInPictureParams
 import android.content.Intent
 import android.os.Build
 import android.os.Handler
@@ -59,6 +60,51 @@ class NativePlayerPlaybackInstrumentedTest {
     }
 
     @Test
+    fun pictureInPicture_entersAndReturnsToMainActivityWithImmersivePolicy() {
+        launchMainActivityForPlayer()
+        val uri = insertFixtureIntoMediaStore()
+        fixtureUri = uri
+        val intent = Intent(target, NativePlayerActivity::class.java)
+            .putExtra("requestId", "instrumented-player-pip")
+            .putExtra("uri", uri.toString())
+            .putExtra("title", "Fixture local PiP")
+            .putExtra("positionMs", 0L)
+            .putExtra("autoplay", false)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        activity = InstrumentationRegistry.getInstrumentation().startActivitySync(intent) as NativePlayerActivity
+        val player = awaitView<PlayerView>("reiflix_player_view").let { view ->
+            onMain { requireNotNull(view.player) }
+        }
+        await("PiP player must reach READY") { player.playbackState == Player.STATE_READY }
+        val pipSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            target.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
+        assertTrue("CI emulator must expose Picture-in-Picture when the app advertises the optional feature", pipSupported)
+        assertTrue(
+            "Player must successfully enter Picture-in-Picture",
+            onMain {
+                activity!!.enterPictureInPictureMode(PictureInPictureParams.Builder().build())
+            },
+        )
+        await("Player must actually enter Picture-in-Picture") {
+            activity!!.isInPictureInPictureMode
+        }
+        val controls = awaitView<View>("reiflix_controls_root")
+        assertFalse("Player controls must be hidden while in PiP", onMain { controls.isShown })
+
+        val mainIntent = Intent(target, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        target.startActivity(mainIntent)
+        waitForReiFlixMainActivityForeground()
+        await("Bringing Rei-Flix to foreground must exit the player from PiP") {
+            !activity!!.isInPictureInPictureMode
+        }
+        assertTrue("Native Player Activity must remain alive after PiP exit", !activity!!.isDestroyed)
+        await("PiP exit must re-apply the configured immersive policy") {
+            val insets = androidx.core.view.ViewCompat.getRootWindowInsets(activity!!.window.decorView)
+            insets != null && !insets.isVisible(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
     fun localMediaStoreFixture_reachesReadyAndPlays_inImmersivePlayer() {
         logStage("MEDIASTORE_FIXTURE_START")
         // Launch the player from a real Rei-Flix task so Back is tested as it
@@ -167,6 +213,31 @@ class NativePlayerPlaybackInstrumentedTest {
         await("Native player should keep system bars hidden") {
             val insets = androidx.core.view.ViewCompat.getRootWindowInsets(activity!!.window.decorView)
             insets != null && !insets.isVisible(WindowInsetsCompat.Type.systemBars())
+        }
+
+        assertPlayerInsetsRespectSystemAndGestureSafeAreas()
+
+        val rotationDevice = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val positionBeforeRotation = onMain { player.currentPosition }
+        rotationDevice.setOrientationLeft()
+        await("Player Activity must survive portrait to landscape recreation") {
+            activity!!.resources.configuration.orientation ==
+                android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        }
+        await("Playback position must survive landscape recreation") {
+            onMain { player.currentPosition >= (positionBeforeRotation - 1_000L).coerceAtLeast(0L) }
+        }
+        await("Player must remain immersive after entering landscape") {
+            val insets = androidx.core.view.ViewCompat.getRootWindowInsets(activity!!.window.decorView)
+            insets != null && !insets.isVisible(WindowInsetsCompat.Type.systemBars())
+        }
+        rotationDevice.setOrientationNatural()
+        await("Player Activity must return to portrait") {
+            activity!!.resources.configuration.orientation ==
+                android.content.res.Configuration.ORIENTATION_PORTRAIT
+        }
+        await("Playback position must survive return to portrait") {
+            onMain { player.currentPosition >= (positionBeforeRotation - 1_000L).coerceAtLeast(0L) }
         }
         assertTrue(
             "Player must remain sensor-orientation capable",
@@ -354,6 +425,40 @@ class NativePlayerPlaybackInstrumentedTest {
         waitForReiFlixMainActivityForeground()
 
     }
+
+    private fun assertPlayerInsetsRespectSystemAndGestureSafeAreas() {
+        val root = activity!!.window.decorView
+        val insets = requireNotNull(androidx.core.view.ViewCompat.getRootWindowInsets(root)) {
+            "Player root window insets must be available"
+        }
+        val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
+        val cutout = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.displayCutout())
+        val gestures = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.mandatorySystemGestures())
+        val safeLeft = maxOf(bars.left, cutout.left, gestures.left)
+        val safeTop = maxOf(bars.top, cutout.top, gestures.top)
+        val safeRight = maxOf(bars.right, cutout.right, gestures.right)
+        val safeBottom = maxOf(bars.bottom, cutout.bottom, gestures.bottom)
+        val topBar = awaitView<View>("reiflix_top_bar")
+        val bottomBar = awaitView<View>("reiflix_bottom_bar")
+        assertTrue("Top player controls must stay outside system/cutout gesture inset", topBar.top >= safeTop)
+        assertTrue("Bottom player controls must stay outside system/gesture inset", root.height - bottomBar.bottom >= safeBottom)
+        assertTrue("Player control container must reserve left safe inset", controlsReservedLeftInset(safeLeft))
+        assertTrue("Player control container must reserve right safe inset", controlsReservedRightInset(safeRight))
+    }
+
+    private fun controlsReservedLeftInset(safeLeft: Int): Boolean =
+        onMain {
+            val controls = requireNotNull(activity!!.findViewById<View>(android.R.id.content)
+                .findViewWithTag<View>("reiflix_controls_root"))
+            controls.paddingLeft >= safeLeft
+        }
+
+    private fun controlsReservedRightInset(safeRight: Int): Boolean =
+        onMain {
+            val controls = requireNotNull(activity!!.findViewById<View>(android.R.id.content)
+                .findViewWithTag<View>("reiflix_controls_root"))
+            controls.paddingRight >= safeRight
+        }
 
     private fun launchMainActivityForPlayer() {
         val intent = Intent(target, MainActivity::class.java)

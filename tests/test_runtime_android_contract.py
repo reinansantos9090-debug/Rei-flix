@@ -76,7 +76,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             self.assertIn(token, source)
         self.assertIn("WindowInsetsCompat.Type.systemBars()", source)
         self.assertIn("WindowInsetsCompat.Type.displayCutout()", source)
-        self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", source)
+        self.assertIn("systemUiController.applyImmersive()", source)
         self.assertIn("playerView.player = player", source)
         self.assertIn("playerView.player === player", source)
         self.assertIn("PLAYER_VIEW_ATTACHED", source)
@@ -120,7 +120,9 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "PLAYER_LONG_PRESS",
             "GESTURE_START",
             "GESTURE_END",
-            "horizontal_ignored",
+            "horizontal_seek",
+            "horizontalSeekDelta",
+            "GestureMode.HORIZONTAL_SEEK",
             "VERTICAL",
             "adjustBrightness",
             "adjustVolumeByFraction",
@@ -136,12 +138,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             'arrayOf("Ajustar", "Preencher", "Zoom")',
         ):
             self.assertIn(token, source)
-        for token in (
-            "HORIZONTAL_SEEK",
-            "GestureMode.HORIZONTAL_SEEK",
-            "calculateCloudStreamSeekTarget",
-        ):
-            self.assertNotIn(token, source)
+        self.assertNotIn("calculateCloudStreamSeekTarget", source)
 
     def test_prompt12_generation_back_immersive_and_error_contracts(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
@@ -157,8 +154,8 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "errorPublishedForGeneration",
             "player_exited",
             "restoreSystemUiBeforeExit",
-            "WindowCompat.setDecorFitsSystemWindows(window, false)",
-            "hide(WindowInsetsCompat.Type.systemBars())",
+            "systemUiController",
+            "systemUiController.applyImmersive()",
             "getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())",
             "mandatorySystemGestures()",
             "setAudioAttributes",

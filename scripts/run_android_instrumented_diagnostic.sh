@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Prompt 14.2: manual/physical-device diagnostic only; the no-emulator
+# certification workflow does not invoke this script or launch AVDs.
 set -Eeuo pipefail
 
 WORKSPACE="${GITHUB_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -11,7 +13,8 @@ case "${API_LEVEL}" in
         exit 2
         ;;
 esac
-DIAG_ROOT="${WORKSPACE}/build/android${API_LEVEL}-diagnostics"
+CERT_ROOT="${WORKSPACE}/build/android${API_LEVEL}-certification"
+DIAG_ROOT="${CERT_ROOT}/gestural"
 CLASS_TIMEOUT_SECONDS="${REIFLIX_ANDROID_CLASS_TIMEOUT_SECONDS:-120}"
 METHOD_TIMEOUT_SECONDS="${REIFLIX_ANDROID_METHOD_TIMEOUT_SECONDS:-90}"
 FULL_TIMEOUT_SECONDS="${REIFLIX_ANDROID_FULL_TIMEOUT_SECONDS:-300}"
@@ -142,6 +145,55 @@ reset_device_state() {
 }
 
 
+configure_navigation_mode() {
+    local mode="$1"
+    local expected_value
+    local expected_overlay
+    case "$mode" in
+        gestural)
+            expected_value="2"
+            expected_overlay="com.android.internal.systemui.navbar.gestural"
+            ;;
+        three_button)
+            expected_value="0"
+            expected_overlay="com.android.internal.systemui.navbar.threebutton"
+            ;;
+        *)
+            echo "Unknown navigation mode: $mode" >&2
+            return 2
+            ;;
+    esac
+
+    adb shell cmd overlay disable com.android.internal.systemui.navbar.threebutton >/dev/null 2>&1 || true
+    adb shell cmd overlay disable com.android.internal.systemui.navbar.gestural >/dev/null 2>&1 || true
+    adb shell cmd overlay disable com.android.internal.systemui.navbar.twobutton >/dev/null 2>&1 || true
+    adb shell cmd overlay enable "$expected_overlay" >/dev/null 2>&1 || {
+        echo "Unable to enable navigation overlay: $expected_overlay" >&2
+        return 1
+    }
+    adb shell settings put secure navigation_mode "$expected_value" || {
+        echo "Unable to set navigation_mode=$expected_value" >&2
+        return 1
+    }
+    sleep 2
+    local state_dir="${DIAG_ROOT}/navigation"
+    mkdir -p "$state_dir"
+    capture "${state_dir}/overlay_list.txt" adb shell cmd overlay list
+    capture "${state_dir}/navigation_mode.txt" adb shell settings get secure navigation_mode
+    local actual
+    actual="$(tr -d "\r\n " < "${state_dir}/navigation_mode.txt")"
+    printf "requested_mode=%s\nexpected_navigation_mode=%s\nactual_navigation_mode=%s\nexpected_overlay=%s\n" "$mode" "$expected_value" "$actual" "$expected_overlay" > "${state_dir}/mode_validation.txt"
+    if [[ "$actual" != "$expected_value" ]]; then
+        echo "Navigation mode did not apply: requested=$mode expected=$expected_value actual=$actual" >&2
+        return 1
+    fi
+    if ! grep -Fq "[x] ${expected_overlay}" "${state_dir}/overlay_list.txt"; then
+        echo "Expected navigation overlay is not enabled: $expected_overlay" >&2
+        return 1
+    fi
+    return 0
+}
+
 run_diagnostic_case() {
     local selector="$1"
     local label="$2"
@@ -238,6 +290,7 @@ extract_failed_classes_from_log() {
     done
 }
 
+run_navigation_suite() {
 GRADLE_INVOCATIONS=1
 FULL_LOG="$DIAG_ROOT/full-suite.log"
 FULL_STATUS=0
@@ -257,7 +310,7 @@ printf 'CONNECTED_DEBUG_ANDROID_TEST_INVOCATIONS=%s\n' "$GRADLE_INVOCATIONS" | t
 if (( FULL_STATUS == 0 )); then
     printf 'NORMAL_SUITE_PASS=1\n' | tee -a "$DIAG_ROOT/summary.txt"
     printf 'DIAGNOSTIC_NOT_REQUIRED=1\n' | tee -a "$DIAG_ROOT/summary.txt"
-    exit 0
+    return 0
 fi
 
 printf 'NORMAL_SUITE_FAIL=1\n' | tee -a "$DIAG_ROOT/summary.txt"
@@ -296,4 +349,26 @@ printf 'CONNECTED_DEBUG_ANDROID_TEST_INVOCATIONS=%s\n' "$GRADLE_INVOCATIONS" | t
 printf 'DIAGNOSTIC_COMPLETE=1\n' | tee -a "$DIAG_ROOT/summary.txt"
 printf 'DIAGNOSTIC_PRESERVED_FAILURE_EXIT=%s\n' "$FULL_STATUS" | tee -a "$DIAG_ROOT/summary.txt"
 
-exit "$FULL_STATUS"
+
+}
+
+OVERALL_STATUS=0
+mkdir -p "$CERT_ROOT"
+printf "api=%s\n" "$API_LEVEL" > "$CERT_ROOT/matrix-summary.txt"
+for NAVIGATION_MODE in gestural three_button; do
+    DIAG_ROOT="${CERT_ROOT}/${NAVIGATION_MODE}"
+    mkdir -p "$DIAG_ROOT"
+    printf "===== Android %s navigation=%s =====\n" "$API_LEVEL" "$NAVIGATION_MODE" | tee -a "$CERT_ROOT/matrix-summary.txt"
+    if ! configure_navigation_mode "$NAVIGATION_MODE"; then
+        echo "NAVIGATION_MODE_CONFIG_FAILED=$NAVIGATION_MODE" | tee -a "$CERT_ROOT/matrix-summary.txt"
+        OVERALL_STATUS=1
+        continue
+    fi
+    if ! run_navigation_suite; then
+        echo "NORMAL_SUITE_FAILED navigation=$NAVIGATION_MODE" | tee -a "$CERT_ROOT/matrix-summary.txt"
+        OVERALL_STATUS=1
+    fi
+done
+
+printf "OVERALL_STATUS=%s\n" "$OVERALL_STATUS" | tee -a "$CERT_ROOT/matrix-summary.txt"
+exit "$OVERALL_STATUS"

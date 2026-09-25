@@ -1,233 +1,31 @@
-name: ReiFlix Android Instrumented Tests
+name: ReiFlix Prompt 14.2 No-Emulator Contract Checks
 
 on:
   workflow_dispatch:
 
-concurrency:
-  group: reiflix-android-instrumented
-  cancel-in-progress: true
-
 jobs:
-  instrumented:
-    name: Android instrumented API ${{ matrix.api }}
-    timeout-minutes: 30
+  python-contracts:
+    name: Python contracts (no emulator)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        api: [34, 35, 36]
-
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools build-tools;36.0.0 platforms;android-36 cmdline-tools;latest'
-
-      - name: Accept Android SDK Licenses
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-
-      - name: Install Android platform
-        run: sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: "3.44.8"
-          channel: stable
-          cache: true
-
-      - name: Install Python and Flet build dependencies
+      - name: Install Python test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt "flet[cli]==0.86.5"
-          flet --version
-          flutter --version
-
-      - name: Validate JSON configuration
-        shell: bash
-        run: |
-          while IFS= read -r -d '' file; do
-            if grep -q "{{cookiecutter." "$file" || grep -q "{%" "$file"; then
-              echo "Unrendered Jinja JSON template (skipped): $file"
-              continue
-            fi
-            python -m json.tool "$file" >/dev/null
-            echo "Valid JSON: $file"
-          done < <(find . -path './.git' -prune -o -path './build' -prune -o -type f -name '*.json' -print0)
-
-      - name: Generate deterministic local player fixture
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          python scripts/create_player_fixture.py --output build/player_fixture.mp4
-          test -s build/player_fixture.mp4
-
-      - name: Prepare Flet build template with Android host
-        run: |
-          mkdir -p build
-          curl -sSL -o build/flet-build-template.zip https://github.com/flet-dev/flet/releases/download/v0.86.5/flet-build-template.zip
-          mkdir -p build/temp_tmpl
-          unzip -q build/flet-build-template.zip -d build/temp_tmpl
-          mkdir -p build/flet-build-template
-          cp -a build/temp_tmpl/build/. build/flet-build-template/
-          rm -rf build/temp_tmpl build/flet-build-template.zip
-          python scripts/prepare_flet_template.py \
-            --template "$GITHUB_WORKSPACE/build/flet-build-template" \
-            --overlay "$GITHUB_WORKSPACE/android"
-
-      - name: Install generated player fixture into rendered Android test assets
-        run: |
-          test -s build/player_fixture.mp4
-          mkdir -p build/flutter/android/app/src/androidTest/assets
-          cp build/player_fixture.mp4 build/flutter/android/app/src/androidTest/assets/player_fixture.mp4
-          test -s build/flutter/android/app/src/androidTest/assets/player_fixture.mp4
-
-      - name: Fix generated JSON files
-        shell: bash
-        run: |
-          python - <<'PY'
-          import glob
-          import json
-
-          def strip_trailing_commas(raw):
-              out = []
-              in_string = False
-              escaped = False
-              i = 0
-              while i < len(raw):
-                  char = raw[i]
-                  if in_string:
-                      out.append(char)
-                      if escaped:
-                          escaped = False
-                      elif char == chr(92):
-                          escaped = True
-                      elif char == chr(34):
-                          in_string = False
-                      i += 1
-                      continue
-                  if char == chr(34):
-                      in_string = True
-                      out.append(char)
-                      i += 1
-                      continue
-                  if char == chr(44):
-                      j = i + 1
-                      while j < len(raw) and raw[j] in " \t\r\n":
-                          j += 1
-                      if j < len(raw) and raw[j] in "}]":
-                          i = j
-                          continue
-                  out.append(char)
-                  i += 1
-              return "".join(out)
-
-          for path in glob.glob("build/flet-build-template/**/*.json", recursive=True):
-              with open(path, "r", encoding="utf-8") as handle:
-                  raw = handle.read()
-              if "{{cookiecutter." in raw or "{%" in raw:
-                  print(f"Unrendered Jinja JSON template (skipped): {path}")
-                  continue
-              cleaned = strip_trailing_commas(raw)
-              try:
-                  data = json.loads(cleaned)
-              except json.JSONDecodeError as exc:
-                  raise SystemExit(f"Invalid generated JSON {path}: {exc}") from exc
-              with open(path, "w", encoding="utf-8") as handle:
-                  json.dump(data, handle, indent=2)
-          PY
-
-      - name: Build rendered Android project
-        shell: bash
-        run: |
-          # Do not let the checkout metadata enter the packaged Python app.
-          # The checkout can carry an ephemeral Authorization header in
-          # .git/config, which must never be shipped inside an APK.
-          git_backup_root="$(mktemp -d)"
-          git_backup="$git_backup_root/.git"
-          mv .git "$git_backup"
-          restore_git() {
-            if [ -d "$git_backup" ] && [ ! -e .git ]; then
-              mv "$git_backup" .git
-            fi
-            if [ -d "$git_backup_root" ]; then
-              rmdir "$git_backup_root"
-            fi
-          }
-          trap restore_git EXIT
-
-          flet build apk \
-            --template build/flet-build-template \
-            --build-number "$GITHUB_RUN_NUMBER" \
-            --build-version "0.2.1" \
-            --yes -v
-
-      - name: Verify rendered app has no Git metadata
-        shell: bash
-        run: |
-          apk="$(find build -type f -name '*.apk' -print -quit)"
-          test -s "$apk"
-          python - "$apk" <<'PY'
-          import sys
-          from io import BytesIO
-          from zipfile import ZipFile
-
-          with ZipFile(sys.argv[1]) as apk:
-              app_zip = apk.read("assets/app.zip")
-          with ZipFile(BytesIO(app_zip)) as app:
-              leaked = [name for name in app.namelist() if name == ".git" or name.startswith(".git/")]
-          if leaked:
-              raise SystemExit("Git metadata leaked into rendered app")
-          print("Rendered app contains no .git metadata.")
-          PY
-      - name: Enable KVM for Android instrumented tests
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - name: Run Android instrumented diagnostics
-        uses: reactivecircus/android-emulator-runner@v2
-        env:
-          SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/flutter/site-packages
-          REIFLIX_ANDROID_API_LEVEL: "${{ matrix.api }}"
-        with:
-          api-level: ${{ matrix.api }}
-          arch: x86_64
-          profile: pixel_7
-          force-avd-creation: true
-          emulator-port: 5554
-          emulator-boot-timeout: 300
-          disable-animations: true
-          disable-linux-hw-accel: false
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          working-directory: build/flutter/android
-          script: |
-            mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
-            chmod +x "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
-            "$GITHUB_WORKSPACE/scripts/run_android_instrumented_diagnostic.sh"
-
-      - name: Upload instrumented diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android${{ matrix.api }}-instrumentation-diagnostics
-          path: build/android${{ matrix.api }}-diagnostics
-          if-no-files-found: ignore
+          python -m pip install -r requirements.txt "flet[cli]==0.86.5" pytest
+      - name: Compile Python sources
+        run: python -m compileall .
+      - name: Run pytest
+        run: pytest -q
+      - name: Run unittest discovery
+        run: python -m unittest discover -s tests -p 'test*.py' -t .
+      - name: Check diff whitespace
+        run: git diff --check

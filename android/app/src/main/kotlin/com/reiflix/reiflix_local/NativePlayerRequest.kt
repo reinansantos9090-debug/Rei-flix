@@ -77,36 +77,43 @@ data class NativePlayerRequest(
 
     companion object {
         fun fromBridgeUri(source: Uri): NativePlayerRequest =
+            fromQueryParameters(source::getQueryParameter)
+
+        /**
+         * Pure parser used by JVM tests and by the Android URI adapter.
+         * Keeping parsing independent of Uri makes the boundary deterministic.
+         */
+        fun fromQueryParameters(get: (String) -> String?): NativePlayerRequest =
             NativePlayerRequest(
-                requestId = source.getQueryParameter("request_id").orEmpty().trim(),
-                episodeUri = source.getQueryParameter("uri").orEmpty().trim(),
-                episodeId = source.getQueryParameter("episode_id").orEmpty(),
-                title = source.getQueryParameter("title") ?: "Episódio",
-                positionMs = source.getQueryParameter("position_ms")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
-                canNext = source.getQueryParameter("can_next")?.toBooleanStrictOrNull() ?: false,
-                canPrevious = source.getQueryParameter("can_previous")?.toBooleanStrictOrNull() ?: false,
-                autoplay = source.getQueryParameter("autoplay")?.toBooleanStrictOrNull() ?: true,
-                defaultSpeed = source.getQueryParameter("setting_player_default_speed")?.toFloatOrNull() ?: 1f,
-                aspectRatio = source.getQueryParameter("setting_player_aspect_ratio") ?: "fit",
-                immersive = source.getQueryParameter("setting_player_immersive") ?: "always",
-                rotation = source.getQueryParameter("setting_player_rotation") ?: "auto",
-                pip = source.getQueryParameter("setting_player_pip")?.toBooleanStrictOrNull() ?: true,
-                autoHideSeconds = source.getQueryParameter("setting_player_auto_hide_seconds")?.toIntOrNull() ?: 5,
-                doubleTapSeekSeconds = source.getQueryParameter("setting_player_double_tap_seek_seconds")?.toLongOrNull() ?: 10L,
-                longPressSpeed = source.getQueryParameter("setting_player_long_press_speed")?.toFloatOrNull() ?: 2f,
-                maxVideoResolution = source.getQueryParameter("setting_player_max_video_resolution") ?: "auto",
-                maxVideoFrameRate = source.getQueryParameter("setting_player_max_video_frame_rate")?.toIntOrNull() ?: 0,
-                maxAudioChannels = source.getQueryParameter("setting_player_max_audio_channels")?.toIntOrNull() ?: 0,
-                gesturesVolume = source.getQueryParameter("setting_gestures_volume")?.toBooleanStrictOrNull() ?: false,
-                gesturesBrightness = source.getQueryParameter("setting_gestures_brightness")?.toBooleanStrictOrNull() ?: false,
-                gesturesDoubleTap = source.getQueryParameter("setting_gestures_double_tap")?.toBooleanStrictOrNull() ?: false,
-                gesturesLongPress = source.getQueryParameter("setting_gestures_long_press")?.toBooleanStrictOrNull() ?: false,
-                audioPreferredLanguage = source.getQueryParameter("setting_audio_preferred_language").orEmpty(),
-                audioPreferredSubtitleLanguage = source.getQueryParameter("setting_audio_preferred_subtitle_language").orEmpty(),
-                audioSubtitles = source.getQueryParameter("setting_audio_subtitles") ?: "auto",
-                audioSubtitleScale = source.getQueryParameter("setting_audio_subtitle_scale")?.toFloatOrNull() ?: 1f,
-                audioSubtitleBottomPadding = source.getQueryParameter("setting_audio_subtitle_bottom_padding")?.toIntOrNull() ?: 8,
-                audioSubtitleEmbeddedStyle = source.getQueryParameter("setting_audio_subtitle_embedded_style")?.toBooleanStrictOrNull() ?: true,
+                requestId = get("request_id").orEmpty().trim(),
+                episodeUri = get("uri").orEmpty().trim(),
+                episodeId = get("episode_id").orEmpty(),
+                title = get("title") ?: "Episódio",
+                positionMs = get("position_ms")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
+                canNext = get("can_next")?.toBooleanStrictOrNull() ?: false,
+                canPrevious = get("can_previous")?.toBooleanStrictOrNull() ?: false,
+                autoplay = get("autoplay")?.toBooleanStrictOrNull() ?: true,
+                defaultSpeed = get("setting_player_default_speed")?.toFloatOrNull()?.takeIf { it > 0f } ?: 1f,
+                aspectRatio = get("setting_player_aspect_ratio") ?: "fit",
+                immersive = get("setting_player_immersive") ?: "always",
+                rotation = get("setting_player_rotation") ?: "auto",
+                pip = get("setting_player_pip")?.toBooleanStrictOrNull() ?: true,
+                autoHideSeconds = get("setting_player_auto_hide_seconds")?.toIntOrNull()?.coerceIn(0, 300) ?: 5,
+                doubleTapSeekSeconds = get("setting_player_double_tap_seek_seconds")?.toLongOrNull()?.coerceAtLeast(0L) ?: 10L,
+                longPressSpeed = get("setting_player_long_press_speed")?.toFloatOrNull()?.takeIf { it > 0f } ?: 2f,
+                maxVideoResolution = get("setting_player_max_video_resolution") ?: "auto",
+                maxVideoFrameRate = get("setting_player_max_video_frame_rate")?.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                maxAudioChannels = get("setting_player_max_audio_channels")?.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                gesturesVolume = get("setting_gestures_volume")?.toBooleanStrictOrNull() ?: false,
+                gesturesBrightness = get("setting_gestures_brightness")?.toBooleanStrictOrNull() ?: false,
+                gesturesDoubleTap = get("setting_gestures_double_tap")?.toBooleanStrictOrNull() ?: false,
+                gesturesLongPress = get("setting_gestures_long_press")?.toBooleanStrictOrNull() ?: false,
+                audioPreferredLanguage = get("setting_audio_preferred_language").orEmpty(),
+                audioPreferredSubtitleLanguage = get("setting_audio_preferred_subtitle_language").orEmpty(),
+                audioSubtitles = get("setting_audio_subtitles") ?: "auto",
+                audioSubtitleScale = get("setting_audio_subtitle_scale")?.toFloatOrNull()?.takeIf { it > 0f } ?: 1f,
+                audioSubtitleBottomPadding = get("setting_audio_subtitle_bottom_padding")?.toIntOrNull()?.coerceAtLeast(0) ?: 8,
+                audioSubtitleEmbeddedStyle = get("setting_audio_subtitle_embedded_style")?.toBooleanStrictOrNull() ?: true,
             )
     }
 }

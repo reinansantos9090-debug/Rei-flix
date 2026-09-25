@@ -115,13 +115,18 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
             subprocess.run(["git","-C",str(root),"commit","-qm","fixture"],check=True)
             out=root/"out.json"; report=root/"report.md"; matrix=root/"matrix.json"
             result=subprocess.run([sys.executable,str(SCRIPT),"--root",str(root),"--skip-gradle","--output",str(out),"--report",str(report),"--matrix",str(matrix)],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False,timeout=180)
-            self.assertEqual(result.returncode,0,result.stdout)
+            self.assertNotEqual(result.returncode,0,result.stdout)
             data=json.loads(out.read_text(encoding="utf-8"))
             rows=json.loads(matrix.read_text(encoding="utf-8"))
             self.assertEqual(len(rows),201)
             self.assertEqual(len({x["ID"] for x in rows}),201)
             self.assertTrue(all(not x["Requirement"].startswith("Prompt 15.1 item") for x in rows))
             self.assertEqual(sum(data["matrix_counts"].values()),201)
+            self.assertEqual(data["classification"],"NOT CERTIFIED")
+            self.assertEqual(data["matrix_counts"]["PASS"],0)
+            self.assertEqual(data["matrix_counts"]["PARTIAL"],0)
+            self.assertEqual(data["matrix_counts"]["FAIL"],0)
+            self.assertEqual(data["matrix_counts"]["NOT VALIDATED"],201)
 
 if __name__=="__main__":
     unittest.main()

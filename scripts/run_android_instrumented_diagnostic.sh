@@ -185,6 +185,10 @@ configure_navigation_mode() {
         echo "Navigation mode did not apply: requested=$mode expected=$expected_value actual=$actual" >&2
         return 1
     fi
+    if ! grep -Fq "[x] ${expected_overlay}" "${state_dir}/overlay_list.txt"; then
+        echo "Expected navigation overlay is not enabled: $expected_overlay" >&2
+        return 1
+    fi
     return 0
 }
 

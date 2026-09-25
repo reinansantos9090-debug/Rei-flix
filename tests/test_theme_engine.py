@@ -51,6 +51,7 @@ class ThemeEngineTests(unittest.TestCase):
             "warning",
             "overlay",
             "favorite",
+            "mode",
         }
         for theme in (DARK_THEME, LIGHT_THEME):
             self.assertIsInstance(theme, ThemeTokens)

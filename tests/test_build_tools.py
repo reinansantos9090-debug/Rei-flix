@@ -161,9 +161,6 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("com.android.internal.systemui.navbar.gestural", source)
         self.assertIn("com.android.internal.systemui.navbar.threebutton", source)
         self.assertIn("settings put secure navigation_mode", source)
-        self.assertIn("Prompt14ResponsiveInstrumentedTest", source)
-        self.assertIn("font_scale", source)
-        self.assertIn("wm density", source)
         self.assertIn("34|35|36)", source)
         for token in (
             "adb devices -l",

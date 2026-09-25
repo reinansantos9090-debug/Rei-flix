@@ -99,7 +99,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("concurrency:", workflow)
         self.assertIn("group: ${{ github.workflow }}-${{ github.ref }}", workflow)
         self.assertIn("cancel-in-progress: true", workflow)
-        self.assertIn("timeout-minutes: 30", workflow)
+        self.assertIn("timeout-minutes: 60", workflow)
         self.assertIn("Build APK", workflow)
         self.assertIn("Run Android unit tests on rendered project", workflow)
         self.assertIn("Verify final APK permissions and target SDK", workflow)

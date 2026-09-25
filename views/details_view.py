@@ -379,7 +379,6 @@ class DetailView:
             kind = ft.Dropdown(label="Tipo", value=episode.get("episode_type") or "regular", width=160,
                                options=[ft.dropdown.Option(key=value, text=value) for value in ("regular", "special", "ova", "oad", "ona", "extra", "movie", "unknown")])
             title_field = ft.TextField(label="Título do episódio (opcional)", value=episode.get("episode_title") or "", width=330)
-            dialog = ft.AlertDialog(modal=True, title=ft.Text("Corrigir identificação"), content=ft.Column([season, number, kind, title_field], tight=True))
             dialog = None
             saving = [False]
             cancel_button = ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog))

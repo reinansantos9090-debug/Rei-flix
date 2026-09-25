@@ -116,6 +116,9 @@ def parse_unittest(output):
             d[key]=int(m.group(1) or m.group(2))
     return d
 
+def unittest_output(result):
+    return (result.stdout or "") + "\n" + (result.stderr or "")
+
 def has_unittest_cases(root):
     tests_root=root/"tests"
     if not tests_root.is_dir():
@@ -137,7 +140,7 @@ def has_unittest_cases(root):
 
 def normalize_unittest_result(root,result):
     if result.status==PASS:
-        stats=parse_unittest(result.stdout)
+        stats=parse_unittest(unittest_output(result))
         if stats["discovered"]==0:
             if has_unittest_cases(root):
                 result.status=NOT_VALIDATED
@@ -358,7 +361,7 @@ def make_row(root,item,results,apk,collection):
     if req=="Matrix totals are calculated from the rows":
         return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":"matrix totals calculation","Execution status":"YES","Result":PASS,"Evidence":"Totals are calculated with one pass over the generated 201 rows.","Limitation":""}
     py,un=results["pytest"],results["unittest"]
-    evidence={"pytest":parse_pytest(py.stdout),"unittest":parse_unittest(un.stdout),"implementation":impl,"tests":tests}
+    evidence={"pytest":parse_pytest(py.stdout),"unittest":parse_unittest(unittest_output(un)),"implementation":impl,"tests":tests}
     return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":py.command+" ; "+un.command,"Execution status":"YES" if py.status==PASS and un.status in (PASS,FAIL) else "NO","Result":PARTIAL,"Evidence":"Shared regression suite evidence only; no requirement-specific assertion was registered for this row. "+json.dumps(evidence,ensure_ascii=False),"Limitation":"A requirement-specific test/static contract is required before this row can be PASS."}
 
 def main():
@@ -371,7 +374,7 @@ def main():
     r["pytest_second"]=run_command("Python","pytest determinism",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
     r["unittest"]=normalize_unittest_result(root,run_command("Python","unittest discovery",[py,"-m","unittest","discover","-s","tests","-v"],cwd=root,timeout=1800))
     r["diff_check"]=run_command("Git","diff --check",["git","diff","--check"],cwd=root,timeout=60)
-    files=inventory(root); collection=collection_audit(files,r["collect"].stdout); skip_audit=audit_skip_xfail(root)
+    files=inventory(root); collection=collection_audit(files,r["collect"].stdout,root); skip_audit=audit_skip_xfail(root)
     if a.gradle_root and not a.skip_gradle:
         gr=a.gradle_root.resolve(); gw=gr/"gradlew"
         if gw.is_file():
@@ -402,7 +405,7 @@ def main():
     counts={s:sum(x["Result"]==s for x in rows) for s in [PASS,PARTIAL,FAIL,NOT_APPLICABLE,NOT_VALIDATED,BLOCKED]}
     classification="NOT CERTIFIED" if blocking_failures or counts[FAIL] else "CERTIFICATION PARTIAL" if counts[PARTIAL] or counts[NOT_VALIDATED] or counts[BLOCKED] else "CERTIFIED IN VALIDATED SCOPE"
 
-    payload={"certification_stage":"Prompt 15.5","classification":classification,"timestamp_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"repository":"reinansantos9090-debug/Rei-flix","git":git_state(root),"environment":{"Python":platform.python_version(),"Platform":platform.platform(),"ANDROID_HOME":os.environ.get("ANDROID_HOME",""),"ANDROID_SDK_ROOT":os.environ.get("ANDROID_SDK_ROOT","")},"pytest_first":parse_pytest(r["pytest"].stdout),"pytest_second":parse_pytest(r["pytest_second"].stdout),"unittest":{"status":r["unittest"].status,"command":r["unittest"].command,"stats":parse_unittest(r["unittest"].stdout),"evidence":r["unittest"].evidence},"collect_only":collection,"skip_xfail_audit":skip_audit,"adb":adb,"apk":apk,"results":[asdict(x) for x in r.values()],"matrix":rows,"matrix_counts":counts,"limitations":["Emulator/AVD NOT EXECUTED.","Connected instrumentation NOT EXECUTED.","Physical-device installation/update/clean-install NOT VALIDATED.","Android 14/15/16 runtime NOT VALIDATED.","Runtime FPS/RAM/leak profiling NOT VALIDATED."]}
+    payload={"certification_stage":"Prompt 15.5","classification":classification,"timestamp_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"repository":"reinansantos9090-debug/Rei-flix","git":git_state(root),"environment":{"Python":platform.python_version(),"Platform":platform.platform(),"ANDROID_HOME":os.environ.get("ANDROID_HOME",""),"ANDROID_SDK_ROOT":os.environ.get("ANDROID_SDK_ROOT","")},"pytest_first":parse_pytest(r["pytest"].stdout),"pytest_second":parse_pytest(r["pytest_second"].stdout),"unittest":{"status":r["unittest"].status,"command":r["unittest"].command,"stats":parse_unittest(unittest_output(r["unittest"])),"evidence":r["unittest"].evidence},"collect_only":collection,"skip_xfail_audit":skip_audit,"adb":adb,"apk":apk,"results":[asdict(x) for x in r.values()],"matrix":rows,"matrix_counts":counts,"limitations":["Emulator/AVD NOT EXECUTED.","Connected instrumentation NOT EXECUTED.","Physical-device installation/update/clean-install NOT VALIDATED.","Android 14/15/16 runtime NOT VALIDATED.","Runtime FPS/RAM/leak profiling NOT VALIDATED."]}
     a.output.write_text(json.dumps(payload,indent=2,ensure_ascii=False),encoding="utf-8"); a.matrix.write_text(json.dumps(rows,indent=2,ensure_ascii=False),encoding="utf-8")
     md=["# Rei-Flix — Prompt 15.5 Certification","","Classification: %s"%classification,"Branch: %s"%payload["git"].get("branch",""),"HEAD: %s"%payload["git"].get("head",""),"Working tree: %s"%(payload["git"].get("status") or "clean"),"","pytest first: %s"%payload["pytest_first"],"pytest second: %s"%payload["pytest_second"],"unittest: %s — %s"%(payload["unittest"]["status"],payload["unittest"]["stats"]),"collect-only audit: %s"%payload["collect_only"],"skip/xfail occurrences: %s"%skip_audit["count"],"","Android unit tests: %s"%r["gradle_unit"].status,"Lint: %s"%r["lint"].status,"ADB tool: %s"%adb["tool"],"Device validation: NOT VALIDATED","Emulator/AVD: NOT EXECUTED","Instrumentation: NOT VALIDATED — NO EMULATOR/PHYSICAL DEVICE","","APK path: %s"%apk.get("path","NOT AVAILABLE"),"APK size: %s"%apk.get("size","NOT AVAILABLE"),"APK SHA-256: %s"%apk.get("sha256","NOT AVAILABLE"),"Package: %s"%apk.get("package","NOT AVAILABLE"),"Version: %s / %s"%(apk.get("versionName","NOT AVAILABLE"),apk.get("versionCode","NOT AVAILABLE")),"Target SDK: %s"%apk.get("targetSdk","NOT AVAILABLE"),"Manifest: %s"%apk.get("manifest_present","NOT AVAILABLE"),"DEX: %s"%apk.get("dex_files","NOT AVAILABLE"),"Resources: %s"%apk.get("resources_present","NOT AVAILABLE"),"Signature: %s"%apk.get("signature",{}).get("status",NOT_VALIDATED),"","201-item matrix totals:"]+[s+": %s"%counts[s] for s in [PASS,PARTIAL,FAIL,NOT_VALIDATED,NOT_APPLICABLE,BLOCKED]]
     md+=["","| ID | Requirement | Area | Implementation | Test | Command | Executed | Result | Evidence | Limitation |","|---:|---|---|---|---|---|:---:|---|---|---|"]

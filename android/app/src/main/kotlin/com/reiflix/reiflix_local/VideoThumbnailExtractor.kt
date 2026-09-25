@@ -26,6 +26,7 @@ object VideoThumbnailExtractor {
     )
 
     private val inFlight = ConcurrentHashMap<String, Any>()
+    private const val MAX_CACHE_BYTES = 128L * 1024L * 1024L
 
     fun extract(
         context: Context,
@@ -114,6 +115,7 @@ object VideoThumbnailExtractor {
                 return null
             }
 
+            trimCache(target.parentFile ?: return null, target)
             Result(
                 path = target.absolutePath,
                 durationMs = durationMs,
@@ -129,6 +131,24 @@ object VideoThumbnailExtractor {
         } finally {
             bitmap?.recycle()
             runCatching { retriever.release() }
+        }
+    }
+
+
+    private fun trimCache(directory: File, protected: File) {
+        runCatching {
+            val files = directory.listFiles()
+                ?.filter { it.isFile && it.extension.equals("jpg", ignoreCase = true) }
+                ?.sortedBy { it.lastModified() }
+                ?: return
+            var total = files.sumOf { it.length() }
+            if (total <= MAX_CACHE_BYTES) return
+            for (file in files) {
+                if (file == protected) continue
+                if (total <= MAX_CACHE_BYTES) break
+                val length = file.length()
+                if (file.delete()) total -= length
+            }
         }
     }
 

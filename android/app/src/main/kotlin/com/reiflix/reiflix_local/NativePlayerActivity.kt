@@ -84,6 +84,7 @@ class NativePlayerActivity : ComponentActivity() {
     private lateinit var preparingIndicator: ProgressBar
     private lateinit var lockButton: TextView
     private lateinit var gesturePreferences: SharedPreferences
+    private lateinit var systemUiController: SystemUiController
 
     private var locked = false
     private var inPictureInPicture = false
@@ -238,8 +239,9 @@ class NativePlayerActivity : ComponentActivity() {
         )
 
         applyConfiguredRotation()
-        if (shouldUseImmersive()) enterImmersiveMode() else restoreSystemUiBeforeExit()
+        systemUiController = SystemUiController(window)
         configureWindow()
+        if (shouldUseImmersive()) enterImmersiveMode() else restoreSystemUiBeforeExit()
         savedInstanceState?.getFloat("window_brightness", WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
             ?.takeIf { it.isFinite() && it >= 0f && it <= 1f }
             ?.let { setWindowBrightness(it) }
@@ -261,6 +263,11 @@ class NativePlayerActivity : ComponentActivity() {
         }
         installBackHandler()
         configurePictureInPicture()
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            applyRootInsets(insets)
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
         ViewCompat.getRootWindowInsets(window.decorView)?.let { applyRootInsets(it) }
 
         val rawUri = intent.getStringExtra("uri")
@@ -873,19 +880,6 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun configureWindow() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = Color.TRANSPARENT
-        window.navigationBarColor = Color.TRANSPARENT
-        if (Build.VERSION.SDK_INT >= 29) {
-            window.isStatusBarContrastEnforced = false
-            window.isNavigationBarContrastEnforced = false
-        }
-        if (Build.VERSION.SDK_INT >= 30) {
-            window.attributes = window.attributes.apply {
-                layoutInDisplayCutoutMode =
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            }
-        }
     }
 
     private fun canEnterPictureInPicture(): Boolean {
@@ -2094,34 +2088,18 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun enterImmersiveMode() {
-        // Android 15/16 enforce edge-to-edge for target 35+; fullscreen is
-        // therefore controlled by WindowInsetsControllerCompat hiding system bars.
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            hide(WindowInsetsCompat.Type.systemBars())
+        runCatching {
+            systemUiController.applyImmersive()
+            ViewCompat.requestApplyInsets(window.decorView)
+            logPlayer("PLAYER_IMMERSIVE applied requestId=" + requestId.ifEmpty { "-" })
+        }.onFailure { error ->
+            logPlayer("PLAYER_IMMERSIVE_POLICY_FAILED", error)
         }
-        ViewCompat.requestApplyInsets(window.decorView)
-        logPlayer("PLAYER_IMMERSIVE applied requestId=" + requestId.ifEmpty { "-" })
     }
 
     private fun restoreSystemUiBeforeExit() {
         runCatching {
-            // The normal app surface keeps edge-to-edge layout but exposes the
-            // platform bars. MainActivity applies the same policy on resume.
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            val controller = WindowInsetsControllerCompat(window, window.decorView)
-            val nightMode = resources.configuration.uiMode and
-                android.content.res.Configuration.UI_MODE_NIGHT_MASK
-            val darkTheme = nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
-            controller.apply {
-                isAppearanceLightStatusBars = !darkTheme
-                isAppearanceLightNavigationBars = !darkTheme
-                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                show(WindowInsetsCompat.Type.systemBars())
-            }
+            systemUiController.applyNormal()
             ViewCompat.requestApplyInsets(window.decorView)
             logPlayer("PLAYER_SYSTEM_UI_RESTORED requestId=" + requestId.ifEmpty { "-" })
         }.onFailure { error ->

@@ -38,8 +38,6 @@ class SystemUiController(private val window: Window) {
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             show(WindowInsetsCompat.Type.systemBars())
         }
-        WindowCompat.getInsetsController(window, window.decorView)
-            .show(WindowInsetsCompat.Type.systemBars())
     }
 
     private fun applyEdgeToEdgeWindow() {

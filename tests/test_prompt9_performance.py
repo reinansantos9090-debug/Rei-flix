@@ -99,6 +99,47 @@ class Prompt9StorePaginationTests(unittest.TestCase):
             self.assertLessEqual(len(sections["favorites"]), 8)
             self.assertLessEqual(len(sections["series"]), 8)
 
+    def test_continue_watching_uses_sql_bounded_resumable_projection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            first = store.upsert_anime("first", {"title": "First", "genres": "[]"})
+            second = store.upsert_anime("second", {"title": "Second", "genres": "[]"})
+            for anime_id, prefix in ((first, "first"), (second, "second")):
+                for number in range(1, 80):
+                    path = f"/library/{prefix}-{number:03d}.mkv"
+                    store.upsert_episode(
+                        anime_id, path, path.rsplit("/", 1)[-1], 1, number,
+                        file_size=1000 + number, modified_at=number,
+                    )
+            first_path = "/library/first-079.mkv"
+            second_path = "/library/second-078.mkv"
+            store.save_progress(first_path, 20, 100, event_created_at=1)
+            store.save_progress(second_path, 40, 100, event_created_at=2)
+
+            result = store.continue_watching(limit=1)
+
+            self.assertEqual(1, len(result))
+            self.assertEqual(second_path, result[0]["path"])
+            self.assertLessEqual(len(store.continue_watching(limit=100)), 2)
+
+    def test_performance_indexes_cover_default_sort_resume_and_episode_query(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            with store._conn() as con:
+                indexes = {row["name"] for row in con.execute("PRAGMA index_list(anime)").fetchall()}
+                episode_indexes = {row["name"] for row in con.execute("PRAGMA index_list(episodes)").fetchall()}
+                self.assertIn("idx_anime_added_title", indexes)
+                self.assertIn("idx_anime_favorite_added", indexes)
+                self.assertIn("idx_episodes_resume", episode_indexes)
+                self.assertIn("idx_episodes_season_number", episode_indexes)
+
+                plan = con.execute(
+                    "EXPLAIN QUERY PLAN SELECT id FROM anime "
+                    "ORDER BY added_at DESC, title COLLATE NOCASE ASC, id DESC LIMIT 36"
+                ).fetchall()
+                plan_text = " ".join(str(row["detail"]) for row in plan)
+                self.assertIn("idx_anime_added_title", plan_text)
+
     def test_home_sections_keep_next_episode_semantics(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)
@@ -151,6 +192,15 @@ class Prompt9ServiceAndSourceTests(unittest.TestCase):
         self.assertIn("organize_summary_bounded", source)
         self.assertNotIn("library.catalog", source)
         self.assertNotIn("page.run_task(lambda:", source)
+
+    def test_home_library_tree_is_page_bounded_and_mailbox_has_idle_backoff(self):
+        home = Path("views/home_view.py").read_text(encoding="utf-8")
+        main = Path("main.py").read_text(encoding="utf-8")
+        self.assertIn("page_size = settings.get(\"library.page_size\")", home)
+        self.assertIn("catalog.extend(fresh_items)", home)
+        self.assertIn("if remaining < 800", home)
+        self.assertIn("poll_interval = 0.2 if events else min(1.0, poll_interval * 1.5)", main)
+        self.assertNotIn("while True:\n            bridge.drain()", main)
 
     def test_async_stale_generation_contracts_are_present(self):
         home = Path("views/home_view.py").read_text(encoding="utf-8")

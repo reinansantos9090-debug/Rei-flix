@@ -390,7 +390,7 @@ class DetailView:
             title_width = max(180.0, min(330.0, dialog_width - 24.0))
             season = ft.TextField(label="Temporada", value="" if not episode.get("season") else str(episode["season"]), width=min(120.0, max(96.0, dialog_width / 3.2)))
             number = ft.TextField(label="Episódio", value="" if episode.get("number") is None else str(episode["number"]), width=min(120.0, max(96.0, dialog_width / 3.2)))
-            kind = ft.Dropdown(label="Tipo", value=episode.get("episode_type") or "regular", width=min(160.0, max(120.0, dialog_width - 180.0),
+            kind = ft.Dropdown(label="Tipo", value=episode.get("episode_type") or "regular", width=min(160.0, max(120.0, dialog_width - 180.0)),
                                options=[ft.dropdown.Option(key=value, text=value) for value in ("regular", "special", "ova", "oad", "ona", "extra", "movie", "unknown")])
             title_field = ft.TextField(label="Título do episódio (opcional)", value=episode.get("episode_title") or "", width=title_width)
             dialog = None

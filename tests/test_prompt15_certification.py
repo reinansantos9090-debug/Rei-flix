@@ -99,6 +99,33 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
             self.assertEqual(row["Result"],"PASS")
             self.assertIn("singleTask",row["Evidence"])
 
+    def test_rendered_gradle_environment_uses_staged_site_packages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            site_packages=root/"build"/"flutter"/"site-packages"
+            site_packages.mkdir(parents=True)
+            old=os.environ.pop("SERIOUS_PYTHON_SITE_PACKAGES",None)
+            try:
+                result=runner.configure_rendered_gradle_environment(root)
+                self.assertEqual(result.status,"PASS")
+                self.assertEqual(os.environ.get("SERIOUS_PYTHON_SITE_PACKAGES"),str(site_packages))
+            finally:
+                if old is None:
+                    os.environ.pop("SERIOUS_PYTHON_SITE_PACKAGES",None)
+                else:
+                    os.environ["SERIOUS_PYTHON_SITE_PACKAGES"]=old
+
+    def test_lint_discovery_is_independent_from_lint_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            gradlew=root/"gradlew"
+            gradlew.write_text("#!/bin/sh\nprintf ':app:lintDebug - lint task\\n'\n",encoding="utf-8")
+            gradlew.chmod(0o755)
+            discovery,task=runner.discover_lint_task(gradlew,root)
+            self.assertEqual(discovery.status,"PASS")
+            self.assertEqual(task,":app:lintDebug")
+            self.assertIn("lintDebug",discovery.evidence)
+
     def test_runner_compiles(self):
         result=subprocess.run([sys.executable,"-m","py_compile",str(SCRIPT)],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False)
         self.assertEqual(result.returncode,0,result.stdout)

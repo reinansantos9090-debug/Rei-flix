@@ -140,6 +140,8 @@ class ThemeEngineTests(unittest.TestCase):
         self.assertNotIn("bridge.", block)
         self.assertNotIn("ScanCoordinator", block)
         self.assertNotIn("NativeMailbox", block)
+        theme_block = block[:block.index('        if setting_key.startswith(("appearance.", "library.")):')]
+        self.assertNotIn("library.configure_settings(settings)", theme_block)
 
 
 if __name__ == "__main__":

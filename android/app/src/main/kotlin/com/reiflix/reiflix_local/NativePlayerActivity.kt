@@ -956,6 +956,7 @@ class NativePlayerActivity : ComponentActivity() {
         controls.bringToFront()
 
         topBar = LinearLayout(this).apply {
+            tag = "reiflix_top_bar"
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(6), dp(8), dp(6))
@@ -1113,6 +1114,7 @@ class NativePlayerActivity : ComponentActivity() {
         centerControls.addView(nextButton, weightParams(70))
 
         bottomBar = LinearLayout(this).apply {
+            tag = "reiflix_bottom_bar"
             orientation = LinearLayout.VERTICAL
             setPadding(dp(8), dp(4), dp(8), dp(8))
             setBackgroundColor(0x88000000.toInt())

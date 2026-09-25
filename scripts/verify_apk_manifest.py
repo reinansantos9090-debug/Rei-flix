@@ -162,6 +162,7 @@ def main() -> int:
         failed.append(f"NativePlayerActivity not found in packaged manifest: {PLAYER_ACTIVITY}")
     else:
         player_checks = (
+            ("NativePlayerActivity launchMode=singleTop", has_attribute(player_block, "launchMode", "0x00000001", "0x1", "=1", "singleTop")),
             ("NativePlayerActivity supportsPictureInPicture=true", has_attribute(player_block, "supportsPictureInPicture", "0xffffffff", "true")),
             ("NativePlayerActivity exported=false", has_attribute(player_block, "exported", "0x0", "false")),
         )
@@ -200,7 +201,7 @@ def main() -> int:
     print("  exported: true")
     print("  launchable activity: yes")
     print("  deep-link: reiflix://native")
-    print("  NativePlayerActivity: supportsPictureInPicture=true, exported=false")
+    print("  NativePlayerActivity: launchMode=singleTop, supportsPictureInPicture=true, exported=false")
     print("  feature: android.software.picture_in_picture (required=false)")
     for permission in REQUIRED_PERMISSIONS:
         print(f"  permission: {permission}")

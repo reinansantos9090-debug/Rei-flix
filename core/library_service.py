@@ -448,6 +448,10 @@ class LibraryService:
     def register_generated_thumbnail(self, media_uri, thumbnail_path, *, size=0, modified_at=0, media_identity=None, metadata=None):
         return self.artwork.register_generated_thumbnail(media_uri, thumbnail_path, size=size, modified_at=modified_at, media_identity=media_identity, metadata=metadata)
 
+    def resolve_artwork_batch(self, entity_type, entity_ids, artwork_types=("episode_thumbnail", "poster")):
+        """Return local artwork for many entities through the shared ArtworkEngine."""
+        return self.artwork.resolve_local_batch(entity_type, entity_ids, artwork_types=artwork_types)
+
     def resolve_artwork(self, entity_type, entity_id, artwork_type, *, allow_network=True):
         effective_allow_network = bool(
             allow_network and self._setting("artwork.enabled", True)

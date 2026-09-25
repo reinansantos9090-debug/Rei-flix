@@ -414,7 +414,7 @@ async def main(page: ft.Page):
                 _toggle_favorite_from_details, library.playback_target,
                 _set_tags_from_details, _toggle_pin_from_details, _set_note_from_details,
                 _set_episode_identification_from_details, refresh_current_details,
-                refresh_current_metadata, library.resolve_artwork,
+                refresh_current_metadata, library.resolve_artwork, library.resolve_artwork_batch,
             )
         elif route == "settings":
             control = SettingsView.build(

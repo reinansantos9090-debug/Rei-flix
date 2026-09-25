@@ -862,6 +862,8 @@ async def main(page: ft.Page):
             resolved = None
         if resolved and resolved.get("local_path") and os.path.isfile(resolved.get("local_path")):
             return
+        if len(thumbnail_requests) >= 32:
+            return
         thumbnail_requests.add(key)
         async def run():
             try:

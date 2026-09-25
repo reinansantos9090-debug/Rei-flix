@@ -100,10 +100,6 @@ jobs:
             echo "Valid JSON: $file"
           done < <(find . -path './.git' -prune -o -path './build' -prune -o -type f -name '*.json' -print0)
 
-      - name: Run Android unit tests
-        working-directory: android
-        shell: bash
-        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
       - name: Generate deterministic local player fixture
         run: |
           sudo apt-get update
@@ -185,6 +181,11 @@ jobs:
               with open(path, "w", encoding="utf-8") as handle:
                   json.dump(data, handle, indent=2)
           PY
+
+      - name: Run Android unit tests
+        working-directory: build/flutter/android
+        shell: bash
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Build rendered Android project
         shell: bash

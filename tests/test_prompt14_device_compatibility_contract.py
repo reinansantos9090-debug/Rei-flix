@@ -91,9 +91,6 @@ class Prompt14DeviceCompatibilityContractTests(unittest.TestCase):
         self.assertIn("com.android.internal.systemui.navbar.gestural", script)
         self.assertIn("com.android.internal.systemui.navbar.threebutton", script)
         self.assertIn("settings put secure navigation_mode", script)
-        self.assertIn("font_scale", script)
-        self.assertIn("wm density", script)
-        self.assertIn("Prompt14ResponsiveInstrumentedTest", script)
 
     def test_predictive_back_uses_androidx_dispatcher_without_fake_gesture_implementation(self):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")

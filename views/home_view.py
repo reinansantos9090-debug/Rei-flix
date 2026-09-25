@@ -522,9 +522,7 @@ class HomeView:
             search_visible[0] = not search_visible[0]
             search.visible = search_visible[0]
             search.autofocus = search_visible[0]
-            if search_visible[0]:
-                search.focus()
-            else:
+            if not search_visible[0]:
                 search.value = ""
             save_view_state()
             await load_library_page(reset=True)

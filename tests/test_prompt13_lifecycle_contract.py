@@ -33,7 +33,7 @@ class Prompt13LifecycleContractTests(unittest.TestCase):
     def test_long_running_native_scan_batch_helper_is_not_bound_to_activity_instance(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
         batch = source.index("private fun publishNativeScanBatch")
-        helper_end = source.index("    private fun scanTree", batch)
+        helper_end = source.index("    /** Native lifecycle/observer", batch)
         helper = source[batch:helper_end]
         self.assertIn("appContext: Context", helper)
         self.assertNotIn("this@", helper)
@@ -57,9 +57,12 @@ class Prompt13LifecycleContractTests(unittest.TestCase):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
         self.assertIn("unregisterStorageReceiver()", source)
         self.assertIn("MediaStoreScanner.stopChangeObserver(this)", source)
-        self.assertIn("mediaStoreRescanHandler.removeCallbacksAndMessages(null)", source)
-        self.assertIn("mediaStoreRescanScheduled = false", source)
         self.assertIn("storageReceiverRegistered = false", source)
+        self.assertIn("private val mediaStoreRetryHandler", source)
+        self.assertIn("private val mediaStoreRetryScheduled = AtomicBoolean(false)", source)
+        retry = source[source.index("private fun scheduleMediaStoreScanRequest"):source.index("private fun publishNativeScanBatch")]
+        self.assertNotIn("this@MainActivity", retry)
+        self.assertNotIn("activityResumed", retry)
 
     def test_python_mailbox_poller_is_stopped_when_flet_session_disconnects(self):
         source = MAIN_PY.read_text(encoding="utf-8")
@@ -205,8 +208,6 @@ class Prompt13LifecycleContractTests(unittest.TestCase):
         ):
             self.assertIn(token, organize)
 
-if __name__ == "__main__":
-    unittest.main()
 
     def test_main_activity_background_scan_jobs_do_not_use_activity_bound_job_registry(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
@@ -231,4 +232,30 @@ if __name__ == "__main__":
         pip_end = source.index("override fun onConfigurationChanged", pip_start)
         pip_block = source[pip_start:pip_end]
         self.assertIn("applyImmersiveAfterLayout()", pip_block)
+        self.assertNotIn("} else {\n            enterImmersiveMode()", pip_block)    def test_main_activity_background_scan_jobs_do_not_use_activity_bound_job_registry(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        self.assertNotIn("activeNativeScanJobs", source)
+        self.assertNotIn("private val activeNativeScanJobs", source)
+        self.assertNotIn("mutableMapOf<String, Job>()", source)
+
+    def test_media_store_delayed_retry_does_not_capture_activity_instance(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        self.assertIn("scheduleMediaStoreScanRequest(", source)
+        self.assertIn("private fun scheduleMediaStoreScanRequest", source)
+        retry_start = source.index("private fun scheduleMediaStoreScanRequest")
+        retry_end = source.index("private fun publishNativeScanBatch", retry_start)
+        retry_block = source[retry_start:retry_end]
+        self.assertNotIn("this@MainActivity", retry_block)
+        self.assertNotIn("activityResumed", retry_block)
+        self.assertIn("NativeMailbox.write(", retry_block)
+        self.assertIn("appContext", retry_block)
+
+    def test_player_pip_exit_respects_immersive_policy(self):
+        source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        pip_start = source.index("override fun onPictureInPictureModeChanged")
+        pip_end = source.index("override fun onConfigurationChanged", pip_start)
+        pip_block = source[pip_start:pip_end]
+        self.assertIn("applyImmersiveAfterLayout()", pip_block)
         self.assertNotIn("} else {\n            enterImmersiveMode()", pip_block)
+
+

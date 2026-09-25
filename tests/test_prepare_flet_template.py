@@ -85,6 +85,12 @@ class FletTemplateManifestTests(unittest.TestCase):
             self.assertIsNotNone(main)
             self.assertEqual(main.get("{http://schemas.android.com/apk/res/android}launchMode"), "singleTask")
             self.assertEqual(main.get("{http://schemas.android.com/apk/res/android}documentLaunchMode"), "never")
+            player = next(
+                activity for activity in manifest.findall(".//activity")
+                if activity.get("{http://schemas.android.com/apk/res/android}name")
+                == "com.reiflix.reiflix_local.NativePlayerActivity"
+            )
+            self.assertEqual(player.get("{http://schemas.android.com/apk/res/android}launchMode"), "singleTop")
             generated_gradle = (project / "android/app/build.gradle.kts").read_text(encoding="utf-8")
             self.assertIn('namespace = "com.reiflix.reiflix_local"', generated_gradle)
             self.assertIn(
@@ -94,8 +100,8 @@ class FletTemplateManifestTests(unittest.TestCase):
                     for node in manifest.findall("uses-permission")
                 ],
             )
-            self.assertNotIn(
-                "singleTop",
+            self.assertIn(
+                'android:launchMode="singleTop"',
                 (project / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8"),
             )
 

@@ -629,6 +629,7 @@ class HomeView:
 
         async def refresh_from_catalog():
             save_view_state()
+            filter_options_loaded[0] = False
             await load_library_page(reset=True)
             home_sections_generation[0] = render_generation[0]
             page.run_task(refresh_home_sections, render_generation[0])

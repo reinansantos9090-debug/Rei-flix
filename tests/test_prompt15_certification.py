@@ -124,7 +124,7 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
             discovery,task=runner.discover_lint_task(gradlew,root)
             self.assertEqual(discovery.status,"PASS")
             self.assertEqual(task,":app:lintReportDebug")
-            self.assertIn("lintDebug",discovery.evidence)
+            self.assertIn("lintReportDebug",discovery.evidence)
 
     def test_runner_compiles(self):
         result=subprocess.run([sys.executable,"-m","py_compile",str(SCRIPT)],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False)

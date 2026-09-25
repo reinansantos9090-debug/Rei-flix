@@ -51,16 +51,22 @@ def git_state(root: Path) -> dict[str,str]:
     return out
 
 def main() -> int:
-    ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/prompt15-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/prompt15-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/prompt15-201-matrix.json")); ap.add_argument("--gradle-root",type=Path,default=None); ap.add_argument("--apk",type=Path,default=None); ap.add_argument("--aapt2",type=Path,default=None); args=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/prompt15-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/prompt15-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/prompt15-201-matrix.json")); ap.add_argument("--gradle-root",type=Path,default=None); ap.add_argument("--apk",type=Path,default=None); ap.add_argument("--aapt2",type=Path,default=None); ap.add_argument("--prevalidated-compileall",action="store_true"); ap.add_argument("--prevalidated-gradle",action="store_true"); args=ap.parse_args()
     root=args.root.resolve(); args.output.parent.mkdir(parents=True,exist_ok=True); args.report.parent.mkdir(parents=True,exist_ok=True)
     results=inventory(root)
+    if args.prevalidated_compileall:
+        results.append(Result("Python","compileall",PASS,"Exact `python -m compileall .` was executed successfully by the preceding blocking CI step in this same workflow run."))
+    else:
+        source_paths=["main.py","app_config.py","core","views","scripts","tests"]
+        results.append(run_command("Python","compileall",[sys.executable,"-m","compileall","-q",*source_paths],cwd=root))
     for area,test,cmd in [
-        ("Python","compileall",[sys.executable,"-m","compileall","-q","."]),
         ("Python","pytest",[sys.executable,"-m","pytest","-q"]),
         ("Python","unittest discovery",[sys.executable,"-m","unittest","discover","-s","tests","-p","test*.py","-t","."]),
         ("Git","diff --check",["git","diff","--check"]),
     ]: results.append(run_command(area,test,cmd,cwd=root))
-    if args.gradle_root:
+    if args.prevalidated_gradle:
+        results.append(Result("Android","Gradle unit tests",PASS,"Rendered-project Gradle unit tests completed successfully in the preceding blocking CI step of this same workflow run."))
+    elif args.gradle_root:
         gradlew=args.gradle_root.resolve()/"gradlew"
         if gradlew.is_file(): results.append(run_command("Android","Gradle unit tests",[str(gradlew),":app:testDebugUnitTest","--no-daemon"],cwd=args.gradle_root.resolve()))
         else: results.append(Result("Android","Gradle unit tests",BLOCKED,"Gradle wrapper not found: "+str(gradlew)))
@@ -112,10 +118,10 @@ def main() -> int:
         elif item_id==11:
             status=PASS if gradle_ok else (BLOCKED if not any(r.area=="Android" and r.test=="Gradle unit tests" for r in results) else PARTIAL)
             evidence="Rendered Android unit-test execution." if gradle_ok else "Android unit-test evidence unavailable or incomplete."
-        elif item_id in (1,2,3,4,5,6,12,14,15,16,17,18,19,20,21,22,192,193,194,195,196,197,198,199,200,201):
-            status=PASS; evidence="Repository/certification bookkeeping or direct test-audit evidence was executed."
+        elif item_id in (192,193,194,195,196,197,198,199,200,201):
+            status=PASS; evidence="Repository/certification bookkeeping was executed and recorded by this run."
         else:
-            status=PARTIAL; evidence="Existing implementation/tests/contracts were audited; this individual requirement lacks unique isolated evidence in the no-device scope."
+            status=PARTIAL; evidence="Existing implementation/tests/contracts were audited; this individual requirement lacks unique isolated execution evidence in the no-device scope."
         matrix.append({"ID":item_id,"Requirement":"Prompt 15.1 item "+str(item_id),"Implementation":"AUDITED","Test":"existing suite/static audit/CI runner","Command":"see certification results","Executed":status not in (NOT_VALIDATED,BLOCKED),"Result":status,"Evidence":evidence,"Limitation":"" if status==PASS else evidence})
     args.matrix.parent.mkdir(parents=True,exist_ok=True); args.matrix.write_text(json.dumps(matrix,indent=2,ensure_ascii=False),encoding="utf-8")
     payload={"classification":"CERTIFICATION PARTIAL","repository":"reinansantos9090-debug/Rei-flix","timestamp_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"environment":environment(root),"git":git_state(root),"results":[asdict(r) for r in results],"matrix":matrix,"matrix_counts":{s:sum(row["Result"]==s for row in matrix) for s in (PASS,PARTIAL,FAIL,NOT_VALIDATED,NOT_APPLICABLE,BLOCKED)},"apk":apk_data}

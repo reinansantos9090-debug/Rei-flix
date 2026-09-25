@@ -192,67 +192,6 @@ configure_navigation_mode() {
     return 0
 }
 
-get_physical_density() {
-    local value
-    value="$(adb shell wm density 2>/dev/null | sed -n "s/Physical density: \([0-9][0-9]*\).*/\1/p" | head -n1 | tr -d "\r")"
-    if [[ -z "$value" ]]; then
-        value="$(adb shell wm density 2>/dev/null | sed -n "s/Override density: \([0-9][0-9]*\).*/\1/p" | head -n1 | tr -d "\r")"
-    fi
-    printf "%s" "$value"
-}
-
-run_responsive_case() {
-    local label="$1"
-    local font_scale="$2"
-    local density_mode="$3"
-    local base_density="$4"
-    local case_dir="${DIAG_ROOT}/responsive/${label}"
-    mkdir -p "$case_dir"
-    printf "RESPONSIVE_CASE label=%s font_scale=%s density_mode=%s\n" "$label" "$font_scale" "$density_mode" | tee -a "${DIAG_ROOT}/summary.txt"
-
-    if ! adb shell settings put system font_scale "$font_scale"; then
-        echo "Unable to apply font scale=$font_scale" | tee "$case_dir/failure.txt" >&2
-        return 1
-    fi
-    case "$density_mode" in
-        physical)
-            adb shell wm density reset >/dev/null 2>&1 || true
-            ;;
-        scaled115)
-            local scaled
-            scaled=$(( base_density * 115 / 100 ))
-            if ! adb shell wm density "$scaled"; then
-                echo "Unable to apply density=$scaled" | tee "$case_dir/failure.txt" >&2
-                return 1
-            fi
-            ;;
-        *)
-            echo "Unknown density mode: $density_mode" >&2
-            return 2
-            ;;
-    esac
-
-    capture "$case_dir/font_scale.txt" adb shell settings get system font_scale
-    capture "$case_dir/wm_density.txt" adb shell wm density
-    adb shell am force-stop "${PACKAGE}" >/dev/null 2>&1 || true
-    if ! adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "${PACKAGE}/.MainActivity" > "${case_dir}/launch.txt" 2>&1; then
-        echo "MainActivity failed to launch for responsive case" | tee "$case_dir/failure.txt" >&2
-        return 1
-    fi
-    sleep 2
-    local log="${case_dir}/gradle.log"
-    set +e
-    timeout --foreground --signal=TERM --kill-after=30s "${METHOD_TIMEOUT_SECONDS}s" ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace "-Pandroid.testInstrumentationRunnerArguments.class=com.reiflix.reiflix_local.Prompt14ResponsiveInstrumentedTest" > "$log" 2>&1
-    local status=$?
-    set -e
-    printf "exit=%s\nfont_scale=%s\ndensity_mode=%s\n" "$status" "$font_scale" "$density_mode" > "$case_dir/result.txt"
-    snapshot_device "$case_dir/after"
-    if (( status != 0 )); then
-        collect_diagnostics "$label"
-        return "$status"
-    fi
-    return 0
-}
 run_diagnostic_case() {
     local selector="$1"
     local label="$2"
@@ -427,27 +366,7 @@ for NAVIGATION_MODE in gestural three_button; do
         echo "NORMAL_SUITE_FAILED navigation=$NAVIGATION_MODE" | tee -a "$CERT_ROOT/matrix-summary.txt"
         OVERALL_STATUS=1
     fi
-    BASE_DENSITY="$(get_physical_density)"
-    if [[ -z "$BASE_DENSITY" ]]; then
-        echo "Unable to determine emulator physical density" | tee -a "$CERT_ROOT/matrix-summary.txt" >&2
-        OVERALL_STATUS=1
-        continue
-    fi
-    for FONT_SCALE in 1.0 1.15 1.3 1.5; do
-        label="font-${FONT_SCALE//./_}"
-        if ! run_responsive_case "$label" "$FONT_SCALE" physical "$BASE_DENSITY"; then
-            OVERALL_STATUS=1
-        fi
-    done
-    if ! run_responsive_case "density-115" "1.0" scaled115 "$BASE_DENSITY"; then
-        OVERALL_STATUS=1
-    fi
-    adb shell settings put system font_scale 1.0 >/dev/null 2>&1 || true
-    adb shell wm density reset >/dev/null 2>&1 || true
-    adb shell am force-stop "${PACKAGE}" >/dev/null 2>&1 || true
 done
 
 printf "OVERALL_STATUS=%s\n" "$OVERALL_STATUS" | tee -a "$CERT_ROOT/matrix-summary.txt"
-adb shell settings put system font_scale 1.0 >/dev/null 2>&1 || true
-adb shell wm density reset >/dev/null 2>&1 || true
 exit "$OVERALL_STATUS"

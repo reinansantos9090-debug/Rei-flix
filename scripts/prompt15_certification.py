@@ -116,7 +116,7 @@ def main() -> int:
             status=PASS; evidence="Repository/certification bookkeeping or direct test-audit evidence was executed."
         else:
             status=PARTIAL; evidence="Existing implementation/tests/contracts were audited; this individual requirement lacks unique isolated evidence in the no-device scope."
-        matrix.append({"ID":item_id,"Requirement":"Prompt 15.1 item "+str(item_id),"Implementation":"AUDITED","Test":"existing suite/static audit/CI runner","Command":"see certification results","Executed":status not in (NOT_VALIDATED,BLOCKED),"Result":status,"Evidence":evidence,"Limitation":"" if status==PASS else evidence)
+        matrix.append({"ID":item_id,"Requirement":"Prompt 15.1 item "+str(item_id),"Implementation":"AUDITED","Test":"existing suite/static audit/CI runner","Command":"see certification results","Executed":status not in (NOT_VALIDATED,BLOCKED),"Result":status,"Evidence":evidence,"Limitation":"" if status==PASS else evidence})
     args.matrix.parent.mkdir(parents=True,exist_ok=True); args.matrix.write_text(json.dumps(matrix,indent=2,ensure_ascii=False),encoding="utf-8")
     payload={"classification":"CERTIFICATION PARTIAL","repository":"reinansantos9090-debug/Rei-flix","timestamp_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"environment":environment(root),"git":git_state(root),"results":[asdict(r) for r in results],"matrix":matrix,"matrix_counts":{s:sum(row["Result"]==s for row in matrix) for s in (PASS,PARTIAL,FAIL,NOT_VALIDATED,NOT_APPLICABLE,BLOCKED)},"apk":apk_data}
     if any(r.status==FAIL for r in results) or payload["matrix_counts"][FAIL]: payload["classification"]="NOT CERTIFIED"

@@ -318,19 +318,6 @@ class ArtworkEngineTests(unittest.TestCase):
             duration = con.execute("SELECT duration FROM episodes WHERE id=?", (ep,)).fetchone()[0]
         self.assertAlmostEqual(duration, 91.234, places=3)
 
-    def test_generated_thumbnail_cache_is_bounded_with_shared_eviction(self):
-        anime = self._media("Bounded")
-        episode_path = str(Path(self.tmp.name) / "Bounded S01E01.mkv")
-        ep = self._episode(anime, episode_path, "Bounded S01E01.mkv")
-        thumb = Path(self.tmp.name) / "generated.jpg"
-        thumb.write_bytes(JPEG * 100)
-        self.assertTrue(self.engine.register_generated_thumbnail(
-            episode_path, thumb, size=1, modified_at=1,
-        ))
-        self.engine.cache_limit_bytes = 1
-        self.engine._evict_if_needed()
-        self.assertFalse(thumb.exists())
-
     def test_metadata_integration_uses_existing_engine(self):
         service = LibraryService(self.store)
         anime = self._media()

@@ -58,7 +58,7 @@ class Prompt14DeviceCompatibilityContractTests(unittest.TestCase):
         immersive_start = source.index("private fun enterImmersiveMode")
         immersive_end = source.index("private fun restoreSystemUiBeforeExit", immersive_start)
         immersive = source[immersive_start:immersive_end]
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", immersive)
+        self.assertIn("systemUiController.applyImmersive()", immersive)
 
     def test_android16_large_screen_does_not_introduce_an_opt_out_hack(self):
         manifest = MANIFEST.read_text(encoding="utf-8")

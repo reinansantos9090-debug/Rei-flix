@@ -34,10 +34,6 @@ GOOGLE_WEB_CLIENT_ID = os.getenv('REIFLIX_GOOGLE_WEB_CLIENT_ID', CONFIG_GOOGLE_W
 async def main(page: ft.Page):
     page.title='Rei-Flix Local'; page.padding=0
     apply_page_theme(page, "dark")
-    try:
-        page.on_disconnect = lambda _e: ui_alive.__setitem__(0, False)
-    except Exception as exc:
-        logger.warning("[FLET] on_disconnect hook unavailable: %s", exc)
     data_dir=os.getenv("FLET_APP_STORAGE_DATA") or os.path.join(os.path.dirname(__file__),'.reiflix-data')
     store=LibraryStore(data_dir)
     recovery_service = RecoveryService(store)
@@ -89,6 +85,22 @@ async def main(page: ft.Page):
         "timestamp": None,
     }]
     ui_alive = [True]
+    native_poll_task = [None]
+
+    def _handle_page_disconnect(_event=None):
+        ui_alive[0] = False
+        task = native_poll_task[0]
+        if task is not None:
+            try:
+                task.cancel()
+            except Exception as exc:
+                logger.debug("[FLET] mailbox poll task cancellation failed: %s", exc)
+
+    try:
+        page.on_disconnect = _handle_page_disconnect
+    except Exception as exc:
+        logger.warning("[FLET] on_disconnect hook unavailable: %s", exc)
+
     def safe_update():
         if not ui_alive[0]:
             return
@@ -237,6 +249,10 @@ async def main(page: ft.Page):
             home_state.update(
                 {str(key): value for key, value in restored.items() if not callable(value)}
             )
+        for target, key in ((organize_state, "organize_state"), (settings_state, "settings_state")):
+            restored_view = state.get(key)
+            if isinstance(restored_view, dict):
+                target.update({str(name): value for name, value in restored_view.items() if not callable(value)})
         detail_id = state.get("details_media_id")
         restored_detail_id[0] = str(detail_id).strip() if detail_id not in (None, "") else None
         logger.info(
@@ -251,11 +267,21 @@ async def main(page: ft.Page):
 
     def _navigation_state_payload():
         return {
-            "version": 1,
+            "version": 2,
             "navigation": navigation.snapshot(),
             "home_state": {
                 str(key): value
                 for key, value in home_state.items()
+                if not callable(value)
+            },
+            "organize_state": {
+                str(key): value
+                for key, value in organize_state.items()
+                if not callable(value)
+            },
+            "settings_state": {
+                str(key): value
+                for key, value in settings_state.items()
                 if not callable(value)
             },
             "details_media_id": (
@@ -271,6 +297,7 @@ async def main(page: ft.Page):
             with open(temporary, "w", encoding="utf-8") as handle:
                 json.dump(state, handle, ensure_ascii=False, separators=(",", ":"))
                 handle.flush()
+                os.fsync(handle.fileno())
             os.replace(temporary, navigation_state_path)
         except (OSError, TypeError, ValueError):
             try:
@@ -283,7 +310,7 @@ async def main(page: ft.Page):
     async def _flush_navigation_state():
         navigation_persist["running"] = True
         try:
-            while navigation_persist["pending"] and not navigation_persist["closing"]:
+            while navigation_persist["pending"] and not navigation_persist["closing"] and ui_alive[0]:
                 navigation_persist["pending"] = False
                 await asyncio.to_thread(
                     _write_navigation_state,
@@ -291,11 +318,11 @@ async def main(page: ft.Page):
                 )
         finally:
             navigation_persist["running"] = False
-            if navigation_persist["pending"] and not navigation_persist["closing"]:
+            if navigation_persist["pending"] and not navigation_persist["closing"] and ui_alive[0]:
                 page.run_task(_flush_navigation_state)
 
     def persist_navigation_state():
-        if navigation_persist["closing"]:
+        if navigation_persist["closing"] or not ui_alive[0]:
             return
         navigation_persist["pending"] = True
         if not navigation_persist["running"]:
@@ -346,6 +373,9 @@ async def main(page: ft.Page):
             )
             navigation.replace("home")
             restored_detail_id[0] = None
+    # Restore only reconstructible UI state; durable library/player state remains in SQLite/Android.
+    load_navigation_state()
+
     def _route_for_screen(screen):
         return {
             "home": "/",
@@ -1093,7 +1123,7 @@ async def main(page: ft.Page):
             return result
 
         poll_interval = 0.2
-        while True:
+        while ui_alive[0]:
             try:
                 events = bridge.drain()
                 failed_event_ids = set()
@@ -1562,6 +1592,18 @@ async def main(page: ft.Page):
                             size = int(payload.get('size') or 0)
                             modified_at = int(payload.get('modifiedAt') or 0)
                             media_identity = str(payload.get('mediaIdentity') or '').strip()
+                            thumbnail_key = (uri, size, modified_at)
+                            pending_same_uri = any(key[0] == uri for key in thumbnail_requests)
+                            if pending_same_uri and thumbnail_key not in thumbnail_requests:
+                                # A newer request for the same URI is already pending.
+                                # Do not let a late result for the old media version
+                                # overwrite the current card/artwork.
+                                diagnostics.record(
+                                    "THUMBNAIL_STALE",
+                                    request_id=request_id,
+                                    result="IGNORED",
+                                )
+                                continue
                             metadata = {
                                 "durationMs": float(payload.get('durationMs') or 0),
                                 "width": int(payload.get('width') or 0),
@@ -1581,9 +1623,7 @@ async def main(page: ft.Page):
                                     metadata=metadata,
                                 )
                                 if registered:
-                                    thumbnail_requests.difference_update({
-                                        key for key in thumbnail_requests if key[0] == uri
-                                    })
+                                    thumbnail_requests.discard(thumbnail_key)
                                     if navigation.current in {'home', 'details', 'organize'}:
                                         on_catalog_changed()
                             diagnostics.record(
@@ -1594,9 +1634,14 @@ async def main(page: ft.Page):
                             )
                         elif event_type == 'thumbnail_error':
                             uri = str(payload.get('uri') or '').strip()
-                            thumbnail_requests.difference_update({
-                                key for key in thumbnail_requests if key[0] == uri
-                            })
+                            thumbnail_key = (
+                                uri,
+                                int(payload.get('size') or 0),
+                                int(payload.get('modifiedAt') or 0),
+                            )
+                            pending_same_uri = any(key[0] == uri for key in thumbnail_requests)
+                            if not pending_same_uri or thumbnail_key in thumbnail_requests:
+                                thumbnail_requests.discard(thumbnail_key)
                             diagnostics.record(
                                 "THUMBNAIL_ERROR",
                                 request_id=request_id,
@@ -2008,7 +2053,7 @@ async def main(page: ft.Page):
                 poll_interval = min(1.0, poll_interval * 1.5)
             await asyncio.sleep(poll_interval)
     page.on_login=login_done
-    page.run_task(poll_native_bridge)
+    native_poll_task[0] = page.run_task(poll_native_bridge)
     if recovered_scans:
         page.snack_bar = ft.SnackBar(ft.Text(
             f"{len(recovered_scans)} varredura(s) anterior(es) foram interrompidas e poderão ser refeitas."

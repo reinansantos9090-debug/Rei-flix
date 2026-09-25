@@ -1985,7 +1985,10 @@ class NativePlayerActivity : ComponentActivity() {
             findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
             setControlsVisible(false)
         } else {
-            enterImmersiveMode()
+            // Re-enter according to the configured immersive policy. PiP exit is
+            // a lifecycle/configuration boundary and must not force immersive
+            // when the user's setting says the player should not hide system bars.
+            applyImmersiveAfterLayout()
             if (::player.isInitialized && player.isPlaying && !errorVisible) {
                 touchControls()
             }

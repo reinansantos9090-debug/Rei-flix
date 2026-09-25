@@ -1,85 +1,142 @@
-# Rei-Flix — Prompt 15 / 15.1 Certification
-
-This document describes the evidence-first certification path.
+# Rei-Flix — Prompt 15.2 Certification
 
 ## Scope
 
-Prompt 15.1 reuses the existing Python and Android unit-test suites. It does not add emulator/AVD execution and does not classify instrumentation tests as PASS without a real device.
+Prompt 15.2 closes the evidence gaps left by Prompt 15.1 without rewriting production architecture.
 
 The certification runner is:
 
     python scripts/prompt15_certification.py
 
-In GitHub Actions, after the real APK is built and the rendered Flet Android project exists, the workflow invokes:
+The runner now owns the executable certification evidence for Python, pytest collection, deterministic repeated pytest execution, unittest discovery, skip/xfail auditing, Android unit tests, Gradle lint discovery/execution, ADB availability, APK forensic inspection, and the 201-item matrix.
 
-    python scripts/prompt15_certification.py \
-      --root . \
-      --gradle-root build/flutter/android \
-      --apk build/ReiFlix.apk \
-      --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2"
+## 201-item matrix
+
+The 201 IDs are stable and contain real requirements grouped by area:
+
+- Database / Library
+- Consumption
+- Navigation
+- Player
+- Storage
+- Artwork
+- Search
+- Settings / Theme
+- Home
+- Performance / Static audit
+- Certification / CI / APK
+
+Every row records:
+
+ID, Requirement, Area, Implementation reference, Existing test reference, Command, Execution status, Result, Evidence, Limitation.
+
+The runner rejects the old generic form such as "Prompt 15.1 item N" and derives totals directly from the generated rows.
 
 ## Evidence rules
 
-PASS means the corresponding command or check actually executed and produced the expected result.
+Only these result classifications are permitted:
 
-PARTIAL means related implementation/tests/contracts exist but isolated evidence for the individual requirement is incomplete.
+- PASS
+- PARTIAL
+- FAIL
+- NOT VALIDATED
+- NOT APPLICABLE
+- BLOCKED BY ENVIRONMENT
 
-FAIL means the check executed and failed.
+PASS requires executable evidence. A source path by itself does not become PASS.
 
-NOT VALIDATED means the required validation was intentionally not executed.
+PARTIAL means the implementation/test surface exists but complete executable evidence is incomplete.
 
-BLOCKED BY ENVIRONMENT means the environment prevented execution.
+FAIL means an executable check ran and failed.
 
-Instrumentation, emulator/AVD, physical-device install/update, runtime memory profiling, FPS measurements, and Android 14/15/16 runtime validation remain NOT VALIDATED when no device is available.
+NOT VALIDATED is used for deliberately excluded runtime checks such as physical-device validation, Android 14/15/16 runtime validation, installation/update validation, and profiler-only measurements.
 
-## Generated evidence
+BLOCKED BY ENVIRONMENT is reserved for an executable check that the environment prevented from running.
 
-The runner produces:
+## No-device policy
+
+Prompt 15.2 does not start:
+
+- Android Emulator / AVD
+- connected instrumentation
+- Device Farm
+- API 34/35/36 runtime matrices
+
+adb devices -l is split into:
+
+- ADB tool availability
+- physical/emulator device validation
+
+A zero-device ADB result is never treated as device PASS.
+
+## Executable checks
+
+The runner executes, when the corresponding environment exists:
+
+    python -m compileall .
+    pytest --collect-only -q
+    pytest -q
+    pytest -q
+    python -m unittest discover -s tests -v
+    ./gradlew :app:testDebugUnitTest --no-daemon
+    ./gradlew tasks --all --no-daemon
+    ./gradlew <discovered app lint task> --no-daemon
+
+The two pytest executions are compared for test counts and result consistency.
+
+The collection audit compares repository Python test files with pytest-discovered test files.
+
+The skip/xfail audit covers Python and Android test trees and records an explicit classification for each occurrence.
+
+## APK evidence
+
+When the workflow supplies the real APK, the runner records:
+
+- APK path
+- file size
+- SHA-256
+- package
+- versionName
+- versionCode
+- target SDK
+- manifest presence and selected manifest contracts
+- DEX files and required native host classes
+- packaged resources
+- APK signature verification when apksigner is available
+
+No device installation is required for these APK-only checks.
+
+## Historical regressions
+
+The certification reuses existing tests and source contracts for the previously reported problem areas, including:
+
+- player launch / exit
+- player error events
+- status and navigation bars
+- immersive lifecycle
+- gestures
+- Back and predictive Back
+- PiP contract
+- StorageCapabilities
+- Flet launch_url
+- permission/cancel/scan flows
+- catalog-preservation rules
+- NativeMailbox / NativeIndex
+- parser and thumbnail regressions
+- Theme / Home / performance contracts
+
+Production code is changed only when the executable/static audit exposes an actual defect.
+
+## Generated artifacts
+
+The certification run writes:
 
 - build/prompt15-certification.json
 - build/prompt15-certification.md
 - build/prompt15-201-matrix.json
 
-The matrix contains 201 traceable entries with implementation state, test/evidence source, execution state, result, and limitation.
+The GitHub Actions workflow uploads the three certification artifacts with the prompt15-2-certification artifact name.
 
-## APK evidence
+## Final status
 
-When an APK is supplied, the runner records the real file path, size, SHA-256, manifest presence, DEX files, and presence of the Rei-Flix native host classes. The repository's dedicated APK host and manifest verifiers are also executed when their required tools are available.
-
-## Emulator policy
-
-Prompt 15.1 intentionally does not start AVDs, Android emulators, API 34/35/36 matrices, Device Farm jobs, or connected instrumentation runs.
-
-This is a validation-scope restriction only. It does not remove or weaken the Android 14/15/16 production implementation.
-
-## Historical regressions
-
-Historical problems are audited through the existing tests and source contracts, including player launch/exit, system UI, gestures, Back, storage permissions, scanner/catalog protection, StorageCapabilities, Flet launch_url compatibility, parser cases, thumbnail callbacks, NativeMailbox, NativeIndex, lifecycle, rotation, Theme, and Home performance.
-
-A production change is made only when the audit exposes an actual defect.
-
-## Latest completed certification run
-
-- Workflow run: 36158703367
-- Final repository HEAD used by the run: ccd053c1c69572e5bfc6e52325bdbec5114eb4af
-- Classification: **CERTIFICATION PARTIAL**
-- 201-item matrix: 26 PASS, 151 PARTIAL, 0 FAIL, 23 NOT VALIDATED, 0 NOT APPLICABLE, 1 BLOCKED BY ENVIRONMENT.
-- Python regression: **848 passed, 10 subtests passed**.
-- Python compileall: PASS (the workflow's exact `python -m compileall .` gate passed before certification).
-- unittest discovery: PASS.
-- Android rendered-project unit tests: PASS; `BUILD SUCCESSFUL`.
-- APK forensic inspection: PASS.
-- Effective packaged manifest verification: PASS.
-- APK: `build/ReiFlix.apk`, 144083010 bytes.
-- SHA-256: `f6f35ab9137035f7d498e71c8a20467040a5867c5f1676a8623e7b40a0bb0290`.
-- Package: `com.reiflix.reiflix_local`.
-- versionName: `0.2.1`; versionCode: `1802`; compileSdk/targetSdk: `36`; minSdk: `24`.
-- AGP: `8.6.1`; Kotlin: `2.0.21`; Gradle: `8.14`; JDK: `17`; Flet: `0.86.5`.
-- APK signing mode: ephemeral-debug; certificate SHA-256: `8a82a043c654864d6c9e433b36549feba86876be1ddefb63ef2bd8e5a6459c3b`.
-- Emulator/AVD: **NOT EXECUTED** by policy.
-- Physical device: **NOT VALIDATED**.
-- Android 14/15/16 runtime matrix: **NOT VALIDATED**.
-- Installation/update/clean-install runtime checks: **NOT VALIDATED**.
-- Runtime memory/FPS/profiler measurements: **NOT VALIDATED**.
-
-The run completed without a certification-runner FAIL. The remaining PARTIAL/NOT VALIDATED results are evidence-scope limitations or requirements whose individual behavior needs device/runtime/isolated evidence; they are not silently promoted to PASS.
+The final classification and 201-item totals in this document are intentionally sourced from the actual Prompt 15.2 workflow run rather than manually copied numbers. The workflow is blocking on executable failures, while explicit no-device limitations remain NOT VALIDATED.

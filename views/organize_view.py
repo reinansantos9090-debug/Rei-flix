@@ -216,7 +216,7 @@ class OrganizeView:
                         ft.Icon(ft.Icons.PUSH_PIN, color=theme.text_on_overlay, size=15),
                         top=7,
                         left=7,
-                        bgcolor="#181720CC",
+                        bgcolor=theme.overlay,
                         border_radius=12,
                         padding=4,
                     )
@@ -251,7 +251,7 @@ class OrganizeView:
                         ft.Text(
                             "Não identificado",
                             size=10,
-                            color="#F2B84B",
+                            color=theme.warning,
                             visible=not identified,
                         ),
                         ft.Text(
@@ -263,8 +263,8 @@ class OrganizeView:
                         ),
                         ft.ProgressBar(
                             value=ratio,
-                            color="#E50914",
-                            bgcolor="#3C3948",
+                            color=theme.primary,
+                            bgcolor=theme.surface_variant,
                             bar_height=3,
                             visible=(
                                 ratio is not None
@@ -282,7 +282,7 @@ class OrganizeView:
             if back_handler:
                 left = ft.IconButton(
                     icon=ft.Icons.ARROW_BACK,
-                    icon_color="#FFFFFF",
+                    icon_color=theme.text_on_overlay,
                     tooltip="Voltar",
                     on_click=back_handler,
                 )
@@ -329,12 +329,12 @@ class OrganizeView:
                                 title,
                                 size=21,
                                 weight=ft.FontWeight.BOLD,
-                                color="#F7F5FA",
+                                color=theme.text,
                             ),
                             ft.Text(
                                 "Explore sua biblioteca local",
                                 size=11,
-                                color="#AAA7B6",
+                                color=theme.text_muted,
                             ),
                         ],
                         spacing=1,

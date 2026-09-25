@@ -208,9 +208,15 @@ jobs:
             --yes -v
 
       - name: Run Android unit tests
-        working-directory: build/flutter/android
         shell: bash
-        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+        run: |
+          test -f build/flutter/android/gradlew
+          chmod +x build/flutter/android/gradlew
+          mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
+          export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
+          test -d "$SERIOUS_PYTHON_SITE_PACKAGES"
+          cd build/flutter/android
+          ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Verify packaged APK identity, signature and effective manifest
         shell: bash

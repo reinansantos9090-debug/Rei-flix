@@ -8,6 +8,7 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
     def test_runner_marks_device_unvalidated(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); (root/"tests").mkdir()
+            (root/"tests"/"__init__.py").write_text("",encoding="utf-8")
             (root/"tests"/"test_sample.py").write_text("import unittest\n\nclass SampleTests(unittest.TestCase):\n    def test_sample(self):\n        self.assertTrue(True)\n",encoding="utf-8")
             report=root/"report.json"; markdown=root/"report.md"
             subprocess.run(["git","init","-q",str(root)],check=True)

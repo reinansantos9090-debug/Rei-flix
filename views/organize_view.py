@@ -289,7 +289,7 @@ class OrganizeView:
             else:
                 left = ft.IconButton(
                     icon=ft.Icons.HOME_OUTLINED,
-                    icon_color="#FFFFFF",
+                    icon_color=theme.text_on_overlay,
                     tooltip="Início",
                     on_click=lambda _event: on_back(),
                 )
@@ -298,7 +298,7 @@ class OrganizeView:
                 actions.append(
                     ft.IconButton(
                         icon=ft.Icons.FOLDER_OPEN_OUTLINED,
-                        icon_color="#FFFFFF",
+                        icon_color=theme.text_on_overlay,
                         tooltip="Solicitar acesso ao armazenamento",
                         on_click=handle_request_storage,
                     )
@@ -307,7 +307,7 @@ class OrganizeView:
                 actions.append(
                     ft.IconButton(
                         icon=ft.Icons.REFRESH,
-                        icon_color="#FFFFFF",
+                        icon_color=theme.text_on_overlay,
                         tooltip="Atualizar biblioteca",
                         on_click=handle_scan_storage,
                     )
@@ -315,7 +315,7 @@ class OrganizeView:
             actions.append(
                 ft.IconButton(
                     icon=ft.Icons.SETTINGS_OUTLINED,
-                    icon_color="#FFFFFF",
+                    icon_color=theme.text_on_overlay,
                     tooltip="Configurações",
                     on_click=lambda _event: on_open_settings(),
                 )
@@ -412,7 +412,7 @@ class OrganizeView:
                                 [
                                     ft.Text(
                                         label.upper(),
-                                        color="#FFFFFF",
+                                        color=theme.text_on_overlay,
                                         size=14,
                                         weight=ft.FontWeight.BOLD,
                                         max_lines=2,

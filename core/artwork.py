@@ -630,6 +630,53 @@ class ArtworkEngine:
             ).fetchall()]
         return rows
 
+    def resolve_local_batch(self, entity_type, entity_ids, artwork_types=("episode_thumbnail", "poster")):
+        """Resolve local artwork for many entities with one SQLite read."""
+        entity_type = self._entity(entity_type, "")
+        normalized_ids = []
+        seen = set()
+        for value in entity_ids or []:
+            key = str(value).strip()
+            if key and key not in seen:
+                seen.add(key)
+                normalized_ids.append(key)
+        types = [self._type(value) for value in artwork_types or () if value]
+        if not normalized_ids or not types:
+            return {}
+
+        marks_ids = ",".join("?" for _ in normalized_ids)
+        marks_types = ",".join("?" for _ in types)
+        with self.store._conn() as con:
+            rows = con.execute(
+                f"""SELECT * FROM artwork
+                    WHERE entity_type=?
+                      AND entity_id IN ({marks_ids})
+                      AND artwork_type IN ({marks_types})
+                      AND status != 'failed'
+                    ORDER BY entity_id, priority DESC, updated_at DESC, id DESC""",
+                [entity_type, *normalized_ids, *types],
+            ).fetchall()
+
+        preference = {value: index for index, value in enumerate(types)}
+        result = {}
+        for row in rows:
+            entity_id = str(row["entity_id"])
+            artwork_type = str(row["artwork_type"])
+            current = result.get(entity_id)
+            candidate_rank = preference.get(artwork_type, len(preference))
+            if current is not None and current[0] <= candidate_rank:
+                continue
+            path = row["local_path"]
+            valid = False
+            if path:
+                try:
+                    valid = self._is_valid_image_file(path) if row["source"] in {"cache", "anilist", "generated"} else os.path.isfile(path)
+                except OSError:
+                    valid = False
+            if valid:
+                result[entity_id] = (candidate_rank, dict(row))
+        return {entity_id: row for entity_id, (_, row) in result.items()}
+
     def get(self, entity_type, entity_id, artwork_type, *, allow_network=False):
         """Return a valid cached artwork immediately, never requiring network."""
         entity_type = self._entity(entity_type, entity_id)

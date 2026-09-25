@@ -84,8 +84,12 @@ class Prompt7SearchDetailsOrganizeTests(unittest.TestCase):
     def test_details_manual_identification_dialog_has_real_lifecycle(self):
         source = (ROOT / "views" / "details_view.py").read_text(encoding="utf-8")
         target = source[source.index("def edit_identification"):source.index("def episode_item")]
-        self.assertIn("dialog = ft.AlertDialog(", target)
-        self.assertNotIn("dialog = None\n            saving", target)
+        self.assertEqual(target.count("dialog = ft.AlertDialog("), 1)
+        self.assertIn("dialog = None\n            saving", target)
+        self.assertLess(
+            target.index("dialog = None\n            saving"),
+            target.index("dialog = ft.AlertDialog("),
+        )
 
     def test_home_search_uses_the_existing_transient_search_state(self):
         home = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
@@ -101,8 +105,15 @@ class Prompt7SearchDetailsOrganizeTests(unittest.TestCase):
         home = (ROOT / "views/home_view.py").read_text(encoding="utf-8")
         self.assertIn('states = [str(value) for value in (options.get("states") or []) if value]', home)
         self.assertIn('state_filter.options = [ft.dropdown.Option(value, value) for value in states]', home)
-        for state in ("Favoritos", "Fixados", "Assistidos", "Não assistidos", "Em andamento", "Concluídos", "Não iniciados", "Com nota", "Sem nota", "Sem metadata", "Sem capa"):
-            self.assertIn(state, home)
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            service = LibraryService(store)
+            supported = set(service.search_options().get("states") or [])
+        self.assertTrue({
+            "Favoritos", "Fixados", "Assistidos", "Não assistidos",
+            "Em andamento", "Concluídos", "Não iniciados", "Com nota",
+            "Sem nota", "Sem metadata", "Sem capa",
+        }.issubset(supported))
 
     def test_organize_stays_on_library_service_and_bounded_page_api(self):
         organize = (ROOT / "views" / "organize_view.py").read_text(encoding="utf-8")

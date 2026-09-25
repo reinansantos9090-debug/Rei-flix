@@ -478,7 +478,7 @@ class DetailView:
             elif state.value == "in_progress":
                 icon, status, color = ft.Icons.PLAY_CIRCLE_FILL, f"Em andamento • {int((episode_ratio or 0) * 100)}%", ACCENT
             else:
-                icon, status, color = ft.Icons.PLAY_CIRCLE_OUTLINE, "Disponível localmente", "#AAA7B6"
+                icon, status, color = ft.Icons.PLAY_CIRCLE_OUTLINE, "Disponível localmente", theme.text_muted
             if episode.get("manual_override"):
                 identification = "✎ Correção manual"
             elif episode.get("identification_confidence") == "low" or episode.get("episode_type") == "unknown":

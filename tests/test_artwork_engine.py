@@ -372,6 +372,37 @@ class ArtworkEngineTests(unittest.TestCase):
             metadata=metadata,
         ))
 
+    def test_local_artwork_batch_prefers_thumbnail_and_falls_back_to_poster(self):
+        anime = self._media("Batch")
+        first_path = str(Path(self.tmp.name) / "Batch S01E01.mkv")
+        second_path = str(Path(self.tmp.name) / "Batch S01E02.mkv")
+        first = self._episode(anime, first_path, "Batch S01E01.mkv")
+        second = self._episode(anime, second_path, "Batch S01E02.mkv")
+
+        first_thumb = Path(self.tmp.name) / "first-thumb.jpg"
+        second_poster = Path(self.tmp.name) / "second-poster.jpg"
+        first_thumb.write_bytes(JPEG)
+        second_poster.write_bytes(JPEG)
+
+        self.assertTrue(self.engine.register_generated_thumbnail(first_path, first_thumb, size=100, modified_at=1))
+        with self.store._conn() as con:
+            con.execute(
+                "INSERT INTO artwork(entity_type,entity_id,artwork_type,source,source_ref,local_path,status,discovered_at,updated_at,priority) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                ("episode", str(second), "poster", "manual", "batch-test", str(second_poster), "ready", time.time(), time.time(), 10),
+            )
+
+        result = self.engine.resolve_local_batch(
+            "episode",
+            [first, second],
+            ("episode_thumbnail", "poster"),
+        )
+
+        self.assertEqual(result[str(first)]["artwork_type"], "episode_thumbnail")
+        self.assertEqual(result[str(first)]["local_path"], str(first_thumb))
+        self.assertEqual(result[str(second)]["artwork_type"], "poster")
+        self.assertEqual(result[str(second)]["local_path"], str(second_poster))
+
     def test_metadata_integration_uses_existing_engine(self):
         service = LibraryService(self.store)
         anime = self._media()

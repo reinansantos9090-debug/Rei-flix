@@ -263,8 +263,9 @@ class ScanCoordinatorSourceContractTests(unittest.TestCase):
         start = source.index("private fun scheduleMediaStoreIncrementalRescan()")
         end = source.index("private val storageReceiver", start)
         block = source[start:end]
-        self.assertIn('publishScanRequest(', block)
-        self.assertIn('"MEDIASTORE_CHANGE"', block)
+        self.assertIn('scheduleMediaStoreScanRequest(', block)
+        self.assertIn('"content_observer_debounce"', block)
+        self.assertIn("applicationContext", block)
         self.assertNotIn("scanMediaStore(null)", block)
 
     def test_storage_receiver_does_not_start_scanners_directly(self):

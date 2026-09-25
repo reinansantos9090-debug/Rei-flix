@@ -16,6 +16,7 @@ from core.backup import BackupError, BackupService
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
 from core.settings import SettingsStore
+from core.ui import apply_page_theme
 from core.recovery import RecoveryService
 from views.recovery_view import RecoveryView
 from core.google_account import normalize_google_profile
@@ -31,12 +32,12 @@ GOOGLE_REDIRECT_URL = os.getenv('REIFLIX_GOOGLE_REDIRECT_URL', CONFIG_GOOGLE_RED
 GOOGLE_WEB_CLIENT_ID = os.getenv('REIFLIX_GOOGLE_WEB_CLIENT_ID', CONFIG_GOOGLE_WEB_CLIENT_ID)
 
 async def main(page: ft.Page):
-    page.title='Rei-Flix Local'; page.theme_mode=ft.ThemeMode.DARK; page.bgcolor='#16151F'; page.padding=0
+    page.title='Rei-Flix Local'; page.padding=0
+    apply_page_theme(page, "dark")
     try:
         page.on_disconnect = lambda _e: ui_alive.__setitem__(0, False)
     except Exception as exc:
         logger.warning("[FLET] on_disconnect hook unavailable: %s", exc)
-    page.theme=ft.Theme(color_scheme_seed='#E50914',font_family='Roboto')
     data_dir=os.getenv("FLET_APP_STORAGE_DATA") or os.path.join(os.path.dirname(__file__),'.reiflix-data')
     store=LibraryStore(data_dir)
     recovery_service = RecoveryService(store)
@@ -68,11 +69,7 @@ async def main(page: ft.Page):
         page.update()
         return
     settings=SettingsStore(store)
-    page.theme_mode = {
-        "system": ft.ThemeMode.SYSTEM,
-        "light": ft.ThemeMode.LIGHT,
-        "dark": ft.ThemeMode.DARK,
-    }[settings.get("appearance.theme")]
+    apply_page_theme(page, settings.get("appearance.theme"))
     recovered_scans=store.interrupted_scans()
     library=LibraryService(store, settings=settings); bridge=AndroidBridge(data_dir, page); current=[None]
     account_state=["connected" if store.account().get("email") else "disconnected"]
@@ -194,6 +191,7 @@ async def main(page: ft.Page):
     # the catalog itself is still read afresh from SQLite on each view entry.
     home_state = {}
     organize_state = {}
+    settings_state = {}
     navigation = NavigationController()
     saf_selection = SafSelectionState()
     # One Python navigation stack, one persistent Flet host, and cached
@@ -429,6 +427,7 @@ async def main(page: ft.Page):
                 on_resolve_match=resolve_match,
                 storage_snapshot=storage_capabilities[0], scan_snapshot=scan_state[0],
                 settings=settings,
+                view_state=settings_state,
                 on_check_video_access=check_video_access,
                 on_create_backup=create_backup,
                 on_inspect_backup=inspect_backup,
@@ -589,13 +588,29 @@ async def main(page: ft.Page):
         render_current()
 
     def apply_settings_runtime(key, _value):
+        setting_key = str(key)
+        if setting_key == "appearance.theme":
+            # Theme changes invalidate only Python/Flet control trees. Navigation,
+            # query/filter state, scroll snapshots and all domain/storage/player
+            # state remain owned by their existing controllers.
+            apply_page_theme(page, settings.get("appearance.theme"))
+            screen_cache.clear()
+            render_current(force=True)
+            return
         library.configure_settings(settings)
-        if str(key).startswith(("appearance.", "library.")):
+        if setting_key.startswith(("appearance.", "library.")):
             screen_cache.pop("home", None)
             screen_cache.pop("organize", None)
             current_route = navigation.current
             if current_route in {"home", "organize"}:
                 render_current()
+
+    def handle_platform_brightness_change(_event=None):
+        if settings.get("appearance.theme") != "system":
+            return
+        apply_page_theme(page, "system")
+        screen_cache.clear()
+        render_current(force=True)
     async def remove_folder(reference):
         if scan_coordinator.active or saf_selection.pending:
             page.snack_bar = ft.SnackBar(ft.Text("Aguarde a atualização ou a seleção de pasta terminar antes de remover uma pasta."))
@@ -794,6 +809,10 @@ async def main(page: ft.Page):
             clear_persisted_navigation_state()
             page.window.close()
     page.on_view_pop = handle_flet_view_pop
+    try:
+        page.on_platform_brightness_change = handle_platform_brightness_change
+    except Exception as exc:
+        logger.warning("[FLET] platform brightness callback unavailable: %s", exc)
     def refresh_settings_if_active():
         if navigation.current == "settings":
             render_current(force=True)

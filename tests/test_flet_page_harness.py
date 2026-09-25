@@ -1,0 +1,38 @@
+"""Small Flet Page async harness used by UI tests.
+
+It mirrors Page.run_task semantics closely enough for synchronous unit tests:
+callable callbacks are invoked, awaitables are awaited when no loop is running,
+and scheduled when an event loop is already active.
+"""
+from __future__ import annotations
+
+import asyncio
+import inspect
+
+
+class AsyncRunTaskMixin:
+    def run_task(self, task_or_factory):
+        result = task_or_factory() if callable(task_or_factory) else task_or_factory
+        if not inspect.isawaitable(result):
+            return result
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(result)
+
+        task = loop.create_task(result)
+        handles = getattr(self, "_run_task_handles", None)
+        if handles is None:
+            handles = self._run_task_handles = set()
+        handles.add(task)
+
+        def finish(done):
+            handles.discard(done)
+            try:
+                done.exception()
+            except asyncio.CancelledError:
+                pass
+
+        task.add_done_callback(finish)
+        return task

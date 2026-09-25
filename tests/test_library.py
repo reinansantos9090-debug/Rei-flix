@@ -18,6 +18,7 @@ from core.organizer_ai import AnimeOrganizer, normalize
 from views.home_view import HomeView
 from views.organize_view import OrganizeView
 from views.details_view import DetailView
+from tests.test_flet_page_harness import AsyncRunTaskMixin
 
 
 def anilist_media(anilist_id=1, english='Jujutsu Kaisen', romaji=None, synonyms=None):
@@ -1688,15 +1689,9 @@ class DetailsViewTests(unittest.TestCase):
 
 
 class OrganizeTests(unittest.TestCase):
-    class FakePage:
+    class FakePage(AsyncRunTaskMixin):
         def update(self): pass
         def run_thread(self, work): work()
-        def run_task(self, task_fn):
-            try:
-                asyncio.get_running_loop()
-            except RuntimeError:
-                return asyncio.run(task_fn())
-            return None
 
     def _catalog(self, directory):
         store = LibraryStore(directory)
@@ -1925,7 +1920,6 @@ class OrganizeTests(unittest.TestCase):
 
     def test_organize_view_action_triggers(self):
         page = self.FakePage()
-        page.run_task = lambda task_fn: task_fn() if callable(task_fn) else None
         requested = [False]
         scanned = [False]
         def req():

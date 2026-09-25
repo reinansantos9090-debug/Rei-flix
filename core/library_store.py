@@ -229,6 +229,10 @@ class LibraryStore:
             c.execute("CREATE INDEX IF NOT EXISTS idx_artwork_retry ON artwork(status, next_retry_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_anime_pinned ON anime(is_pinned, added_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_anime_media_kind ON anime(media_kind, added_at)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_anime_added_title ON anime(added_at DESC, title COLLATE NOCASE, id DESC)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_anime_favorite_added ON anime(favorite, added_at DESC, id DESC)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_resume ON episodes(missing, last_played_at DESC, anime_id, episode_type)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_season_number ON episodes(season, number, anime_id)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_hierarchy ON episodes(anime_id, episode_type, season, number, absolute_number)")
             c.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?,?)", (self.SCHEMA_VERSION, time.time()))
         # A process can disappear between begin_scan() and finish_scan().
@@ -2418,31 +2422,58 @@ class LibraryStore:
         return sorted(specials, key=self._episode_order_key)[0] if specials else None
 
     def continue_watching(self, limit=12):
-        """One playable continuation per anime, ordered by latest playback."""
+        """Return only the latest resumable episode per anime without loading the full episode table."""
+        try:
+            limit = max(1, min(100, int(limit)))
+        except (TypeError, ValueError):
+            limit = 12
+        completed_sql = """(
+            e.watched=1 OR
+            (e.duration>0 AND
+             MIN(MAX(COALESCE(e.progress,0),0),e.duration) / e.duration >= 0.90)
+        )"""
         with self._conn() as c:
-            rows = c.execute("""SELECT e.*, a.title AS anime_title, a.media_kind, a.cover_cache, a.cover_url
-                FROM episodes e JOIN anime a ON a.id=e.anime_id
-                ORDER BY e.anime_id, e.season, e.number, e.file_name""").fetchall()
-        groups = {}
-        for row in rows:
-            groups.setdefault(row["anime_id"], []).append(dict(row))
-        items = []
-        for anime_id, episodes in groups.items():
-            is_movie = str(episodes[0].get("media_kind") or "series").casefold() == "movie"
-            available = [
-                episode for episode in episodes
-                if not episode["missing"] and (is_movie or is_regular_episode(episode))
-            ]
-            active = [episode for episode in available if is_in_progress(episode)]
-            if not active:
-                # Continue Watching is strictly a projection of resumable media.
-                # The next episode belongs to the separate Next Episode projection.
-                continue
-            episode = max(active, key=lambda entry: entry.get("last_played_at") or 0)
-            first = episodes[0]
-            items.append({"anime_id": anime_id, "anime_title": first["anime_title"],
-                          "cover": first["cover_cache"] or first["cover_url"], **episode})
-        return sorted(items, key=lambda item: item.get("last_played_at") or 0, reverse=True)[:limit]
+            rows = c.execute(
+                f"""
+                WITH ranked AS (
+                    SELECT
+                        e.*,
+                        a.title AS anime_title,
+                        a.media_kind,
+                        a.cover_cache,
+                        a.cover_url,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY e.anime_id
+                            ORDER BY COALESCE(e.last_played_at, 0) DESC, e.id DESC
+                        ) AS resume_rank
+                    FROM episodes e
+                    JOIN anime a ON a.id=e.anime_id
+                    WHERE e.missing=0
+                      AND COALESCE(e.progress,0)>0
+                      AND NOT {completed_sql}
+                      AND (
+                          a.media_kind='movie'
+                          OR LOWER(COALESCE(e.episode_type,'regular'))
+                             NOT IN ('special','ova','oad','ona','extra','movie')
+                      )
+                )
+                SELECT *
+                FROM ranked
+                WHERE resume_rank=1
+                ORDER BY COALESCE(last_played_at,0) DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "anime_id": row["anime_id"],
+                "anime_title": row["anime_title"],
+                "cover": row["cover_cache"] or row["cover_url"],
+                **dict(row),
+            }
+            for row in rows
+        ]
 
     def playback_history(self, limit=50):
         """Latest state for played local episodes; one durable row per episode."""

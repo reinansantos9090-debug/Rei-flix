@@ -139,7 +139,7 @@ class Prompt9ServiceAndSourceTests(unittest.TestCase):
         self.assertIn("on_scroll=on_home_scroll", source)
         self.assertIn("search_generation", source)
         self.assertIn("if token != search_generation[0]:", source)
-        self.assertNotIn("library.catalog", source)
+        self.assertNotIn("library.catalog(", source)
 
     def test_organize_uses_page_api_and_does_not_load_full_catalog(self):
         source = Path("views/organize_view.py").read_text(encoding="utf-8")

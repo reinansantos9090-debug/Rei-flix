@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from core.storage_access import StorageCapabilities
+from tests.test_flet_page_harness import AsyncRunTaskMixin
 from views.settings_view import SettingsView
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +36,7 @@ class UiStateTests(unittest.TestCase):
                 }
             def clear_anilist_cache(self): return 0
 
-        class Page:
+        class Page(AsyncRunTaskMixin):
             def update(self): return None
             def show_dialog(self, dialog): return None
             def pop_dialog(self): return None

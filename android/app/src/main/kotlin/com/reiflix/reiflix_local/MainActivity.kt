@@ -907,7 +907,7 @@ class MainActivity : FlutterFragmentActivity() {
             SafScanner.identityPayload(treeUri).put("scopeKind", "root").put("scopeRef", SafScanner.treeIdentity(treeUri).identity).put("scanId", scanId)
         )
         val appContext = applicationContext
-        val job = CoroutineScope(Dispatchers.IO).launch {
+        CoroutineScope(Dispatchers.IO).launch {
             try {
                 NativeIndex.markGenerationRunning(appContext, NativeIndex.SOURCE_SAF, scanKey, generationId)
                 NativeMailbox.write(appContext, JSONObject().put("type", "saf_scan_progress")
@@ -1312,7 +1312,7 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         val appContext = applicationContext
-        val job = CoroutineScope(Dispatchers.IO).launch {
+        CoroutineScope(Dispatchers.IO).launch {
             try {
                 val result = BroadStorageScanner.scan(
                     appContext,
@@ -1364,10 +1364,8 @@ class MainActivity : FlutterFragmentActivity() {
                         .put("error", exception.message ?: "Broad storage scan failed")))
             } finally {
                 NativeScanController.finish(scanId)
-                synchronized(activeNativeScanJobs) { activeNativeScanJobs.remove(scanId) }
             }
         }
-        synchronized(activeNativeScanJobs) { activeNativeScanJobs[scanId] = job }
     }
 
     private fun scanMediaStore(requestId: String? = null) {
@@ -1387,7 +1385,7 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         val appContext = applicationContext
-        val job = CoroutineScope(Dispatchers.IO).launch {
+        CoroutineScope(Dispatchers.IO).launch {
             try {
                 NativeMailbox.write(appContext, JSONObject().put("type", "mediastore_scan_progress")
                     .put("payload", JSONObject().put("source", MediaStoreScanner.SOURCE).put("scanId", scanId)
@@ -1421,15 +1419,11 @@ class MainActivity : FlutterFragmentActivity() {
                 if (finalStatus == NativeIndex.STATUS_WAITING_FOR_MEDIASTORE) {
                     NativeMailbox.write(appContext, JSONObject().put("type", "diagnostic")
                         .put("payload", JSONObject().put("event", "WAITING_FOR_MEDIASTORE").put("scanId", scanId).put("requestId", requestId ?: "")))
-                    mediaStoreRescanHandler.postDelayed({
-                        if (activityResumed && MediaStoreScanner.hasReadPermission(this@MainActivity)) {
-                            scheduleMediaStoreScanRequest(
-                                applicationContext,
-                                reason = "media_store_indexing_completed",
-                                triggerRequestId = requestId,
-                            )
-                        }
-                    }, 900L)
+                    scheduleMediaStoreScanRequest(
+                        appContext,
+                        reason = "media_store_indexing_completed",
+                        triggerRequestId = requestId,
+                    )
                 }
                 NativeMailbox.writeOrThrow(appContext, JSONObject().put("type", "mediastore_scan")
                     .put("requestId", requestId ?: "").put("payload", result))
@@ -1446,10 +1440,8 @@ class MainActivity : FlutterFragmentActivity() {
                         .put("access", MediaStoreScanner.accessLevel(appContext))))
             } finally {
                 NativeScanController.finish(scanId)
-                synchronized(activeNativeScanJobs) { activeNativeScanJobs.remove(scanId) }
             }
         }
-        synchronized(activeNativeScanJobs) { activeNativeScanJobs[scanId] = job }
     }
 
     private fun cancelNativeScans(requestId: String? = null) {

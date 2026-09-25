@@ -179,7 +179,7 @@ object MediaStoreScanner {
                             .put("mediaId",id).put("mimeType",mime).put("size",if(sizeCol>=0&&!cursor.isNull(sizeCol))cursor.getLong(sizeCol)else 0L).put("modifiedAt",if(modCol>=0&&!cursor.isNull(modCol))cursor.getLong(modCol)*1000L else 0L)
                         if(gaCol>=0&&!cursor.isNull(gaCol))item.put("generationAdded",cursor.getLong(gaCol))
                         if(gmCol>=0&&!cursor.isNull(gmCol))item.put("generationModified",cursor.getLong(gmCol))
-                        batches.add(item);videos++
+                        batches.add(item);videos++;volumeVideos++
                         if(videos%100==0)onProgress?.invoke(JSONObject().put("phase","scanning").put("source",SOURCE).put("volumeId",volumeName).put("files",files).put("videos",videos))
                     }
                 }?:localErrors.put("O MediaStore não conseguiu consultar o volume "+volumeName+".")
@@ -248,7 +248,7 @@ object MediaStoreScanner {
             .put("stats",JSONObject().put("files",files).put("videos",videos).put("errors",errors).put("access",access)
                 .put("canScan", StorageAuthorization.canScanMediaStore(accessState))
                 .put("canReconcile", StorageAuthorization.canReconcileMediaStore(accessState))
-                .put("status", when { cancelled -> "cancelled"; waitingForMediaStore -> NativeIndex.STATUS_WAITING_FOR_MEDIASTORE; errors.length()>0 -> "partial"; else -> "completed" })
+                .put("status", when { cancelled -> "cancelled"; waitingForMediaStore -> NativeIndex.STATUS_WAITING_FOR_MEDIASTORE; errors.length()>0 -> "partial"; access!="full" -> "partial"; else -> "completed" })
                 .put("waitingForMediaStore", waitingForMediaStore))
             .put("partial",errors.length()>0||cancelled||waitingForMediaStore||access!="full").put("cancelled",cancelled)
     }

@@ -310,11 +310,12 @@ class SettingsView:
         search.on_change = render_settings
 
         normalized = normalize_storage_snapshot(storage_snapshot)
-        snap = normalized.as_mapping()
-        media_state = str(snap.get("mediaReadState", "denied")).casefold()
-        broad_state = str(snap.get("broadStorageState", "unavailable")).casefold()
-        saf_roots = tuple(snap.get("safRoots", ()) or ())
-        volumes = tuple(snap.get("removableVolumes", ()) or ())
+        # StorageCapabilities is a typed model; keep Settings on its public
+        # attributes instead of depending on dict-style compatibility helpers.
+        media_state = str(normalized.media_read_state or "denied").casefold()
+        broad_state = str(normalized.broad_storage_state or "unavailable").casefold()
+        saf_roots = tuple(normalized.saf_roots or ())
+        volumes = tuple(normalized.removable_volumes or ())
         scan = scan_snapshot or {}
         runtime_status = str(scan.get("state") or "IDLE").upper()
         running_scan = runtime_status in {"CHECKING", "SCANNING", "WAITING_FOR_MEDIASTORE"}

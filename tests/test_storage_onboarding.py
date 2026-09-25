@@ -7,6 +7,15 @@ from core.storage_access import StorageAccessState, StorageCapabilities, storage
 ROOT = Path(__file__).resolve().parents[1]
 
 class StorageOnboardingTests(unittest.TestCase):
+    def test_settings_consumes_typed_storage_capabilities_attributes(self):
+        source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
+        block = source[source.index("normalized = normalize_storage_snapshot"):source.index("scan = scan_snapshot", source.index("normalized = normalize_storage_snapshot"))]
+        self.assertIn("normalized.media_read_state", block)
+        self.assertIn("normalized.broad_storage_state", block)
+        self.assertIn("normalized.saf_roots", block)
+        self.assertIn("normalized.removable_volumes", block)
+        self.assertNotIn("snap.get(", block)
+
     def test_storage_capabilities_normalize_native_snapshot(self):
         capabilities = StorageCapabilities.from_native({
             "mediaReadState": "partial",
@@ -146,6 +155,14 @@ class StorageOnboardingTests(unittest.TestCase):
             idx = source.find(marker)
             self.assertGreaterEqual(idx, 0, event_name)
             self.assertIn("NativeMailbox.writeOrThrow", source[max(0, idx - 120):idx + 260], event_name)
+
+    def test_native_mailbox_uses_atomic_move_with_non_atomic_fallback(self):
+        source = (ROOT / "core" / "android_bridge.py").read_text(encoding="utf-8")
+        native = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt").read_text(encoding="utf-8")
+        self.assertIn("ATOMIC_MOVE", native)
+        self.assertIn("StandardCopyOption.REPLACE_EXISTING", native)
+        self.assertIn("event-*.json", source)
+        self.assertNotIn("event-*.json.tmp", source)
 
     def test_native_mailbox_drain_does_not_silently_hide_io_or_json_failures(self):
         source = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
@@ -393,8 +410,12 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("EVENT_VERSION = 2", mailbox)
         self.assertIn('put("eventType", eventType(event))', mailbox)
         self.assertIn("stream.fd.sync()", mailbox)
-        self.assertIn("temp.renameTo(target)", mailbox)
+        self.assertIn("Files.move(", mailbox)
+        self.assertIn("StandardCopyOption.ATOMIC_MOVE", mailbox)
+        self.assertIn("StandardCopyOption.REPLACE_EXISTING", mailbox)
+        self.assertIn("AtomicMoveNotSupportedException", mailbox)
         self.assertIn("requestId", mailbox)
+        self.assertNotIn("temp.renameTo(target)", mailbox)
 
     def test_runtime_capabilities_are_single_python_snapshot(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")

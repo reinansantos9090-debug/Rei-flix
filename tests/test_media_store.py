@@ -43,6 +43,7 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
         self.assertIn("val complete=StorageAuthorization.canReconcileMediaStore(accessState)", scanner)
         self.assertIn("accessState", scanner)
         self.assertIn('access!="full"', scanner)
+        self.assertIn("videos++;volumeVideos++", scanner)
 
     def test_storage_authorization_explicitly_separates_scan_from_reconciliation(self):
         source = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "StorageAuthorization.kt").read_text(encoding="utf-8")

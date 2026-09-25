@@ -259,6 +259,9 @@ def main():
         md.append("| "+" | ".join(vals)+" |")
     a.report.write_text("\n".join(md)+"\n",encoding="utf-8")
     print("Prompt 15.2 classification:",classification); print("Matrix counts:",counts); print("pytest first:",payload["pytest_first"]); print("pytest second:",payload["pytest_second"]); print("unittest:",payload["unittest"]); print("skip/xfail:",skip_audit["count"]); print("ADB:",adb); print("JSON report:",a.output); print("Markdown report:",a.report)
+    if r["pytest"].status == FAIL:
+        print("PYTEST FAILURE OUTPUT (last 20000 chars):")
+        print(r["pytest"].stdout[-20000:])
     return 1 if classification=="NOT CERTIFIED" else 0
 
 if __name__=="__main__": raise SystemExit(main())

@@ -366,7 +366,7 @@ jobs:
             --expected-version-code "$GITHUB_RUN_NUMBER" \
             --expected-version-name "0.2.1"
 
-      - name: Run Prompt 15.3 evidence certification (no emulator)
+      - name: Run Prompt 15.5 evidence certification (no emulator)
         shell: bash
         run: |
           python scripts/prompt15_certification.py \
@@ -380,11 +380,11 @@ jobs:
             --prevalidated-compileall \
             --prevalidated-gradle
 
-      - name: Upload Prompt 15.3 certification evidence
+      - name: Upload Prompt 15.5 certification evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: prompt15-3-certification
+          name: prompt15-5-certification
           path: |
             build/prompt15-certification.json
             build/prompt15-certification.md

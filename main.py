@@ -331,11 +331,13 @@ async def main(page: ft.Page):
             navigation.replace("home")
             return
         try:
-            catalog = library.catalog()
+            projected = library.catalog_by_ids([int(detail_id)])
             current[0] = next(
-                (item for item in catalog if str(item.get("id")) == detail_id),
+                (item for item in projected if str(item.get("id")) == detail_id),
                 None,
             )
+        except (TypeError, ValueError):
+            current[0] = None
         except Exception:
             logger.exception("[NAV] failed to rebuild persisted Details context")
             current[0] = None
@@ -353,6 +355,37 @@ async def main(page: ft.Page):
             "details": "/details",
             "settings": "/settings",
         }.get(screen, "/" + str(screen))
+
+    def _invalidate_catalog_views():
+        # Details mutations are durable Store changes. Invalidate only the
+        # cached projections that can display those fields when we return.
+        screen_cache.pop("home", None)
+        screen_cache.pop("organize", None)
+
+    def _toggle_favorite_from_details(anime_id):
+        value = store.toggle_favorite(anime_id)
+        _invalidate_catalog_views()
+        return value
+
+    def _toggle_pin_from_details(anime_id):
+        value = library.toggle_pinned(anime_id)
+        _invalidate_catalog_views()
+        return value
+
+    def _set_tags_from_details(anime_id, tags):
+        value = library.set_user_tags(anime_id, tags)
+        _invalidate_catalog_views()
+        return value
+
+    def _set_note_from_details(anime_id, note):
+        value = library.set_personal_note(anime_id, note)
+        _invalidate_catalog_views()
+        return value
+
+    def _set_episode_identification_from_details(path, **values):
+        result = store.set_episode_identification(path, **values)
+        _invalidate_catalog_views()
+        return result
 
     def _build_screen(route, *, force=False):
         if force:
@@ -380,9 +413,9 @@ async def main(page: ft.Page):
             control = DetailView.build(
                 page, current[0], play_episode,
                 lambda: navigate_back("visual:details"),
-                store.toggle_favorite, library.playback_target,
-                library.set_user_tags, library.toggle_pinned, library.set_personal_note,
-                store.set_episode_identification, refresh_current_details,
+                _toggle_favorite_from_details, library.playback_target,
+                _set_tags_from_details, _toggle_pin_from_details, _set_note_from_details,
+                _set_episode_identification_from_details, refresh_current_details,
                 refresh_current_metadata, library.resolve_artwork,
             )
         elif route == "settings":

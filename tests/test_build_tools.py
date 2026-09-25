@@ -133,7 +133,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertNotIn("push:", workflow)
         self.assertNotIn("pull_request:", workflow)
         self.assertIn("matrix:", workflow)
-        self.assertIn("api: [30, 36]", workflow)
+        self.assertIn("api: [34, 35, 36]", workflow)
         self.assertIn("reactivecircus/android-emulator-runner@v2", workflow)
         self.assertIn('REIFLIX_ANDROID_API_LEVEL: "${{ matrix.api }}"', workflow)
         self.assertIn("run_android_instrumented_diagnostic.sh", workflow)
@@ -157,7 +157,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         source = (ROOT / "scripts/run_android_instrumented_diagnostic.sh").read_text(encoding="utf-8")
         self.assertIn("REIFLIX_ANDROID_API_LEVEL:-", source)
         self.assertIn("build/android${API_LEVEL}-diagnostics", source)
-        self.assertIn("30|36)", source)
+        self.assertIn("34|35|36)", source)
         for token in (
             "adb devices -l",
             "getprop ro.build.version.sdk",

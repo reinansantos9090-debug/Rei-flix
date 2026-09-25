@@ -77,7 +77,7 @@ def main() -> int:
             import hashlib, zipfile, re
             digest=hashlib.sha256(apk.read_bytes()).hexdigest()
             with zipfile.ZipFile(apk) as z:
-                names=z.namelist(); dex_files=[n for n in names if re.fullmatch(r"classes\\d*\\.dex",n)]; dex=b"".join(z.read(n) for n in dex_files)
+                names=z.namelist(); dex_files=[n for n in names if re.fullmatch(r"classes\d*\.dex",n)]; dex=b"".join(z.read(n) for n in dex_files)
             req=["MainActivity","NativePlayerActivity","NativeMailbox","NativeIndex","SystemUiController"]
             classes={n:((("Lcom/reiflix/reiflix_local/"+n+";").encode()) in dex) for n in req}
             apk_data={"path":str(apk),"size":apk.stat().st_size,"sha256":digest,"manifest":"AndroidManifest.xml" in names,"dex_files":dex_files,"classes":classes}

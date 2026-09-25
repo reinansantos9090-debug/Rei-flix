@@ -86,6 +86,13 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
             (manifest/"AndroidManifest.xml").write_text('android:launchMode="singleTask"\n',encoding="utf-8")
             (root/"core").mkdir()
             (root/"tests").mkdir()
+            (root/"core"/"navigation.py").write_text("# navigation\n",encoding="utf-8")
+            (root/"android/app/src/main/kotlin/com/reiflix/reiflix_local").mkdir(parents=True)
+            (root/"android/app/src/main/kotlin/com/reiflix/reiflix_local"/"MainActivity.kt").write_text("// MainActivity\n",encoding="utf-8")
+            (root/"android/app/src/main/kotlin/com/reiflix/reiflix_local"/"NativePlayerActivity.kt").write_text("// player\n",encoding="utf-8")
+            (root/"tests"/"test_prompt2_back_lifecycle.py").write_text("",encoding="utf-8")
+            (root/"tests"/"test_prompt14_device_compatibility_contract.py").write_text("",encoding="utf-8")
+            (root/"tests"/"test_runtime_android_contract.py").write_text("",encoding="utf-8")
             results={"pytest":runner.Result("Python","pytest","PASS"),"unittest":runner.Result("Python","unittest","PASS")}
             item=next(x for x in runner.REQUIREMENTS if x[2]=="MainActivity uses singleTask launch semantics")
             row=runner.make_row(root,item,results,{"status":"NOT VALIDATED"},[])

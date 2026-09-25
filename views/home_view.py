@@ -130,9 +130,10 @@ class HomeView:
                 width=width, height=height, border_radius=RADIUS, bgcolor="#2D2A3B",
                 alignment=ft.Alignment(0, 0),
             )
-            if item.get("id") is not None:
-                binding_entity = "movie" if item.get("media_kind") == "movie" and entity == "anime" else entity
-                artwork_bindings.setdefault((binding_entity, int(item.get("id")), kind), []).append((holder, width, height))
+            binding_entity = "movie" if item.get("media_kind") == "movie" and entity == "anime" else entity
+            binding_id = item.get("anime_id") if item.get("anime_id") is not None and binding_entity in {"anime", "movie"} else item.get("id")
+            if binding_id is not None:
+                artwork_bindings.setdefault((binding_entity, int(binding_id), kind), []).append((holder, width, height))
 
             def apply_source(path):
                 if not isinstance(path, str):
@@ -159,7 +160,7 @@ class HomeView:
             if apply_source(candidate_source):
                 return holder
 
-            item_id = item.get("id")
+            item_id = item.get("anime_id") if item.get("anime_id") is not None and entity in {"anime", "movie"} else item.get("id")
             if item_id is not None and library is not None:
                 key = (entity, int(item_id), kind, width, height)
                 if key not in artwork_tasks:
@@ -350,16 +351,52 @@ class HomeView:
                 indicators.append(ft.Container(ft.Icon(ft.Icons.STAR, color="#FFD54F", size=15), top=5, right=5, bgcolor="#181720CC", border_radius=12, padding=3))
             if current_state and current_state.value in {"completed", "watched"}:
                 indicators.append(ft.Container(ft.Icon(ft.Icons.CHECK, color="#FFFFFF", size=14), bottom=5, right=5, bgcolor="#27845ACC", border_radius=12, padding=3))
+            if anime.get("is_pinned"):
+                indicators.append(ft.Container(
+                    ft.Icon(ft.Icons.PUSH_PIN, color=ACCENT, size=14),
+                    top=5, left=5, bgcolor="#181720CC", border_radius=12, padding=3,
+                ))
             return ft.Container(
                 key=f"anime:{anime.get('id', '-')}",
-                width=146, ink=True, on_click=lambda _, item=anime: on_select_anime(item), border_radius=RADIUS,
+                width=card_width, ink=True, on_click=lambda _, item=anime: on_select_anime(item), border_radius=RADIUS,
                 content=ft.Column([
-                    ft.Stack([artwork_holder(anime, 146, 176, source=cover), *indicators]),
+                    ft.Stack([artwork_holder(anime, card_width, card_height, source=cover), *indicators]),
                     ft.Text(anime.get("main_title", "Anime local"), size=12, weight=ft.FontWeight.BOLD, color=TEXT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.Text(status_value, size=10, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.ProgressBar(value=progress, color=ACCENT, bgcolor="#3C3948", height=3, visible=current_state is not None and current_state.value == "in_progress"),
                 ], spacing=4),
             )
+
+        async def open_continuation_details(item):
+            anime = next(
+                (candidate for candidate in catalog
+                 if candidate.get("id") is not None and candidate.get("id") == item.get("anime_id")),
+                None,
+            )
+            if anime is None and item.get("anime_id") is not None:
+                try:
+                    projected = await asyncio.to_thread(
+                        library.catalog_by_ids, [int(item["anime_id"])]
+                    )
+                except Exception:
+                    logger.exception(
+                        "Home continuation details lookup failed",
+                        extra={"screen": "home", "anime_id": item.get("anime_id")},
+                    )
+                    return
+                anime = next(iter(projected or []), None)
+            if anime is not None:
+                on_select_anime(anime)
+            else:
+                logger.warning(
+                    "Continuation details target unavailable",
+                    extra={"screen": "home", "anime_id": item.get("anime_id")},
+                )
+
+        def request_continuation_details(item):
+            async def task():
+                await open_continuation_details(item)
+            page.run_task(task)
 
         def render_continue():
             continue_row.controls.clear()
@@ -367,7 +404,6 @@ class HomeView:
             for item in continuing[:6]:
                 progress = ratio(item)
                 label = "FILME" if item.get("episode_type") == "movie" else f"T{item.get('season', 1)} • E{item.get('number', '—')}"
-                owner = {anime.get("id"): anime for anime in catalog}.get(item.get("anime_id"))
                 card_control = ft.Container(
                     width=258, bgcolor=SURFACE, border_radius=RADIUS, padding=9, ink=True,
                     on_click=lambda _, entry=item: play_continuation(entry),
@@ -379,7 +415,11 @@ class HomeView:
                             ft.ProgressBar(value=progress, color=ACCENT, bgcolor="#454252", height=3, visible=bool(item.get("duration"))),
                             ft.Row([
                                 ft.TextButton("Continuar", icon=ft.Icons.PLAY_ARROW, on_click=lambda _, entry=item: play_continuation(entry)),
-                                ft.TextButton("Detalhes", icon=ft.Icons.INFO_OUTLINE, on_click=lambda _, entry=owner: on_select_anime(entry) if entry else None),
+                                ft.TextButton(
+                                    "Detalhes",
+                                    icon=ft.Icons.INFO_OUTLINE,
+                                    on_click=lambda _, entry=item: request_continuation_details(entry),
+                                ),
                             ], spacing=0),
                         ], spacing=4, expand=True),
                     ], spacing=8),
@@ -594,9 +634,15 @@ class HomeView:
                 ft.IconButton(icon=ft.Icons.DASHBOARD_OUTLINED, icon_color=TEXT, tooltip="Organizar", visible=on_open_organize is not None, on_click=lambda _: on_open_organize() if on_open_organize else None),
                 ft.IconButton(icon=ft.Icons.SETTINGS_OUTLINED, icon_color=TEXT, tooltip="Configurações", on_click=lambda _: on_open_settings()),
             ], spacing=0),
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True, run_spacing=8)
         filter_button = ft.OutlinedButton("Filtros", icon=ft.Icons.TUNE, on_click=open_filters)
-        main_library_bar = ft.Row([ft.Row([library_label, filter_summary], spacing=10), sort, filter_button], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        main_library_bar = ft.Row(
+            [ft.Row([library_label, filter_summary], spacing=10, wrap=True), sort, filter_button],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            wrap=True,
+            spacing=8,
+            run_spacing=8,
+        )
         sections_column = ft.Column(
             [section_cards.setdefault(key, ft.Container(content=ft.Column([ft.Text(title, size=15, weight=ft.FontWeight.BOLD, color=TEXT), section_rows.setdefault(key, ft.Row(scroll=ft.ScrollMode.AUTO, spacing=10))], spacing=9), visible=False))
              for title, key in (

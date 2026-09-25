@@ -21,7 +21,6 @@ import androidx.core.view.ViewCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -117,6 +116,55 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_LAST_OBSERVED_BROAD_ACCESS = "reiflix.lastObservedBroadAccess"
         private const val LOG_TAG = "[REIFLIX][ANDROID]"
         private val safInventoryInFlight = AtomicBoolean(false)
+        private val mediaStoreRetryHandler = Handler(Looper.getMainLooper())
+        private val mediaStoreRetryScheduled = AtomicBoolean(false)
+
+        /**
+         * Process-wide MediaStore retry signal. It deliberately captures only
+         * application context, so Activity recreation cannot retain the old
+         * MainActivity instance. The request is persisted in NativeMailbox and
+         * can be consumed by the current Python session after it resumes.
+         */
+        private fun scheduleMediaStoreScanRequest(
+            appContext: Context,
+            reason: String,
+            triggerRequestId: String? = null,
+        ) {
+            if (!mediaStoreRetryScheduled.compareAndSet(false, true)) {
+                Log.i(LOG_TAG, "MEDIASTORE_RETRY_DEDUPED reason=" + reason)
+                return
+            }
+            mediaStoreRetryHandler.postDelayed({
+                mediaStoreRetryScheduled.set(false)
+                if (!MediaStoreScanner.hasReadPermission(appContext)) {
+                    Log.i(LOG_TAG, "MEDIASTORE_RETRY_SKIPPED permission=denied")
+                    return@postDelayed
+                }
+                val requestId = UUID.randomUUID().toString()
+                val written = NativeMailbox.write(
+                    appContext,
+                    JSONObject()
+                        .put("type", "scan_request")
+                        .put("requestId", requestId)
+                        .put(
+                            "payload",
+                            JSONObject()
+                                .put("origin", "MEDIASTORE_CHANGE")
+                                .put("source", "mediastore")
+                                .put("scopeRef", "")
+                                .put("full", false)
+                                .put("reason", reason)
+                                .put("triggerRequestId", triggerRequestId ?: ""),
+                        ),
+                )
+                Log.i(
+                    LOG_TAG,
+                    "MEDIASTORE_RETRY_PUBLISHED requestId=" + requestId +
+                        " triggerRequestId=" + (triggerRequestId ?: "-") +
+                        " written=" + written,
+                )
+            }, 900L)
+        }
 
         private fun publishNativeScanBatch(
             appContext: Context,
@@ -200,8 +248,6 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
     }
-    private val activeNativeScanJobs = mutableMapOf<String, Job>()
-
     /** Native lifecycle/observer events only request a logical scan. The Python
      * ScanCoordinator decides whether and when a scanner actually runs. */
     private fun publishScanRequest(
@@ -242,8 +288,6 @@ class MainActivity : FlutterFragmentActivity() {
     private var storageReceiverRegistered = false
     private var lastBackEventAt = 0L
     private val backEventDebounceMs = 300L
-    private val mediaStoreRescanHandler = Handler(Looper.getMainLooper())
-    private var mediaStoreRescanScheduled = false
     private var externalSettingsKind: String? = null
     private var externalSettingsRequestId: String? = null
     private val externalSettingsLauncher =
@@ -272,19 +316,10 @@ class MainActivity : FlutterFragmentActivity() {
         }
 
     private fun scheduleMediaStoreIncrementalRescan() {
-        if (mediaStoreRescanScheduled) return
-        mediaStoreRescanScheduled = true
-        mediaStoreRescanHandler.postDelayed({
-            mediaStoreRescanScheduled = false
-            if (!activityResumed || !MediaStoreScanner.hasReadPermission(this)) return@postDelayed
-            Log.i(tag, "MEDIASTORE_OBSERVER_CHANGE forwarded to ScanCoordinator")
-            publishScanRequest(
-                "MEDIASTORE_CHANGE",
-                source = "mediastore",
-                full = false,
-                reason = "content_observer_debounce",
-            )
-        }, 750L)
+        scheduleMediaStoreScanRequest(
+            applicationContext,
+            reason = "content_observer_debounce",
+        )
     }
     private val storageReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context, intent: Intent) {
@@ -630,8 +665,6 @@ class MainActivity : FlutterFragmentActivity() {
         logLifecycle("onStop")
         unregisterStorageReceiver()
         MediaStoreScanner.stopChangeObserver(this)
-        mediaStoreRescanHandler.removeCallbacksAndMessages(null)
-        mediaStoreRescanScheduled = false
         super.onStop()
     }
 
@@ -954,7 +987,7 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("status", scanStatus.ifBlank { SafScanner.STATUS_COMPLETED })
                 NativeMailbox.writeOrThrow(appContext, JSONObject().put("type", "saf_scan").put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
-                Log.e(tag, "SAF scan failed", exception)
+                Log.e(LOG_TAG, "SAF scan failed", exception)
                 NativeIndex.failGeneration(appContext, NativeIndex.SOURCE_SAF, scanKey, generationId,
                     exception.message ?: "SAF scan failed",
                     JSONObject().put("treeUri", reference))
@@ -966,10 +999,8 @@ class MainActivity : FlutterFragmentActivity() {
                         .put("source", "saf")))
             } finally {
                 NativeScanController.finish(scanId)
-                synchronized(activeNativeScanJobs) { activeNativeScanJobs.remove(scanId) }
             }
         }
-        synchronized(activeNativeScanJobs) { activeNativeScanJobs[scanId] = job }
     }
     private fun requestMediaAccess() {
         if (!activityResumed) {
@@ -1314,7 +1345,7 @@ class MainActivity : FlutterFragmentActivity() {
                 NativeMailbox.writeOrThrow(appContext, JSONObject().put("type", "broad_storage_scan")
                     .put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
-                Log.e(tag, "Broad storage scan failed", exception)
+                Log.e(LOG_TAG, "Broad storage scan failed", exception)
                 NativeIndex.failActiveGenerations(
                     appContext,
                     NativeIndex.SOURCE_BROAD,
@@ -1392,10 +1423,8 @@ class MainActivity : FlutterFragmentActivity() {
                         .put("payload", JSONObject().put("event", "WAITING_FOR_MEDIASTORE").put("scanId", scanId).put("requestId", requestId ?: "")))
                     mediaStoreRescanHandler.postDelayed({
                         if (activityResumed && MediaStoreScanner.hasReadPermission(this@MainActivity)) {
-                            publishScanRequest(
-                                "MEDIASTORE_CHANGE",
-                                source = "mediastore",
-                                full = false,
+                            scheduleMediaStoreScanRequest(
+                                applicationContext,
                                 reason = "media_store_indexing_completed",
                                 triggerRequestId = requestId,
                             )
@@ -1405,7 +1434,7 @@ class MainActivity : FlutterFragmentActivity() {
                 NativeMailbox.writeOrThrow(appContext, JSONObject().put("type", "mediastore_scan")
                     .put("requestId", requestId ?: "").put("payload", result))
             } catch (exception: Exception) {
-                Log.e(tag, "MediaStore scan failed", exception)
+                Log.e(LOG_TAG, "MediaStore scan failed", exception)
                 NativeIndex.failActiveGenerations(appContext, NativeIndex.SOURCE_MEDIASTORE, exception.message ?: "MediaStore scan failed")
                 NativeMailbox.write(appContext, JSONObject().put("type", "mediastore_error")
                     .put("requestId", requestId ?: "")
@@ -1478,7 +1507,7 @@ class MainActivity : FlutterFragmentActivity() {
                         .put("mimeType", result.mimeType ?: "")
                         .put("source", "media_metadata_retriever")))
             } catch (exception: Exception) {
-                Log.e(tag, "Thumbnail extraction failed", exception)
+                Log.e(LOG_TAG, "Thumbnail extraction failed", exception)
                 NativeMailbox.write(appContext, JSONObject().put("type", "thumbnail_error")
                     .put("requestId", requestId ?: "")
                     .put("message", "Não foi possível gerar a miniatura do vídeo.")

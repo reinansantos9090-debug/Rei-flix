@@ -168,8 +168,19 @@ def discover_lint_task(gradlew,cwd):
     tasks=run_command("Android","Gradle tasks",[str(gradlew),"tasks","--all","--no-daemon"],cwd=cwd,timeout=900)
     if tasks.status!=PASS:
         return tasks,None
-    names=set(re.findall(r"^(:app:[A-Za-z0-9_-]*lint[A-Za-z0-9_-]*)\s+-",tasks.stdout,flags=re.MULTILINE))
-    chosen=next((x for x in (":app:lintDebug",":app:lintRelease",":app:lint") if x in names),None) or next((x for x in sorted(names) if x.lower().startswith(":app:lint")),None)
+    names=set(
+        (x if x.startswith(":") else ":"+x)
+        for x in re.findall(r"^:?app:[A-Za-z0-9_-]*lint[A-Za-z0-9_-]*\s+-",tasks.stdout,flags=re.MULTILINE)
+    )
+    names={x.rstrip() for x in names}
+    preferred=(
+        ":app:lintReportDebug",
+        ":app:lintReportRelease",
+        ":app:lintVitalReportRelease",
+        ":app:lintFixDebug",
+        ":app:lintAnalyzeRelease",
+    )
+    chosen=next((x for x in preferred if x in names),None) or next((x for x in sorted(names) if x.lower().startswith(":app:lint")),None)
     if not chosen:
         return Result("Android","Gradle lint discovery",BLOCKED,"No app lint task discovered from the available Gradle tasks.",command=tasks.command,stdout=tasks.stdout,stderr=tasks.stderr),None
     return Result("Android","Gradle lint discovery",PASS,"Discovered app lint task: "+chosen,command=tasks.command,stdout=tasks.stdout,stderr=tasks.stderr),chosen

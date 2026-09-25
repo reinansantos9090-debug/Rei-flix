@@ -34,7 +34,8 @@ jobs:
       - name: Check diff whitespace
         run: git diff --check
 
-  instrumented:    name: Android instrumented API ${{ matrix.api }}
+  instrumented:
+    name: Android instrumented API ${{ matrix.api }}
     timeout-minutes: 55
     runs-on: ubuntu-latest
     strategy:
@@ -281,8 +282,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android${{ matrix.api }}-instrumentation-diagnostics
-          path: build/android${{ matrix.api }}-diagnostics
+          name: android${{ matrix.api }}-certification
+          path: |
+            build/android${{ matrix.api }}-certification
+            build/apk-certification.txt
+            build/apk-archive-check.txt
           if-no-files-found: ignore
  | head -n 20 | tee build/apk-archive-check.txt
           if unzip -l "$apk" | grep -Eq '(^|/)\\.git(/|$)'; then

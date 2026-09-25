@@ -83,8 +83,11 @@ def run_command(area,test,command,*,cwd,timeout=1800):
     except OSError as e:
         return Result(area,test,BLOCKED,str(e),time.monotonic()-start," ".join(map(str,command)))
     out=p.stdout or ""; err=p.stderr or ""
-    evidence="exit=%s\nstdout:\n%s\nstderr:\n%s"%(p.returncode,out[-6000:],err[-6000:])
-    return Result(area,test,PASS if p.returncode==0 else FAIL,evidence,time.monotonic()-start," ".join(map(str,command)),p.returncode,out[-6000:],err[-6000:])
+    # Keep enough output to expose a concrete failing-test traceback in CI evidence.
+    # This is especially important for the mandatory deterministic pytest audit.
+    limit=20000 if test in {"pytest","pytest determinism"} else 6000
+    evidence="exit=%s\nstdout:\n%s\nstderr:\n%s"%(p.returncode,out[-limit:],err[-limit:])
+    return Result(area,test,PASS if p.returncode==0 else FAIL,evidence,time.monotonic()-start," ".join(map(str,command)),p.returncode,out[-limit:],err[-limit:])
 
 def parse_pytest(output):
     d={"collected":0,"passed":0,"failed":0,"errors":0,"skipped":0,"xfailed":0,"xpassed":0}

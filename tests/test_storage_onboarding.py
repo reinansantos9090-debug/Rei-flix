@@ -7,6 +7,15 @@ from core.storage_access import StorageAccessState, StorageCapabilities, storage
 ROOT = Path(__file__).resolve().parents[1]
 
 class StorageOnboardingTests(unittest.TestCase):
+    def test_settings_consumes_typed_storage_capabilities_attributes(self):
+        source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
+        block = source[source.index("normalized = normalize_storage_snapshot"):source.index("scan = scan_snapshot", source.index("normalized = normalize_storage_snapshot"))]
+        self.assertIn("normalized.media_read_state", block)
+        self.assertIn("normalized.broad_storage_state", block)
+        self.assertIn("normalized.saf_roots", block)
+        self.assertIn("normalized.removable_volumes", block)
+        self.assertNotIn("snap.get(", block)
+
     def test_storage_capabilities_normalize_native_snapshot(self):
         capabilities = StorageCapabilities.from_native({
             "mediaReadState": "partial",

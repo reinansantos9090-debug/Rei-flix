@@ -15,7 +15,7 @@ import re
 import flet as ft
 from core.consumption import consumption_state, is_completed, is_in_progress, playback_action, progress_ratio
 from core.dialogs import dismiss_dialog
-from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, media_artwork, section_title
+from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, activate_theme_for_page, media_artwork, section_title
 
 
 class DetailView:
@@ -26,6 +26,14 @@ class DetailView:
               on_toggle_favorite, get_playback_target=None, on_set_user_tags=None,
               on_toggle_pinned=None, on_set_personal_note=None, on_set_episode_identification=None,
               on_identification_saved=None, on_refresh_metadata=None, resolve_artwork=None):
+        theme = activate_theme_for_page(page)
+        BACKGROUND = theme.background
+        SURFACE = theme.surface
+        TEXT = theme.text
+        TEXT_MUTED = theme.text_muted
+        ACCENT = theme.primary
+        SUCCESS = theme.success
+        WARNING = theme.warning
         metadata = anime_group.get("meta") or {}
         title = metadata.get("title_official") or anime_group.get("main_title") or "Anime local"
         alternate_titles = [metadata.get(key) for key in ("english", "romaji", "native")]
@@ -99,10 +107,10 @@ class DetailView:
 
         def meta_chip(label, icon=None):
             return ft.Container(
-                content=ft.Row(([ft.Icon(icon, size=14, color="#D8D4E3")] if icon else []) + [
+                content=ft.Row(([ft.Icon(icon, size=14, color=theme.secondary)] if icon else []) + [
                     ft.Text(str(label), size=11, color="#D8D4E3")
                 ], tight=True, spacing=4),
-                padding=ft.Padding.symmetric(horizontal=9, vertical=5), bgcolor="#2D2A3B", border_radius=RADIUS,
+                padding=ft.Padding.symmetric(horizontal=9, vertical=5), bgcolor=theme.surface_raised, border_radius=RADIUS,
             )
 
         facts = []
@@ -141,7 +149,7 @@ class DetailView:
         expand_button.on_click = toggle_description
         favorite_button = ft.IconButton(
             icon=ft.Icons.STAR if favorite[0] else ft.Icons.STAR_BORDER,
-            icon_color="#FFD54F" if favorite[0] else "#FFFFFF",
+            icon_color=theme.favorite if favorite[0] else "#FFFFFF",
             tooltip="Remover dos favoritos" if favorite[0] else "Adicionar aos favoritos",
         )
 
@@ -366,7 +374,7 @@ class DetailView:
         primary_button = ft.FilledButton(
             primary_label, icon=ft.Icons.PLAY_ARROW, disabled=not bool(primary_target),
             on_click=lambda _: play(primary_target),
-            style=ft.ButtonStyle(bgcolor="#E50914", color="#FFFFFF", shape=ft.RoundedRectangleBorder(radius=12)),
+            style=ft.ButtonStyle(bgcolor="#E50914", color=theme.text_on_overlay, shape=ft.RoundedRectangleBorder(radius=12)),
         )
 
         episode_column = ft.Column(spacing=8)
@@ -487,10 +495,10 @@ class DetailView:
             duration = duration_label(episode)
             details = ft.Column([
                 ft.Row([
-                    ft.Text(number_label, size=10, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
+                    ft.Text(number_label, size=10, weight=ft.FontWeight.BOLD, color=theme.text_muted),
                     ft.Row([ft.Icon(icon, size=17, color=color), ft.IconButton(icon=ft.Icons.EDIT_OUTLINED, icon_size=16, tooltip="Corrigir identificação", visible=on_set_episode_identification is not None and not is_movie, on_click=lambda _, item=episode: edit_identification(item))], tight=True),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Text(episode.get("episode_title") or episode.get("title") or episode.get("file_name") or "Mídia local", size=13, color="#F7F5FA", weight=ft.FontWeight.BOLD,
+                ft.Text(episode.get("episode_title") or episode.get("title") or episode.get("file_name") or "Mídia local", size=13, color=theme.text, weight=ft.FontWeight.BOLD,
                         max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                 ft.Text(status if not is_movie else ("Concluído" if state.value in {"completed", "watched"} else "Filme local"), size=11, color=color),
                 ft.Text(f"Duração • {duration}", size=10, color="#AAA7B6", visible=bool(duration)),
@@ -556,8 +564,8 @@ class DetailView:
                 )
                 for index, season in enumerate(seasons)
             ],
-            color="#F7F5FA", text_size=13, bgcolor="#252331",
-            border_color="#39364B", border_radius=12, visible=bool(seasons) and len(seasons) > 1 and not is_movie,
+            color="#F7F5FA", text_size=13, bgcolor=theme.surface,
+            border_color=theme.border, border_radius=12, visible=bool(seasons) and len(seasons) > 1 and not is_movie,
         )
         def season_progress_text(season):
             items = season.get("episodes", [])

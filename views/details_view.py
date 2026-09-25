@@ -462,7 +462,6 @@ class DetailView:
             page.update()
 
         def _prepare_episode_artwork(items):
-            episode_artwork.clear()
             ids = [item.get("id") for item in items if item.get("id") is not None and not item.get("missing")]
             if not ids:
                 return
@@ -563,6 +562,7 @@ class DetailView:
 
         def render_episodes():
             episode_column.controls.clear()
+            episode_artwork.clear()
             if is_movie:
                 visible_movies = movie_episodes[:visible_episode_count[0]]
                 _prepare_episode_artwork(visible_movies)

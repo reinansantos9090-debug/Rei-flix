@@ -228,7 +228,7 @@ run_responsive_case() {
     capture "$case_dir/font_scale.txt" adb shell settings get system font_scale
     capture "$case_dir/wm_density.txt" adb shell wm density
     adb shell am force-stop "${PACKAGE}" >/dev/null 2>&1 || true
-    adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "${PACKAGE}/.MainActivity" > "${case_dir/launch.txt}" 2>&1 || true
+    adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "${PACKAGE}/.MainActivity" > "${case_dir}/launch.txt" 2>&1 || true
     sleep 2
     local log="${case_dir}/gradle.log"
     set +e
@@ -339,6 +339,7 @@ extract_failed_classes_from_log() {
     done
 }
 
+run_navigation_suite() {
 GRADLE_INVOCATIONS=1
 FULL_LOG="$DIAG_ROOT/full-suite.log"
 FULL_STATUS=0
@@ -358,7 +359,7 @@ printf 'CONNECTED_DEBUG_ANDROID_TEST_INVOCATIONS=%s\n' "$GRADLE_INVOCATIONS" | t
 if (( FULL_STATUS == 0 )); then
     printf 'NORMAL_SUITE_PASS=1\n' | tee -a "$DIAG_ROOT/summary.txt"
     printf 'DIAGNOSTIC_NOT_REQUIRED=1\n' | tee -a "$DIAG_ROOT/summary.txt"
-    exit 0
+    return 0
 fi
 
 printf 'NORMAL_SUITE_FAIL=1\n' | tee -a "$DIAG_ROOT/summary.txt"
@@ -397,4 +398,46 @@ printf 'CONNECTED_DEBUG_ANDROID_TEST_INVOCATIONS=%s\n' "$GRADLE_INVOCATIONS" | t
 printf 'DIAGNOSTIC_COMPLETE=1\n' | tee -a "$DIAG_ROOT/summary.txt"
 printf 'DIAGNOSTIC_PRESERVED_FAILURE_EXIT=%s\n' "$FULL_STATUS" | tee -a "$DIAG_ROOT/summary.txt"
 
-exit "$FULL_STATUS"
+
+}
+
+OVERALL_STATUS=0
+mkdir -p "$CERT_ROOT"
+printf "api=%s\n" "$API_LEVEL" > "$CERT_ROOT/matrix-summary.txt"
+for NAVIGATION_MODE in gestural three_button; do
+    DIAG_ROOT="${CERT_ROOT}/${NAVIGATION_MODE}"
+    mkdir -p "$DIAG_ROOT"
+    printf "===== Android %s navigation=%s =====\n" "$API_LEVEL" "$NAVIGATION_MODE" | tee -a "$CERT_ROOT/matrix-summary.txt"
+    if ! configure_navigation_mode "$NAVIGATION_MODE"; then
+        echo "NAVIGATION_MODE_CONFIG_FAILED=$NAVIGATION_MODE" | tee -a "$CERT_ROOT/matrix-summary.txt"
+        OVERALL_STATUS=1
+        continue
+    fi
+    if ! run_navigation_suite; then
+        echo "NORMAL_SUITE_FAILED navigation=$NAVIGATION_MODE" | tee -a "$CERT_ROOT/matrix-summary.txt"
+        OVERALL_STATUS=1
+    fi
+    BASE_DENSITY="$(get_physical_density)"
+    if [[ -z "$BASE_DENSITY" ]]; then
+        echo "Unable to determine emulator physical density" | tee -a "$CERT_ROOT/matrix-summary.txt" >&2
+        OVERALL_STATUS=1
+        continue
+    fi
+    for FONT_SCALE in 1.0 1.15 1.3 1.5; do
+        label="font-${FONT_SCALE//./_}"
+        if ! run_responsive_case "$label" "$FONT_SCALE" physical "$BASE_DENSITY"; then
+            OVERALL_STATUS=1
+        fi
+    done
+    if ! run_responsive_case "density-115" "1.0" scaled115 "$BASE_DENSITY"; then
+        OVERALL_STATUS=1
+    fi
+    adb shell settings put system font_scale 1.0 >/dev/null 2>&1 || true
+    adb shell wm density reset >/dev/null 2>&1 || true
+    adb shell am force-stop "${PACKAGE}" >/dev/null 2>&1 || true
+done
+
+printf "OVERALL_STATUS=%s\n" "$OVERALL_STATUS" | tee -a "$CERT_ROOT/matrix-summary.txt"
+adb shell settings put system font_scale 1.0 >/dev/null 2>&1 || true
+adb shell wm density reset >/dev/null 2>&1 || true
+exit "$OVERALL_STATUS"

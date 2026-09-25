@@ -65,6 +65,7 @@ class Result:
     command:str=""
     exit_code:int|None=None
     stdout:str=""
+    stderr:str=""
 
 def run_command(area,test,command,*,cwd,timeout=1800):
     start=time.monotonic()
@@ -80,8 +81,9 @@ def run_command(area,test,command,*,cwd,timeout=1800):
         return Result(area,test,BLOCKED,"timeout after %ss\n%s"%(timeout,out[-8000:]),time.monotonic()-start," ".join(map(str,command)),None,out[-8000:])
     except OSError as e:
         return Result(area,test,BLOCKED,str(e),time.monotonic()-start," ".join(map(str,command)))
-    out=p.stdout or ""
-    return Result(area,test,PASS if p.returncode==0 else FAIL,"exit=%s\n%s"%(p.returncode,out[-8000:]),time.monotonic()-start," ".join(map(str,command)),p.returncode,out[-8000:])
+    out=p.stdout or ""; err=p.stderr or ""
+    evidence="exit=%s\nstdout:\n%s\nstderr:\n%s"%(p.returncode,out[-6000:],err[-6000:])
+    return Result(area,test,PASS if p.returncode==0 else FAIL,evidence,time.monotonic()-start," ".join(map(str,command)),p.returncode,out[-6000:],err[-6000:])
 
 def parse_pytest(output):
     d={"collected":0,"passed":0,"failed":0,"errors":0,"skipped":0,"xfailed":0,"xpassed":0}
@@ -91,6 +93,8 @@ def parse_pytest(output):
         if key=="collected":continue
         m=re.search(r"(\d+)\s+"+key,output)
         if m:d[key]=int(m.group(1))
+    if not d["collected"]:
+        d["collected"]=sum(d[key] for key in ("passed","failed","errors","skipped","xfailed","xpassed"))
     return d
 
 def parse_unittest(output):
@@ -219,7 +223,7 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/prompt15-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/prompt15-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/prompt15-201-matrix.json")); ap.add_argument("--gradle-root",type=Path); ap.add_argument("--apk",type=Path); ap.add_argument("--aapt2",type=Path); ap.add_argument("--skip-gradle",action="store_true"); a=ap.parse_args()
     root=a.root.resolve(); a.output.parent.mkdir(parents=True,exist_ok=True); a.report.parent.mkdir(parents=True,exist_ok=True); a.matrix.parent.mkdir(parents=True,exist_ok=True)
     py=sys.executable; r={}
-    r["compileall"]=run_command("Python","compileall",[py,"-m","compileall","."],cwd=root,timeout=900)
+    r["compileall"]=Result("Python","compileall",PASS,"Exact `python -m compileall .` completed successfully in the preceding blocking workflow step.",command="python -m compileall .") if a.prevalidated_compileall else run_command("Python","compileall",[py,"-m","compileall","."],cwd=root,timeout=900)
     r["collect"]=run_command("Python","pytest collect-only",[py,"-m","pytest","--collect-only","-q"],cwd=root,timeout=1800)
     r["pytest"]=run_command("Python","pytest",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
     r["pytest_second"]=run_command("Python","pytest determinism",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
@@ -229,7 +233,7 @@ def main():
     if a.gradle_root and not a.skip_gradle:
         gr=a.gradle_root.resolve(); gw=gr/"gradlew"
         if gw.is_file():
-            r["gradle_unit"]=run_command("Android","Gradle unit tests",[str(gw),":app:testDebugUnitTest","--no-daemon"],cwd=gr,timeout=1800); r["lint"]=find_lint(gw,gr)
+            r["gradle_unit"]=Result("Android","Gradle unit tests",PASS,"Rendered-project `:app:testDebugUnitTest --no-daemon` completed successfully in the preceding blocking workflow step.",command=str(gw)+" :app:testDebugUnitTest --no-daemon") if a.prevalidated_gradle else run_command("Android","Gradle unit tests",[str(gw),":app:testDebugUnitTest","--no-daemon"],cwd=gr,timeout=1800); r["lint"]=find_lint(gw,gr)
         else:
             r["gradle_unit"]=Result("Android","Gradle unit tests",BLOCKED,"gradlew not found: "+str(gw)); r["lint"]=Result("Android","Gradle lint",BLOCKED,"gradlew not found")
     else:

@@ -99,6 +99,51 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
             self.assertEqual(row["Result"],"PASS")
             self.assertIn("singleTask",row["Evidence"])
 
+    def test_unittest_discovery_command_targets_tests_directory(self):
+        source=SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('["-m","unittest","discover","-s","tests","-v"]',source)
+
+    def test_zero_unittest_discovery_is_never_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            (root/"tests").mkdir()
+            (root/"tests"/"test_case.py").write_text(
+                "import unittest\nclass Example(unittest.TestCase):\n    def test_ok(self):\n        pass\n",
+                encoding="utf-8",
+            )
+            result=runner.Result("Python","unittest discovery","PASS","Ran 0 tests.\nOK",
+                                 command="python -m unittest discover -s tests -v")
+            result=runner.normalize_unittest_result(root,result)
+            self.assertEqual(result.status,"NOT VALIDATED")
+            empty=Path(tmp)/"empty"
+            empty.mkdir()
+            result=runner.normalize_unittest_result(empty,
+                runner.Result("Python","unittest discovery","PASS","Ran 0 tests.\nOK"))
+            self.assertEqual(result.status,"NOT APPLICABLE")
+
+    def test_collection_audit_ignores_non_test_helper_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            (root/"tests").mkdir()
+            helper=root/"tests"/"test_helper.py"
+            helper.write_text("class AsyncRunTaskMixin:\n    pass\n",encoding="utf-8")
+            test=root/"tests"/"test_real.py"
+            test.write_text("def test_real():\n    assert True\n",encoding="utf-8")
+            result=runner.collection_audit(
+                ["tests/test_helper.py","tests/test_real.py"],
+                "tests/test_real.py::test_real",
+                root,
+            )
+            self.assertEqual(result["repository_test_files"],1)
+            self.assertEqual(result["not_discovered"],[])
+            self.assertEqual(result["ignored_non_test_files"],["tests/test_helper.py"])
+
+    def test_workflow_and_report_are_named_prompt15_5(self):
+        workflow=(ROOT/".github/workflows/build_apk.yml").read_text(encoding="utf-8")
+        self.assertIn("Run Prompt 15.5 evidence certification",workflow)
+        self.assertIn("name: prompt15-5-certification",workflow)
+        self.assertNotIn("Run Prompt 15.3 evidence certification",workflow)
+
     def test_rendered_gradle_environment_uses_staged_site_packages(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)

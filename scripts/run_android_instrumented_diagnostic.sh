@@ -11,7 +11,8 @@ case "${API_LEVEL}" in
         exit 2
         ;;
 esac
-DIAG_ROOT="${WORKSPACE}/build/android${API_LEVEL}-diagnostics"
+CERT_ROOT="${WORKSPACE}/build/android${API_LEVEL}-certification"
+DIAG_ROOT="${CERT_ROOT}/gestural"
 CLASS_TIMEOUT_SECONDS="${REIFLIX_ANDROID_CLASS_TIMEOUT_SECONDS:-120}"
 METHOD_TIMEOUT_SECONDS="${REIFLIX_ANDROID_METHOD_TIMEOUT_SECONDS:-90}"
 FULL_TIMEOUT_SECONDS="${REIFLIX_ANDROID_FULL_TIMEOUT_SECONDS:-300}"
@@ -142,6 +143,106 @@ reset_device_state() {
 }
 
 
+configure_navigation_mode() {
+    local mode="$1"
+    local expected_value
+    local expected_overlay
+    case "$mode" in
+        gestural)
+            expected_value="2"
+            expected_overlay="com.android.internal.systemui.navbar.gestural"
+            ;;
+        three_button)
+            expected_value="0"
+            expected_overlay="com.android.internal.systemui.navbar.threebutton"
+            ;;
+        *)
+            echo "Unknown navigation mode: $mode" >&2
+            return 2
+            ;;
+    esac
+
+    adb shell cmd overlay disable com.android.internal.systemui.navbar.threebutton >/dev/null 2>&1 || true
+    adb shell cmd overlay disable com.android.internal.systemui.navbar.gestural >/dev/null 2>&1 || true
+    adb shell cmd overlay disable com.android.internal.systemui.navbar.twobutton >/dev/null 2>&1 || true
+    adb shell cmd overlay enable "$expected_overlay" >/dev/null 2>&1 || {
+        echo "Unable to enable navigation overlay: $expected_overlay" >&2
+        return 1
+    }
+    adb shell settings put secure navigation_mode "$expected_value" || {
+        echo "Unable to set navigation_mode=$expected_value" >&2
+        return 1
+    }
+    sleep 2
+    local state_dir="${DIAG_ROOT}/navigation"
+    mkdir -p "$state_dir"
+    capture "${state_dir}/overlay_list.txt" adb shell cmd overlay list
+    capture "${state_dir}/navigation_mode.txt" adb shell settings get secure navigation_mode
+    local actual
+    actual="$(tr -d "\r\n " < "${state_dir}/navigation_mode.txt")"
+    printf "requested_mode=%s\nexpected_navigation_mode=%s\nactual_navigation_mode=%s\nexpected_overlay=%s\n" "$mode" "$expected_value" "$actual" "$expected_overlay" > "${state_dir}/mode_validation.txt"
+    if [[ "$actual" != "$expected_value" ]]; then
+        echo "Navigation mode did not apply: requested=$mode expected=$expected_value actual=$actual" >&2
+        return 1
+    fi
+    return 0
+}
+
+get_physical_density() {
+    local value
+    value="$(adb shell wm density 2>/dev/null | sed -n "s/Physical density: \([0-9][0-9]*\).*/\1/p" | head -n1 | tr -d "\r")"
+    if [[ -z "$value" ]]; then
+        value="$(adb shell wm density 2>/dev/null | sed -n "s/Override density: \([0-9][0-9]*\).*/\1/p" | head -n1 | tr -d "\r")"
+    fi
+    printf "%s" "$value"
+}
+
+run_responsive_case() {
+    local label="$1"
+    local font_scale="$2"
+    local density_mode="$3"
+    local base_density="$4"
+    local case_dir="${DIAG_ROOT}/responsive/${label}"
+    mkdir -p "$case_dir"
+    printf "RESPONSIVE_CASE label=%s font_scale=%s density_mode=%s\n" "$label" "$font_scale" "$density_mode" | tee -a "${DIAG_ROOT}/summary.txt"
+
+    adb shell settings put system font_scale "$font_scale"
+    case "$density_mode" in
+        physical)
+            adb shell wm density reset >/dev/null 2>&1 || true
+            ;;
+        scaled115)
+            local scaled
+            scaled=$(( base_density * 115 / 100 ))
+            if ! adb shell wm density "$scaled"; then
+                echo "Unable to apply density=$scaled" | tee "$case_dir/failure.txt" >&2
+                return 1
+            fi
+            ;;
+        *)
+            echo "Unknown density mode: $density_mode" >&2
+            return 2
+            ;;
+    esac
+
+    capture "$case_dir/font_scale.txt" adb shell settings get system font_scale
+    capture "$case_dir/wm_density.txt" adb shell wm density
+    adb shell am force-stop "${PACKAGE}" >/dev/null 2>&1 || true
+    adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "${PACKAGE}/.MainActivity" > "${case_dir/launch.txt}" 2>&1 || true
+    sleep 2
+    local log="${case_dir}/gradle.log"
+    set +e
+    timeout --foreground --signal=TERM --kill-after=30s "${METHOD_TIMEOUT_SECONDS}s" ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace "-Pandroid.testInstrumentationRunnerArguments.class=com.reiflix.reiflix_local.Prompt14ResponsiveInstrumentedTest" > "$log" 2>&1
+    local status=$?
+    set -e
+    printf "exit=%s\nfont_scale=%s\ndensity_mode=%s\n" "$status" "$font_scale" "$density_mode" > "$case_dir/result.txt"
+    snapshot_device "$case_dir/after"
+    if (( status != 0 )); then
+        collect_diagnostics "$label"
+        return "$status"
+    fi
+    return 0
+}
 run_diagnostic_case() {
     local selector="$1"
     local label="$2"

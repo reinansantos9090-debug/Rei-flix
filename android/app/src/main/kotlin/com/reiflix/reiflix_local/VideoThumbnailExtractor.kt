@@ -2,6 +2,7 @@ package com.reiflix.reiflix_local
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import java.io.File
@@ -101,6 +102,15 @@ object VideoThumbnailExtractor {
             } else {
                 retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
             } ?: return null
+
+            if (rotation != 0 && bitmap.width > 1 && bitmap.height > 1) {
+                val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                if (rotated !== bitmap) {
+                    bitmap.recycle()
+                    bitmap = rotated
+                }
+            }
 
             temp.delete()
             FileOutputStream(temp).use { output ->

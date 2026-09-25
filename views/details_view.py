@@ -149,7 +149,7 @@ class DetailView:
         expand_button.on_click = toggle_description
         favorite_button = ft.IconButton(
             icon=ft.Icons.STAR if favorite[0] else ft.Icons.STAR_BORDER,
-            icon_color=theme.favorite if favorite[0] else "#FFFFFF",
+            icon_color=theme.favorite if favorite[0] else theme.text,
             tooltip="Remover dos favoritos" if favorite[0] else "Adicionar aos favoritos",
         )
 
@@ -184,7 +184,7 @@ class DetailView:
         pin_button.on_click = toggle_pin
 
         note_text = [str(anime_group.get("personal_note") or "")]
-        note_summary = ft.Text(size=12, color="#C7C5D0", max_lines=3, overflow=ft.TextOverflow.ELLIPSIS)
+        note_summary = ft.Text(size=12, color=theme.secondary, max_lines=3, overflow=ft.TextOverflow.ELLIPSIS)
         note_button = ft.OutlinedButton("Adicionar nota", icon=ft.Icons.NOTE_ADD_OUTLINED)
         def render_note():
             note_summary.value = note_text[0] or "Nenhuma nota pessoal."
@@ -502,12 +502,12 @@ class DetailView:
                         max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                 ft.Text(status if not is_movie else ("Concluído" if state.value in {"completed", "watched"} else "Filme local"), size=11, color=color),
                 ft.Text(f"Duração • {duration}", size=10, color=theme.text_muted, visible=bool(duration)),
-                ft.Text(f"Absoluto • {episode.get('absolute_number')}", size=10, color="#AAA7B6",
+                ft.Text(f"Absoluto • {episode.get('absolute_number')}", size=10, color=theme.text_muted,
                         visible=episode.get("absolute_number") is not None and not is_movie),
-                ft.Text(identification, size=10, color="#AAA7B6", visible=not is_movie),
+                ft.Text(identification, size=10, color=theme.text_muted, visible=not is_movie),
             ], spacing=4, expand=True)
             if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing") and state.value == "in_progress":
-                details.controls.append(ft.ProgressBar(value=episode_ratio, color="#E50914", bgcolor=theme.surface_variant, bar_height=4))
+                details.controls.append(ft.ProgressBar(value=episode_ratio, color=theme.primary, bgcolor=theme.surface_variant, bar_height=4))
             is_missing = bool(episode.get("missing"))
             clickable = None if is_missing else lambda _, item=episode: play(item)
             content = (ft.Row([thumb, details], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -524,12 +524,12 @@ class DetailView:
                 if movie_episodes:
                     episode_column.controls.extend(episode_item(item) for item in movie_episodes)
                 else:
-                    episode_column.controls.append(ft.Text("Nenhum arquivo de filme foi indexado.", color="#AAA7B6", size=13))
+                    episode_column.controls.append(ft.Text("Nenhum arquivo de filme foi indexado.", color=theme.text_muted, size=13))
                 page.update()
                 return
             if not seasons and not special_episodes:
                 episode_column.controls.append(ft.Container(
-                    content=ft.Text("Nenhum episódio foi indexado para este anime.", color="#AAA7B6", size=13),
+                    content=ft.Text("Nenhum episódio foi indexado para este anime.", color=theme.text_muted, size=13),
                     padding=14, bgcolor=SURFACE, border_radius=RADIUS,
                 ))
             else:
@@ -589,11 +589,11 @@ class DetailView:
             current_state = consumption_state(current)
             progress_label = "Concluído" if current_state.value in {"completed", "watched"} else (f"{int((current_ratio or 0) * 100)}% assistido" if current_ratio is not None else "Em andamento")
             progress_section = [
-                ft.Text("CONTINUAR", size=12, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
+                ft.Text("CONTINUAR", size=12, weight=ft.FontWeight.BOLD, color=theme.text_muted),
                 ft.Container(content=ft.Column([
-                    ft.Text(("Filme" if is_movie else f"Temporada {season or '—'} • Episódio {number if number is not None else '—'}"), color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD),
+                    ft.Text(("Filme" if is_movie else f"Temporada {season or '—'} • Episódio {number if number is not None else '—'}"), color=theme.text, size=13, weight=ft.FontWeight.BOLD),
                     ft.Text(progress_label, color=theme.secondary, size=11),
-                    ft.ProgressBar(value=current_ratio, color="#E50914", bgcolor="#454252", bar_height=4,
+                    ft.ProgressBar(value=current_ratio, color=theme.primary, bgcolor=theme.surface_variant, bar_height=4,
                                    visible=current_ratio is not None and current_state.value == "in_progress"),
                 ], spacing=6), padding=12, bgcolor=SURFACE, border_radius=RADIUS),
             ]
@@ -602,8 +602,8 @@ class DetailView:
         for label, value in (("Estúdio", metadata.get("studio")), ("Temporada", metadata.get("season")), ("Título alternativo", alternate_title)):
             if value:
                 additional.append(ft.Row([
-                    ft.Text(label, color="#AAA7B6", size=12, width=120),
-                    ft.Text(str(value), color="#F7F5FA", size=12, expand=True, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Text(label, color=theme.text_muted, size=12, width=120),
+                    ft.Text(str(value), color=theme.text, size=12, expand=True, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                 ], vertical_alignment=ft.CrossAxisAlignment.START))
 
         header = ft.Row([
@@ -613,7 +613,7 @@ class DetailView:
         ])
         hero_text = ft.Column([
             ft.Text(title, size=22, weight=ft.FontWeight.BOLD, color=TEXT, max_lines=4, overflow=ft.TextOverflow.ELLIPSIS),
-            ft.Text(alternate_title, size=12, color="#AAA7B6", max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, visible=bool(alternate_title)),
+            ft.Text(alternate_title, size=12, color=theme.text_muted, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, visible=bool(alternate_title)),
             ft.Row(facts, wrap=True, spacing=6, run_spacing=6),
             ft.Row(genre_controls, wrap=True, spacing=6, run_spacing=6, visible=bool(genre_controls)),
             ft.Row(([ft.Text(metadata_state, size=11, color=TEXT_MUTED)] + ([refresh_button] if refresh_button else [])), spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),

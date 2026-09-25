@@ -25,7 +25,7 @@ class DetailView:
     def build(page: ft.Page, anime_group: dict, on_play_episode, on_back,
               on_toggle_favorite, get_playback_target=None, on_set_user_tags=None,
               on_toggle_pinned=None, on_set_personal_note=None, on_set_episode_identification=None,
-              on_identification_saved=None, on_refresh_metadata=None, resolve_artwork=None):
+              on_identification_saved=None, on_refresh_metadata=None, resolve_artwork=None, resolve_artwork_batch=None):
         theme = activate_theme_for_page(page)
         BACKGROUND = theme.background
         SURFACE = theme.surface
@@ -50,6 +50,9 @@ class DetailView:
         favorite = [bool(anime_group.get("favorite"))]
         pinned = [bool(anime_group.get("is_pinned"))]
         selected_season = [0]
+        visible_episode_count = [48]
+        visible_special_count = [48]
+        episode_artwork = {}
         expanded_description = [False]
         current = anime_group.get("current_episode") or {}
         primary_target = get_playback_target(anime_group["id"]) if get_playback_target else (current or next((item for item in available), None))
@@ -458,6 +461,37 @@ class DetailView:
             page.show_dialog(dialog)
             page.update()
 
+        def _prepare_episode_artwork(items):
+            episode_artwork.clear()
+            ids = [item.get("id") for item in items if item.get("id") is not None and not item.get("missing")]
+            if not ids:
+                return
+            if resolve_artwork_batch:
+                try:
+                    episode_artwork.update(
+                        resolve_artwork_batch(
+                            "episode",
+                            ids,
+                            ("episode_thumbnail", "poster"),
+                        ) or {}
+                    )
+                    return
+                except Exception:
+                    DetailView._logger.exception("Batched episode artwork lookup failed")
+            if resolve_artwork:
+                for item_id in ids:
+                    try:
+                        resolved = resolve_artwork(
+                            "episode",
+                            item_id,
+                            "episode_thumbnail",
+                            allow_network=False,
+                        )
+                    except Exception:
+                        continue
+                    if resolved:
+                        episode_artwork[str(item_id)] = resolved
+
         def episode_item(episode):
             episode_ratio = ratio(episode)
             number = episode.get("number")
@@ -485,13 +519,14 @@ class DetailView:
                 identification = "⚠ Precisa revisar"
             else:
                 identification = "✓ Identificado"
+
             thumb = None
-            if resolve_artwork and not episode.get("missing"):
-                resolved_thumb = resolve_artwork("episode", episode.get("id"), "episode_thumbnail", allow_network=False)
-                if resolved_thumb:
-                    thumb_path = resolved_thumb.get("local_path") or resolved_thumb.get("external_url")
-                    if thumb_path:
-                        thumb = media_artwork(thumb_path, 72, width=112, icon_size=20)
+            resolved_thumb = episode_artwork.get(str(episode.get("id")))
+            if resolved_thumb and not episode.get("missing"):
+                thumb_path = resolved_thumb.get("local_path") or resolved_thumb.get("external_url")
+                if thumb_path:
+                    thumb = media_artwork(thumb_path, 72, width=112, icon_size=20)
+
             duration = duration_label(episode)
             details = ft.Column([
                 ft.Row([
@@ -511,28 +546,47 @@ class DetailView:
             is_missing = bool(episode.get("missing"))
             clickable = None if is_missing else lambda _, item=episode: play(item)
             content = (ft.Row([thumb, details], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-                        if thumb else details)
+                       if thumb else details)
             return ft.Container(
                 content=content, padding=12, border_radius=RADIUS, bgcolor=SURFACE,
                 opacity=.58 if is_missing else 1.0, ink=not is_missing,
                 on_click=clickable,
             )
 
+        def load_more_episodes(_event=None):
+            visible_episode_count[0] += 48
+            render_episodes()
+
+        def load_more_specials(_event=None):
+            visible_special_count[0] += 48
+            render_episodes()
+
         def render_episodes():
             episode_column.controls.clear()
             if is_movie:
-                if movie_episodes:
-                    episode_column.controls.extend(episode_item(item) for item in movie_episodes)
+                visible_movies = movie_episodes[:visible_episode_count[0]]
+                _prepare_episode_artwork(visible_movies)
+                if visible_movies:
+                    episode_column.controls.extend(episode_item(item) for item in visible_movies)
+                    if len(movie_episodes) > len(visible_movies):
+                        episode_column.controls.append(
+                            ft.OutlinedButton(
+                                f"Carregar mais • {len(movie_episodes) - len(visible_movies)} restantes",
+                                on_click=load_more_episodes,
+                            )
+                        )
                 else:
                     episode_column.controls.append(ft.Text("Nenhum arquivo de filme foi indexado.", color=theme.text_muted, size=13))
                 page.update()
                 return
+
             if not seasons and not special_episodes:
                 episode_column.controls.append(ft.Container(
                     content=ft.Text("Nenhum episódio foi indexado para este anime.", color=theme.text_muted, size=13),
                     padding=14, bgcolor=SURFACE, border_radius=RADIUS,
                 ))
             else:
+                visible_regular = []
                 if seasons:
                     selected = seasons[min(selected_season[0], len(seasons) - 1)]
                     if resolve_artwork:
@@ -544,14 +598,34 @@ class DetailView:
                                 if season_path:
                                     episode_column.controls.append(media_artwork(season_path, 150, width=100, icon_size=24))
                     season_items = selected.get("episodes", [])
-                    episode_column.controls.extend(episode_item(item) for item in season_items)
+                    visible_regular = season_items[:visible_episode_count[0]]
+                    _prepare_episode_artwork(visible_regular)
+                    episode_column.controls.extend(episode_item(item) for item in visible_regular)
+                    if len(season_items) > len(visible_regular):
+                        episode_column.controls.append(
+                            ft.OutlinedButton(
+                                f"Carregar mais • {len(season_items) - len(visible_regular)} episódios restantes",
+                                on_click=load_more_episodes,
+                            )
+                        )
+
                 if special_episodes:
                     episode_column.controls.append(section_title("Especiais", ft.Icons.STAR_OUTLINE))
-                    episode_column.controls.extend(episode_item(item) for item in special_episodes)
+                    visible_special = special_episodes[:visible_special_count[0]]
+                    _prepare_episode_artwork(visible_special)
+                    episode_column.controls.extend(episode_item(item) for item in visible_special)
+                    if len(special_episodes) > len(visible_special):
+                        episode_column.controls.append(
+                            ft.OutlinedButton(
+                                f"Carregar mais especiais • {len(special_episodes) - len(visible_special)} restantes",
+                                on_click=load_more_specials,
+                            )
+                        )
             page.update()
 
         def change_season(event):
             selected_season[0] = int(event.control.value)
+            visible_episode_count[0] = 48
             if seasons:
                 season_picker.helper_text = season_progress_text(seasons[selected_season[0]])
             render_episodes()

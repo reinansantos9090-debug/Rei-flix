@@ -471,8 +471,8 @@ E: manifest
         self.assertIn("WindowCompat.getInsetsController(window, window.decorView)", controller)
         self.assertIn("setDecorFitsSystemWindows(window, false)", controller)
         self.assertNotIn("setDecorFitsSystemWindows(window, true)", controller)
+        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
-        self.assertNotIn("show(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", controller)
         self.assertNotIn("applyImmersiveSystemUi()", main)
         main_style = styles.split('<style name="ReiFlixPlayerTheme"', 1)[0]
@@ -518,8 +518,10 @@ E: manifest
         self.assertIn("applyNormalSystemUi()", main)
         self.assertNotIn("applyImmersiveSystemUi()", main)
         self.assertIn("setDecorFitsSystemWindows(window, false)", controller)
+        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", player)
+        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", player)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", player)
 
     def test_player_exit_is_not_suppressed_after_normal_completion(self):

@@ -333,6 +333,13 @@ E: manifest
         self.assertNotIn("reconcile_missing", source[start:end])
 
 
+    def test_workflow_rejects_development_artifacts_from_apk(self):
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
+        self.assertIn('[tool.flet.app]', pyproject)
+        self.assertIn('exclude = ["tests", "docs", ".github"]', pyproject)
+        self.assertIn("Verify APK contains no development test/docs artifacts", workflow)
+        self.assertIn('forbidden_roots = ("tests/", "docs/", ".github/")', workflow)
     def test_workflow_validates_effective_manifest_and_hash(self):
         workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
         verifier = (ROOT / "scripts/verify_apk_manifest.py").read_text(encoding="utf-8")

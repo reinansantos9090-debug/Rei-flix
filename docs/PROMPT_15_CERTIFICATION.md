@@ -57,3 +57,29 @@ This is a validation-scope restriction only. It does not remove or weaken the An
 Historical problems are audited through the existing tests and source contracts, including player launch/exit, system UI, gestures, Back, storage permissions, scanner/catalog protection, StorageCapabilities, Flet launch_url compatibility, parser cases, thumbnail callbacks, NativeMailbox, NativeIndex, lifecycle, rotation, Theme, and Home performance.
 
 A production change is made only when the audit exposes an actual defect.
+
+## Latest completed certification run
+
+- Workflow run: 36158703367
+- Final repository HEAD used by the run: ccd053c1c69572e5bfc6e52325bdbec5114eb4af
+- Classification: **CERTIFICATION PARTIAL**
+- 201-item matrix: 26 PASS, 151 PARTIAL, 0 FAIL, 23 NOT VALIDATED, 0 NOT APPLICABLE, 1 BLOCKED BY ENVIRONMENT.
+- Python regression: **848 passed, 10 subtests passed**.
+- Python compileall: PASS (the workflow's exact `python -m compileall .` gate passed before certification).
+- unittest discovery: PASS.
+- Android rendered-project unit tests: PASS; `BUILD SUCCESSFUL`.
+- APK forensic inspection: PASS.
+- Effective packaged manifest verification: PASS.
+- APK: `build/ReiFlix.apk`, 144083010 bytes.
+- SHA-256: `f6f35ab9137035f7d498e71c8a20467040a5867c5f1676a8623e7b40a0bb0290`.
+- Package: `com.reiflix.reiflix_local`.
+- versionName: `0.2.1`; versionCode: `1802`; compileSdk/targetSdk: `36`; minSdk: `24`.
+- AGP: `8.6.1`; Kotlin: `2.0.21`; Gradle: `8.14`; JDK: `17`; Flet: `0.86.5`.
+- APK signing mode: ephemeral-debug; certificate SHA-256: `8a82a043c654864d6c9e433b36549feba86876be1ddefb63ef2bd8e5a6459c3b`.
+- Emulator/AVD: **NOT EXECUTED** by policy.
+- Physical device: **NOT VALIDATED**.
+- Android 14/15/16 runtime matrix: **NOT VALIDATED**.
+- Installation/update/clean-install runtime checks: **NOT VALIDATED**.
+- Runtime memory/FPS/profiler measurements: **NOT VALIDATED**.
+
+The run completed without a certification-runner FAIL. The remaining PARTIAL/NOT VALIDATED results are evidence-scope limitations or requirements whose individual behavior needs device/runtime/isolated evidence; they are not silently promoted to PASS.

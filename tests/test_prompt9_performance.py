@@ -218,6 +218,13 @@ class Prompt9ServiceAndSourceTests(unittest.TestCase):
         self.assertNotIn("library.catalog", source)
         self.assertNotIn("page.run_task(lambda:", source)
 
+    def test_details_bounds_initial_episode_render_and_uses_batch_artwork(self):
+        source = Path("views/details_view.py").read_text(encoding="utf-8")
+        self.assertIn("visible_episode_count = [48]", source)
+        self.assertIn("Carregar mais", source)
+        self.assertIn("resolve_artwork_batch", source)
+        self.assertIn("_prepare_episode_artwork", source)
+
     def test_home_defers_secondary_projections_and_filter_options(self):
         source = Path("views/home_view.py").read_text(encoding="utf-8")
         self.assertIn("await load_library_page(reset=True)", source)

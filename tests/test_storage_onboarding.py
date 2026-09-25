@@ -410,8 +410,12 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn("EVENT_VERSION = 2", mailbox)
         self.assertIn('put("eventType", eventType(event))', mailbox)
         self.assertIn("stream.fd.sync()", mailbox)
-        self.assertIn("temp.renameTo(target)", mailbox)
+        self.assertIn("Files.move(", mailbox)
+        self.assertIn("StandardCopyOption.ATOMIC_MOVE", mailbox)
+        self.assertIn("StandardCopyOption.REPLACE_EXISTING", mailbox)
+        self.assertIn("AtomicMoveNotSupportedException", mailbox)
         self.assertIn("requestId", mailbox)
+        self.assertNotIn("temp.renameTo(target)", mailbox)
 
     def test_runtime_capabilities_are_single_python_snapshot(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")

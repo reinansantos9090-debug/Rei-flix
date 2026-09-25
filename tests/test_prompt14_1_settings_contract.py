@@ -8,6 +8,7 @@ MAIN = ROOT / "main.py"
 BRIDGE = ROOT / "core/android_bridge.py"
 MAIN_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt"
 PLAYER = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt"
+PLAYER_REQUEST = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerRequest.kt"
 HOME = ROOT / "views/home_view.py"
 
 
@@ -32,6 +33,7 @@ class Prompt141SettingsContractTests(unittest.TestCase):
         main = self.read(MAIN)
         bridge = self.read(BRIDGE)
         main_activity = self.read(MAIN_ACTIVITY)
+        player_request = self.read(PLAYER_REQUEST)
         player = self.read(PLAYER)
         self.assertIn('"audio.preferred_language"', settings)
         self.assertIn('"audio.preferred_subtitle_language"', settings)
@@ -40,15 +42,15 @@ class Prompt141SettingsContractTests(unittest.TestCase):
         self.assertIn('"audio.preferred_subtitle_language": settings.get("audio.preferred_subtitle_language")', main)
         self.assertIn('"audio.subtitles": settings.get("audio.subtitles")', main)
         self.assertIn("player_settings", bridge)
-        self.assertIn('setting_audio_preferred_language', main_activity)
-        self.assertIn('setting_audio_preferred_subtitle_language', main_activity)
-        self.assertIn('setting_audio_subtitles', main_activity)
-        self.assertIn('setting_player_max_video_resolution', main_activity)
-        self.assertIn('setting_player_max_video_frame_rate', main_activity)
-        self.assertIn('setting_player_max_audio_channels', main_activity)
-        self.assertIn('setting_audio_subtitle_scale', main_activity)
-        self.assertIn('setting_audio_subtitle_bottom_padding', main_activity)
-        self.assertIn('setting_audio_subtitle_embedded_style', main_activity)
+        self.assertIn('setting_audio_preferred_language', player_request)
+        self.assertIn('setting_audio_preferred_subtitle_language', player_request)
+        self.assertIn('setting_audio_subtitles', player_request)
+        self.assertIn('setting_player_max_video_resolution', player_request)
+        self.assertIn('setting_player_max_video_frame_rate', player_request)
+        self.assertIn('setting_player_max_audio_channels', player_request)
+        self.assertIn('setting_audio_subtitle_scale', player_request)
+        self.assertIn('setting_audio_subtitle_bottom_padding', player_request)
+        self.assertIn('setting_audio_subtitle_embedded_style', player_request)
         self.assertIn("applyGlobalTrackPreferences()", player)
         self.assertIn("applyAdvancedTrackConstraints()", player)
         self.assertIn("applySubtitlePreferences()", player)
@@ -78,6 +80,7 @@ class Prompt141SettingsContractTests(unittest.TestCase):
         view = self.read(SETTINGS_VIEW)
         main = self.read(MAIN)
         main_activity = self.read(MAIN_ACTIVITY)
+        player_request = self.read(PLAYER_REQUEST)
         home = self.read(HOME)
         for key in (
             "player.double_tap_seek_seconds",
@@ -99,9 +102,11 @@ class Prompt141SettingsContractTests(unittest.TestCase):
         self.assertIn('"player.double_tap_seek_seconds": settings.get("player.double_tap_seek_seconds")', main)
         self.assertIn('"player.long_press_speed": settings.get("player.long_press_speed")', main)
         self.assertIn('"player.max_video_resolution": settings.get("player.max_video_resolution")', main)
-        self.assertIn("setting_player_double_tap_seek_seconds", main_activity)
-        self.assertIn("setting_player_long_press_speed", main_activity)
-        self.assertIn("setting_player_max_video_resolution", main_activity)
+        self.assertIn("setting_player_double_tap_seek_seconds", player_request)
+        self.assertIn("setting_player_long_press_speed", player_request)
+        self.assertIn("setting_player_max_video_resolution", player_request)
+        self.assertIn("NativePlayerRequest.fromBridgeUri", main_activity)
+        self.assertIn("playerRequest.toIntent(this, localUri)", main_activity)
         self.assertIn("settings.get(\"library.page_size\")", home)
         self.assertNotIn('"privacy.external_sync"', settings)
         self.assertNotIn('"artwork.offline_cache"', settings)

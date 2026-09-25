@@ -23,6 +23,7 @@ DESCRIPTORS = (
     b"Lcom/reiflix/reiflix_local/NativeIndex;",
     b"Lcom/reiflix/reiflix_local/NativeScanController;",
     b"Lcom/reiflix/reiflix_local/NativePlayerActivity;",
+    b"Lcom/reiflix/reiflix_local/NativePlayerRequest;",
     b"Lcom/reiflix/reiflix_local/VideoThumbnailExtractor;",
     b"Lcom/reiflix/reiflix_local/GoogleIdentity;",
 )
@@ -711,12 +712,15 @@ E: manifest
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         bridge = (ROOT / "core" / "android_bridge.py").read_text(encoding="utf-8")
+        request = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerRequest.kt").read_text(encoding="utf-8")
         self.assertIn('localUri.scheme?.lowercase() !in setOf("content", "file")', main)
         self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
         self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", main)
         self.assertIn("validatePlayerSource(localUri)", main)
-        self.assertIn(".putExtra(" + '"uri", localUri.toString())', main)
+        self.assertIn("NativePlayerRequest.fromBridgeUri(source)", main)
+        self.assertIn("playerRequest.toIntent(this, localUri)", main)
+        self.assertIn('.putExtra("uri", normalizedUri.toString())', request)
         self.assertIn(".setUri(mediaUri)", player)
         self.assertIn("validateLocalSource", player)
         self.assertIn("normalize_local_media_reference", bridge)

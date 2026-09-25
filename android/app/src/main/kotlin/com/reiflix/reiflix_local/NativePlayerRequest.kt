@@ -99,8 +99,8 @@ data class NativePlayerRequest(
                 rotation = get("setting_player_rotation") ?: "auto",
                 pip = get("setting_player_pip")?.toBooleanStrictOrNull() ?: true,
                 autoHideSeconds = get("setting_player_auto_hide_seconds")?.toIntOrNull()?.coerceIn(0, 300) ?: 5,
-                doubleTapSeekSeconds = get("setting_player_double_tap_seek_seconds")?.toLongOrNull()?.coerceAtLeast(0L) ?: 10L,
-                longPressSpeed = get("setting_player_long_press_speed")?.toFloatOrNull()?.takeIf { it > 0f } ?: 2f,
+                doubleTapSeekSeconds = get("setting_player_double_tap_seek_seconds")?.toLongOrNull()?.coerceIn(1L, 120L) ?: 10L,
+                longPressSpeed = get("setting_player_long_press_speed")?.toFloatOrNull()?.coerceIn(1f, 3f) ?: 2f,
                 maxVideoResolution = get("setting_player_max_video_resolution") ?: "auto",
                 maxVideoFrameRate = get("setting_player_max_video_frame_rate")?.toIntOrNull()?.coerceAtLeast(0) ?: 0,
                 maxAudioChannels = get("setting_player_max_audio_channels")?.toIntOrNull()?.coerceAtLeast(0) ?: 0,
@@ -111,8 +111,8 @@ data class NativePlayerRequest(
                 audioPreferredLanguage = get("setting_audio_preferred_language").orEmpty(),
                 audioPreferredSubtitleLanguage = get("setting_audio_preferred_subtitle_language").orEmpty(),
                 audioSubtitles = get("setting_audio_subtitles") ?: "auto",
-                audioSubtitleScale = get("setting_audio_subtitle_scale")?.toFloatOrNull()?.takeIf { it > 0f } ?: 1f,
-                audioSubtitleBottomPadding = get("setting_audio_subtitle_bottom_padding")?.toIntOrNull()?.coerceAtLeast(0) ?: 8,
+                audioSubtitleScale = get("setting_audio_subtitle_scale")?.toFloatOrNull()?.coerceIn(0.5f, 2f) ?: 1f,
+                audioSubtitleBottomPadding = get("setting_audio_subtitle_bottom_padding")?.toIntOrNull()?.coerceIn(0, 50) ?: 8,
                 audioSubtitleEmbeddedStyle = get("setting_audio_subtitle_embedded_style")?.toBooleanStrictOrNull() ?: true,
             )
     }

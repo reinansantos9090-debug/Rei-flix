@@ -113,7 +113,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("build/ReiFlix-apk.zip", workflow)
         self.assertIn("Upload APK ZIP as direct artifact", workflow)
         self.assertEqual(workflow.count("archive: false"), 2)
-        self.assertEqual(workflow.count("actions/upload-artifact@v7"), 3)
+        self.assertEqual(workflow.count("actions/upload-artifact@v7"), 4)
         self.assertIn("Upload APK metadata", workflow)
         self.assertNotIn("reactivecircus/android-emulator-runner", workflow)
         self.assertNotIn("android_api30", workflow)

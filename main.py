@@ -297,6 +297,7 @@ async def main(page: ft.Page):
             with open(temporary, "w", encoding="utf-8") as handle:
                 json.dump(state, handle, ensure_ascii=False, separators=(",", ":"))
                 handle.flush()
+                os.fsync(handle.fileno())
             os.replace(temporary, navigation_state_path)
         except (OSError, TypeError, ValueError):
             try:

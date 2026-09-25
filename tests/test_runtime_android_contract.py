@@ -76,7 +76,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             self.assertIn(token, source)
         self.assertIn("WindowInsetsCompat.Type.systemBars()", source)
         self.assertIn("WindowInsetsCompat.Type.displayCutout()", source)
-        self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", source)
+        self.assertIn("systemUiController.applyImmersive()", source)
         self.assertIn("playerView.player = player", source)
         self.assertIn("playerView.player === player", source)
         self.assertIn("PLAYER_VIEW_ATTACHED", source)

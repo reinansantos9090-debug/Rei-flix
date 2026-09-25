@@ -660,8 +660,8 @@ class HomeView:
                 last_scan and str(last_scan.get("status") or "").casefold() in {"running", "started"}
             )
             filter_options_loaded[0] = False
-            home_sections_generation[0] = render_generation[0]
             await load_library_page(reset=True)
+            home_sections_generation[0] = render_generation[0]
             status.visible = scan_active[0]
             page.update()
             await restore_scroll_position()

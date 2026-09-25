@@ -388,7 +388,7 @@ jobs:
           python scripts/prompt15_certification.py \
             --root . \
             --gradle-root build/flutter/android \
-            --apk "\${{ steps.apk.outputs.path }}" \
+            --apk "${{ steps.apk.outputs.path }}" \
             --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
             --output build/prompt15-certification.json \
             --report build/prompt15-certification.md \

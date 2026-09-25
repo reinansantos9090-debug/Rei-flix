@@ -1057,13 +1057,19 @@ class NativePlayerActivity : ComponentActivity() {
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(dp(320), ViewGroup.LayoutParams.WRAP_CONTENT))
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ))
         errorPanel.addView(TextView(this).apply {
             tag = "reiflix_error_reason"
             textSize = 10f
             setTextColor(0xFFBDB8C9.toInt())
             gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(dp(320), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply {
             topMargin = dp(8)
         })
         val errorRetry = actionButton("Tentar novamente", 170) {
@@ -1084,7 +1090,7 @@ class NativePlayerActivity : ComponentActivity() {
             topMargin = dp(8)
         })
         controls.addView(errorPanel, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,
         ).apply {
             gravity = Gravity.CENTER

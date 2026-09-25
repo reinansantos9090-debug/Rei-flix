@@ -484,7 +484,12 @@ async def main(page: ft.Page):
             views.append(
                 ft.View(
                     route=_route_for_screen(route),
-                    controls=[control],
+                    controls=[
+                        ft.SafeArea(
+                            expand=True,
+                            content=control,
+                        )
+                    ],
                     padding=0,
                 )
             )

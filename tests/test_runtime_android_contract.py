@@ -138,12 +138,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             'arrayOf("Ajustar", "Preencher", "Zoom")',
         ):
             self.assertIn(token, source)
-        for token in (
-            "HORIZONTAL_SEEK",
-            "GestureMode.HORIZONTAL_SEEK",
-            "calculateCloudStreamSeekTarget",
-        ):
-            self.assertNotIn(token, source)
+        self.assertNotIn("calculateCloudStreamSeekTarget", source)
 
     def test_prompt12_generation_back_immersive_and_error_contracts(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")

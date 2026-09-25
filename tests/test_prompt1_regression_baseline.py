@@ -74,19 +74,23 @@ class Prompt1RegressionBaselineTests(unittest.TestCase):
         for token in ("player_error","player_exited"):
             self.assertIn(token,player)
             self.assertIn(token,main)
-        for token in ("HORIZONTAL_SEEK","GestureMode.HORIZONTAL_SEEK"):
-            self.assertNotIn(token,player)
         for token in (
             "PlayerGesturePolicy",
             "PLAYER_DOUBLE_TAP",
             "PLAYER_LONG_PRESS",
             "VERTICAL",
+            "HORIZONTAL_SEEK",
+            "GestureMode.HORIZONTAL_SEEK",
+            "horizontal_seek",
+            "horizontalSeekDelta",
+            "seekTarget",
             "adjustBrightness",
             "adjustVolumeByFraction",
             "playerGeneration",
             "restoreSystemUiBeforeExit",
         ):
             self.assertIn(token,player)
+
 
     def test_existing_ui_async_guardrails_are_present(self):
         home=self.read("views/home_view.py")

@@ -1,0 +1,186 @@
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MAIN_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt"
+PLAYER_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt"
+MAIN_PY = ROOT / "main.py"
+BRIDGE = ROOT / "core/android_bridge.py"
+SCAN = ROOT / "core/scan_coordinator.py"
+STORE = ROOT / "core/library_store.py"
+SERVICE = ROOT / "core/library_service.py"
+HOME = ROOT / "views/home_view.py"
+ORGANIZE = ROOT / "views/organize_view.py"
+
+
+class Prompt13LifecycleContractTests(unittest.TestCase):
+    def test_main_activity_restores_recreation_state_and_limits_scan_cancel_to_true_finish(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        for token in (
+            "override fun onSaveInstanceState(outState: Bundle)",
+            "STATE_PENDING_PLAY_URI",
+            "STATE_PENDING_PLAY_POSITION_MS",
+            "STATE_ACTIVE_PLAYER_REQUEST_ID",
+            "STATE_SEEN_NATIVE_REQUEST_IDS",
+            "override fun onNewIntent(intent: Intent)",
+            "override fun onConfigurationChanged",
+            "if (isFinishing) NativeScanController.cancelAll()",
+        ):
+            self.assertIn(token, source)
+        self.assertNotIn("if (isFinishing || isChangingConfigurations) NativeScanController.cancelAll()", source)
+
+    def test_long_running_native_scan_batch_helper_is_not_bound_to_activity_instance(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        companion = source.index("companion object {")
+        batch = source.index("private fun publishNativeScanBatch", companion)
+        on_create = source.index("override fun onCreate")
+        self.assertLess(companion, batch)
+        self.assertLess(batch, on_create)
+        helper = source[batch:on_create]
+        self.assertNotIn("this@", helper)
+        self.assertNotIn("tag", helper)
+        self.assertIn("appContext: Context", helper)
+        self.assertIn("NativeMailbox.writeOrThrow", helper)
+
+    def test_saf_inventory_is_process_guarded_and_does_not_retain_activity(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        start = source.index("private fun publishSafInventory()")
+        end = source.index("private fun handleBroadSettingsReturn", start)
+        block = source[start:end]
+        self.assertIn("safInventoryInFlight.compareAndSet(false, true)", block)
+        self.assertIn("val appContext = applicationContext", block)
+        self.assertIn("val lifecycleSnapshot = if (activityResumed)", block)
+        self.assertNotIn("this@MainActivity", block)
+        self.assertIn("safInventoryInFlight.set(false)", block)
+        self.assertIn("private val safInventoryInFlight = AtomicBoolean(false)", source)
+
+    def test_main_activity_unregisters_lifecycle_listeners_and_debounced_callbacks(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        self.assertIn("unregisterStorageReceiver()", source)
+        self.assertIn("MediaStoreScanner.stopChangeObserver(this)", source)
+        self.assertIn("mediaStoreRescanHandler.removeCallbacksAndMessages(null)", source)
+        self.assertIn("mediaStoreRescanScheduled = false", source)
+        self.assertIn("storageReceiverRegistered = false", source)
+
+    def test_python_mailbox_poller_is_stopped_when_flet_session_disconnects(self):
+        source = MAIN_PY.read_text(encoding="utf-8")
+        self.assertIn("native_poll_task = [None]", source)
+        self.assertIn("def _handle_page_disconnect", source)
+        self.assertIn("task.cancel()", source)
+        self.assertIn("while ui_alive[0]:", source)
+        self.assertIn("native_poll_task[0] = page.run_task(poll_native_bridge)", source)
+        self.assertNotIn("page.run_task(poll_native_bridge)\n", source)
+
+    def test_navigation_recovery_restores_reconstructible_view_state(self):
+        source = MAIN_PY.read_text(encoding="utf-8")
+        self.assertEqual(source.count("load_navigation_state("), 2)
+        self.assertIn("load_navigation_state()\n", source)
+        self.assertIn('"version": 2', source)
+        self.assertIn('"home_state"', source)
+        self.assertIn('"organize_state"', source)
+        self.assertIn('"settings_state"', source)
+        self.assertIn('"details_media_id"', source)
+        self.assertIn("json.dump(state", source)
+        self.assertIn("os.replace(temporary, navigation_state_path)", source)
+
+    def test_player_recreation_releases_resources_and_preserves_restorable_state(self):
+        source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        for token in (
+            "override fun onSaveInstanceState(outState: Bundle)",
+            'outState.putLong("position_ms"',
+            'outState.putFloat("playback_speed"',
+            'outState.putBoolean("play_when_ready"',
+            'outState.putBundle("track_selection_parameters"',
+            'outState.putInt("resize_mode"',
+            "handler.removeCallbacks(progressReporter)",
+            "handler.removeCallbacks(controlsHider)",
+            "handler.removeCallbacks(feedbackHider)",
+            "pendingPreparation?.cancel(true)",
+            "playbackWorker.shutdownNow()",
+            "player.release()",
+        ):
+            self.assertIn(token, source)
+        self.assertIn("&& !isChangingConfigurations", source)
+
+    def test_player_async_and_media_callbacks_are_generation_guarded(self):
+        source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        for token in (
+            "playerGeneration",
+            "beginPlayerGeneration",
+            "generation == playerGeneration && sessionState == SessionState.ACTIVE",
+            "isCurrentPreparation(generation, localUri)",
+            "pendingPreparation?.cancel(true)",
+            "activePlayerListener?.let { player.removeListener(it) }",
+            "activeAnalyticsListener?.let { player.removeAnalyticsListener(it) }",
+        ):
+            self.assertIn(token, source)
+
+    def test_native_mailbox_recovery_requeues_before_acknowledgement(self):
+        bridge = BRIDGE.read_text(encoding="utf-8")
+        main = MAIN_PY.read_text(encoding="utf-8")
+        self.assertIn("source.replace(consumed)", bridge)
+        self.assertIn("consumed.replace(consumed.with_suffix(\".json\"))", bridge)
+        self.assertIn("def requeue_event_ids", bridge)
+        self.assertIn("def acknowledge", bridge)
+        self.assertIn("bridge.requeue_event_ids(failed_event_ids)", main)
+        self.assertIn("bridge.acknowledge()", main)
+        self.assertLess(
+            main.index("bridge.requeue_event_ids(failed_event_ids)"),
+            main.index("bridge.acknowledge()"),
+        )
+        self.assertIn("store.has_native_event(event_id)", main)
+        self.assertIn("store.claim_native_event(event_id)", main)
+
+    def test_scan_coordinator_serializes_mutations_and_matches_cancelled_operations(self):
+        source = SCAN.read_text(encoding="utf-8")
+        for token in (
+            "self._lock = asyncio.Lock()",
+            "self._active_request: ScanRequest | None = None",
+            "self._pending",
+            "self._cancel_requested",
+            "async def cancel(self)",
+            "await self.bridge.cancel_scans()",
+            "async def handle_native_event",
+        ):
+            self.assertIn(token, source)
+
+    def test_catalog_and_progress_recovery_do_not_convert_partial_failures_into_deletion(self):
+        store = STORE.read_text(encoding="utf-8")
+        service = SERVICE.read_text(encoding="utf-8")
+        for token in (
+            "def mark_source_unavailable",
+            "state='scope_unavailable'",
+            "def restore_source",
+            "def interrupted_scans",
+            "def recover_interrupted_scans",
+            "episode_observations",
+            "scan_runs",
+        ):
+            self.assertIn(token, store)
+        self.assertIn("only a trusted COMPLETE generation reconciles", service)
+        self.assertIn("final_status", service)
+        progress_start = store.index("def save_progress")
+        progress_block = store[progress_start:progress_start + 4200]
+        self.assertIn("event_created_at", progress_block)
+        self.assertIn("if event_time <= last_seen", progress_block)
+        self.assertIn("durable_time", progress_block)
+
+    def test_python_stale_screen_work_is_generation_guarded(self):
+        home = HOME.read_text(encoding="utf-8")
+        organize = ORGANIZE.read_text(encoding="utf-8")
+        for token in (
+            "render_generation = [0]",
+            "search_generation = [0]",
+            "if token != render_generation[0]:",
+        ):
+            self.assertIn(token, home)
+        for token in (
+            "render_generation = [0]",
+            "search_generation = [0]",
+            "if token != search_generation[0]:",
+        ):
+            self.assertIn(token, organize)
+
+if __name__ == "__main__":
+    unittest.main()

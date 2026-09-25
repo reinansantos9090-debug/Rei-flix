@@ -217,29 +217,6 @@ class Prompt13LifecycleContractTests(unittest.TestCase):
 
     def test_media_store_delayed_retry_does_not_capture_activity_instance(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
-        self.assertIn("scheduleMediaStoreRetry(appContext", source)
-        self.assertIn("private fun scheduleMediaStoreRetry", source)
-        retry_start = source.index("private fun scheduleMediaStoreRetry")
-        retry_end = source.index("private fun handleBroadSettingsReturn", retry_start)
-        retry_block = source[retry_start:retry_end]
-        self.assertNotIn("this@MainActivity", retry_block)
-        self.assertNotIn("activityResumed", retry_block)
-        self.assertIn("NativeMailbox.write(appContext", retry_block)
-
-    def test_player_pip_exit_respects_immersive_policy(self):
-        source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
-        pip_start = source.index("override fun onPictureInPictureModeChanged")
-        pip_end = source.index("override fun onConfigurationChanged", pip_start)
-        pip_block = source[pip_start:pip_end]
-        self.assertIn("applyImmersiveAfterLayout()", pip_block)
-        self.assertNotIn("} else {\n            enterImmersiveMode()", pip_block)    def test_main_activity_background_scan_jobs_do_not_use_activity_bound_job_registry(self):
-        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
-        self.assertNotIn("activeNativeScanJobs", source)
-        self.assertNotIn("private val activeNativeScanJobs", source)
-        self.assertNotIn("mutableMapOf<String, Job>()", source)
-
-    def test_media_store_delayed_retry_does_not_capture_activity_instance(self):
-        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
         self.assertIn("scheduleMediaStoreScanRequest(", source)
         self.assertIn("private fun scheduleMediaStoreScanRequest", source)
         retry_start = source.index("private fun scheduleMediaStoreScanRequest")
@@ -258,4 +235,5 @@ class Prompt13LifecycleContractTests(unittest.TestCase):
         self.assertIn("applyImmersiveAfterLayout()", pip_block)
         self.assertNotIn("} else {\n            enterImmersiveMode()", pip_block)
 
-
+if __name__ == "__main__":
+    unittest.main()

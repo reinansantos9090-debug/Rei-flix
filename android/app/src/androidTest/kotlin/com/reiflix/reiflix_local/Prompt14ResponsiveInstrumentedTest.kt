@@ -96,6 +96,9 @@ class Prompt14ResponsiveInstrumentedTest {
             !currentResumedMainActivity().isFinishing && !currentResumedMainActivity().isDestroyed,
         )
         assertHomeIsVisible()
+        if (navigationMode == 0) {
+            exerciseThreeButtonHomeAndRecents()
+        }
     }
 
     @Test
@@ -162,6 +165,25 @@ class Prompt14ResponsiveInstrumentedTest {
         val settings = device.findObject(By.descContains("Configurações"))
         assertTrue("Home must expose Search accessibility action", search != null)
         assertTrue("Home must expose Settings accessibility action", settings != null)
+    }
+
+    private fun exerciseThreeButtonHomeAndRecents() {
+        assertTrue("Home action must leave the application in 3-button navigation", device.pressHome())
+        await("Home button must background Rei-Flix") {
+            device.currentPackageName != target.packageName
+        }
+        launchMainActivity()
+        assertHomeIsVisible()
+
+        assertTrue("Recents action must be dispatched", device.pressRecentApps())
+        SystemClock.sleep(750L)
+        assertTrue(
+            "Recents must move focus away from Rei-Flix",
+            device.currentPackageName != target.packageName,
+        )
+        device.pressBack()
+        launchMainActivity()
+        assertHomeIsVisible()
     }
 
     private fun findSearchButton() =

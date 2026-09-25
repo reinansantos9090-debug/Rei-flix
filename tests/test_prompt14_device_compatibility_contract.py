@@ -29,7 +29,7 @@ class Prompt14DeviceCompatibilityContractTests(unittest.TestCase):
         normal = source[source.index("fun applyNormal()"):source.index("private fun applyEdgeToEdgeWindow")]
         immersive = source[source.index("fun applyImmersive()"):source.index("fun applyNormal()")]
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", normal)
-        self.assertIn("systemUiController.applyImmersive()", immersive)
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", immersive)
         self.assertIn("UI_MODE_NIGHT_MASK", source)
         self.assertIn("isAppearanceLightStatusBars = !darkTheme", source)
         self.assertIn("isAppearanceLightNavigationBars = !darkTheme", source)

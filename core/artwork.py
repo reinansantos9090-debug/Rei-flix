@@ -1011,7 +1011,7 @@ class ArtworkEngine:
         with self.store._conn() as con:
             rows = con.execute(
                 """SELECT id,local_path,byte_size,last_access,source,manual
-                   FROM artwork WHERE local_path IS NOT NULL AND source IN ('cache','generated')
+                   FROM artwork WHERE local_path IS NOT NULL AND source='cache'
                    ORDER BY COALESCE(last_access,updated_at,0) ASC"""
             ).fetchall()
         total = sum(int(row["byte_size"] or 0) for row in rows if self._is_file(row["local_path"]))
@@ -1092,7 +1092,7 @@ class ArtworkEngine:
         with self.store._conn() as con:
             rows = con.execute(
                 """SELECT COUNT(*) AS files, COALESCE(SUM(byte_size),0) AS bytes
-                   FROM artwork WHERE source IN ('cache','generated') AND local_path IS NOT NULL"""
+                   FROM artwork WHERE source='cache' AND local_path IS NOT NULL"""
             ).fetchone()
         return {"files": int(rows["files"] or 0), "bytes": int(rows["bytes"] or 0),
                 "limit_bytes": self.cache_limit_bytes}

@@ -5,9 +5,9 @@ WORKSPACE="${GITHUB_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 PACKAGE="com.reiflix.reiflix_local"
 API_LEVEL="${REIFLIX_ANDROID_API_LEVEL:-}"
 case "${API_LEVEL}" in
-    30|36) ;;
+    34|35|36) ;;
     *)
-        printf 'REIFLIX_ANDROID_API_LEVEL must be 30 or 36 (got %q)\n' "${API_LEVEL}" >&2
+        printf 'REIFLIX_ANDROID_API_LEVEL must be 34, 35, or 36 (got %q)\n' "${API_LEVEL}" >&2
         exit 2
         ;;
 esac

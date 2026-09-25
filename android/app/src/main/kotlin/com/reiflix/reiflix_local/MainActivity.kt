@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Flet's generated Android template must use this activity instead of its default
@@ -114,6 +115,90 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_STARTUP_DISCOVERY_TRIGGERED = "reiflix.startupDiscoveryTriggered"
         private const val STATE_LAST_OBSERVED_MEDIA_ACCESS = "reiflix.lastObservedMediaAccess"
         private const val STATE_LAST_OBSERVED_BROAD_ACCESS = "reiflix.lastObservedBroadAccess"
+        private const val LOG_TAG = "[REIFLIX][ANDROID]"
+        private val safInventoryInFlight = AtomicBoolean(false)
+
+        private fun publishNativeScanBatch(
+            appContext: Context,
+            eventType: String,
+            source: String,
+            scanId: String,
+            requestId: String?,
+            scopeKind: String,
+            scopeRef: String,
+            scopeKey: String,
+            generation: Long,
+            batchEvent: JSONObject,
+        ) {
+            try {
+                val raw = batchEvent.optJSONArray("documents") ?: JSONArray()
+                val batchId = batchEvent.optString("batchId").ifBlank { UUID.randomUUID().toString() }
+                val batchNumber = batchEvent.optInt("batchNumber", 0)
+                val reused = batchEvent.optBoolean("reused", false)
+                val prepared = if (reused) null else NativeIndex.prepareBatch(
+                    appContext,
+                    source,
+                    scopeKey,
+                    raw,
+                    generation,
+                    batchId,
+                    batchNumber,
+                    JSONObject()
+                        .put("scanId", scanId)
+                        .put("requestId", requestId ?: "")
+                        .put("source", source)
+                        .put("scopeKind", scopeKind)
+                        .put("scopeRef", scopeRef),
+                )
+                val documents = prepared?.documents ?: raw
+                val effectiveGeneration = prepared?.generation ?: generation
+                val effectiveGenerationId = prepared?.generationId
+                    ?: NativeIndex.generationId(source, scopeKey, effectiveGeneration)
+                val payload = JSONObject()
+                    .put("scanId", if (scopeKind == "volume" && scopeRef.isNotBlank()) "$scanId:$scopeRef" else scanId)
+                    .put("scopeScanId", if (scopeKind == "volume" && scopeRef.isNotBlank()) "$scanId:$scopeRef" else scanId)
+                    .put("requestId", requestId ?: "")
+                    .put("source", source)
+                    .put("scope", scopeRef)
+                    .put("scopeKind", scopeKind)
+                    .put("scopeRef", scopeRef)
+                    .put("volumeId", batchEvent.optString("volumeId"))
+                    .put("generationId", effectiveGenerationId)
+                    .put("scanGeneration", effectiveGeneration)
+                    .put("batchId", batchId)
+                    .put("batchNumber", batchNumber)
+                    .put("batchSize", documents.length())
+                    .put("processed", documents.length())
+                    .put("discovered", raw.length())
+                    .put("duplicates", prepared?.duplicates ?: 0)
+                    .put("reused", reused)
+                    .put("documents", documents)
+                NativeMailbox.writeOrThrow(
+                    appContext,
+                    JSONObject().put("type", eventType).put("requestId", requestId ?: "").put("payload", payload)
+                )
+            } catch (exception: Exception) {
+                Log.e(LOG_TAG, "Native batch publication failed", exception)
+                NativeMailbox.write(
+                    appContext,
+                    JSONObject().put("type", eventType.replace("_batch", "_error"))
+                        .put("requestId", requestId ?: "")
+                        .put("message", "Não foi possível preparar um lote da biblioteca.")
+                        .put("payload", JSONObject()
+                            .put("scanId", scanId)
+                            .put("requestId", requestId ?: "")
+                            .put("source", source)
+                            .put("scopeKind", scopeKind)
+                            .put("scopeRef", scopeRef)
+                            .put("generationId", NativeIndex.generationId(source, scopeKey, generation))
+                            .put("status", NativeIndex.STATUS_FAILED)
+                            .put("batchId", batchEvent.optString("batchId"))
+                            .put("batchNumber", batchEvent.optInt("batchNumber", 0))
+                            .put("error", exception.message ?: "native_batch_failed"))
+                )
+                throw exception
+            }
+        }
     }
     private val activeNativeScanJobs = mutableMapOf<String, Job>()
 
@@ -155,7 +240,6 @@ class MainActivity : FlutterFragmentActivity() {
         )
     }
     private var storageReceiverRegistered = false
-    private var safInventoryRunning = false
     private var lastBackEventAt = 0L
     private val backEventDebounceMs = 300L
     private val mediaStoreRescanHandler = Handler(Looper.getMainLooper())
@@ -741,93 +825,6 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
     }
-    /**
-     * Publishes one bounded native scan batch. Android prepares the batch into
-     * NativeIndex staging before the mailbox event is emitted; Python ingests the
-     * same bounded payload and only performs destructive reconciliation on final.
-     */
-    private fun publishNativeScanBatch(
-        appContext: Context,
-        eventType: String,
-        source: String,
-        scanId: String,
-        requestId: String?,
-        scopeKind: String,
-        scopeRef: String,
-        scopeKey: String,
-        generation: Long,
-        batchEvent: JSONObject,
-    ) {
-        try {
-            val raw = batchEvent.optJSONArray("documents") ?: JSONArray()
-            val batchId = batchEvent.optString("batchId").ifBlank { UUID.randomUUID().toString() }
-            val batchNumber = batchEvent.optInt("batchNumber", 0)
-            val reused = batchEvent.optBoolean("reused", false)
-            val prepared = if (reused) null else NativeIndex.prepareBatch(
-                appContext,
-                source,
-                scopeKey,
-                raw,
-                generation,
-                batchId,
-                batchNumber,
-                JSONObject()
-                    .put("scanId", scanId)
-                    .put("requestId", requestId ?: "")
-                    .put("source", source)
-                    .put("scopeKind", scopeKind)
-                    .put("scopeRef", scopeRef),
-            )
-            val documents = prepared?.documents ?: raw
-            val effectiveGeneration = prepared?.generation ?: generation
-            val effectiveGenerationId = prepared?.generationId
-                ?: NativeIndex.generationId(source, scopeKey, effectiveGeneration)
-            val payload = JSONObject()
-                .put("scanId", if (scopeKind == "volume" && scopeRef.isNotBlank()) "$scanId:$scopeRef" else scanId)
-                .put("scopeScanId", if (scopeKind == "volume" && scopeRef.isNotBlank()) "$scanId:$scopeRef" else scanId)
-                .put("requestId", requestId ?: "")
-                .put("source", source)
-                .put("scope", scopeRef)
-                .put("scopeKind", scopeKind)
-                .put("scopeRef", scopeRef)
-                .put("volumeId", batchEvent.optString("volumeId"))
-                .put("generationId", effectiveGenerationId)
-                .put("scanGeneration", effectiveGeneration)
-                .put("batchId", batchId)
-                .put("batchNumber", batchNumber)
-                .put("batchSize", documents.length())
-                .put("processed", documents.length())
-                .put("discovered", raw.length())
-                .put("duplicates", prepared?.duplicates ?: 0)
-                .put("reused", reused)
-                .put("documents", documents)
-            NativeMailbox.writeOrThrow(
-                appContext,
-                JSONObject().put("type", eventType).put("requestId", requestId ?: "").put("payload", payload)
-            )
-        } catch (exception: Exception) {
-            Log.e(tag, "Native batch publication failed", exception)
-            NativeMailbox.write(
-                appContext,
-                JSONObject().put("type", eventType.replace("_batch", "_error"))
-                    .put("requestId", requestId ?: "")
-                    .put("message", "Não foi possível preparar um lote da biblioteca.")
-                    .put("payload", JSONObject()
-                        .put("scanId", scanId)
-                        .put("requestId", requestId ?: "")
-                        .put("source", source)
-                        .put("scopeKind", scopeKind)
-                        .put("scopeRef", scopeRef)
-                        .put("generationId", NativeIndex.generationId(source, scopeKey, generation))
-                        .put("status", NativeIndex.STATUS_FAILED)
-                        .put("batchId", batchEvent.optString("batchId"))
-                        .put("batchNumber", batchEvent.optInt("batchNumber", 0))
-                        .put("error", exception.message ?: "native_batch_failed"))
-            )
-            throw exception
-        }
-    }
-
     private fun scanTree(reference: String?, requestId: String? = null) {
         val scanId = UUID.randomUUID().toString()
         if (reference.isNullOrBlank()) {
@@ -1086,9 +1083,12 @@ class MainActivity : FlutterFragmentActivity() {
      * so publish it directly through the existing NativeMailbox instead.
      */
     private fun publishSafInventory() {
-        if (safInventoryRunning) return
-        safInventoryRunning = true
+        if (!safInventoryInFlight.compareAndSet(false, true)) {
+            Log.i(tag, "SAF inventory already running; lifecycle recreation will reuse the in-flight result")
+            return
+        }
         val appContext = applicationContext
+        val lifecycleSnapshot = if (activityResumed) "RESUMED" else "PAUSED"
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val trees = JSONArray()
@@ -1109,15 +1109,15 @@ class MainActivity : FlutterFragmentActivity() {
                         .put("trees", trees)
                         .put("count", trees.length())
                         .put("inventoryComplete", true)
-                        .put("lifecycle", if (activityResumed) "RESUMED" else "PAUSED")))
+                        .put("lifecycle", lifecycleSnapshot)))
             } catch (exception: Exception) {
-                Log.e(tag, "SAF inventory failed", exception)
+                Log.e(LOG_TAG, "SAF inventory failed", exception)
                 NativeMailbox.write(appContext, JSONObject().put("type", "saf_error")
                     .put("message", "Não foi possível validar as pastas SAF persistidas.")
                     .put("payload", JSONObject().put("source", "saf").put("status", SafScanner.STATUS_UNAVAILABLE)
                         .put("stage", "inventory")))
             } finally {
-                safInventoryRunning = false
+                safInventoryInFlight.set(false)
             }
         }
     }

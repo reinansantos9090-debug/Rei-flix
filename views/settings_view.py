@@ -695,34 +695,37 @@ class SettingsView:
                 row("app.confirm_destructive", "Confirmar ações destrutivas", "Pede confirmação antes de ações como limpar cache e restaurar configurações."),
             ], ("geral", "confirmação", "animações")))
 
-            def theme_changed(e):
-                if save("appearance.theme", e.control.value):
-                    page.theme_mode = {
-                        "system": ft.ThemeMode.SYSTEM,
-                        "light": ft.ThemeMode.LIGHT,
-                        "dark": ft.ThemeMode.DARK,
-                    }[e.control.value]
-                    safe_update()
+            def choose_theme(mode):
+                def handle(_event):
+                    if save("appearance.theme", mode):
+                        label = {"system": "Sistema", "light": "Claro", "dark": "Escuro"}[mode]
+                        notice(f"Tema: {label}.")
+                selected = settings.get("appearance.theme") == mode
+                label = {"system": "Sistema", "light": "Claro", "dark": "Escuro"}[mode]
+                button_label = f"✓ {label}" if selected else label
+                button_cls = ft.FilledButton if selected else ft.OutlinedButton
+                return button_cls(button_label, on_click=handle)
 
-            theme = ft.Dropdown(
-                value=settings.get("appearance.theme"),
-                options=[
-                    ft.dropdown.Option("system", "Seguir sistema"),
-                    ft.dropdown.Option("light", "Claro"),
-                    ft.dropdown.Option("dark", "Escuro"),
-                ],
-                dense=True, width=180,
+            selected_theme = settings.get("appearance.theme")
+            theme_choices = ft.Row(
+                [choose_theme("system"), choose_theme("light"), choose_theme("dark")],
+                wrap=True,
+                spacing=8,
             )
-            theme.on_change = theme_changed
             items.append(section("Aparência", ft.Icons.DARK_MODE_OUTLINED, [
                 ft.Row([
                     ft.Column([
                         ft.Text("Tema", color=TEXT, weight=ft.FontWeight.BOLD),
-                        ft.Text("Aplica imediatamente sem recriar banco, scanner ou navegação.", color=TEXT_MUTED, size=10),
-                    ], expand=True),
-                    theme,
-                ]),
-            ], ("aparência", "tema", "dark", "light", "system")))
+                        ft.Text(
+                            f"Atual: {"Sistema" if selected_theme == "system" else "Claro" if selected_theme == "light" else "Escuro"}. "
+                            "A alteração é aplicada imediatamente sem tocar na biblioteca, scanner ou player.",
+                            color=TEXT_MUTED,
+                            size=10,
+                        ),
+                    ], spacing=2, expand=True),
+                    theme_choices,
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ], ("aparência", "tema", "dark", "light", "system", "sistema", "claro", "escuro")))
 
             items.append(section("Biblioteca", ft.Icons.VIDEO_LIBRARY_OUTLINED, [
                 row("appearance.card_size", "Tamanho dos cards", "Controla o tamanho visual dos cards da Home."),

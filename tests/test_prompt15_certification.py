@@ -101,7 +101,19 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
 
     def test_unittest_discovery_command_targets_tests_directory(self):
         source=SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('["-m","unittest","discover","-s","tests","-v"]',source)
+        self.assertIn('"unittest","discover","-s","tests","-v"',source)
+
+    def test_unittest_parser_reads_stderr_summary(self):
+        result=runner.Result(
+            "Python",
+            "unittest discovery",
+            "FAIL",
+            stdout="",
+            stderr="Ran 862 tests in 2.0s\\nFAILED (failures=1)",
+        )
+        parsed=runner.parse_unittest(runner.unittest_output(result))
+        self.assertEqual(parsed["discovered"],862)
+        self.assertEqual(parsed["failures"],1)
 
     def test_zero_unittest_discovery_is_never_pass(self):
         with tempfile.TemporaryDirectory() as tmp:

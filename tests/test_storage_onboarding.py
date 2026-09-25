@@ -147,6 +147,14 @@ class StorageOnboardingTests(unittest.TestCase):
             self.assertGreaterEqual(idx, 0, event_name)
             self.assertIn("NativeMailbox.writeOrThrow", source[max(0, idx - 120):idx + 260], event_name)
 
+    def test_native_mailbox_uses_atomic_move_with_non_atomic_fallback(self):
+        source = (ROOT / "core" / "android_bridge.py").read_text(encoding="utf-8")
+        native = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt").read_text(encoding="utf-8")
+        self.assertIn("ATOMIC_MOVE", native)
+        self.assertIn("StandardCopyOption.REPLACE_EXISTING", native)
+        self.assertIn("event-*.json", source)
+        self.assertNotIn("event-*.json.tmp", source)
+
     def test_native_mailbox_drain_does_not_silently_hide_io_or_json_failures(self):
         source = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
         self.assertIn('logger.error("[ANDROID] Invalid legacy native mailbox batch discarded:', source)

@@ -5,6 +5,8 @@ import android.util.Log
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.UUID
 
 /** Crash-safe, atomic queue between the native Android host and embedded Python. */
@@ -116,7 +118,20 @@ object NativeMailbox {
                 stream.write(payload.toString().toByteArray(Charsets.UTF_8))
                 stream.fd.sync()
             }
-            check(temp.renameTo(target)){"Could not publish native event"}
+            try {
+                Files.move(
+                    temp.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                Files.move(
+                    temp.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }
             Log.i(TAG,"Native event queued: type=${event.optString("type")} eventType=${payload.optString("eventType")} requestId=${requestId.ifEmpty{"-"}}")
         }catch(exception:Exception){
             temporary?.delete()

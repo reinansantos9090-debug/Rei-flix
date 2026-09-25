@@ -300,6 +300,37 @@ class ArtworkEngineTests(unittest.TestCase):
         self.engine.add_local("movie", movie, "poster", path)
         self.assertEqual(self.engine.resolve("movie", movie, "poster", allow_network=False)["local_path"], str(path))
 
+    def test_generated_thumbnail_reuses_stable_identity_and_persists_metadata(self):
+        anime = self._media("Stable")
+        episode_path = str(Path(self.tmp.name) / "Stable S01E01.mkv")
+        ep = self._episode(anime, episode_path, "Stable S01E01.mkv")
+        thumb = Path(self.tmp.name) / "native-stable.jpg"
+        thumb.write_bytes(JPEG)
+        metadata = {"durationMs": 91234, "width": 1920, "height": 1080, "rotation": 90, "mimeType": "video/x-matroska"}
+        self.assertTrue(self.engine.register_generated_thumbnail(
+            "content://provider/item/one", thumb, size=123, modified_at=456,
+            media_identity="stable-media-id", metadata=metadata,
+        ))
+        row = self.engine.resolve("episode", ep, "episode_thumbnail", allow_network=False)
+        self.assertEqual(row["width"], 1920)
+        self.assertEqual(row["height"], 1080)
+        with self.store._conn() as con:
+            duration = con.execute("SELECT duration FROM episodes WHERE id=?", (ep,)).fetchone()[0]
+        self.assertAlmostEqual(duration, 91.234, places=3)
+
+    def test_generated_thumbnail_cache_is_bounded_with_shared_eviction(self):
+        anime = self._media("Bounded")
+        episode_path = str(Path(self.tmp.name) / "Bounded S01E01.mkv")
+        ep = self._episode(anime, episode_path, "Bounded S01E01.mkv")
+        thumb = Path(self.tmp.name) / "generated.jpg"
+        thumb.write_bytes(JPEG * 100)
+        self.assertTrue(self.engine.register_generated_thumbnail(
+            episode_path, thumb, size=1, modified_at=1,
+        ))
+        self.engine.cache_limit_bytes = 1
+        self.engine._evict_if_needed()
+        self.assertFalse(thumb.exists())
+
     def test_metadata_integration_uses_existing_engine(self):
         service = LibraryService(self.store)
         anime = self._media()

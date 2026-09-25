@@ -2043,21 +2043,19 @@ class LibraryStore:
             limit = max(1, min(100, int(limit)))
         except (TypeError, ValueError):
             limit = 12
-        completed_sql = """(
-            e.watched=1 OR
-            (e.duration>0 AND
-             MIN(MAX(COALESCE(e.progress,0),0),e.duration) / e.duration >= 0.90)
+        completed = """(
+            watched=1 OR
+            (duration>0 AND
+             MIN(MAX(COALESCE(progress,0),0),duration) / duration >= 0.90)
         )"""
-        completed_sql_ref = """(
-            e.watched=1 OR
-            (e.duration>0 AND
-             MIN(MAX(COALESCE(e.progress,0),0),e.duration) / e.duration >= 0.90)
-        )"""
-        special_filter = """LOWER(COALESCE(e.episode_type,'regular'))
+        special_filter = """LOWER(COALESCE(episode_type,'regular'))
                           NOT IN ('special','ova','oad','ona','extra','movie')"""
-        order_season = "COALESCE(e.season, 1000000)"
-        order_number = "COALESCE(e.number, 1000000)"
-        order_absolute = "COALESCE(e.absolute_number, 1000000)"
+        eligible_order_season = "COALESCE(season, 1000000)"
+        eligible_order_number = "COALESCE(number, 1000000)"
+        eligible_order_absolute = "COALESCE(absolute_number, 1000000)"
+        selected_order_season = "COALESCE(e.season, 1000000)"
+        selected_order_number = "COALESCE(e.number, 1000000)"
+        selected_order_absolute = "COALESCE(e.absolute_number, 1000000)"
         with self._conn() as c:
             rows = c.execute(
                 f"""
@@ -2070,7 +2068,7 @@ class LibraryStore:
                         a.cover_url
                     FROM episodes e
                     JOIN anime a ON a.id=e.anime_id
-                    WHERE e.missing=0 AND a.media_kind!='movie' AND {special_filter}
+                    WHERE e.missing=0 AND a.media_kind!='movie' AND {special_filter.replace("episode_type","e.episode_type").replace("watched","e.watched").replace("duration","e.duration").replace("progress","e.progress")}
                 ),
                 in_progress_ranked AS (
                     SELECT eligible.*,
@@ -2079,38 +2077,38 @@ class LibraryStore:
                                ORDER BY COALESCE(last_played_at,0) DESC, id DESC
                            ) AS rn
                     FROM eligible
-                    WHERE COALESCE(progress,0)>0 AND NOT {completed_sql}
+                    WHERE COALESCE(progress,0)>0 AND NOT {completed}
                 ),
                 furthest_completed_ranked AS (
                     SELECT eligible.*,
                            ROW_NUMBER() OVER (
                                PARTITION BY anime_id
-                               ORDER BY {order_season} DESC, {order_number} DESC,
-                                        {order_absolute} DESC, id DESC
+                               ORDER BY {eligible_order_season} DESC, {eligible_order_number} DESC,
+                                        {eligible_order_absolute} DESC, id DESC
                            ) AS rn
                     FROM eligible
-                    WHERE {completed_sql_ref}
+                    WHERE {completed}
                 ),
                 after_completed_ranked AS (
                     SELECT e.*,
                            ROW_NUMBER() OVER (
                                PARTITION BY e.anime_id
-                               ORDER BY {order_season} ASC, {order_number} ASC,
-                                        {order_absolute} ASC, e.id ASC
+                               ORDER BY {selected_order_season} ASC, {selected_order_number} ASC,
+                                        {selected_order_absolute} ASC, e.id ASC
                            ) AS rn
                     FROM eligible e
                     JOIN furthest_completed_ranked f
                       ON f.anime_id=e.anime_id AND f.rn=1
                     WHERE (
-                        {order_season} > COALESCE(f.season,1000000)
-                        OR ({order_season} = COALESCE(f.season,1000000)
-                            AND {order_number} > COALESCE(f.number,1000000))
-                        OR ({order_season} = COALESCE(f.season,1000000)
-                            AND {order_number} = COALESCE(f.number,1000000)
-                            AND {order_absolute} > COALESCE(f.absolute_number,1000000))
-                        OR ({order_season} = COALESCE(f.season,1000000)
-                            AND {order_number} = COALESCE(f.number,1000000)
-                            AND {order_absolute} = COALESCE(f.absolute_number,1000000)
+                        {selected_order_season} > COALESCE(f.season,1000000)
+                        OR ({selected_order_season} = COALESCE(f.season,1000000)
+                            AND {selected_order_number} > COALESCE(f.number,1000000))
+                        OR ({selected_order_season} = COALESCE(f.season,1000000)
+                            AND {selected_order_number} = COALESCE(f.number,1000000)
+                            AND {selected_order_absolute} > COALESCE(f.absolute_number,1000000))
+                        OR ({selected_order_season} = COALESCE(f.season,1000000)
+                            AND {selected_order_number} = COALESCE(f.number,1000000)
+                            AND {selected_order_absolute} = COALESCE(f.absolute_number,1000000)
                             AND e.id > f.id)
                     )
                     AND NOT (
@@ -2123,11 +2121,11 @@ class LibraryStore:
                     SELECT eligible.*,
                            ROW_NUMBER() OVER (
                                PARTITION BY anime_id
-                               ORDER BY {order_season} ASC, {order_number} ASC,
-                                        {order_absolute} ASC, id ASC
+                               ORDER BY {eligible_order_season} ASC, {eligible_order_number} ASC,
+                                        {eligible_order_absolute} ASC, id ASC
                            ) AS rn
                     FROM eligible
-                    WHERE NOT {completed_sql_ref}
+                    WHERE NOT {completed}
                 ),
                 choices AS (
                     SELECT anime_id, id, 0 AS priority FROM in_progress_ranked WHERE rn=1

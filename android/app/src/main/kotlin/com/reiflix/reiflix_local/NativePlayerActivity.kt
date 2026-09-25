@@ -880,6 +880,12 @@ class NativePlayerActivity : ComponentActivity() {
             window.isStatusBarContrastEnforced = false
             window.isNavigationBarContrastEnforced = false
         }
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
     }
 
     private fun canEnterPictureInPicture(): Boolean {
@@ -2084,10 +2090,7 @@ class NativePlayerActivity : ComponentActivity() {
     private fun enterImmersiveMode() {
         // Android 15/16 enforce edge-to-edge for target 35+; fullscreen is
         // therefore controlled by WindowInsetsControllerCompat hiding system bars.
-        // Keep the decor-fit call only for pre-35 compatibility.
-        if (Build.VERSION.SDK_INT < 35) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-        }
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
@@ -2100,18 +2103,21 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun restoreSystemUiBeforeExit() {
         runCatching {
-            // Do not reveal the Android bars during the hand-off back to MainActivity.
-            // MainActivity owns the app-level edge-to-edge policy and will re-apply it
-            // in onResume. Keeping this transition hidden avoids a visible bar flash.
+            // The normal app surface keeps edge-to-edge layout but exposes the
+            // platform bars. MainActivity applies the same policy on resume.
             WindowCompat.setDecorFitsSystemWindows(window, false)
-            WindowInsetsControllerCompat(window, window.decorView).apply {
-                isAppearanceLightStatusBars = false
-                isAppearanceLightNavigationBars = false
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            val nightMode = resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK
+            val darkTheme = nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            controller.apply {
+                isAppearanceLightStatusBars = !darkTheme
+                isAppearanceLightNavigationBars = !darkTheme
                 systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                hide(WindowInsetsCompat.Type.systemBars())
+                show(WindowInsetsCompat.Type.systemBars())
             }
             ViewCompat.requestApplyInsets(window.decorView)
-            logPlayer("PLAYER_IMMERSIVE kept_hidden_for_exit requestId=" + requestId.ifEmpty { "-" })
+            logPlayer("PLAYER_SYSTEM_UI_RESTORED requestId=" + requestId.ifEmpty { "-" })
         }.onFailure { error ->
             logPlayer("PLAYER_IMMERSIVE_EXIT_POLICY_FAILED", error)
         }

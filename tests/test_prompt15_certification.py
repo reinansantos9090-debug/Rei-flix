@@ -119,11 +119,11 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
             gradlew=root/"gradlew"
-            gradlew.write_text("#!/bin/sh\nprintf ':app:lintDebug - lint task\\n'\n",encoding="utf-8")
+            gradlew.write_text("#!/bin/sh\nprintf 'app:lintReportDebug - lint task\\n'\n",encoding="utf-8")
             gradlew.chmod(0o755)
             discovery,task=runner.discover_lint_task(gradlew,root)
             self.assertEqual(discovery.status,"PASS")
-            self.assertEqual(task,":app:lintDebug")
+            self.assertEqual(task,":app:lintReportDebug")
             self.assertIn("lintDebug",discovery.evidence)
 
     def test_runner_compiles(self):

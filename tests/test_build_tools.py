@@ -527,9 +527,12 @@ E: manifest
         self.assertIn("setDecorFitsSystemWindows(window, false)", controller)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", player)
-        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", player)
-        self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", player)
+        self.assertIn("systemUiController = SystemUiController(window)", player)
+        self.assertIn("systemUiController.applyImmersive()", player)
+        self.assertIn("systemUiController.applyNormal()", player)
+        self.assertIn("ViewCompat.setOnApplyWindowInsetsListener(root)", player)
+        self.assertNotIn("WindowInsetsControllerCompat(window, window.decorView)", player)
+        self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", controller)
 
     def test_player_exit_is_not_suppressed_after_normal_completion(self):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -56,6 +57,17 @@ class Prompt14ResponsiveInstrumentedTest {
             "Normal MainActivity must keep the status bar visible",
             currentInsets.isVisible(WindowInsetsCompat.Type.statusBars()),
         )
+        val navigationMode = Settings.Secure.getInt(
+            activity.contentResolver,
+            Settings.Secure.NAVIGATION_MODE,
+            -1,
+        )
+        if (navigationMode == 0) {
+            assertTrue(
+                "Three-button navigation must keep the navigation bar visible",
+                currentInsets.isVisible(WindowInsetsCompat.Type.navigationBars()),
+            )
+        }
         assertTrue("MainActivity content must have a measured width", root.width > 0)
         assertTrue("MainActivity content must have a measured height", root.height > 0)
 

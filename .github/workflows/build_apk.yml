@@ -354,6 +354,27 @@ jobs:
               print("\n".join(leaked[:30]))
               raise SystemExit(1)
           print("APK app.zip contains no .git metadata.")
+
+      - name: Verify APK contains no development test/docs artifacts
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          python - <<'PY'
+          from io import BytesIO
+          from zipfile import ZipFile
+
+          apk_path = "${{ steps.apk.outputs.path }}"
+          with ZipFile(apk_path) as apk:
+              app_zip = apk.read("assets/app.zip")
+          with ZipFile(BytesIO(app_zip)) as app:
+              forbidden_roots = ("tests/", "docs/", ".github/")
+              leaked = [name for name in app.namelist() if name.startswith(forbidden_roots)]
+          if leaked:
+              print("Development artifacts found in production app.zip:")
+              print("\n".join(leaked[:50]))
+              raise SystemExit(1)
+          print("APK app.zip contains no tests/docs/.github development artifacts.")
+          PY
       - name: Verify final APK permissions and target SDK
         shell: bash
         run: |

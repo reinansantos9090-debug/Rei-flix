@@ -343,7 +343,7 @@ class ArtworkEngine:
                     con.execute("UPDATE anime SET cover_cache=? WHERE id=?", (path, int(entity_id)))
         return True
 
-    def register_generated_thumbnail(self, media_uri, thumbnail_path, *, size=0, modified_at=0):
+    def register_generated_thumbnail(self, media_uri, thumbnail_path, *, size=0, modified_at=0, media_identity=None, metadata=None):
         media_uri = str(media_uri or "").strip()
         thumbnail_path = os.path.abspath(os.fspath(thumbnail_path))
         if not media_uri or not self._is_file(thumbnail_path):
@@ -360,7 +360,9 @@ class ArtworkEngine:
             ).fetchall()
         if not rows:
             return False
-        source_ref = f"native:{media_uri}|{int(size or 0)}|{int(modified_at or 0)}"
+        metadata = metadata if isinstance(metadata, dict) else {}
+        stable_identity = str(media_identity or "").strip() or media_uri
+        source_ref = f"native:{stable_identity}|{int(size or 0)}|{int(modified_at or 0)}"
         for row in rows:
             episode_id = int(row["id"])
             anime_id = int(row["anime_id"])
@@ -377,8 +379,18 @@ class ArtworkEngine:
                 source_ref=source_ref, local_path=thumbnail_path,
                 artwork_key=self._make_key("native", source_ref, "episode_thumbnail", "small"),
                 variant="small", byte_size=os.path.getsize(thumbnail_path),
-                content_type=_mime_from_path(thumbnail_path),
+                content_type=str(metadata.get("mimeType") or _mime_from_path(thumbnail_path) or ""),
+                width=int(metadata.get("width") or 0) or None,
+                height=int(metadata.get("height") or 0) or None,
+                checksum=str(metadata.get("checksum") or "") or None,
             )
+            if metadata:
+                duration_ms = float(metadata.get("durationMs") or 0)
+                with self.store._conn() as con:
+                    con.execute(
+                        "UPDATE episodes SET duration=CASE WHEN duration<=0 AND ? > 0 THEN ? ELSE duration END WHERE id=?",
+                        (duration_ms / 1000.0, duration_ms / 1000.0, episode_id),
+                    )
             with self.store._conn() as con:
                 has_protected = con.execute(
                     """SELECT 1 FROM artwork WHERE entity_type=? AND entity_id=?
@@ -999,7 +1011,7 @@ class ArtworkEngine:
         with self.store._conn() as con:
             rows = con.execute(
                 """SELECT id,local_path,byte_size,last_access,source,manual
-                   FROM artwork WHERE local_path IS NOT NULL AND source='cache'
+                   FROM artwork WHERE local_path IS NOT NULL AND source IN ('cache','generated')
                    ORDER BY COALESCE(last_access,updated_at,0) ASC"""
             ).fetchall()
         total = sum(int(row["byte_size"] or 0) for row in rows if self._is_file(row["local_path"]))
@@ -1080,7 +1092,7 @@ class ArtworkEngine:
         with self.store._conn() as con:
             rows = con.execute(
                 """SELECT COUNT(*) AS files, COALESCE(SUM(byte_size),0) AS bytes
-                   FROM artwork WHERE source='cache' AND local_path IS NOT NULL"""
+                   FROM artwork WHERE source IN ('cache','generated') AND local_path IS NOT NULL"""
             ).fetchone()
         return {"files": int(rows["files"] or 0), "bytes": int(rows["bytes"] or 0),
                 "limit_bytes": self.cache_limit_bytes}

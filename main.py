@@ -865,7 +865,7 @@ async def main(page: ft.Page):
         thumbnail_requests.add(key)
         async def run():
             try:
-                await bridge.request_thumbnail(path_ref, key[1], key[2])
+                await bridge.request_thumbnail(path_ref, key[1], key[2], str(episode.get('media_identity') or ''))
             except Exception as exc:
                 thumbnail_requests.discard(key)
                 logger.debug("[ARTWORK] native thumbnail request failed: %s", exc)
@@ -1559,6 +1559,15 @@ async def main(page: ft.Page):
                             thumbnail_path = str(payload.get('thumbnailPath') or '').strip()
                             size = int(payload.get('size') or 0)
                             modified_at = int(payload.get('modifiedAt') or 0)
+                            media_identity = str(payload.get('mediaIdentity') or '').strip()
+                            metadata = {
+                                "durationMs": float(payload.get('durationMs') or 0),
+                                "width": int(payload.get('width') or 0),
+                                "height": int(payload.get('height') or 0),
+                                "rotation": int(payload.get('rotation') or 0),
+                                "title": str(payload.get('title') or ''),
+                                "mimeType": str(payload.get('mimeType') or ''),
+                            }
                             if uri and thumbnail_path:
                                 registered = await asyncio.to_thread(
                                     library.register_generated_thumbnail,
@@ -1566,6 +1575,8 @@ async def main(page: ft.Page):
                                     thumbnail_path,
                                     size=size,
                                     modified_at=modified_at,
+                                    media_identity=media_identity,
+                                    metadata=metadata,
                                 )
                                 if registered:
                                     thumbnail_requests.difference_update({

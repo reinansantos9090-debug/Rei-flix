@@ -206,7 +206,10 @@ run_responsive_case() {
     mkdir -p "$case_dir"
     printf "RESPONSIVE_CASE label=%s font_scale=%s density_mode=%s\n" "$label" "$font_scale" "$density_mode" | tee -a "${DIAG_ROOT}/summary.txt"
 
-    adb shell settings put system font_scale "$font_scale"
+    if ! adb shell settings put system font_scale "$font_scale"; then
+        echo "Unable to apply font scale=$font_scale" | tee "$case_dir/failure.txt" >&2
+        return 1
+    fi
     case "$density_mode" in
         physical)
             adb shell wm density reset >/dev/null 2>&1 || true
@@ -228,7 +231,10 @@ run_responsive_case() {
     capture "$case_dir/font_scale.txt" adb shell settings get system font_scale
     capture "$case_dir/wm_density.txt" adb shell wm density
     adb shell am force-stop "${PACKAGE}" >/dev/null 2>&1 || true
-    adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "${PACKAGE}/.MainActivity" > "${case_dir}/launch.txt" 2>&1 || true
+    if ! adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER "${PACKAGE}/.MainActivity" > "${case_dir}/launch.txt" 2>&1; then
+        echo "MainActivity failed to launch for responsive case" | tee "$case_dir/failure.txt" >&2
+        return 1
+    fi
     sleep 2
     local log="${case_dir}/gradle.log"
     set +e

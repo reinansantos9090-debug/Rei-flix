@@ -382,6 +382,28 @@ jobs:
             --expected-version-code "$GITHUB_RUN_NUMBER" \
             --expected-version-name "0.2.1"
 
+      - name: Run Prompt 15.1 evidence certification (no emulator)
+        shell: bash
+        run: |
+          python scripts/prompt15_certification.py \
+            --root . \
+            --gradle-root build/flutter/android \
+            --apk "\${{ steps.apk.outputs.path }}" \
+            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
+            --output build/prompt15-certification.json \
+            --report build/prompt15-certification.md \
+            --matrix build/prompt15-201-matrix.json
+
+      - name: Upload Prompt 15.1 certification evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: prompt15-1-certification
+          path: |
+            build/prompt15-certification.json
+            build/prompt15-certification.md
+            build/prompt15-201-matrix.json
+          if-no-files-found: error
+
       - name: Print and publish APK SHA-256
         shell: bash
         run: |

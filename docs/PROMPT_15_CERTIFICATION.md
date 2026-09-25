@@ -1,8 +1,8 @@
-# Rei-Flix — Prompt 15.2 Certification
+# Rei-Flix — Prompt 15.3 Final Certification
 
 ## Scope
 
-Prompt 15.2 closes the evidence gaps left by Prompt 15.1 without rewriting production architecture.
+Prompt 15.3 finalizes the evidence-first certification started in Prompt 15.2. It corrects the observed certification failure and tightens requirement-specific evidence without rewriting production architecture.
 
 The certification runner is:
 
@@ -41,7 +41,7 @@ Only these result classifications are permitted:
 - FAIL
 - NOT VALIDATED
 - NOT APPLICABLE
-- BLOCKED BY ENVIRONMENT
+- BLOCKED
 
 PASS requires executable evidence. A source path by itself does not become PASS.
 
@@ -51,11 +51,11 @@ FAIL means an executable check ran and failed.
 
 NOT VALIDATED is used for deliberately excluded runtime checks such as physical-device validation, Android 14/15/16 runtime validation, installation/update validation, and profiler-only measurements.
 
-BLOCKED BY ENVIRONMENT is reserved for an executable check that the environment prevented from running.
+BLOCKED is reserved for an executable check that the environment prevented from running.
 
 ## No-device policy
 
-Prompt 15.2 does not start:
+Prompt 15.3 does not start:
 
 - Android Emulator / AVD
 - connected instrumentation
@@ -135,8 +135,12 @@ The certification run writes:
 - build/prompt15-certification.md
 - build/prompt15-201-matrix.json
 
-The GitHub Actions workflow uploads the three certification artifacts with the prompt15-2-certification artifact name.
+The GitHub Actions workflow uploads the three certification artifacts with the prompt15-3-certification artifact name.
 
 ## Final status
 
 The final classification and 201-item totals in this document are intentionally sourced from the actual Prompt 15.2 workflow run rather than manually copied numbers. The workflow is blocking on executable failures, while explicit no-device limitations remain NOT VALIDATED.
+
+## Prompt 15.3 evidence rule
+
+A functional row is not promoted to PASS merely because its implementation file exists and the shared pytest suite passes. PASS requires a requirement-specific static assertion, targeted evidence, package/manifest forensic result, or another objective check recorded in the row. Shared suite coverage without that direct proof remains PARTIAL.

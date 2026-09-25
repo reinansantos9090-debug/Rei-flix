@@ -33,14 +33,14 @@ class ArtworkEngineTests(unittest.TestCase):
     def _media(self, title="Ação 進撃", media_kind="series"):
         return self.store.upsert_anime("local", {"title": title, "genres": "[]", "media_kind": media_kind})
 
-    def _episode(self, anime, path, name, season=1, number=1, episode_type="regular"):
+    def _episode(self, anime, path, name, season=1, number=1, episode_type="regular", media_identity=None):
         with self.store._conn() as con:
             cur = con.execute(
                 """INSERT INTO episodes(anime_id,path,file_name,season,number,mime_type,file_size,modified_at,
                                          source_folder,missing,media_identity,absolute_number,episode_type,episode_title)
                    VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?,?)""",
                 (anime, path, name, season, number, None, None, None, str(Path(path).parent),
-                 None, None, episode_type, None),
+                 media_identity, None, episode_type, None),
             )
             return cur.lastrowid
 
@@ -299,6 +299,78 @@ class ArtworkEngineTests(unittest.TestCase):
         path.write_bytes(JPEG)
         self.engine.add_local("movie", movie, "poster", path)
         self.assertEqual(self.engine.resolve("movie", movie, "poster", allow_network=False)["local_path"], str(path))
+
+    def test_generated_thumbnail_reuses_observation_identity_across_uri_change(self):
+        anime = self._media("Stable")
+        identity = "stable-media-id"
+        uri_a = "content://provider/item/one"
+        uri_b = "content://provider/item/two"
+        ep = self._episode(anime, uri_a, "Stable S01E01.mkv", media_identity=identity)
+        self.store.record_observation(
+            ep,
+            source_kind="mediastore",
+            scope_kind="volume",
+            scope_ref="external_primary",
+            uri=uri_a,
+            volume_id="external_primary",
+        )
+        thumb_a = Path(self.tmp.name) / "native-stable-a.jpg"
+        thumb_a.write_bytes(JPEG)
+        metadata = {
+            "durationMs": 91234,
+            "width": 1920,
+            "height": 1080,
+            "rotation": 90,
+            "mimeType": "video/x-matroska",
+        }
+        self.assertTrue(self.engine.register_generated_thumbnail(
+            uri_a, thumb_a, size=123, modified_at=456,
+            media_identity=identity, metadata=metadata,
+        ))
+        self.store.upsert_episode(
+            anime, uri_b, "Stable S01E01.mkv", 1, 1,
+            source_folder="mediastore",
+            media_identity=identity,
+        )
+        self.store.record_observation(
+            ep,
+            source_kind="mediastore",
+            scope_kind="volume",
+            scope_ref="external_primary",
+            uri=uri_b,
+            volume_id="external_primary",
+        )
+        thumb_b = Path(self.tmp.name) / "native-stable-b.jpg"
+        thumb_b.write_bytes(JPEG + b"b")
+        self.assertTrue(self.engine.register_generated_thumbnail(
+            uri_b, thumb_b, size=123, modified_at=456,
+            media_identity=identity, metadata=metadata,
+        ))
+        row = self.engine.resolve("episode", ep, "episode_thumbnail", allow_network=False)
+        self.assertEqual(row["local_path"], str(thumb_b))
+        self.assertEqual(row["width"], 1920)
+        self.assertEqual(row["height"], 1080)
+        with self.store._conn() as con:
+            episode = con.execute(
+                "SELECT media_identity, path, duration FROM episodes WHERE id=?",
+                (ep,),
+            ).fetchone()
+            observations = con.execute(
+                "SELECT uri FROM episode_observations WHERE episode_id=? ORDER BY uri",
+                (ep,),
+            ).fetchall()
+        self.assertEqual(episode["media_identity"], identity)
+        self.assertEqual(episode["path"], uri_b)
+        self.assertAlmostEqual(episode["duration"], 91.234, places=3)
+        self.assertEqual([row["uri"] for row in observations], [uri_a, uri_b])
+        self.assertFalse(self.engine.register_generated_thumbnail(
+            "content://provider/item/unrelated",
+            thumb_b,
+            size=123,
+            modified_at=456,
+            media_identity="different-media-id",
+            metadata=metadata,
+        ))
 
     def test_metadata_integration_uses_existing_engine(self):
         service = LibraryService(self.store)

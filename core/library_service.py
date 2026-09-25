@@ -445,8 +445,8 @@ class LibraryService:
     def detach_genre(self, anime_id, genre_id):
         return self.genre_registry.detach(anime_id, genre_id, source="user")
 
-    def register_generated_thumbnail(self, media_uri, thumbnail_path, *, size=0, modified_at=0):
-        return self.artwork.register_generated_thumbnail(media_uri, thumbnail_path, size=size, modified_at=modified_at)
+    def register_generated_thumbnail(self, media_uri, thumbnail_path, *, size=0, modified_at=0, media_identity=None, metadata=None):
+        return self.artwork.register_generated_thumbnail(media_uri, thumbnail_path, size=size, modified_at=modified_at, media_identity=media_identity, metadata=metadata)
 
     def resolve_artwork(self, entity_type, entity_id, artwork_type, *, allow_network=True):
         effective_allow_network = bool(

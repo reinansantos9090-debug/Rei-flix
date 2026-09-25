@@ -1450,11 +1450,12 @@ class MainActivity : FlutterFragmentActivity() {
 
         val size = source.getQueryParameter("size")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
         val modifiedAt = source.getQueryParameter("modified_at")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        val mediaIdentity = source.getQueryParameter("media_identity")?.trim().orEmpty()
         val appContext = applicationContext
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val thumbnailPath = VideoThumbnailExtractor.extract(appContext, localUri, size, modifiedAt)
-                if (thumbnailPath.isNullOrBlank()) {
+                val result = VideoThumbnailExtractor.extract(appContext, localUri, size, modifiedAt, mediaIdentity)
+                if (result == null) {
                     NativeMailbox.write(appContext, JSONObject().put("type", "thumbnail_error")
                         .put("requestId", requestId ?: "")
                         .put("message", "Não foi possível extrair uma miniatura deste vídeo.")
@@ -1465,9 +1466,16 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("requestId", requestId ?: "")
                     .put("payload", JSONObject()
                         .put("uri", raw)
-                        .put("thumbnailPath", thumbnailPath)
+                        .put("thumbnailPath", result.path)
                         .put("size", size)
                         .put("modifiedAt", modifiedAt)
+                        .put("mediaIdentity", mediaIdentity)
+                        .put("durationMs", result.durationMs)
+                        .put("width", result.width)
+                        .put("height", result.height)
+                        .put("rotation", result.rotation)
+                        .put("title", result.title ?: "")
+                        .put("mimeType", result.mimeType ?: "")
                         .put("source", "media_metadata_retriever")))
             } catch (exception: Exception) {
                 Log.e(tag, "Thumbnail extraction failed", exception)

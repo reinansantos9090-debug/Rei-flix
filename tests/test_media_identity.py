@@ -52,6 +52,35 @@ class TestMediaIdentity(unittest.TestCase):
                 "E01.mkv", 1, 1, source_folder="mediastore:external:video",
                 media_identity=identity,
             )
+            episode_id = store.physical_row("content://media/external/video/media/7")["id"]
+            store.record_observation(
+                episode_id,
+                source_kind="broad_storage",
+                scope_kind="volume",
+                scope_ref="external_primary",
+                uri="file:///storage/emulated/0/Movies/Anime/E01.mkv",
+                volume_id="external_primary",
+            )
+            store.record_observation(
+                episode_id,
+                source_kind="mediastore",
+                scope_kind="volume",
+                scope_ref="external_primary",
+                uri="content://media/external/video/media/7",
+                volume_id="external_primary",
+            )
+            with store._conn() as con:
+                observations = con.execute(
+                    "SELECT uri FROM episode_observations WHERE episode_id=? ORDER BY uri",
+                    (episode_id,),
+                ).fetchall()
+            self.assertEqual(
+                [row["uri"] for row in observations],
+                [
+                    "content://media/external/video/media/7",
+                    "file:///storage/emulated/0/Movies/Anime/E01.mkv",
+                ],
+            )
             rows = store.catalog()[0]["seasons"][0]["episodes"]
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["path"], "content://media/external/video/media/7")

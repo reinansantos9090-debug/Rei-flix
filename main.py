@@ -34,10 +34,6 @@ GOOGLE_WEB_CLIENT_ID = os.getenv('REIFLIX_GOOGLE_WEB_CLIENT_ID', CONFIG_GOOGLE_W
 async def main(page: ft.Page):
     page.title='Rei-Flix Local'; page.padding=0
     apply_page_theme(page, "dark")
-    try:
-        page.on_disconnect = lambda _e: ui_alive.__setitem__(0, False)
-    except Exception as exc:
-        logger.warning("[FLET] on_disconnect hook unavailable: %s", exc)
     data_dir=os.getenv("FLET_APP_STORAGE_DATA") or os.path.join(os.path.dirname(__file__),'.reiflix-data')
     store=LibraryStore(data_dir)
     recovery_service = RecoveryService(store)
@@ -89,6 +85,22 @@ async def main(page: ft.Page):
         "timestamp": None,
     }]
     ui_alive = [True]
+    native_poll_task = [None]
+
+    def _handle_page_disconnect(_event=None):
+        ui_alive[0] = False
+        task = native_poll_task[0]
+        if task is not None:
+            try:
+                task.cancel()
+            except Exception as exc:
+                logger.debug("[FLET] mailbox poll task cancellation failed: %s", exc)
+
+    try:
+        page.on_disconnect = _handle_page_disconnect
+    except Exception as exc:
+        logger.warning("[FLET] on_disconnect hook unavailable: %s", exc)
+
     def safe_update():
         if not ui_alive[0]:
             return
@@ -1110,7 +1122,7 @@ async def main(page: ft.Page):
             return result
 
         poll_interval = 0.2
-        while True:
+        while ui_alive[0]:
             try:
                 events = bridge.drain()
                 failed_event_ids = set()
@@ -2025,7 +2037,7 @@ async def main(page: ft.Page):
                 poll_interval = min(1.0, poll_interval * 1.5)
             await asyncio.sleep(poll_interval)
     page.on_login=login_done
-    page.run_task(poll_native_bridge)
+    native_poll_task[0] = page.run_task(poll_native_bridge)
     if recovered_scans:
         page.snack_bar = ft.SnackBar(ft.Text(
             f"{len(recovered_scans)} varredura(s) anterior(es) foram interrompidas e poderão ser refeitas."

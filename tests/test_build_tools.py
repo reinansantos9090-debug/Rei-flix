@@ -691,6 +691,7 @@ E: manifest
         self.assertIn("PLAYER_ACTIVITY", verifier)
         self.assertIn("PIP_FEATURE", verifier)
         self.assertIn("supportsPictureInPicture", verifier)
+        self.assertIn("launchMode=singleTop", verifier)
         self.assertIn("has_optional_feature", verifier)
 
     def test_saf_regrant_path_persists_before_scanning_and_reports_revocation(self):

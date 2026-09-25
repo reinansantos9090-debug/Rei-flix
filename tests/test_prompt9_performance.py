@@ -140,6 +140,31 @@ class Prompt9StorePaginationTests(unittest.TestCase):
                 plan_text = " ".join(str(row["detail"]) for row in plan)
                 self.assertIn("idx_anime_added_title", plan_text)
 
+    def test_next_episode_projection_is_sql_bounded_and_excludes_specials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            active = store.upsert_anime("active", {"title": "Active", "genres": "[]"})
+            active_path = "/library/active-10.mkv"
+            store.upsert_episode(active, active_path, "Active 10", 1, 10)
+            store.save_progress(active_path, 20, 100, event_created_at=10)
+
+            queued = store.upsert_anime("queued", {"title": "Queued", "genres": "[]"})
+            first = "/library/queued-01.mkv"
+            second = "/library/queued-02.mkv"
+            special = "/library/queued-sp01.mkv"
+            store.upsert_episode(queued, first, "Queued 01", 1, 1)
+            store.upsert_episode(queued, second, "Queued 02", 1, 2)
+            store.upsert_episode(queued, special, "Queued SP01", 1, 1, episode_type="special")
+            store.save_progress(first, 100, 100, event_created_at=11)
+
+            result = store.next_episode_items(limit=10)
+            by_title = {item["main_title"]: item for item in result}
+
+            self.assertEqual(active_path, by_title["Active"]["next_episode"]["path"])
+            self.assertEqual(second, by_title["Queued"]["next_episode"]["path"])
+            self.assertNotIn(special, {item["next_episode"]["path"] for item in result})
+            self.assertLessEqual(len(result), 2)
+
     def test_home_sections_keep_next_episode_semantics(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)
@@ -192,6 +217,15 @@ class Prompt9ServiceAndSourceTests(unittest.TestCase):
         self.assertIn("organize_summary_bounded", source)
         self.assertNotIn("library.catalog", source)
         self.assertNotIn("page.run_task(lambda:", source)
+
+    def test_home_defers_secondary_projections_and_filter_options(self):
+        source = Path("views/home_view.py").read_text(encoding="utf-8")
+        self.assertIn("await load_library_page(reset=True)", source)
+        self.assertIn("page.run_task(refresh_home_sections, render_generation[0])", source)
+        self.assertIn("page.run_task(load_filter_options)", source)
+        startup = source[source.index("async def load_catalog():"):source.index("search.on_change = on_search")]
+        self.assertNotIn("library.media_center_home", startup)
+        self.assertNotIn("library.search_options", startup)
 
     def test_home_library_tree_is_page_bounded_and_mailbox_has_idle_backoff(self):
         home = Path("views/home_view.py").read_text(encoding="utf-8")

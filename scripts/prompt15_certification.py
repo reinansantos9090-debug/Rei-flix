@@ -127,7 +127,7 @@ def main() -> int:
     for r in results: lines.append(f"| {r.area} | {r.test} | {r.status} | {r.evidence.replace(chr(124),'\\\\|').replace(chr(10),' ')[:700]} |")
     lines += ["","## Evidence rules","- PASS requires actual execution and the expected result.","- FAIL means the test executed and failed.","- BLOCKED means the environment prevented execution.","- NOT VALIDATED means the check was not executed.","- No APK, physical-device, FPS, memory-leak, or Android-version claim is made without evidence."]
     args.report.write_text("\n".join(lines)+"\n",encoding="utf-8")
-    print(f"Prompt 15 classification: {payload['classification']}"); print(f"JSON report: {args.output}"); print(f"Markdown report: {args.report}")
+    print(f"Prompt 15 classification: {payload['classification']}"); print(f"JSON report: {args.output}"); print(f"Markdown report: {args.report}"); print("Matrix counts:", payload["matrix_counts"]); print("Result statuses:", [(r.area, r.test, r.status) for r in results])
     return 1 if payload["classification"]=="NOT CERTIFIED" else 0
 
 if __name__=="__main__": raise SystemExit(main())

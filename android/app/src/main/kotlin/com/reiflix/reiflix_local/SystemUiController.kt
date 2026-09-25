@@ -1,32 +1,29 @@
 package com.reiflix.reiflix_local
 
+import android.content.res.Configuration
+import android.graphics.Color
+import android.os.Build
 import android.view.Window
+import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 /**
- * Owns the system-bar policy for the Rei-Flix host window.
+ * Single authority for the host Activity system-bar policy.
  *
- * Rei-Flix is a full-screen local-media application. Android 15/16 edge-to-edge
- * means the content may occupy the full window; Flutter is responsible for its
- * own safe padding while this controller keeps transient system bars hidden.
+ * Primary/Flet screens stay edge-to-edge but expose the real Android system bars.
+ * Safe-area handling is owned by Flet/Flutter content via ft.SafeArea.
+ * The native Player is the only surface that hides the system bars.
  */
 class SystemUiController(private val window: Window) {
     private val controller: WindowInsetsControllerCompat
         get() = WindowCompat.getInsetsController(window, window.decorView)
 
     fun applyImmersive() {
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
-        window.navigationBarColor = android.graphics.Color.TRANSPARENT
-        if (android.os.Build.VERSION.SDK_INT >= 29) {
-            window.isStatusBarContrastEnforced = false
-            window.isNavigationBarContrastEnforced = false
-        }
+        applyEdgeToEdgeWindow()
+        applySystemBarAppearance()
         controller.apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
             systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
@@ -34,26 +31,38 @@ class SystemUiController(private val window: Window) {
     }
 
     fun applyNormal() {
-        // "Normal" is the host/app policy, not a request to reveal Android bars.
-        // Rei-Flix is edge-to-edge on every primary screen; transient system bars
-        // may be revealed by an explicit system gesture, but are never kept visible
-        // by a lifecycle callback such as MainActivity.onResume().
+        applyEdgeToEdgeWindow()
+        applySystemBarAppearance()
+        controller.apply {
+            systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    private fun applyEdgeToEdgeWindow() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
-        window.navigationBarColor = android.graphics.Color.TRANSPARENT
-        if (android.os.Build.VERSION.SDK_INT >= 29) {
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= 29) {
             window.isStatusBarContrastEnforced = false
             window.isNavigationBarContrastEnforced = false
         }
-        controller.apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
-            systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            hide(WindowInsetsCompat.Type.systemBars())
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
         }
-        window.decorView.post {
-            controller.hide(WindowInsetsCompat.Type.systemBars())
+    }
+
+    private fun applySystemBarAppearance() {
+        val nightMode = window.context.resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK
+        val darkTheme = nightMode == Configuration.UI_MODE_NIGHT_YES
+        controller.apply {
+            isAppearanceLightStatusBars = !darkTheme
+            isAppearanceLightNavigationBars = !darkTheme
         }
     }
 }

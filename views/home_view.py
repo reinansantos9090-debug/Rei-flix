@@ -508,6 +508,21 @@ class HomeView:
 
         def open_filters(_=None):
             page.run_task(load_filter_options)
+            page_width = float(page.width or 470)
+            dialog_width = min(470.0, max(280.0, page_width - 32.0))
+            field_width = min(220.0, max(128.0, (dialog_width - 20.0) / 2.0))
+            for field in (
+                state_filter,
+                genre_filter,
+                media_type,
+                tag,
+                season,
+                episode_type,
+                availability,
+                metadata_filter,
+                artwork_filter,
+            ):
+                field.width = field_width
             dialog = ft.AlertDialog(
                 modal=True, title=ft.Text("Filtros da biblioteca"),
                 content=ft.Column([
@@ -516,7 +531,7 @@ class HomeView:
                     ft.Row([season, episode_type], wrap=True),
                     ft.Row([availability, metadata_filter], wrap=True),
                     artwork_filter,
-                ], tight=True, width=470),
+                ], tight=True, width=dialog_width),
                 actions=[
                     ft.TextButton("Limpar", icon=ft.Icons.CLEAR_ALL, on_click=lambda _: page.run_task(clear_filters)),
                     ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),

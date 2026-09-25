@@ -202,14 +202,14 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         ):
             self.assertIn(token, player)
 
-    def test_host_activity_keeps_primary_system_bars_hidden(self):
+    def test_host_activity_keeps_primary_system_bars_visible_with_edge_to_edge(self):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")
         system_ui = SYSTEM_UI.read_text(encoding="utf-8")
         self.assertIn("applyNormalSystemUi()", main)
         self.assertIn("applyNormal()", system_ui)
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", system_ui)
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", system_ui)
-        self.assertNotIn("show(WindowInsetsCompat.Type.systemBars())", system_ui)
+        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", system_ui)
+        self.assertNotIn("applyNormal()\n", system_ui[system_ui.index("fun applyNormal()"):system_ui.index("private fun applyEdgeToEdgeWindow")])
 
     def test_native_player_primary_surface_does_not_expose_secondary_controls(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
@@ -292,16 +292,17 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertIn("Última varredura:", settings)
         self.assertIn("Status:", settings)
 
-    def test_system_ui_is_immersive_and_not_normal_bars(self):
+    def test_system_ui_has_distinct_normal_and_immersive_policies(self):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")
         system_ui = SYSTEM_UI.read_text(encoding="utf-8")
         self.assertIn("applyNormalSystemUi", main)
         self.assertIn("applyNormal()", system_ui)
         self.assertIn("applyImmersive()", system_ui)
-        self.assertNotIn("WindowCompat.setDecorFitsSystemWindows(window, true)", system_ui)
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", system_ui)
-        self.assertNotIn("show(WindowInsetsCompat.Type.systemBars())", system_ui)
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", system_ui)
+        normal = system_ui[system_ui.index("fun applyNormal()"):system_ui.index("private fun applyEdgeToEdgeWindow")]
+        immersive = system_ui[system_ui.index("fun applyImmersive()"):system_ui.index("fun applyNormal()")]
+        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", normal)
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", immersive)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", system_ui)
 
     def test_no_silent_exception_suppression_in_runtime_android_sources(self):

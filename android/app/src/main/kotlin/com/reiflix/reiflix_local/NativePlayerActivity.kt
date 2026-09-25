@@ -880,6 +880,12 @@ class NativePlayerActivity : ComponentActivity() {
             window.isStatusBarContrastEnforced = false
             window.isNavigationBarContrastEnforced = false
         }
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
     }
 
     private fun canEnterPictureInPicture(): Boolean {
@@ -1051,13 +1057,19 @@ class NativePlayerActivity : ComponentActivity() {
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(dp(320), ViewGroup.LayoutParams.WRAP_CONTENT))
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ))
         errorPanel.addView(TextView(this).apply {
             tag = "reiflix_error_reason"
             textSize = 10f
             setTextColor(0xFFBDB8C9.toInt())
             gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(dp(320), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply {
             topMargin = dp(8)
         })
         val errorRetry = actionButton("Tentar novamente", 170) {
@@ -1078,7 +1090,7 @@ class NativePlayerActivity : ComponentActivity() {
             topMargin = dp(8)
         })
         controls.addView(errorPanel, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,
         ).apply {
             gravity = Gravity.CENTER
@@ -2084,10 +2096,7 @@ class NativePlayerActivity : ComponentActivity() {
     private fun enterImmersiveMode() {
         // Android 15/16 enforce edge-to-edge for target 35+; fullscreen is
         // therefore controlled by WindowInsetsControllerCompat hiding system bars.
-        // Keep the decor-fit call only for pre-35 compatibility.
-        if (Build.VERSION.SDK_INT < 35) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-        }
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
@@ -2100,18 +2109,21 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun restoreSystemUiBeforeExit() {
         runCatching {
-            // Do not reveal the Android bars during the hand-off back to MainActivity.
-            // MainActivity owns the app-level edge-to-edge policy and will re-apply it
-            // in onResume. Keeping this transition hidden avoids a visible bar flash.
+            // The normal app surface keeps edge-to-edge layout but exposes the
+            // platform bars. MainActivity applies the same policy on resume.
             WindowCompat.setDecorFitsSystemWindows(window, false)
-            WindowInsetsControllerCompat(window, window.decorView).apply {
-                isAppearanceLightStatusBars = false
-                isAppearanceLightNavigationBars = false
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            val nightMode = resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK
+            val darkTheme = nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            controller.apply {
+                isAppearanceLightStatusBars = !darkTheme
+                isAppearanceLightNavigationBars = !darkTheme
                 systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                hide(WindowInsetsCompat.Type.systemBars())
+                show(WindowInsetsCompat.Type.systemBars())
             }
             ViewCompat.requestApplyInsets(window.decorView)
-            logPlayer("PLAYER_IMMERSIVE kept_hidden_for_exit requestId=" + requestId.ifEmpty { "-" })
+            logPlayer("PLAYER_SYSTEM_UI_RESTORED requestId=" + requestId.ifEmpty { "-" })
         }.onFailure { error ->
             logPlayer("PLAYER_IMMERSIVE_EXIT_POLICY_FAILED", error)
         }

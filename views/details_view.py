@@ -385,11 +385,14 @@ class DetailView:
         def edit_identification(episode):
             if not on_set_episode_identification:
                 return
-            season = ft.TextField(label="Temporada", value="" if not episode.get("season") else str(episode["season"]), width=120)
-            number = ft.TextField(label="Episódio", value="" if episode.get("number") is None else str(episode["number"]), width=120)
-            kind = ft.Dropdown(label="Tipo", value=episode.get("episode_type") or "regular", width=160,
+            page_width = float(page.width or 480)
+            dialog_width = max(280.0, min(520.0, page_width - 32.0))
+            title_width = max(180.0, min(330.0, dialog_width - 24.0))
+            season = ft.TextField(label="Temporada", value="" if not episode.get("season") else str(episode["season"]), width=min(120.0, max(96.0, dialog_width / 3.2)))
+            number = ft.TextField(label="Episódio", value="" if episode.get("number") is None else str(episode["number"]), width=min(120.0, max(96.0, dialog_width / 3.2)))
+            kind = ft.Dropdown(label="Tipo", value=episode.get("episode_type") or "regular", width=min(160.0, max(120.0, dialog_width - 180.0)),
                                options=[ft.dropdown.Option(key=value, text=value) for value in ("regular", "special", "ova", "oad", "ona", "extra", "movie", "unknown")])
-            title_field = ft.TextField(label="Título do episódio (opcional)", value=episode.get("episode_title") or "", width=330)
+            title_field = ft.TextField(label="Título do episódio (opcional)", value=episode.get("episode_title") or "", width=title_width)
             dialog = None
             saving = [False]
             cancel_button = ft.TextButton("Cancelar", on_click=lambda _: dismiss_dialog(page, dialog))
@@ -455,7 +458,11 @@ class DetailView:
             dialog = ft.AlertDialog(
                 modal=True,
                 title=ft.Text("Corrigir identificação"),
-                content=ft.Column([season, number, kind, title_field], tight=True),
+                content=ft.Column(
+                    [season, number, kind, title_field],
+                    tight=True,
+                    width=dialog_width,
+                ),
                 actions=[cancel_button, save_button],
             )
             page.show_dialog(dialog)

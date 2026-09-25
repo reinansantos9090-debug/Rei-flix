@@ -8,7 +8,7 @@ import flet as ft
 
 from core.consumption import consumption_state, progress_ratio
 from core.settings import SettingsStore
-from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, empty_state, media_artwork, count_label
+from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, activate_theme_for_page, empty_state, media_artwork, count_label
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,12 @@ class HomeView:
     @staticmethod
     def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode, on_open_organize=None,
               view_state=None, on_request_thumbnail=None):
+        theme = activate_theme_for_page(page)
+        BACKGROUND = theme.background
+        SURFACE = theme.surface
+        TEXT = theme.text
+        TEXT_MUTED = theme.text_muted
+        ACCENT = theme.primary
         catalog: list[dict] = []
         continuing: list[dict] = []
         home_data: dict = {}
@@ -86,7 +92,7 @@ class HomeView:
         )
         sort = ft.Dropdown(
             value=selected_sort[0], width=175, dense=True, text_size=12, color=TEXT,
-            bgcolor=SURFACE, border_color="#39364B", border_radius=RADIUS,
+            bgcolor=SURFACE, border_color=theme.border, border_radius=RADIUS,
             options=[ft.dropdown.Option(key=value, text=value) for value in (
                 "Mais recentes", "Assistidos recentemente", "Progresso", "Episódio",
                 "Temporada + episódio", "Modificação", "Duração", "Tamanho",
@@ -127,7 +133,7 @@ class HomeView:
 
         def artwork_holder(item, width, height, *, entity="anime", kind="poster", source=None):
             holder = ft.Container(
-                width=width, height=height, border_radius=RADIUS, bgcolor="#2D2A3B",
+                width=width, height=height, border_radius=RADIUS, bgcolor=theme.surface_raised,
                 alignment=ft.Alignment(0, 0),
             )
             binding_entity = "movie" if item.get("media_kind") == "movie" and entity == "anime" else entity
@@ -348,9 +354,9 @@ class HomeView:
             status_value = "Concluído" if available_count > 0 and missing_count == 0 and completed == available_count else (f"{completed} concluídos" if completed else subtitle)
             indicators = []
             if anime.get("favorite"):
-                indicators.append(ft.Container(ft.Icon(ft.Icons.STAR, color="#FFD54F", size=15), top=5, right=5, bgcolor="#181720CC", border_radius=12, padding=3))
+                indicators.append(ft.Container(ft.Icon(ft.Icons.STAR, color=theme.favorite, size=15), top=5, right=5, bgcolor=theme.overlay, border_radius=12, padding=3))
             if current_state and current_state.value in {"completed", "watched"}:
-                indicators.append(ft.Container(ft.Icon(ft.Icons.CHECK, color="#FFFFFF", size=14), bottom=5, right=5, bgcolor="#27845ACC", border_radius=12, padding=3))
+                indicators.append(ft.Container(ft.Icon(ft.Icons.CHECK, color=theme.text_on_overlay, size=14), bottom=5, right=5, bgcolor="#27845ACC", border_radius=12, padding=3))
             if anime.get("is_pinned"):
                 indicators.append(ft.Container(
                     ft.Icon(ft.Icons.PUSH_PIN, color=ACCENT, size=14),
@@ -594,7 +600,7 @@ class HomeView:
             except Exception:
                 logger.exception('Home local projections load failed', extra={'screen':'home','requestId':'-'})
                 status.controls = [
-                    ft.Icon(ft.Icons.ERROR_OUTLINE, color='#FFB4AB', size=18),
+                    ft.Icon(ft.Icons.ERROR_OUTLINE, color=theme.error, size=18),
                     ft.Text('Não foi possível ler a biblioteca local agora.', color='#FFB4AB', size=12),
                     ft.TextButton('Tentar novamente', on_click=retry_load_catalog),
                 ]

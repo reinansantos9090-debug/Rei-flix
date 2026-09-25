@@ -14,7 +14,7 @@ import flet as ft
 from core.storage_access import normalize_storage_snapshot
 from core.backup import BackupError
 from core.settings import SettingsStore, SettingsValidationError
-from core.ui import BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title
+from core.ui import BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, activate_theme_for_page, section_title
 
 logger = logging.getLogger("reiflix.settings")
 
@@ -34,8 +34,15 @@ class SettingsView:
         on_settings_changed=None,
         on_open_settings_category=None,
         settings_path_provider=lambda: (),
+        view_state=None,
     ):
         settings = settings or SettingsStore(store)
+        theme = activate_theme_for_page(page)
+        BACKGROUND = theme.background
+        SURFACE = theme.surface
+        TEXT = theme.text
+        TEXT_MUTED = theme.text_muted
+        view_state = view_state if isinstance(view_state, dict) else {}
         busy = {"scan": False, "folder": False, "permission": False, "cache": False}
         status = ft.Text("", size=12, color=TEXT_MUTED)
         search = ft.TextField(
@@ -46,6 +53,25 @@ class SettingsView:
         )
         sections_host = ft.Column(spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
 
+        def save_scroll(event):
+            try:
+                view_state["scroll_position"] = float(event.pixels)
+            except (TypeError, ValueError, AttributeError):
+                return
+
+        sections_host.on_scroll = save_scroll
+
+        async def restore_scroll():
+            stored = view_state.get("scroll_position")
+            if stored is None:
+                return
+            try:
+                result = sections_host.scroll_to(offset=float(stored), duration=0)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.debug("settings scroll restoration unavailable", exc_info=True)
+
         def safe_update():
             try:
                 page.update()
@@ -54,7 +80,7 @@ class SettingsView:
 
         def notice(message: str, error: bool = False):
             status.value = message
-            status.color = "#FFB4AB" if error else TEXT_MUTED
+            status.color = theme.error if error else TEXT_MUTED
             safe_update()
 
         async def execute_action():
@@ -442,11 +468,15 @@ class SettingsView:
             )
 
         def apply_theme_from_settings():
-            page.theme_mode = {
-                "system": ft.ThemeMode.SYSTEM,
-                "light": ft.ThemeMode.LIGHT,
-                "dark": ft.ThemeMode.DARK,
-            }[settings.get("appearance.theme")]
+            if on_settings_changed is not None:
+                try:
+                    result = on_settings_changed("appearance.theme", settings.get("appearance.theme"))
+                    if inspect.isawaitable(result):
+                        page.run_task(result)
+                    return
+                except Exception:
+                    logger.exception("settings runtime theme apply failed")
+            activate_theme_for_page(page, settings.get("appearance.theme"))
 
         async def export_settings(_):
             try:
@@ -669,34 +699,38 @@ class SettingsView:
                 row("app.confirm_destructive", "Confirmar ações destrutivas", "Pede confirmação antes de ações como limpar cache e restaurar configurações."),
             ], ("geral", "confirmação", "animações")))
 
-            def theme_changed(e):
-                if save("appearance.theme", e.control.value):
-                    page.theme_mode = {
-                        "system": ft.ThemeMode.SYSTEM,
-                        "light": ft.ThemeMode.LIGHT,
-                        "dark": ft.ThemeMode.DARK,
-                    }[e.control.value]
-                    safe_update()
+            def choose_theme(mode):
+                def handle(_event):
+                    if save("appearance.theme", mode):
+                        label = {"system": "Sistema", "light": "Claro", "dark": "Escuro"}[mode]
+                        notice(f"Tema: {label}.")
+                selected = settings.get("appearance.theme") == mode
+                label = {"system": "Sistema", "light": "Claro", "dark": "Escuro"}[mode]
+                button_label = f"✓ {label}" if selected else label
+                button_cls = ft.FilledButton if selected else ft.OutlinedButton
+                return button_cls(button_label, on_click=handle)
 
-            theme = ft.Dropdown(
-                value=settings.get("appearance.theme"),
-                options=[
-                    ft.dropdown.Option("system", "Seguir sistema"),
-                    ft.dropdown.Option("light", "Claro"),
-                    ft.dropdown.Option("dark", "Escuro"),
-                ],
-                dense=True, width=180,
+            selected_theme = settings.get("appearance.theme")
+            selected_theme_label = {"system": "Sistema", "light": "Claro", "dark": "Escuro"}[selected_theme]
+            theme_choices = ft.Row(
+                [choose_theme("system"), choose_theme("light"), choose_theme("dark")],
+                wrap=True,
+                spacing=8,
             )
-            theme.on_change = theme_changed
             items.append(section("Aparência", ft.Icons.DARK_MODE_OUTLINED, [
                 ft.Row([
                     ft.Column([
                         ft.Text("Tema", color=TEXT, weight=ft.FontWeight.BOLD),
-                        ft.Text("Aplica imediatamente sem recriar banco, scanner ou navegação.", color=TEXT_MUTED, size=10),
-                    ], expand=True),
-                    theme,
-                ]),
-            ], ("aparência", "tema", "dark", "light", "system")))
+                        ft.Text(
+                            f"Atual: {selected_theme_label}. "
+                            "A alteração é aplicada imediatamente sem tocar na biblioteca, scanner ou player.",
+                            color=TEXT_MUTED,
+                            size=10,
+                        ),
+                    ], spacing=2, expand=True),
+                    theme_choices,
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ], ("aparência", "tema", "dark", "light", "system", "sistema", "claro", "escuro")))
 
             items.append(section("Biblioteca", ft.Icons.VIDEO_LIBRARY_OUTLINED, [
                 row("appearance.card_size", "Tamanho dos cards", "Controla o tamanho visual dos cards da Home."),
@@ -864,7 +898,7 @@ class SettingsView:
             ], ("scan", "varredura", "status", "biblioteca")))
 
             items.append(section("Diagnóstico", ft.Icons.BUG_REPORT_OUTLINED, [
-                ft.Text(f"Database: {database_label} • Schema SQLite: {getattr(store, 'SCHEMA_VERSION', '—')}", color=TEXT if database_ok else "#FFB4AB", size=11),
+                ft.Text(f"Database: {database_label} • Schema SQLite: {getattr(store, 'SCHEMA_VERSION', '—')}", color=TEXT if database_ok else theme.error, size=11),
                 ft.Text(f"Scan: {scan.get('state') or 'IDLE'} • encontrados: {int(scan.get('found') or 0)} • arquivos: {int(scan.get('files') or 0)}", color=TEXT_MUTED, size=11),
                 ft.Text(f"Volumes removíveis: {len(volumes)} • SAF: {len(saf_roots)}", color=TEXT_MUTED, size=11),
                 ft.Text("Python/Flet: Flet 0.86.5 • Android target 36", color=TEXT_MUTED, size=11),
@@ -881,6 +915,7 @@ class SettingsView:
             return items
 
         rebuild()
+        page.run_task(restore_scroll)
         return ft.Container(
             content=ft.Column([
                 ft.Row([back_button, header_title]),

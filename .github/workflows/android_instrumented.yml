@@ -65,11 +65,11 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools build-tools;36.0.0 platforms;android-36 cmdline-tools;latest'
+          packages: 'platform-tools build-tools;36.0.0 platforms;android-36'
 
       - name: Accept Android SDK Licenses
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          yes | sdkmanager --licenses
 
       - name: Install Android platform
         run: sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"

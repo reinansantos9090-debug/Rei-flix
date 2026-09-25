@@ -70,6 +70,8 @@ class AndroidHostVerificationTests(unittest.TestCase):
             "MAX_CACHE_BYTES",
             "durationMs",
             "METADATA_KEY_VIDEO_ROTATION",
+            "Matrix().apply",
+            "postRotate",
         ):
             self.assertIn(token, source)
         self.assertNotIn("Dispatchers.Main", source)

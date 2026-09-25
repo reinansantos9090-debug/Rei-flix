@@ -28,6 +28,8 @@ object VideoThumbnailExtractor {
 
     private val inFlight = ConcurrentHashMap<String, Any>()
     private const val MAX_CACHE_BYTES = 128L * 1024L * 1024L
+    internal fun cacheKey(mediaIdentity: String, size: Long, modifiedAt: Long): String =
+        sha256(mediaIdentity + "|" + size + "|" + modifiedAt)
 
     fun extract(
         context: Context,
@@ -40,7 +42,7 @@ object VideoThumbnailExtractor {
         if (!cacheDir.exists() && !cacheDir.mkdirs()) return null
 
         val identity = mediaIdentity?.trim().takeUnless { it.isNullOrEmpty() } ?: uri.toString()
-        val key = sha256(identity + "|" + size + "|" + modifiedAt)
+        val key = cacheKey(identity, size, modifiedAt)
         val target = File(cacheDir, key + ".jpg")
         if (target.isFile && target.length() > 0L) {
             return Result(target.absolutePath)

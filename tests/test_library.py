@@ -1024,29 +1024,17 @@ class LibraryBrowseTests(unittest.TestCase):
         self.assertEqual(LibraryService.browse_catalog(catalog, state='Concluídos'), [])
 
     def test_home_builds_for_an_empty_local_catalog(self):
-        class FakePage:
+        class FakePage(AsyncRunTaskMixin):
             def update(self): pass
             def run_thread(self, work): work()
-            def run_task(self, task_fn):
-                try:
-                    asyncio.get_running_loop()
-                except RuntimeError:
-                    return asyncio.run(task_fn())
-                return None
         with tempfile.TemporaryDirectory() as d:
             view = HomeView.build(FakePage(), LibraryService(LibraryStore(d)), lambda _: None, lambda: None, lambda *args, **kwargs: None)
         self.assertEqual(view.content.controls[0].__class__.__name__, 'Row')
 
     def test_home_does_not_label_missing_episode_as_fully_completed(self):
-        class FakePage:
+        class FakePage(AsyncRunTaskMixin):
             def update(self): pass
             def run_thread(self, work): work()
-            def run_task(self, task_fn):
-                try:
-                    asyncio.get_running_loop()
-                except RuntimeError:
-                    return asyncio.run(task_fn())
-                return None
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)
             anime = store.upsert_anime('partial-complete', {'title': 'Partial Complete', 'genres': '[]'})
@@ -1070,15 +1058,9 @@ class LibraryBrowseTests(unittest.TestCase):
             self.assertNotIn('Concluído', texts)
 
     def test_home_continuation_uses_anime_and_episode_title_for_player(self):
-        class FakePage:
+        class FakePage(AsyncRunTaskMixin):
             def update(self): pass
             def run_thread(self, work): work()
-            def run_task(self, task_fn):
-                try:
-                    asyncio.get_running_loop()
-                except RuntimeError:
-                    return asyncio.run(task_fn())
-                return None
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)
             anime = store.upsert_anime('attack', {'title': 'Attack on Titan', 'genres': '[]'})
@@ -1102,15 +1084,9 @@ class LibraryBrowseTests(unittest.TestCase):
             self.assertEqual(played[0], (path, 'Attack on Titan • T1 E1', {'progress_seconds': 25}))
 
     def test_home_reuses_query_filter_and_sort_state_after_a_round_trip(self):
-        class FakePage:
+        class FakePage(AsyncRunTaskMixin):
             def update(self): pass
             def run_thread(self, work): work()
-            def run_task(self, task_fn):
-                try:
-                    asyncio.get_running_loop()
-                except RuntimeError:
-                    return asyncio.run(task_fn())
-                return None
         with tempfile.TemporaryDirectory() as d:
             store = LibraryStore(d)
             anime = store.upsert_anime('attack', {'title': 'Attack', 'genres': '["Ação"]'})

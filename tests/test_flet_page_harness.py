@@ -11,8 +11,8 @@ import inspect
 
 
 class AsyncRunTaskMixin:
-    def run_task(self, task_or_factory):
-        result = task_or_factory() if callable(task_or_factory) else task_or_factory
+    def run_task(self, task_or_factory, *args, **kwargs):
+        result = task_or_factory(*args, **kwargs) if callable(task_or_factory) else task_or_factory
         if not inspect.isawaitable(result):
             return result
 

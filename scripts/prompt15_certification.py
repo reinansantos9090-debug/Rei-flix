@@ -85,7 +85,12 @@ def run_command(area,test,command,*,cwd,timeout=1800):
     out=p.stdout or ""; err=p.stderr or ""
     # Keep enough output to expose a concrete failing-test traceback in CI evidence.
     # This is especially important for the mandatory deterministic pytest audit.
-    limit=20000 if test in {"pytest","pytest determinism"} else 6000
+    if test in {"pytest","pytest determinism"}:
+        limit=20000
+    elif test in {"pytest collect-only","Gradle tasks"}:
+        limit=100000
+    else:
+        limit=6000
     evidence="exit=%s\nstdout:\n%s\nstderr:\n%s"%(p.returncode,out[-limit:],err[-limit:])
     return Result(area,test,PASS if p.returncode==0 else FAIL,evidence,time.monotonic()-start," ".join(map(str,command)),p.returncode,out[-limit:],err[-limit:])
 
@@ -148,13 +153,30 @@ def collection_audit(files,output):
     repo_tests={x for x in files if x.startswith("tests/") and x.endswith(".py")}
     return {"repository_test_files":len(repo_tests),"discovered_test_files":len(discovered),"not_discovered":sorted(repo_tests-discovered)}
 
-def find_lint(gradlew,cwd):
+def configure_rendered_gradle_environment(root):
+    site_packages=root/"build"/"flutter"/"site-packages"
+    current=os.environ.get("SERIOUS_PYTHON_SITE_PACKAGES","").strip()
+    if current:
+        return Result("Android","Gradle environment",PASS,"SERIOUS_PYTHON_SITE_PACKAGES already set to: "+current,command="environment")
+    if site_packages.is_dir():
+        os.environ["SERIOUS_PYTHON_SITE_PACKAGES"]=str(site_packages)
+        return Result("Android","Gradle environment",PASS,"Set SERIOUS_PYTHON_SITE_PACKAGES to the rendered project's staged site-packages directory.",command="environment")
+    return Result("Android","Gradle environment",BLOCKED,"Rendered Flet site-packages directory is missing: "+str(site_packages),command="environment")
+
+
+def discover_lint_task(gradlew,cwd):
     tasks=run_command("Android","Gradle tasks",[str(gradlew),"tasks","--all","--no-daemon"],cwd=cwd,timeout=900)
-    if tasks.status!=PASS:return tasks
+    if tasks.status!=PASS:
+        return tasks,None
     names=set(re.findall(r"^(:app:[A-Za-z0-9_-]*lint[A-Za-z0-9_-]*)\s+-",tasks.stdout,flags=re.MULTILINE))
     chosen=next((x for x in (":app:lintDebug",":app:lintRelease",":app:lint") if x in names),None) or next((x for x in sorted(names) if x.lower().startswith(":app:lint")),None)
-    if not chosen:return Result("Android","Gradle lint",BLOCKED,"No app lint task discovered.")
-    return run_command("Android","Gradle lint "+chosen,[str(gradlew),chosen,"--no-daemon"],cwd=cwd,timeout=1800)
+    if not chosen:
+        return Result("Android","Gradle lint discovery",BLOCKED,"No app lint task discovered from the available Gradle tasks.",command=tasks.command,stdout=tasks.stdout,stderr=tasks.stderr),None
+    return Result("Android","Gradle lint discovery",PASS,"Discovered app lint task: "+chosen,command=tasks.command,stdout=tasks.stdout,stderr=tasks.stderr),chosen
+
+
+def run_lint_task(gradlew,cwd,task):
+    return run_command("Android","Gradle lint "+task,[str(gradlew),task,"--no-daemon"],cwd=cwd,timeout=1800)
 
 def adb_probe(root):
     adb=shutil.which("adb")
@@ -276,11 +298,24 @@ def main():
     if a.gradle_root and not a.skip_gradle:
         gr=a.gradle_root.resolve(); gw=gr/"gradlew"
         if gw.is_file():
-            r["gradle_unit"]=Result("Android","Gradle unit tests",PASS,"Rendered-project Gradle unit tests completed successfully in the preceding blocking workflow step.",command=str(gw)+" :app:testDebugUnitTest --no-daemon") if a.prevalidated_gradle else run_command("Android","Gradle unit tests",[str(gw),":app:testDebugUnitTest","--no-daemon"],cwd=gr,timeout=1800); r["lint"]=find_lint(gw,gr); r["lint_discovery"]=Result("Android","Gradle lint discovery",r["lint"].status,r["lint"].evidence,command=r["lint"].command)
+            r["gradle_env"]=configure_rendered_gradle_environment(root)
+            r["gradle_unit"]=Result("Android","Gradle unit tests",PASS,"Rendered-project Gradle unit tests completed successfully in the preceding blocking workflow step.",command=str(gw)+" :app:testDebugUnitTest --no-daemon") if a.prevalidated_gradle else run_command("Android","Gradle unit tests",[str(gw),":app:testDebugUnitTest","--no-daemon"],cwd=gr,timeout=1800)
+            if r["gradle_env"].status==PASS:
+                r["lint_discovery"],lint_task=discover_lint_task(gw,gr)
+                r["lint"]=run_lint_task(gw,gr,lint_task) if lint_task else Result("Android","Gradle lint",r["lint_discovery"].status,r["lint_discovery"].evidence,command=r["lint_discovery"].command)
+            else:
+                r["lint_discovery"]=r["gradle_env"]
+                r["lint"]=r["gradle_env"]
         else:
-            r["gradle_unit"]=Result("Android","Gradle unit tests",BLOCKED,"gradlew not found: "+str(gw)); r["lint"]=Result("Android","Gradle lint",BLOCKED,"gradlew not found"); r["lint_discovery"]=r["lint"]
+            r["gradle_env"]=Result("Android","Gradle environment",BLOCKED,"gradlew not found: "+str(gw),command="environment")
+            r["gradle_unit"]=Result("Android","Gradle unit tests",BLOCKED,"gradlew not found: "+str(gw))
+            r["lint_discovery"]=Result("Android","Gradle lint discovery",BLOCKED,"gradlew not found: "+str(gw))
+            r["lint"]=Result("Android","Gradle lint",BLOCKED,"gradlew not found: "+str(gw))
     else:
-        r["gradle_unit"]=Result("Android","Gradle unit tests",NOT_VALIDATED,"No rendered Gradle project supplied."); r["lint"]=Result("Android","Gradle lint",NOT_VALIDATED,"No rendered Gradle project supplied."); r["lint_discovery"]=r["lint"]
+        r["gradle_env"]=Result("Android","Gradle environment",NOT_VALIDATED,"No rendered Gradle project supplied.")
+        r["gradle_unit"]=Result("Android","Gradle unit tests",NOT_VALIDATED,"No rendered Gradle project supplied.")
+        r["lint_discovery"]=Result("Android","Gradle lint discovery",NOT_VALIDATED,"No rendered Gradle project supplied.")
+        r["lint"]=Result("Android","Gradle lint",NOT_VALIDATED,"No rendered Gradle project supplied.")
     adb=adb_probe(root); apk=apk_forensic(root,a.apk.resolve() if a.apk else None,a.aapt2.resolve() if a.aapt2 else None)
     rows=[make_row(root,item,r,apk,collection) for item in REQUIREMENTS]
     assert len(rows)==201 and [x["ID"] for x in rows]==list(range(1,202))

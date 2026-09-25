@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, hashlib, json, os, platform, re, shutil, subprocess, sys, time, zipfile
+import argparse, ast, hashlib, json, os, platform, re, shutil, subprocess, sys, time, zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -111,9 +111,60 @@ def parse_unittest(output):
     m=re.search(r"Ran\s+(\d+)\s+tests?",output)
     if m:d["discovered"]=int(m.group(1))
     for key in ("failures","errors","skipped"):
-        m=re.search(r"(\d+)\s+"+key,output)
-        if m:d[key]=int(m.group(1))
+        m=re.search(r"(?:%s\s*=\s*(\d+)|(\d+)\s+%s)"%(key,key),output)
+        if m:
+            d[key]=int(m.group(1) or m.group(2))
     return d
+
+def has_unittest_cases(root):
+    tests_root=root/"tests"
+    if not tests_root.is_dir():
+        return False
+    for path in tests_root.rglob("*.py"):
+        try:
+            tree=ast.parse(path.read_text(encoding="utf-8",errors="replace"))
+        except SyntaxError:
+            continue
+        for node in tree.body:
+            if not isinstance(node,ast.ClassDef):
+                continue
+            for base in node.bases:
+                if isinstance(base,ast.Name) and base.id=="TestCase":
+                    return True
+                if isinstance(base,ast.Attribute) and base.attr=="TestCase":
+                    return True
+    return False
+
+def normalize_unittest_result(root,result):
+    if result.status==PASS:
+        stats=parse_unittest(result.stdout)
+        if stats["discovered"]==0:
+            if has_unittest_cases(root):
+                result.status=NOT_VALIDATED
+                result.evidence += "\nUnittest discovery returned zero tests although unittest.TestCase classes exist under tests/."
+            else:
+                result.status=NOT_APPLICABLE
+                result.evidence += "\nNo unittest.TestCase classes were found under tests/."
+    return result
+
+def is_collectable_python_test(path):
+    try:
+        tree=ast.parse(path.read_text(encoding="utf-8",errors="replace"))
+    except SyntaxError:
+        return True
+    for node in tree.body:
+        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+            return True
+        if isinstance(node,ast.ClassDef):
+            has_test_method=any(
+                isinstance(child,(ast.FunctionDef,ast.AsyncFunctionDef)) and child.name.startswith("test_")
+                for child in node.body
+            )
+            bases={base.id for base in node.bases if isinstance(base,ast.Name)}
+            attrs={base.attr for base in node.bases if isinstance(base,ast.Attribute)}
+            if has_test_method or "TestCase" in bases or "TestCase" in attrs:
+                return True
+    return False
 
 def git_state(root):
     out={}
@@ -148,10 +199,26 @@ def inventory(root):
                 out.append(str(p.relative_to(root)))
     return out
 
-def collection_audit(files,output):
+def collection_audit(files,output,root=None):
     discovered={x.split("::",1)[0] for x in output.splitlines() if x.startswith("tests/") and "::" in x}
     repo_tests={x for x in files if x.startswith("tests/") and x.endswith(".py")}
-    return {"repository_test_files":len(repo_tests),"discovered_test_files":len(discovered),"not_discovered":sorted(repo_tests-discovered)}
+    if root is None:
+        relevant=repo_tests
+        ignored=set()
+    else:
+        relevant=set()
+        ignored=set()
+        for rel in repo_tests:
+            if is_collectable_python_test(root/rel):
+                relevant.add(rel)
+            else:
+                ignored.add(rel)
+    return {
+        "repository_test_files":len(relevant),
+        "discovered_test_files":len(discovered & relevant),
+        "ignored_non_test_files":sorted(ignored),
+        "not_discovered":sorted(relevant-discovered),
+    }
 
 def configure_rendered_gradle_environment(root):
     site_packages=root/"build"/"flutter"/"site-packages"
@@ -260,7 +327,9 @@ def make_row(root,item,results,apk,collection):
         return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":static["command"],"Execution status":"YES" if status in (PASS,FAIL) else "NO","Result":status,"Evidence":static["evidence"],"Limitation":"" if status==PASS else "Static contract check did not prove the requirement."}
     if req=="Certification runner executes real commands":
         failed=[x.test for x in results.values() if x.status==FAIL]
-        status=FAIL if failed else PASS
+        blocked=[x.test for x in results.values() if x.status==BLOCKED]
+        incomplete=[x.test for x in results.values() if x.status in {NOT_VALIDATED,NOT_APPLICABLE}]
+        status=FAIL if failed else BLOCKED if blocked else PARTIAL if incomplete else PASS
         return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":"certification runner","Execution status":"YES","Result":status,"Evidence":"Real runner command results: "+(", ".join(failed) if failed else "no blocking command failures."),"Limitation":"" if status==PASS else "One or more blocking certification commands failed."}
     if req=="Certification runner runs pytest collection audit":
         r=results["collect"]
@@ -300,7 +369,7 @@ def main():
     r["collect"]=run_command("Python","pytest collect-only",[py,"-m","pytest","--collect-only","-q"],cwd=root,timeout=1800)
     r["pytest"]=run_command("Python","pytest",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
     r["pytest_second"]=run_command("Python","pytest determinism",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
-    r["unittest"]=run_command("Python","unittest discovery",[py,"-m","unittest","discover","-v"],cwd=root,timeout=1800)
+    r["unittest"]=normalize_unittest_result(root,run_command("Python","unittest discovery",[py,"-m","unittest","discover","-s","tests","-v"],cwd=root,timeout=1800))
     r["diff_check"]=run_command("Git","diff --check",["git","diff","--check"],cwd=root,timeout=60)
     files=inventory(root); collection=collection_audit(files,r["collect"].stdout); skip_audit=audit_skip_xfail(root)
     if a.gradle_root and not a.skip_gradle:
@@ -333,15 +402,15 @@ def main():
     counts={s:sum(x["Result"]==s for x in rows) for s in [PASS,PARTIAL,FAIL,NOT_APPLICABLE,NOT_VALIDATED,BLOCKED]}
     classification="NOT CERTIFIED" if blocking_failures or counts[FAIL] else "CERTIFICATION PARTIAL" if counts[PARTIAL] or counts[NOT_VALIDATED] or counts[BLOCKED] else "CERTIFIED IN VALIDATED SCOPE"
 
-    payload={"classification":classification,"timestamp_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"repository":"reinansantos9090-debug/Rei-flix","git":git_state(root),"environment":{"Python":platform.python_version(),"Platform":platform.platform(),"ANDROID_HOME":os.environ.get("ANDROID_HOME",""),"ANDROID_SDK_ROOT":os.environ.get("ANDROID_SDK_ROOT","")},"pytest_first":parse_pytest(r["pytest"].stdout),"pytest_second":parse_pytest(r["pytest_second"].stdout),"unittest":parse_unittest(r["unittest"].stdout),"collect_only":collection,"skip_xfail_audit":skip_audit,"adb":adb,"apk":apk,"results":[asdict(x) for x in r.values()],"matrix":rows,"matrix_counts":counts,"limitations":["Emulator/AVD NOT EXECUTED.","Connected instrumentation NOT EXECUTED.","Physical-device installation/update/clean-install NOT VALIDATED.","Android 14/15/16 runtime NOT VALIDATED.","Runtime FPS/RAM/leak profiling NOT VALIDATED."]}
+    payload={"certification_stage":"Prompt 15.5","classification":classification,"timestamp_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"repository":"reinansantos9090-debug/Rei-flix","git":git_state(root),"environment":{"Python":platform.python_version(),"Platform":platform.platform(),"ANDROID_HOME":os.environ.get("ANDROID_HOME",""),"ANDROID_SDK_ROOT":os.environ.get("ANDROID_SDK_ROOT","")},"pytest_first":parse_pytest(r["pytest"].stdout),"pytest_second":parse_pytest(r["pytest_second"].stdout),"unittest":{"status":r["unittest"].status,"command":r["unittest"].command,"stats":parse_unittest(r["unittest"].stdout),"evidence":r["unittest"].evidence},"collect_only":collection,"skip_xfail_audit":skip_audit,"adb":adb,"apk":apk,"results":[asdict(x) for x in r.values()],"matrix":rows,"matrix_counts":counts,"limitations":["Emulator/AVD NOT EXECUTED.","Connected instrumentation NOT EXECUTED.","Physical-device installation/update/clean-install NOT VALIDATED.","Android 14/15/16 runtime NOT VALIDATED.","Runtime FPS/RAM/leak profiling NOT VALIDATED."]}
     a.output.write_text(json.dumps(payload,indent=2,ensure_ascii=False),encoding="utf-8"); a.matrix.write_text(json.dumps(rows,indent=2,ensure_ascii=False),encoding="utf-8")
-    md=["# Rei-Flix — Prompt 15.3 Certification","","Classification: %s"%classification,"Branch: %s"%payload["git"].get("branch",""),"HEAD: %s"%payload["git"].get("head",""),"Working tree: %s"%(payload["git"].get("status") or "clean"),"","pytest first: %s"%payload["pytest_first"],"pytest second: %s"%payload["pytest_second"],"unittest: %s"%payload["unittest"],"collect-only audit: %s"%payload["collect_only"],"skip/xfail occurrences: %s"%skip_audit["count"],"","Android unit tests: %s"%r["gradle_unit"].status,"Lint: %s"%r["lint"].status,"ADB tool: %s"%adb["tool"],"Device validation: NOT VALIDATED","Emulator/AVD: NOT EXECUTED","Instrumentation: NOT VALIDATED — NO EMULATOR/PHYSICAL DEVICE","","APK path: %s"%apk.get("path","NOT AVAILABLE"),"APK size: %s"%apk.get("size","NOT AVAILABLE"),"APK SHA-256: %s"%apk.get("sha256","NOT AVAILABLE"),"Package: %s"%apk.get("package","NOT AVAILABLE"),"Version: %s / %s"%(apk.get("versionName","NOT AVAILABLE"),apk.get("versionCode","NOT AVAILABLE")),"Target SDK: %s"%apk.get("targetSdk","NOT AVAILABLE"),"Manifest: %s"%apk.get("manifest_present","NOT AVAILABLE"),"DEX: %s"%apk.get("dex_files","NOT AVAILABLE"),"Resources: %s"%apk.get("resources_present","NOT AVAILABLE"),"Signature: %s"%apk.get("signature",{}).get("status",NOT_VALIDATED),"","201-item matrix totals:"]+[s+": %s"%counts[s] for s in [PASS,PARTIAL,FAIL,NOT_VALIDATED,NOT_APPLICABLE,BLOCKED]]
+    md=["# Rei-Flix — Prompt 15.5 Certification","","Classification: %s"%classification,"Branch: %s"%payload["git"].get("branch",""),"HEAD: %s"%payload["git"].get("head",""),"Working tree: %s"%(payload["git"].get("status") or "clean"),"","pytest first: %s"%payload["pytest_first"],"pytest second: %s"%payload["pytest_second"],"unittest: %s — %s"%(payload["unittest"]["status"],payload["unittest"]["stats"]),"collect-only audit: %s"%payload["collect_only"],"skip/xfail occurrences: %s"%skip_audit["count"],"","Android unit tests: %s"%r["gradle_unit"].status,"Lint: %s"%r["lint"].status,"ADB tool: %s"%adb["tool"],"Device validation: NOT VALIDATED","Emulator/AVD: NOT EXECUTED","Instrumentation: NOT VALIDATED — NO EMULATOR/PHYSICAL DEVICE","","APK path: %s"%apk.get("path","NOT AVAILABLE"),"APK size: %s"%apk.get("size","NOT AVAILABLE"),"APK SHA-256: %s"%apk.get("sha256","NOT AVAILABLE"),"Package: %s"%apk.get("package","NOT AVAILABLE"),"Version: %s / %s"%(apk.get("versionName","NOT AVAILABLE"),apk.get("versionCode","NOT AVAILABLE")),"Target SDK: %s"%apk.get("targetSdk","NOT AVAILABLE"),"Manifest: %s"%apk.get("manifest_present","NOT AVAILABLE"),"DEX: %s"%apk.get("dex_files","NOT AVAILABLE"),"Resources: %s"%apk.get("resources_present","NOT AVAILABLE"),"Signature: %s"%apk.get("signature",{}).get("status",NOT_VALIDATED),"","201-item matrix totals:"]+[s+": %s"%counts[s] for s in [PASS,PARTIAL,FAIL,NOT_VALIDATED,NOT_APPLICABLE,BLOCKED]]
     md+=["","| ID | Requirement | Area | Implementation | Test | Command | Executed | Result | Evidence | Limitation |","|---:|---|---|---|---|---|:---:|---|---|---|"]
     for row in rows:
         vals=[str(row[k]).replace("|","\\|").replace("\n"," ") for k in ("ID","Requirement","Area","Implementation reference","Existing test reference","Command","Execution status","Result","Evidence","Limitation")]
         md.append("| "+" | ".join(vals)+" |")
     a.report.write_text("\n".join(md)+"\n",encoding="utf-8")
-    print("Prompt 15.3 classification:",classification); print("Matrix counts:",counts); print("pytest first:",payload["pytest_first"]); print("pytest second:",payload["pytest_second"]); print("unittest:",payload["unittest"]); print("skip/xfail:",skip_audit["count"]); print("ADB:",adb); print("JSON report:",a.output); print("Markdown report:",a.report)
+    print("Prompt 15.5 classification:",classification); print("Matrix counts:",counts); print("pytest first:",payload["pytest_first"]); print("pytest second:",payload["pytest_second"]); print("unittest:",payload["unittest"]); print("skip/xfail:",skip_audit["count"]); print("ADB:",adb); print("JSON report:",a.output); print("Markdown report:",a.report)
     if r["pytest"].status == FAIL:
         print("PYTEST FAILURE OUTPUT (last 20000 chars):")
         print(r["pytest"].stdout[-20000:])

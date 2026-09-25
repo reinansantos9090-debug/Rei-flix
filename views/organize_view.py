@@ -17,6 +17,7 @@ from core.ui import (
     SURFACE,
     TEXT,
     TEXT_MUTED,
+    activate_theme_for_page,
     chip_style,
     count_label,
     empty_state,
@@ -76,6 +77,12 @@ class OrganizeView:
         on_add_folder=None,
         view_state=None,
     ):
+        theme = activate_theme_for_page(page)
+        BACKGROUND = theme.background
+        SURFACE = theme.surface
+        TEXT = theme.text
+        TEXT_MUTED = theme.text_muted
+        ACCENT = theme.primary
         catalog: list[dict] = []
         view_state = view_state if view_state is not None else {}
         selected_genre = [view_state.get("genre", "Todos")]
@@ -195,10 +202,10 @@ class OrganizeView:
             if anime.get("favorite"):
                 indicators.append(
                     ft.Container(
-                        ft.Icon(ft.Icons.STAR, color="#FFD54F", size=16),
+                        ft.Icon(ft.Icons.STAR, color=theme.favorite, size=16),
                         top=7,
                         right=7,
-                        bgcolor="#181720CC",
+                        bgcolor=theme.overlay,
                         border_radius=12,
                         padding=4,
                     )
@@ -206,7 +213,7 @@ class OrganizeView:
             if anime.get("is_pinned"):
                 indicators.append(
                     ft.Container(
-                        ft.Icon(ft.Icons.PUSH_PIN, color="#FFFFFF", size=15),
+                        ft.Icon(ft.Icons.PUSH_PIN, color=theme.text_on_overlay, size=15),
                         top=7,
                         left=7,
                         bgcolor="#181720CC",
@@ -237,7 +244,7 @@ class OrganizeView:
                             anime.get("main_title") or "Anime local",
                             size=13,
                             weight=ft.FontWeight.BOLD,
-                            color="#F7F5FA",
+                            color=theme.text,
                             max_lines=2,
                             overflow=ft.TextOverflow.ELLIPSIS,
                         ),
@@ -250,7 +257,7 @@ class OrganizeView:
                         ft.Text(
                             f"{watched}/{available_count} assistidos" if available_count else subtitle,
                             size=10,
-                            color="#AAA7B6",
+                            color=theme.text_muted,
                             max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS,
                         ),
@@ -394,7 +401,7 @@ class OrganizeView:
                 height=142,
                 border_radius=RADIUS,
                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                bgcolor="#292737",
+                bgcolor=theme.surface_variant,
                 ink=True,
                 on_click=handle,
                 content=ft.Stack(
@@ -413,7 +420,7 @@ class OrganizeView:
                                     ),
                                     ft.Text(
                                         count_label(count, "anime"),
-                                        color="#E2DEE9",
+                                        color=theme.secondary,
                                         size=11,
                                     ),
                                 ],

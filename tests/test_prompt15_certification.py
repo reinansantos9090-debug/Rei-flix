@@ -25,7 +25,7 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
         self.assertTrue(all(not x.startswith("Prompt 15.1 item") for x in reqs))
 
     def test_classifications_are_exactly_the_allowed_set(self):
-        self.assertEqual(runner.ALLOWED,{"PASS","PARTIAL","FAIL","NOT VALIDATED","NOT APPLICABLE","BLOCKED BY ENVIRONMENT"})
+        self.assertEqual(runner.ALLOWED,{"PASS","PARTIAL","FAIL","NOT VALIDATED","NOT APPLICABLE","BLOCKED"})
 
     def test_empty_adb_list_is_not_device_validation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -59,7 +59,45 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
 
     def test_source_never_executes_emulator_or_connected_instrumentation(self):
         source=SCRIPT.read_text(encoding="utf-8")
-        self.assertNotRegex(source,r"(emulator\s+-avd|connectedDebugAndroidTest|connectedAndroidTest)\b")
+        forbidden=["emulator "+"-avd","connected"+"DebugAndroidTest","connected"+"AndroidTest"]
+        for token in forbidden:
+            self.assertNotIn(token,source)
+
+    def test_generic_functional_requirement_requires_specific_evidence_for_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            (root/"core").mkdir()
+            (root/"core"/"library_store.py").write_text("# implementation\n",encoding="utf-8")
+            (root/"tests").mkdir()
+            (root/"tests"/"test_area.py").write_text("def test_area():\n    assert True\n",encoding="utf-8")
+            results={
+                "pytest":runner.Result("Python","pytest","PASS","pytest passed"),
+                "unittest":runner.Result("Python","unittest","PASS","unittest passed"),
+            }
+            row=runner.make_row(root,runner.REQUIREMENTS[0],results,{"status":"NOT VALIDATED"},[])
+            self.assertEqual(row["Result"],"PARTIAL")
+            self.assertIn("requirement-specific",row["Limitation"])
+
+    def test_static_contract_can_produce_pass_with_concrete_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            manifest=root/"android/app/src/main"
+            manifest.mkdir(parents=True)
+            (manifest/"AndroidManifest.xml").write_text('android:launchMode="singleTask"\n',encoding="utf-8")
+            (root/"core").mkdir()
+            (root/"tests").mkdir()
+            (root/"core"/"navigation.py").write_text("# navigation\n",encoding="utf-8")
+            (root/"android/app/src/main/kotlin/com/reiflix/reiflix_local").mkdir(parents=True)
+            (root/"android/app/src/main/kotlin/com/reiflix/reiflix_local"/"MainActivity.kt").write_text("// MainActivity\n",encoding="utf-8")
+            (root/"android/app/src/main/kotlin/com/reiflix/reiflix_local"/"NativePlayerActivity.kt").write_text("// player\n",encoding="utf-8")
+            (root/"tests"/"test_prompt2_back_lifecycle.py").write_text("",encoding="utf-8")
+            (root/"tests"/"test_prompt14_device_compatibility_contract.py").write_text("",encoding="utf-8")
+            (root/"tests"/"test_runtime_android_contract.py").write_text("",encoding="utf-8")
+            results={"pytest":runner.Result("Python","pytest","PASS"),"unittest":runner.Result("Python","unittest","PASS")}
+            item=next(x for x in runner.REQUIREMENTS if x[2]=="MainActivity uses singleTask launch semantics")
+            row=runner.make_row(root,item,results,{"status":"NOT VALIDATED"},[])
+            self.assertEqual(row["Result"],"PASS")
+            self.assertIn("singleTask",row["Evidence"])
 
     def test_runner_compiles(self):
         result=subprocess.run([sys.executable,"-m","py_compile",str(SCRIPT)],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False)

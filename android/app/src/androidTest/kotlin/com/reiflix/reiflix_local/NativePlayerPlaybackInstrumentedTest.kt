@@ -60,7 +60,6 @@ class NativePlayerPlaybackInstrumentedTest {
     }
 
     @Test
-    @Test
     fun pictureInPicture_entersAndReturnsToMainActivityWithImmersivePolicy() {
         launchMainActivityForPlayer()
         val uri = insertFixtureIntoMediaStore()

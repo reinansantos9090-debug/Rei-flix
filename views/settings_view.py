@@ -468,11 +468,15 @@ class SettingsView:
             )
 
         def apply_theme_from_settings():
-            page.theme_mode = {
-                "system": ft.ThemeMode.SYSTEM,
-                "light": ft.ThemeMode.LIGHT,
-                "dark": ft.ThemeMode.DARK,
-            }[settings.get("appearance.theme")]
+            if on_settings_changed is not None:
+                try:
+                    result = on_settings_changed("appearance.theme", settings.get("appearance.theme"))
+                    if inspect.isawaitable(result):
+                        page.run_task(result)
+                    return
+                except Exception:
+                    logger.exception("settings runtime theme apply failed")
+            activate_theme_for_page(page, settings.get("appearance.theme"))
 
         async def export_settings(_):
             try:
@@ -707,6 +711,7 @@ class SettingsView:
                 return button_cls(button_label, on_click=handle)
 
             selected_theme = settings.get("appearance.theme")
+            selected_theme_label = {"system": "Sistema", "light": "Claro", "dark": "Escuro"}[selected_theme]
             theme_choices = ft.Row(
                 [choose_theme("system"), choose_theme("light"), choose_theme("dark")],
                 wrap=True,
@@ -717,7 +722,7 @@ class SettingsView:
                     ft.Column([
                         ft.Text("Tema", color=TEXT, weight=ft.FontWeight.BOLD),
                         ft.Text(
-                            f"Atual: {"Sistema" if selected_theme == "system" else "Claro" if selected_theme == "light" else "Escuro"}. "
+                            f"Atual: {selected_theme_label}. "
                             "A alteração é aplicada imediatamente sem tocar na biblioteca, scanner ou player.",
                             color=TEXT_MUTED,
                             size=10,
@@ -893,7 +898,7 @@ class SettingsView:
             ], ("scan", "varredura", "status", "biblioteca")))
 
             items.append(section("Diagnóstico", ft.Icons.BUG_REPORT_OUTLINED, [
-                ft.Text(f"Database: {database_label} • Schema SQLite: {getattr(store, 'SCHEMA_VERSION', '—')}", color=TEXT if database_ok else "#FFB4AB", size=11),
+                ft.Text(f"Database: {database_label} • Schema SQLite: {getattr(store, 'SCHEMA_VERSION', '—')}", color=TEXT if database_ok else theme.error, size=11),
                 ft.Text(f"Scan: {scan.get('state') or 'IDLE'} • encontrados: {int(scan.get('found') or 0)} • arquivos: {int(scan.get('files') or 0)}", color=TEXT_MUTED, size=11),
                 ft.Text(f"Volumes removíveis: {len(volumes)} • SAF: {len(saf_roots)}", color=TEXT_MUTED, size=11),
                 ft.Text("Python/Flet: Flet 0.86.5 • Android target 36", color=TEXT_MUTED, size=11),
@@ -910,6 +915,7 @@ class SettingsView:
             return items
 
         rebuild()
+        page.run_task(restore_scroll)
         return ft.Container(
             content=ft.Column([
                 ft.Row([back_button, header_title]),

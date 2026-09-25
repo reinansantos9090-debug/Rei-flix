@@ -54,6 +54,26 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Native ReiFlix host was not packaged", result.stderr)
 
+    def test_video_thumbnail_extractor_is_local_bounded_and_deduplicated(self):
+        source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/VideoThumbnailExtractor.kt").read_text(encoding="utf-8")
+        for token in (
+            "MediaMetadataRetriever",
+            "setDataSource(context, uri)",
+            "setDataSource(uri.path",
+            "getScaledFrameAtTime",
+            "retriever.release()",
+            "bitmap.recycle()",
+            "FileOutputStream",
+            "renameTo(target)",
+            "ConcurrentHashMap",
+            "mediaIdentity",
+            "MAX_CACHE_BYTES",
+            "durationMs",
+            "METADATA_KEY_VIDEO_ROTATION",
+        ):
+            self.assertIn(token, source)
+        self.assertNotIn("Dispatchers.Main", source)
+
     def test_workflow_prepares_a_real_template_and_keeps_host_gate(self):
         workflow = (ROOT / ".github" / "workflows" / "build_apk.yml").read_text(encoding="utf-8")
         self.assertIn("https://github.com/flet-dev/flet/releases/download/v0.86.5/flet-build-template.zip", workflow)

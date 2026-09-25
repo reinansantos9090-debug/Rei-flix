@@ -290,4 +290,3 @@ jobs:
             build/git-log.txt
             build/git-status.txt
           if-no-files-found: ignore
-          if-no-files-found: ignore

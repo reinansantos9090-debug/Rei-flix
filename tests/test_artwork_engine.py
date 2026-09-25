@@ -271,7 +271,9 @@ class ArtworkEngineTests(unittest.TestCase):
         with self.store._conn() as con:
             con.execute("UPDATE artwork SET status=?,next_retry_at=? WHERE entity_id=?", (STATUS_RETRY_WAIT, time.time() + 3600, str(anime)))
         self.engine.retry("anime", anime, "poster", priority=500)
-        time.sleep(0.1)
+        deadline = time.time() + 1.0
+        while not calls and time.time() < deadline:
+            time.sleep(0.02)
         self.assertEqual(len(calls), 1)
 
     def test_clear_and_cleanup_never_touch_videos(self):

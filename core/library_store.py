@@ -12,6 +12,7 @@ import time
 import zipfile
 
 from core.consumption import consumption_state, is_completed, is_in_progress, is_regular_episode
+from core.search_engine import normalize_text
 
 
 class LibraryStore:
@@ -55,6 +56,7 @@ class LibraryStore:
         con = sqlite3.connect(self.db_path)
         con.row_factory = self._row_factory
         con.execute("PRAGMA foreign_keys=ON")
+        con.create_function("reiflix_normalize", 1, lambda value: normalize_text(value), deterministic=True)
         return con
 
     def _init(self):
@@ -1997,12 +1999,13 @@ class LibraryStore:
                 where.append("EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND (e.number=? OR e.absolute_number=?))")
                 params.extend([value, value])
         elif raw:
-            tokens = [t for t in re.findall(r'[\w]+', raw.casefold()) if t]
+            normalized_query = normalize_text(raw)
+            tokens = [t for t in re.findall(r'[\w]+', normalized_query) if t]
             cols = ("a.title", "a.romaji", "a.english", "a.native", "a.aliases", "a.description", "a.genres", "a.user_tags", "a.personal_note")
             for token in tokens:
                 like = f"%{token}%"
-                cols_sql = " OR ".join(f"LOWER(COALESCE({column},'')) LIKE ?" for column in cols)
-                where.append(f"({cols_sql} OR EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND (LOWER(COALESCE(e.file_name,'')) LIKE ? OR LOWER(COALESCE(e.episode_title,'')) LIKE ? OR LOWER(COALESCE(e.path,'')) LIKE ?)))")
+                cols_sql = " OR ".join(f"reiflix_normalize(COALESCE({column},'')) LIKE ?" for column in cols)
+                where.append(f"({cols_sql} OR EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND (reiflix_normalize(COALESCE(e.file_name,'')) LIKE ? OR reiflix_normalize(COALESCE(e.episode_title,'')) LIKE ? OR reiflix_normalize(COALESCE(e.path,'')) LIKE ?)))")
                 params.extend([like] * len(cols) + [like, like, like])
         order_map = {
             "Mais recentes": "a.added_at DESC, a.title COLLATE NOCASE ASC, a.id DESC",

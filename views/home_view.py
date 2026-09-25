@@ -82,7 +82,7 @@ class HomeView:
             value=view_state.get("query", ""), visible=search_visible[0],
             hint_text="Buscar na sua biblioteca", prefix_icon=ft.Icons.SEARCH,
             border_radius=RADIUS, border_width=0, bgcolor=SURFACE, color=TEXT,
-            content_padding=12, text_size=14,
+            content_padding=12, text_size=14, autofocus=search_visible[0],
         )
         sort = ft.Dropdown(
             value=selected_sort[0], width=175, dense=True, text_size=12, color=TEXT,
@@ -431,6 +431,13 @@ class HomeView:
             seasons = options.get("seasons") or []
             episode_types = options.get("episode_types") or []
             genres = [str(value) for value in (options.get("genres") or []) if value]
+            states = [str(value) for value in (options.get("states") or []) if value]
+            if "Todos" not in states:
+                states.insert(0, "Todos")
+            state_filter.options = [ft.dropdown.Option(value, value) for value in states]
+            if selected_state[0] not in states:
+                selected_state[0] = "Todos"
+            state_filter.value = selected_state[0]
             tag.options = [ft.dropdown.Option("Todos", "Todos"), ft.dropdown.Option("Sem etiqueta", "Sem etiqueta")] + [ft.dropdown.Option(v, v) for v in tags]
             season.options = [ft.dropdown.Option("Todos", "Todos")] + [ft.dropdown.Option(str(v), f"Temporada {v}") for v in seasons]
             episode_type.options = [ft.dropdown.Option("Todos", "Todos")] + [ft.dropdown.Option(v, v) for v in episode_types]
@@ -514,6 +521,7 @@ class HomeView:
         async def toggle_search(_):
             search_visible[0] = not search_visible[0]
             search.visible = search_visible[0]
+            search.autofocus = search_visible[0]
             if not search_visible[0]:
                 search.value = ""
             save_view_state()

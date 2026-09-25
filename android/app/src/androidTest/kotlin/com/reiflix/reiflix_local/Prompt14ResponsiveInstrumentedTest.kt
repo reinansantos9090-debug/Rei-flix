@@ -59,7 +59,7 @@ class Prompt14ResponsiveInstrumentedTest {
         )
         val navigationMode = Settings.Secure.getInt(
             activity.contentResolver,
-            Settings.Secure.NAVIGATION_MODE,
+            "navigation_mode",
             -1,
         )
         if (navigationMode == 0) {

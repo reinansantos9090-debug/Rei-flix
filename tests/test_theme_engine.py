@@ -127,8 +127,8 @@ class ThemeEngineTests(unittest.TestCase):
         source = (ROOT / "views/settings_view.py").read_text(encoding="utf-8")
         for label in ("Sistema", "Claro", "Escuro"):
             self.assertIn(label, source)
-        self.assertIn('ft.FilledButton(button_label, on_click=handle)', source)
-        self.assertIn('ft.OutlinedButton(button_label, on_click=handle)', source)
+        self.assertIn("button_cls = ft.FilledButton if selected else ft.OutlinedButton", source)
+        self.assertIn("return button_cls(button_label, on_click=handle)", source)
         self.assertIn('settings.get("appearance.theme") == mode', source)
 
     def test_theme_change_does_not_route_through_storage_or_native_player(self):

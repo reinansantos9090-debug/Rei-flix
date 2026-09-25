@@ -1591,6 +1591,18 @@ async def main(page: ft.Page):
                             size = int(payload.get('size') or 0)
                             modified_at = int(payload.get('modifiedAt') or 0)
                             media_identity = str(payload.get('mediaIdentity') or '').strip()
+                            thumbnail_key = (uri, size, modified_at)
+                            pending_same_uri = any(key[0] == uri for key in thumbnail_requests)
+                            if pending_same_uri and thumbnail_key not in thumbnail_requests:
+                                # A newer request for the same URI is already pending.
+                                # Do not let a late result for the old media version
+                                # overwrite the current card/artwork.
+                                diagnostics.record(
+                                    "THUMBNAIL_STALE",
+                                    request_id=request_id,
+                                    result="IGNORED",
+                                )
+                                continue
                             metadata = {
                                 "durationMs": float(payload.get('durationMs') or 0),
                                 "width": int(payload.get('width') or 0),
@@ -1610,9 +1622,7 @@ async def main(page: ft.Page):
                                     metadata=metadata,
                                 )
                                 if registered:
-                                    thumbnail_requests.difference_update({
-                                        key for key in thumbnail_requests if key[0] == uri
-                                    })
+                                    thumbnail_requests.discard(thumbnail_key)
                                     if navigation.current in {'home', 'details', 'organize'}:
                                         on_catalog_changed()
                             diagnostics.record(
@@ -1623,9 +1633,14 @@ async def main(page: ft.Page):
                             )
                         elif event_type == 'thumbnail_error':
                             uri = str(payload.get('uri') or '').strip()
-                            thumbnail_requests.difference_update({
-                                key for key in thumbnail_requests if key[0] == uri
-                            })
+                            thumbnail_key = (
+                                uri,
+                                int(payload.get('size') or 0),
+                                int(payload.get('modifiedAt') or 0),
+                            )
+                            pending_same_uri = any(key[0] == uri for key in thumbnail_requests)
+                            if not pending_same_uri or thumbnail_key in thumbnail_requests:
+                                thumbnail_requests.discard(thumbnail_key)
                             diagnostics.record(
                                 "THUMBNAIL_ERROR",
                                 request_id=request_id,

@@ -168,11 +168,8 @@ def discover_lint_task(gradlew,cwd):
     tasks=run_command("Android","Gradle tasks",[str(gradlew),"tasks","--all","--no-daemon"],cwd=cwd,timeout=900)
     if tasks.status!=PASS:
         return tasks,None
-    names=set(
-        (x if x.startswith(":") else ":"+x)
-        for x in re.findall(r"^:?app:[A-Za-z0-9_-]*lint[A-Za-z0-9_-]*\s+-",tasks.stdout,flags=re.MULTILINE)
-    )
-    names={x.rstrip() for x in names}
+    task_names=re.findall(r"^:?((?:app):[A-Za-z0-9_]*lint[A-Za-z0-9_]*)\s+-",tasks.stdout,flags=re.MULTILINE)
+    names={":" + x for x in task_names}
     preferred=(
         ":app:lintReportDebug",
         ":app:lintReportRelease",

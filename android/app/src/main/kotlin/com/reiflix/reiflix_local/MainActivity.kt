@@ -1527,8 +1527,9 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private fun openPlayer(data: Uri?) {
         val source = data ?: return
-        val episodeUri = source.getQueryParameter("uri")?.trim().orEmpty()
-        val requestId = source.getQueryParameter("request_id")?.trim().orEmpty()
+        val playerRequest = NativePlayerRequest.fromBridgeUri(source)
+        val episodeUri = playerRequest.episodeUri
+        val requestId = playerRequest.requestId
         if (episodeUri.isBlank()) {
             Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId + " reason=missing_uri")
             NativeMailbox.write(this, JSONObject().put("type", "player_error")
@@ -1604,37 +1605,8 @@ class MainActivity : FlutterFragmentActivity() {
         )
 
         try {
-            val intent = Intent(this, NativePlayerActivity::class.java)
-                .putExtra("requestId", requestId)
-                .putExtra("uri", localUri.toString())
-                .putExtra("mediaId", localUri.toString())
-                .putExtra("episodeId", source.getQueryParameter("episode_id").orEmpty())
-                .putExtra("title", source.getQueryParameter("title") ?: "Episódio")
-                .putExtra("positionMs", source.getQueryParameter("position_ms")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L)
-                .putExtra("canNext", source.getQueryParameter("can_next")?.toBooleanStrictOrNull() ?: false)
-                .putExtra("canPrevious", source.getQueryParameter("can_previous")?.toBooleanStrictOrNull() ?: false)
-                .putExtra("autoplay", source.getQueryParameter("autoplay")?.toBooleanStrictOrNull() ?: true)
-                .putExtra("setting_player_default_speed", source.getQueryParameter("setting_player_default_speed")?.toFloatOrNull() ?: 1f)
-                .putExtra("setting_player_aspect_ratio", source.getQueryParameter("setting_player_aspect_ratio") ?: "fit")
-                .putExtra("setting_player_immersive", source.getQueryParameter("setting_player_immersive") ?: "always")
-                .putExtra("setting_player_rotation", source.getQueryParameter("setting_player_rotation") ?: "auto")
-                .putExtra("setting_player_pip", source.getQueryParameter("setting_player_pip")?.toBooleanStrictOrNull() ?: true)
-                .putExtra("setting_player_auto_hide_seconds", source.getQueryParameter("setting_player_auto_hide_seconds")?.toIntOrNull() ?: 5)
-                .putExtra("setting_player_double_tap_seek_seconds", source.getQueryParameter("setting_player_double_tap_seek_seconds")?.toLongOrNull() ?: 10L)
-                .putExtra("setting_player_long_press_speed", source.getQueryParameter("setting_player_long_press_speed")?.toFloatOrNull() ?: 2f)
-                .putExtra("setting_player_max_video_resolution", source.getQueryParameter("setting_player_max_video_resolution") ?: "auto")
-                .putExtra("setting_player_max_video_frame_rate", source.getQueryParameter("setting_player_max_video_frame_rate")?.toIntOrNull() ?: 0)
-                .putExtra("setting_player_max_audio_channels", source.getQueryParameter("setting_player_max_audio_channels")?.toIntOrNull() ?: 0)
-                .putExtra("setting_gestures_volume", source.getQueryParameter("setting_gestures_volume")?.toBooleanStrictOrNull() ?: false)
-                .putExtra("setting_gestures_brightness", source.getQueryParameter("setting_gestures_brightness")?.toBooleanStrictOrNull() ?: false)
-                .putExtra("setting_gestures_double_tap", source.getQueryParameter("setting_gestures_double_tap")?.toBooleanStrictOrNull() ?: false)
-                .putExtra("setting_gestures_long_press", source.getQueryParameter("setting_gestures_long_press")?.toBooleanStrictOrNull() ?: false)
-                .putExtra("setting_audio_preferred_language", source.getQueryParameter("setting_audio_preferred_language").orEmpty())
-                .putExtra("setting_audio_preferred_subtitle_language", source.getQueryParameter("setting_audio_preferred_subtitle_language").orEmpty())
-                .putExtra("setting_audio_subtitles", source.getQueryParameter("setting_audio_subtitles") ?: "auto")
-                .putExtra("setting_audio_subtitle_scale", source.getQueryParameter("setting_audio_subtitle_scale")?.toFloatOrNull() ?: 1f)
-                .putExtra("setting_audio_subtitle_bottom_padding", source.getQueryParameter("setting_audio_subtitle_bottom_padding")?.toIntOrNull() ?: 8)
-                .putExtra("setting_audio_subtitle_embedded_style", source.getQueryParameter("setting_audio_subtitle_embedded_style")?.toBooleanStrictOrNull() ?: true)
+            val intent = playerRequest.toIntent(this, localUri)
+                
 
             val resolvedActivity = intent.resolveActivity(packageManager)
             if (resolvedActivity == null) {

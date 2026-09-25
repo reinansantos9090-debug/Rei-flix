@@ -32,15 +32,13 @@ class Prompt13LifecycleContractTests(unittest.TestCase):
 
     def test_long_running_native_scan_batch_helper_is_not_bound_to_activity_instance(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
-        companion = source.index("companion object {")
-        batch = source.index("private fun publishNativeScanBatch", companion)
-        on_create = source.index("override fun onCreate")
-        self.assertLess(companion, batch)
-        self.assertLess(batch, on_create)
-        helper = source[batch:on_create]
-        self.assertNotIn("this@", helper)
-        self.assertNotIn("tag", helper)
+        batch = source.index("private fun publishNativeScanBatch")
+        helper_end = source.index("    private fun scanTree", batch)
+        helper = source[batch:helper_end]
         self.assertIn("appContext: Context", helper)
+        self.assertNotIn("this@", helper)
+        self.assertIn("LOG_TAG", helper)
+        self.assertNotIn("tag,", helper)
         self.assertIn("NativeMailbox.writeOrThrow", helper)
 
     def test_saf_inventory_is_process_guarded_and_does_not_retain_activity(self):
@@ -70,7 +68,11 @@ class Prompt13LifecycleContractTests(unittest.TestCase):
         self.assertIn("task.cancel()", source)
         self.assertIn("while ui_alive[0]:", source)
         self.assertIn("native_poll_task[0] = page.run_task(poll_native_bridge)", source)
-        self.assertNotIn("page.run_task(poll_native_bridge)\n", source)
+        self.assertEqual(
+            source.count("page.run_task(poll_native_bridge)"),
+            1,
+            "mailbox poller must be started through the tracked task handle exactly once",
+        )
 
     def test_navigation_recovery_restores_reconstructible_view_state(self):
         source = MAIN_PY.read_text(encoding="utf-8")
@@ -184,3 +186,28 @@ class Prompt13LifecycleContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_main_activity_background_scan_jobs_do_not_use_activity_bound_job_registry(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        self.assertNotIn("activeNativeScanJobs", source)
+        self.assertNotIn("private val activeNativeScanJobs", source)
+        self.assertNotIn("mutableMapOf<String, Job>()", source)
+
+    def test_media_store_delayed_retry_does_not_capture_activity_instance(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        self.assertIn("scheduleMediaStoreRetry(appContext", source)
+        self.assertIn("private fun scheduleMediaStoreRetry", source)
+        retry_start = source.index("private fun scheduleMediaStoreRetry")
+        retry_end = source.index("private fun handleBroadSettingsReturn", retry_start)
+        retry_block = source[retry_start:retry_end]
+        self.assertNotIn("this@MainActivity", retry_block)
+        self.assertNotIn("activityResumed", retry_block)
+        self.assertIn("NativeMailbox.write(appContext", retry_block)
+
+    def test_player_pip_exit_respects_immersive_policy(self):
+        source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        pip_start = source.index("override fun onPictureInPictureModeChanged")
+        pip_end = source.index("override fun onConfigurationChanged", pip_start)
+        pip_block = source[pip_start:pip_end]
+        self.assertIn("applyImmersiveAfterLayout()", pip_block)
+        self.assertNotIn("} else {\n            enterImmersiveMode()", pip_block)

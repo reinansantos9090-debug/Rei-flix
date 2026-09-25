@@ -1092,7 +1092,7 @@ async def main(page: ft.Page):
             )
             return result
 
-        poll_interval = 0.1
+        poll_interval = 0.2
         while True:
             try:
                 events = bridge.drain()
@@ -2002,7 +2002,7 @@ async def main(page: ft.Page):
                 # before acknowledgement replays the complete batch safely.
                 bridge.requeue_event_ids(failed_event_ids)
                 bridge.acknowledge()
-                poll_interval = 0.1 if events else min(1.0, poll_interval * 1.5)
+                poll_interval = 0.2 if events else min(1.0, poll_interval * 1.5)
             except Exception as exc:
                 print(f"[ANDROID] Erro no loop da ponte nativa: {exc}")
                 poll_interval = min(1.0, poll_interval * 1.5)

@@ -5,7 +5,7 @@ import json
 import logging
 import flet as ft
 
-from core.ui import BACKGROUND, PAGE_PADDING, TEXT, TEXT_MUTED
+from core.ui import BACKGROUND, PAGE_PADDING, TEXT, TEXT_MUTED, activate_theme_for_page
 
 logger = logging.getLogger("reiflix.recovery")
 
@@ -13,6 +13,10 @@ logger = logging.getLogger("reiflix.recovery")
 class RecoveryView:
     @staticmethod
     def build(page, status, *, on_diagnostic, on_snapshot, on_restore):
+        theme = activate_theme_for_page(page)
+        BACKGROUND = theme.background
+        TEXT = theme.text
+        TEXT_MUTED = theme.text_muted
         message = ft.Text("", color=TEXT_MUTED, size=12)
         details = ft.Text(
             "O banco local apresenta uma inconsistência. O Rei-Flix não iniciou a biblioteca "
@@ -23,7 +27,7 @@ class RecoveryView:
 
         def notice(value, error=False):
             message.value = value
-            message.color = "#FFB4AB" if error else TEXT_MUTED
+            message.color = theme.error if error else TEXT_MUTED
             try:
                 page.update()
             except Exception:

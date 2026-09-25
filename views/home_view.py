@@ -60,6 +60,8 @@ class HomeView:
         total_matches = [0]
         page_loading = [False]
         scan_active = [False]
+        home_sections_generation = [0]
+        filter_options_loaded = [False]
         artwork_tasks: set[tuple] = set()
         artwork_bindings: dict[tuple, list] = {}
 
@@ -505,6 +507,7 @@ class HomeView:
             await load_library_page(reset=True)
 
         def open_filters(_=None):
+            page.run_task(load_filter_options)
             dialog = ft.AlertDialog(
                 modal=True, title=ft.Text("Filtros da biblioteca"),
                 content=ft.Column([
@@ -579,9 +582,56 @@ class HomeView:
             except Exception:
                 logger.exception('Home metadata/artwork hydration failed', extra={'screen':'home','requestId':'-','library_items':len(items)})
 
+        async def refresh_home_sections(token):
+            try:
+                loaded = await asyncio.to_thread(library.media_center_home, limit=12)
+            except Exception:
+                logger.exception("Home secondary sections load failed", extra={"screen":"home"})
+                return
+            if token != render_generation[0] or token != home_sections_generation[0]:
+                return
+            home_data.clear()
+            home_data.update(loaded or {})
+            continuing.clear()
+            if settings.get("library.continue_watching"):
+                limit = settings.get("library.continue_watching_limit")
+                continuing.extend(home_data.get("continue_watching", [])[:limit])
+            render_continue()
+            for title, key, is_episode in (
+                ("PRÓXIMO EPISÓDIO", "next_episode", False),
+                ("RECENTEMENTE ADICIONADOS", "recently_added", False),
+                ("RECENTEMENTE ASSISTIDOS", "recently_watched", True),
+                ("FAVORITOS", "favorites", False),
+                ("PINADOS", "pinned", False),
+                ("SÉRIES / ANIMES", "series", False),
+                ("FILMES", "movies", False),
+                ("ESPECIAIS", "specials", False),
+            ):
+                try:
+                    render_section(title, key, home_data.get(key), action=None if is_episode else on_select_anime, episode=is_episode)
+                except Exception:
+                    logger.exception("Home section render failed", extra={"screen":"home","section":key})
+            page.update()
+
+        async def load_filter_options():
+            if filter_options_loaded[0]:
+                return
+            try:
+                loaded_options = await asyncio.to_thread(library.search_options)
+            except Exception:
+                logger.exception("Home filter options load failed", extra={"screen":"home"})
+                return
+            if filter_options_loaded[0]:
+                return
+            refresh_filter_options(loaded_options or {})
+            filter_options_loaded[0] = True
+            page.update()
+
         async def refresh_from_catalog():
             save_view_state()
             await load_library_page(reset=True)
+            home_sections_generation[0] = render_generation[0]
+            page.run_task(refresh_home_sections, render_generation[0])
 
         async def retry_load_catalog(_event=None):
             await load_catalog()
@@ -590,51 +640,32 @@ class HomeView:
             status.visible = True
             status.controls = [
                 ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
-                ft.Text('Carregando biblioteca local…', color=TEXT_MUTED, size=12),
+                ft.Text("Carregando biblioteca local…", color=TEXT_MUTED, size=12),
             ]
             page.update()
             try:
                 last_scan = await asyncio.to_thread(library.last_scan)
-                loaded_home_data = await asyncio.to_thread(library.media_center_home, limit=12)
-                loaded_options = await asyncio.to_thread(library.search_options)
             except Exception:
-                logger.exception('Home local projections load failed', extra={'screen':'home','requestId':'-'})
+                logger.exception("Home local projection load failed", extra={"screen":"home","requestId":"-"})
                 status.controls = [
                     ft.Icon(ft.Icons.ERROR_OUTLINE, color=theme.error, size=18),
-                    ft.Text('Não foi possível ler a biblioteca local agora.', color=theme.error, size=12),
-                    ft.TextButton('Tentar novamente', on_click=retry_load_catalog),
+                    ft.Text("Não foi possível ler a biblioteca local agora.", color=theme.error, size=12),
+                    ft.TextButton("Tentar novamente", on_click=retry_load_catalog),
                 ]
                 status.visible = True
                 page.update()
                 return
-
-            scan_active[0] = bool(last_scan and str(last_scan.get('status') or '').casefold() in {'running', 'started'})
-            home_data.clear()
-            home_data.update(loaded_home_data or {})
-            continuing.clear()
-            if settings.get("library.continue_watching"):
-                limit = settings.get("library.continue_watching_limit")
-                continuing.extend(home_data.get('continue_watching', [])[:limit])
-            refresh_filter_options(loaded_options or {})
-            render_continue()
-            for title, key, is_episode in (
-                ('PRÓXIMO EPISÓDIO','next_episode',False),
-                ('RECENTEMENTE ADICIONADOS','recently_added',False),
-                ('RECENTEMENTE ASSISTIDOS','recently_watched',True),
-                ('FAVORITOS','favorites',False),
-                ('PINADOS','pinned',False),
-                ('SÉRIES / ANIMES','series',False),
-                ('FILMES','movies',False),
-                ('ESPECIAIS','specials',False),
-            ):
-                try:
-                    render_section(title, key, home_data.get(key), action=None if is_episode else on_select_anime, episode=is_episode)
-                except Exception:
-                    logger.exception('Home section render failed', extra={'screen':'home','section':key})
+            scan_active[0] = bool(
+                last_scan and str(last_scan.get("status") or "").casefold() in {"running", "started"}
+            )
+            filter_options_loaded[0] = False
+            home_sections_generation[0] = render_generation[0]
             await load_library_page(reset=True)
             status.visible = scan_active[0]
             page.update()
             await restore_scroll_position()
+            page.run_task(refresh_home_sections, render_generation[0])
+
         search.on_change = on_search
         search.on_submit = on_search
         sort.on_select = on_sort

@@ -216,6 +216,29 @@ class NativePlayerPlaybackInstrumentedTest {
         }
 
         assertPlayerInsetsRespectSystemAndGestureSafeAreas()
+
+        val rotationDevice = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val positionBeforeRotation = onMain { player.currentPosition }
+        rotationDevice.setOrientationLeft()
+        await("Player Activity must survive portrait to landscape recreation") {
+            activity!!.resources.configuration.orientation ==
+                android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        }
+        await("Playback position must survive landscape recreation") {
+            onMain { player.currentPosition >= (positionBeforeRotation - 1_000L).coerceAtLeast(0L) }
+        }
+        await("Player must remain immersive after entering landscape") {
+            val insets = androidx.core.view.ViewCompat.getRootWindowInsets(activity!!.window.decorView)
+            insets != null && !insets.isVisible(WindowInsetsCompat.Type.systemBars())
+        }
+        rotationDevice.setOrientationNatural()
+        await("Player Activity must return to portrait") {
+            activity!!.resources.configuration.orientation ==
+                android.content.res.Configuration.ORIENTATION_PORTRAIT
+        }
+        await("Playback position must survive return to portrait") {
+            onMain { player.currentPosition >= (positionBeforeRotation - 1_000L).coerceAtLeast(0L) }
+        }
         assertTrue(
             "Player must remain sensor-orientation capable",
             activity!!.requestedOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR,

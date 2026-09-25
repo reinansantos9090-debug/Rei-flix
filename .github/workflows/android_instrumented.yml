@@ -182,11 +182,6 @@ jobs:
                   json.dump(data, handle, indent=2)
           PY
 
-      - name: Run Android unit tests
-        working-directory: build/flutter/android
-        shell: bash
-        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
-
       - name: Build rendered Android project
         shell: bash
         run: |
@@ -211,6 +206,11 @@ jobs:
             --build-number "$GITHUB_RUN_NUMBER" \
             --build-version "0.2.1" \
             --yes -v
+
+      - name: Run Android unit tests
+        working-directory: build/flutter/android
+        shell: bash
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Verify packaged APK identity, signature and effective manifest
         shell: bash

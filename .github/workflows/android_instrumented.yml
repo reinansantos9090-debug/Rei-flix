@@ -216,15 +216,14 @@ jobs:
           test -s "$apk"
           aapt2="$ANDROID_HOME/build-tools/36.0.0/aapt2"
           apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
-          python scripts/verify_apk_manifest.py "$apk" --aapt2 "$aapt2" --expected-version-code "$GITHUB_RUN_NUMBER" --expected-version-name "0.2.1"
+          python scripts/verify_apk_manifest.py "$apk" --aapt2 "$aapt2" --expected-version-code "$GITHUB_RUN_NUMBER" --expected-version-name "0.2.1" | tee build/apk-manifest-verification.txt
           "$apksigner" verify --verbose "$apk" | tee build/apk-signature.txt
-          {
-            printf 'apk=%s\n' "$apk"
-            printf 'size_bytes=%s\n' "$(stat -c '%s' "$apk")"
-            printf 'sha256='; sha256sum "$apk" | awk '{print $1}'
-            "$aapt2" dump badging "$apk" | grep -E "^package:|^targetSdkVersion:"
-          } | tee build/apk-certification.txt
-          unzip -l "$apk" | grep -E '(^|/)(classes[0-9]*\.dex|AndroidManifest\.xml)        shell: bash
+          "$aapt2" dump badging "$apk" | tee build/apk-badging.txt
+          printf 'size_bytes=%s\n' "$(stat -c '%s' "$apk")" | tee build/apk-size.txt
+          printf 'sha256=' | tee build/apk-sha256.txt
+          sha256sum "$apk" | awk '{print $1}' | tee -a build/apk-sha256.txt
+      - name: Verify rendered app has no Git metadata
+        shell: bash
         run: |
           apk="$(find build -type f -name '*.apk' -print -quit)"
           test -s "$apk"
@@ -282,10 +281,13 @@ jobs:
           name: android${{ matrix.api }}-certification
           path: |
             build/android${{ matrix.api }}-certification
-            build/apk-certification.txt
+            build/apk-manifest-verification.txt
             build/apk-signature.txt
-            build/apk-archive-check.txt
+            build/apk-badging.txt
+            build/apk-size.txt
+            build/apk-sha256.txt
             build/git-head.txt
             build/git-log.txt
             build/git-status.txt
+          if-no-files-found: ignore
           if-no-files-found: ignore

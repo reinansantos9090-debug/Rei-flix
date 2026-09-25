@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install Python dependencies
+      - name: Install Python test dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt "flet[cli]==0.86.5" pytest
@@ -98,6 +98,10 @@ jobs:
             echo "Valid JSON: $file"
           done < <(find . -path './.git' -prune -o -path './build' -prune -o -type f -name '*.json' -print0)
 
+      - name: Run Android unit tests
+        working-directory: android
+        shell: bash
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
       - name: Generate deterministic local player fixture
         run: |
           sudo apt-get update
@@ -205,7 +209,7 @@ jobs:
             --build-version "0.2.1" \
             --yes -v
 
-      - name: Verify packaged APK identity and effective manifest
+      - name: Verify packaged APK identity, signature and effective manifest
         shell: bash
         run: |
           apk="$(find build -type f -name '*.apk' -print -quit)"
@@ -213,22 +217,14 @@ jobs:
           aapt2="$ANDROID_HOME/build-tools/36.0.0/aapt2"
           apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           python scripts/verify_apk_manifest.py "$apk" --aapt2 "$aapt2" --expected-version-code "$GITHUB_RUN_NUMBER" --expected-version-name "0.2.1"
-          "$apksigner" verify --verbose "$apk"
+          "$apksigner" verify --verbose "$apk" | tee build/apk-signature.txt
           {
             printf 'apk=%s\n' "$apk"
             printf 'size_bytes=%s\n' "$(stat -c '%s' "$apk")"
-            printf 'sha256='
-            sha256sum "$apk" | awk '{print $1}'
-            printf 'application_id='
-            "$aapt2" dump badging "$apk" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -n1
-            printf 'version_code='
-            "$aapt2" dump badging "$apk" | sed -n "s/^package:.*versionCode='\\([^']*\\)'.*/\\1/p" | head -n1
-            printf 'version_name='
-            "$aapt2" dump badging "$apk" | sed -n "s/^package:.*versionName='\\([^']*\\)'.*/\\1/p" | head -n1
-            printf 'target_sdk='
-            "$aapt2" dump badging "$apk" | sed -n "s/^sdkVersion:'\\([^']*\\)'.*/\\1/p" | head -n1
+            printf 'sha256='; sha256sum "$apk" | awk '{print $1}'
+            "$aapt2" dump badging "$apk" | grep -E "^package:|^targetSdkVersion:"
           } | tee build/apk-certification.txt
-          unzip -l "$apk" | grep -E '(^|/)(classes[0-9]*\\.dex|AndroidManifest\\.xml)        shell: bash
+          unzip -l "$apk" | grep -E '(^|/)(classes[0-9]*\.dex|AndroidManifest\.xml)        shell: bash
         run: |
           apk="$(find build -type f -name '*.apk' -print -quit)"
           test -s "$apk"
@@ -245,18 +241,19 @@ jobs:
               raise SystemExit("Git metadata leaked into rendered app")
           print("Rendered app contains no .git metadata.")
           PY
+      - name: Record Git checkout integrity
+        shell: bash
+        run: |
+          git rev-parse HEAD | tee build/git-head.txt
+          git log --oneline -n 20 | tee build/git-log.txt
+          git diff --check
+          git status --porcelain=v1 | tee build/git-status.txt
       - name: Enable KVM for Android instrumented tests
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Verify packaged APK exists before instrumentation
-        shell: bash
-        run: |
-          apk="$(find build -type f -name '*.apk' -print -quit)"
-          test -s "$apk"
-          echo "APK ready for instrumentation: $apk"
       - name: Run Android instrumented diagnostics
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -286,10 +283,14 @@ jobs:
           path: |
             build/android${{ matrix.api }}-certification
             build/apk-certification.txt
+            build/apk-signature.txt
             build/apk-archive-check.txt
+            build/git-head.txt
+            build/git-log.txt
+            build/git-status.txt
           if-no-files-found: ignore
  | head -n 20 | tee build/apk-archive-check.txt
-          if unzip -l "$apk" | grep -Eq '(^|/)\\.git(/|$)'; then
+          if unzip -l "$apk" | grep -Eq '(^|/)\.git(/|$)'; then
             echo "Unexpected .git entry in APK" >&2
             exit 1
           fi

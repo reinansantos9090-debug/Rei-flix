@@ -108,7 +108,7 @@ class DetailView:
         def meta_chip(label, icon=None):
             return ft.Container(
                 content=ft.Row(([ft.Icon(icon, size=14, color=theme.secondary)] if icon else []) + [
-                    ft.Text(str(label), size=11, color="#D8D4E3")
+                    ft.Text(str(label), size=11, color=theme.secondary)
                 ], tight=True, spacing=4),
                 padding=ft.Padding.symmetric(horizontal=9, vertical=5), bgcolor=theme.surface_raised, border_radius=RADIUS,
             )
@@ -129,13 +129,13 @@ class DetailView:
 
         genres = anime_group.get("genres") or []
         genre_controls = [
-            ft.Container(ft.Text(genre, size=11, color="#F5F3F8"), bgcolor="#39364B", border_radius=14,
+            ft.Container(ft.Text(genre, size=11, color=theme.text), bgcolor=theme.border, border_radius=14,
                          padding=ft.Padding.symmetric(horizontal=10, vertical=5))
             for genre in genres if genre
         ]
 
         description = html.unescape(re.sub(r"<[^>]+>", "", metadata.get("description") or "")).strip()
-        description_text = ft.Text(description, size=13, color="#C7C5D0", max_lines=5,
+        description_text = ft.Text(description, size=13, color=theme.secondary, max_lines=5,
                                    overflow=ft.TextOverflow.ELLIPSIS, visible=bool(description))
         expand_button = ft.TextButton("Ler mais", visible=len(description) > 300)
 
@@ -157,14 +157,14 @@ class DetailView:
             favorite[0] = bool(on_toggle_favorite(anime_group["id"]))
             anime_group["favorite"] = favorite[0]
             favorite_button.icon = ft.Icons.STAR if favorite[0] else ft.Icons.STAR_BORDER
-            favorite_button.icon_color = "#FFD54F" if favorite[0] else "#FFFFFF"
+            favorite_button.icon_color = theme.favorite if favorite[0] else theme.text
             favorite_button.tooltip = "Remover dos favoritos" if favorite[0] else "Adicionar aos favoritos"
             page.update()
 
         favorite_button.on_click = toggle_favorite
         pin_button = ft.IconButton(
             icon=ft.Icons.PUSH_PIN if pinned[0] else ft.Icons.PUSH_PIN_OUTLINED,
-            icon_color=ACCENT if pinned[0] else "#FFFFFF",
+            icon_color=ACCENT if pinned[0] else theme.text,
             tooltip="Desafixar anime" if pinned[0] else "Fixar anime", visible=on_toggle_pinned is not None,
         )
         def toggle_pin(_):
@@ -172,7 +172,7 @@ class DetailView:
                 pinned[0] = bool(on_toggle_pinned(anime_group["id"]))
                 anime_group["is_pinned"] = pinned[0]
                 pin_button.icon = ft.Icons.PUSH_PIN if pinned[0] else ft.Icons.PUSH_PIN_OUTLINED
-                pin_button.icon_color = ACCENT if pinned[0] else "#FFFFFF"
+                pin_button.icon_color = ACCENT if pinned[0] else theme.text
                 pin_button.tooltip = "Desafixar anime" if pinned[0] else "Fixar anime"
                 page.update()
             except Exception:
@@ -292,7 +292,7 @@ class DetailView:
                 tags_row.controls.append(ft.OutlinedButton(
                     tag, icon=ft.Icons.CLOSE, tooltip=f"Remover etiqueta {tag}",
                     on_click=remove_tag,
-                    style=ft.ButtonStyle(color="#D8D4E3", side=ft.BorderSide(1, "#4A4659")),
+                    style=ft.ButtonStyle(color=theme.secondary, side=ft.BorderSide(1, theme.border)),
                 ))
 
         def add_tag(_):
@@ -374,7 +374,7 @@ class DetailView:
         primary_button = ft.FilledButton(
             primary_label, icon=ft.Icons.PLAY_ARROW, disabled=not bool(primary_target),
             on_click=lambda _: play(primary_target),
-            style=ft.ButtonStyle(bgcolor="#E50914", color=theme.text_on_overlay, shape=ft.RoundedRectangleBorder(radius=12)),
+            style=ft.ButtonStyle(bgcolor=theme.primary, color=theme.text_on_overlay, shape=ft.RoundedRectangleBorder(radius=12)),
         )
 
         episode_column = ft.Column(spacing=8)
@@ -501,13 +501,13 @@ class DetailView:
                 ft.Text(episode.get("episode_title") or episode.get("title") or episode.get("file_name") or "Mídia local", size=13, color=theme.text, weight=ft.FontWeight.BOLD,
                         max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                 ft.Text(status if not is_movie else ("Concluído" if state.value in {"completed", "watched"} else "Filme local"), size=11, color=color),
-                ft.Text(f"Duração • {duration}", size=10, color="#AAA7B6", visible=bool(duration)),
+                ft.Text(f"Duração • {duration}", size=10, color=theme.text_muted, visible=bool(duration)),
                 ft.Text(f"Absoluto • {episode.get('absolute_number')}", size=10, color="#AAA7B6",
                         visible=episode.get("absolute_number") is not None and not is_movie),
                 ft.Text(identification, size=10, color="#AAA7B6", visible=not is_movie),
             ], spacing=4, expand=True)
             if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing") and state.value == "in_progress":
-                details.controls.append(ft.ProgressBar(value=episode_ratio, color="#E50914", bgcolor="#454252", bar_height=4))
+                details.controls.append(ft.ProgressBar(value=episode_ratio, color="#E50914", bgcolor=theme.surface_variant, bar_height=4))
             is_missing = bool(episode.get("missing"))
             clickable = None if is_missing else lambda _, item=episode: play(item)
             content = (ft.Row([thumb, details], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -564,7 +564,7 @@ class DetailView:
                 )
                 for index, season in enumerate(seasons)
             ],
-            color="#F7F5FA", text_size=13, bgcolor=theme.surface,
+            color=theme.text, text_size=13, bgcolor=theme.surface,
             border_color=theme.border, border_radius=12, visible=bool(seasons) and len(seasons) > 1 and not is_movie,
         )
         def season_progress_text(season):
@@ -592,7 +592,7 @@ class DetailView:
                 ft.Text("CONTINUAR", size=12, weight=ft.FontWeight.BOLD, color="#AAA7B6"),
                 ft.Container(content=ft.Column([
                     ft.Text(("Filme" if is_movie else f"Temporada {season or '—'} • Episódio {number if number is not None else '—'}"), color="#F7F5FA", size=13, weight=ft.FontWeight.BOLD),
-                    ft.Text(progress_label, color="#B9B5C4", size=11),
+                    ft.Text(progress_label, color=theme.secondary, size=11),
                     ft.ProgressBar(value=current_ratio, color="#E50914", bgcolor="#454252", bar_height=4,
                                    visible=current_ratio is not None and current_state.value == "in_progress"),
                 ], spacing=6), padding=12, bgcolor=SURFACE, border_radius=RADIUS),
@@ -607,7 +607,7 @@ class DetailView:
                 ], vertical_alignment=ft.CrossAxisAlignment.START))
 
         header = ft.Row([
-            ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#FFFFFF", tooltip="Voltar", on_click=lambda _: on_back()),
+            ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=theme.text, tooltip="Voltar", on_click=lambda _: on_back()),
             ft.Text("Detalhes", size=17, weight=ft.FontWeight.BOLD, color=TEXT, expand=True),
             pin_button, favorite_button,
         ])
@@ -618,7 +618,7 @@ class DetailView:
             ft.Row(genre_controls, wrap=True, spacing=6, run_spacing=6, visible=bool(genre_controls)),
             ft.Row(([ft.Text(metadata_state, size=11, color=TEXT_MUTED)] + ([refresh_button] if refresh_button else [])), spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             primary_button,
-            ft.Text(f"{missing_count} indisponível{'is' if missing_count != 1 else ''} na biblioteca local", size=11, color="#D5A84A", visible=missing_count > 0),
+            ft.Text(f"{missing_count} indisponível{'is' if missing_count != 1 else ''} na biblioteca local", size=11, color=theme.warning, visible=missing_count > 0),
         ], spacing=9, expand=True)
 
         layout_controls = []

@@ -237,6 +237,10 @@ async def main(page: ft.Page):
             home_state.update(
                 {str(key): value for key, value in restored.items() if not callable(value)}
             )
+        for target, key in ((organize_state, "organize_state"), (settings_state, "settings_state")):
+            restored_view = state.get(key)
+            if isinstance(restored_view, dict):
+                target.update({str(name): value for name, value in restored_view.items() if not callable(value)})
         detail_id = state.get("details_media_id")
         restored_detail_id[0] = str(detail_id).strip() if detail_id not in (None, "") else None
         logger.info(
@@ -251,11 +255,21 @@ async def main(page: ft.Page):
 
     def _navigation_state_payload():
         return {
-            "version": 1,
+            "version": 2,
             "navigation": navigation.snapshot(),
             "home_state": {
                 str(key): value
                 for key, value in home_state.items()
+                if not callable(value)
+            },
+            "organize_state": {
+                str(key): value
+                for key, value in organize_state.items()
+                if not callable(value)
+            },
+            "settings_state": {
+                str(key): value
+                for key, value in settings_state.items()
                 if not callable(value)
             },
             "details_media_id": (
@@ -346,6 +360,9 @@ async def main(page: ft.Page):
             )
             navigation.replace("home")
             restored_detail_id[0] = None
+    # Restore only reconstructible UI state; durable library/player state remains in SQLite/Android.
+    load_navigation_state()
+
     def _route_for_screen(screen):
         return {
             "home": "/",

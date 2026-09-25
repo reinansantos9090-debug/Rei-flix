@@ -14,7 +14,7 @@ import flet as ft
 from core.storage_access import normalize_storage_snapshot
 from core.backup import BackupError
 from core.settings import SettingsStore, SettingsValidationError
-from core.ui import BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, section_title
+from core.ui import BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, activate_theme_for_page, section_title
 
 logger = logging.getLogger("reiflix.settings")
 
@@ -34,8 +34,15 @@ class SettingsView:
         on_settings_changed=None,
         on_open_settings_category=None,
         settings_path_provider=lambda: (),
+        view_state=None,
     ):
         settings = settings or SettingsStore(store)
+        theme = activate_theme_for_page(page)
+        BACKGROUND = theme.background
+        SURFACE = theme.surface
+        TEXT = theme.text
+        TEXT_MUTED = theme.text_muted
+        view_state = view_state if isinstance(view_state, dict) else {}
         busy = {"scan": False, "folder": False, "permission": False, "cache": False}
         status = ft.Text("", size=12, color=TEXT_MUTED)
         search = ft.TextField(
@@ -46,6 +53,25 @@ class SettingsView:
         )
         sections_host = ft.Column(spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
 
+        def save_scroll(event):
+            try:
+                view_state["scroll_position"] = float(event.pixels)
+            except (TypeError, ValueError, AttributeError):
+                return
+
+        sections_host.on_scroll = save_scroll
+
+        async def restore_scroll():
+            stored = view_state.get("scroll_position")
+            if stored is None:
+                return
+            try:
+                result = sections_host.scroll_to(offset=float(stored), duration=0)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.debug("settings scroll restoration unavailable", exc_info=True)
+
         def safe_update():
             try:
                 page.update()
@@ -54,7 +80,7 @@ class SettingsView:
 
         def notice(message: str, error: bool = False):
             status.value = message
-            status.color = "#FFB4AB" if error else TEXT_MUTED
+            status.color = theme.error if error else TEXT_MUTED
             safe_update()
 
         async def execute_action():

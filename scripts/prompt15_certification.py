@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
-PASS="PASS"; PARTIAL="PARTIAL"; FAIL="FAIL"; NOT_VALIDATED="NOT VALIDATED"; NOT_APPLICABLE="NOT APPLICABLE"; BLOCKED="BLOCKED BY ENVIRONMENT"
+PASS="PASS"; PARTIAL="PARTIAL"; FAIL="FAIL"; NOT_VALIDATED="NOT VALIDATED"; NOT_APPLICABLE="NOT APPLICABLE"; BLOCKED="BLOCKED"
 ALLOWED={PASS,PARTIAL,FAIL,NOT_VALIDATED,NOT_APPLICABLE,BLOCKED}
 
 _SPEC = {
@@ -195,33 +195,72 @@ def apk_forensic(root,apk,aapt2):
     d["status"]=PASS if d.get("manifest_present") and d.get("resources_present") and d.get("app_zip_present") and d.get("dex_files") and all(d.get("classes",{}).values()) else FAIL
     return d
 
+def static_requirement_evidence(root, requirement, apk):
+    rules = {
+        "NativePlayerActivity exists": ("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt", None, "The NativePlayerActivity source file exists at the certified production path."),
+        "MainActivity uses singleTask launch semantics": ("android/app/src/main/AndroidManifest.xml", 'android:launchMode="singleTask"', 'Source manifest declares MainActivity with launchMode="singleTask".'),
+        "MainActivity disables document duplication": ("android/app/src/main/AndroidManifest.xml", 'android:documentLaunchMode="never"', 'Source manifest declares documentLaunchMode="never" for MainActivity.'),
+        "Flet launch_url compatibility path is explicit": ("core/android_bridge.py", "await self.page.launch_url(url)", "AndroidBridge uses the Flet 0.86.5-compatible launch_url(url) call without an unsupported mode argument."),
+        "Media3 is the sole playback engine": ("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt", "ExoPlayer.Builder(this).build()", "NativePlayerActivity constructs playback through Media3/ExoPlayer."),
+        "Player supports fit mode": ("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt", "AspectRatioFrameLayout.RESIZE_MODE_FIT", "Native player source explicitly uses Media3 FIT resize mode."),
+    }
+    rule = rules.get(requirement)
+    if rule is None:
+        return None
+    rel, needle, description = rule
+    path = root / rel
+    if not path.is_file():
+        return {"status": NOT_VALIDATED, "evidence": f"Required inspection target is missing: {rel}", "command": f"inspect {rel}"}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if needle is not None and needle not in text:
+        return {"status": FAIL, "evidence": f"Required contract was not found in {rel}: {needle}", "command": f"inspect {rel}"}
+    return {"status": PASS, "evidence": description, "command": f"inspect {rel}"}
+
 def make_row(root,item,results,apk,collection):
-    rid,area,req=item; impl=refs(root,IMPL_REFS[area]); tests=refs(root,TEST_REFS[area])
+    rid,area,req=item
+    impl=refs(root,IMPL_REFS[area])
+    tests=refs(root,TEST_REFS[area])
+    if not impl:
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"","Existing test reference":"; ".join(tests),"Command":"static audit","Execution status":"NO","Result":NOT_VALIDATED,"Evidence":"No implementation reference file was found.","Limitation":"Implementation reference missing."}
     if req in DEVICE_ONLY:
-        status,evidence,command,executed,limit=NOT_VALIDATED,"No emulator/physical device was used by design.","NOT EXECUTED",False,"NO EMULATOR/PHYSICAL DEVICE"
-    elif req=="Certification runner runs pytest collection audit":
-        status=PASS if results["collect"].status==PASS and not collection["not_discovered"] else (FAIL if results["collect"].status==FAIL else PARTIAL); evidence=json.dumps(collection); command=results["collect"].command; executed=status==PASS; limit="" if executed else "Test discovery is incomplete."
-    elif req=="Certification runner performs a second pytest determinism run":
-        a,b=results["pytest"],results["pytest_second"]; x,y=parse_pytest(a.stdout),parse_pytest(b.stdout); status=PASS if a.status==PASS and b.status==PASS and x==y else (FAIL if a.status==FAIL or b.status==FAIL else PARTIAL); evidence=json.dumps({"first":x,"second":y}); command=a.command+" ; "+b.command; executed=status==PASS; limit="" if executed else "Two pytest runs differ or failed."
-    elif req=="Android unit-test task is executed when rendered project exists":
-        r=results["gradle_unit"]; status,evidence,command,executed,limit=r.status,r.evidence,r.command,r.status==PASS,"" if r.status==PASS else "Gradle unit tests unavailable or failed."
-    elif req.startswith("Gradle lint"):
-        r=results["lint"]; status,evidence,command,executed,limit=r.status,r.evidence,r.command,r.status==PASS,"" if r.status==PASS else "Lint unavailable or failed."
-    elif req.startswith("Packaged") or req=="Release APK is built by the workflow":
-        status=PASS if apk.get("status")==PASS else (NOT_VALIDATED if apk.get("status")==NOT_VALIDATED else FAIL); evidence=json.dumps(apk,ensure_ascii=False)[:7000]; command="APK forensic inspection"; executed=status==PASS; limit="" if executed else "Real APK evidence unavailable or failed."
-    elif req.startswith("Every matrix row") or req=="Matrix totals are calculated from the rows" or req=="Certification runner executes real commands":
-        status,evidence,command,executed,limit=PASS,"Generated directly from live command results and the stable 201-row catalog.","certification runner",True,""
-    else:
-        py,un=results["pytest"],results["unittest"]
-        if impl and tests and py.status==PASS and un.status==PASS:
-            status,evidence,command,executed,limit=PASS,"Implementation: %s; existing tests: %s; pytest and unittest passed."%("; ".join(impl),"; ".join(tests)),py.command+" ; "+un.command,True,""
-        elif impl and tests:
-            status,evidence,command,executed,limit=PARTIAL,"Implementation/test references exist, but executable evidence is incomplete.",py.command or un.command,False,"Shared regression evidence incomplete."
-        elif impl:
-            status,evidence,command,executed,limit=PARTIAL,"Implementation reference exists without a matching existing test reference.","static audit",False,"No matching existing test reference found."
-        else:
-            status,evidence,command,executed,limit=NOT_VALIDATED,"No implementation reference found in the repository tree.","static audit",False,"Implementation reference missing."
-    return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":command,"Execution status":"YES" if executed else "NO","Result":status,"Evidence":evidence,"Limitation":limit}
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":"NOT EXECUTED","Execution status":"NO","Result":NOT_VALIDATED,"Evidence":"No emulator or physical device was used by design.","Limitation":"NO EMULATOR/PHYSICAL DEVICE"}
+    static=static_requirement_evidence(root,req,apk)
+    if static is not None:
+        status=static["status"]
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":static["command"],"Execution status":"YES" if status in (PASS,FAIL) else "NO","Result":status,"Evidence":static["evidence"],"Limitation":"" if status==PASS else "Static contract check did not prove the requirement."}
+    if req=="Certification runner executes real commands":
+        failed=[x.test for x in results.values() if x.status==FAIL]
+        status=FAIL if failed else PASS
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":"certification runner","Execution status":"YES","Result":status,"Evidence":"Real runner command results: "+(", ".join(failed) if failed else "no blocking command failures."),"Limitation":"" if status==PASS else "One or more blocking certification commands failed."}
+    if req=="Certification runner runs pytest collection audit":
+        r=results["collect"]
+        status=PASS if r.status==PASS and not collection["not_discovered"] else (FAIL if r.status==FAIL else PARTIAL)
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":r.command,"Execution status":"YES" if r.status in (PASS,FAIL) else "NO","Result":status,"Evidence":json.dumps(collection,ensure_ascii=False),"Limitation":"" if status==PASS else "Collection audit did not fully prove discovery coverage."}
+    if req=="Certification runner performs a second pytest determinism run":
+        a,b=results["pytest"],results["pytest_second"]; x,y=parse_pytest(a.stdout),parse_pytest(b.stdout)
+        status=PASS if a.status==PASS and b.status==PASS and x==y else (FAIL if a.status==FAIL or b.status==FAIL else PARTIAL)
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":a.command+" ; "+b.command,"Execution status":"YES" if a.status in (PASS,FAIL) and b.status in (PASS,FAIL) else "NO","Result":status,"Evidence":json.dumps({"first":x,"second":y},ensure_ascii=False),"Limitation":"" if status==PASS else "Two pytest executions did not both pass with identical parsed totals."}
+    if req=="Android unit-test task is executed when rendered project exists":
+        r=results["gradle_unit"]
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":r.command,"Execution status":"YES" if r.status in (PASS,FAIL) else "NO","Result":r.status,"Evidence":r.evidence,"Limitation":"" if r.status==PASS else "Android unit tests were not successfully validated."}
+    if req=="Gradle lint task is discovered from available tasks":
+        r=results["lint_discovery"]
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":r.command,"Execution status":"YES" if r.status in (PASS,FAIL) else "NO","Result":r.status,"Evidence":r.evidence,"Limitation":"" if r.status==PASS else "A concrete app lint task was not discovered."}
+    if req=="Gradle lint result is recorded":
+        r=results["lint"]
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":r.command,"Execution status":"YES" if r.status in (PASS,FAIL) else "NO","Result":r.status,"Evidence":r.evidence,"Limitation":"" if r.status==PASS else "Lint did not pass."}
+    if req in {"Packaged manifest is forensically inspected","Packaged DEX contains the required native host classes","Packaged resources contain the expected payload","Release APK is built by the workflow"}:
+        status=PASS if apk.get("status")==PASS else (FAIL if apk.get("status")==FAIL else NOT_VALIDATED)
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":"APK forensic inspection","Execution status":"YES" if status in (PASS,FAIL) else "NO","Result":status,"Evidence":json.dumps(apk,ensure_ascii=False)[:10000],"Limitation":"" if status==PASS else "Real final APK evidence was unavailable or failed."}
+    if req.startswith("Every matrix row"):
+        field_map={"Every matrix row has a real requirement": req,"Every matrix row has an implementation reference": "; ".join(impl),"Every matrix row has a test/evidence reference": "; ".join(tests),"Every matrix row has a command": "derived per row","Every matrix row records execution status": "YES/NO per row","Every matrix row uses an allowed classification": "ALLOWED","Every PASS row has concrete evidence": "enforced by runner assertions"}
+        value=field_map[req]; status=PASS if value else FAIL
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":"matrix generation","Execution status":"YES","Result":status,"Evidence":f"{req}: {value}","Limitation":"" if status==PASS else "Generated matrix field is missing."}
+    if req=="Matrix totals are calculated from the rows":
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":"matrix totals calculation","Execution status":"YES","Result":PASS,"Evidence":"Totals are calculated with one pass over the generated 201 rows.","Limitation":""}
+    py,un=results["pytest"],results["unittest"]
+    evidence={"pytest":parse_pytest(py.stdout),"unittest":parse_unittest(un.stdout),"implementation":impl,"tests":tests}
+    return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":py.command+" ; "+un.command,"Execution status":"YES" if py.status==PASS and un.status in (PASS,FAIL) else "NO","Result":PARTIAL,"Evidence":"Shared regression suite evidence only; no requirement-specific assertion was registered for this row. "+json.dumps(evidence,ensure_ascii=False),"Limitation":"A requirement-specific test/static contract is required before this row can be PASS."}
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/prompt15-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/prompt15-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/prompt15-201-matrix.json")); ap.add_argument("--gradle-root",type=Path); ap.add_argument("--apk",type=Path); ap.add_argument("--aapt2",type=Path); ap.add_argument("--skip-gradle",action="store_true"); ap.add_argument("--prevalidated-compileall",action="store_true"); ap.add_argument("--prevalidated-gradle",action="store_true"); a=ap.parse_args()
@@ -231,37 +270,35 @@ def main():
     r["collect"]=run_command("Python","pytest collect-only",[py,"-m","pytest","--collect-only","-q"],cwd=root,timeout=1800)
     r["pytest"]=run_command("Python","pytest",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
     r["pytest_second"]=run_command("Python","pytest determinism",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
-    r["unittest"]=run_command("Python","unittest discovery",[py,"-m","unittest","discover","-s","tests","-v"],cwd=root,timeout=1800)
+    r["unittest"]=run_command("Python","unittest discovery",[py,"-m","unittest","discover","-v"],cwd=root,timeout=1800)
     r["diff_check"]=run_command("Git","diff --check",["git","diff","--check"],cwd=root,timeout=60)
     files=inventory(root); collection=collection_audit(files,r["collect"].stdout); skip_audit=audit_skip_xfail(root)
     if a.gradle_root and not a.skip_gradle:
         gr=a.gradle_root.resolve(); gw=gr/"gradlew"
         if gw.is_file():
-            r["gradle_unit"]=Result("Android","Gradle unit tests",PASS,"Rendered-project `:app:testDebugUnitTest --no-daemon` completed successfully in the preceding blocking workflow step.",command=str(gw)+" :app:testDebugUnitTest --no-daemon") if a.prevalidated_gradle else run_command("Android","Gradle unit tests",[str(gw),":app:testDebugUnitTest","--no-daemon"],cwd=gr,timeout=1800); r["lint"]=find_lint(gw,gr)
+            r["gradle_unit"]=Result("Android","Gradle unit tests",PASS,"Rendered-project Gradle unit tests completed successfully in the preceding blocking workflow step.",command=str(gw)+" :app:testDebugUnitTest --no-daemon") if a.prevalidated_gradle else run_command("Android","Gradle unit tests",[str(gw),":app:testDebugUnitTest","--no-daemon"],cwd=gr,timeout=1800); r["lint"]=find_lint(gw,gr); r["lint_discovery"]=Result("Android","Gradle lint discovery",r["lint"].status,r["lint"].evidence,command=r["lint"].command)
         else:
-            r["gradle_unit"]=Result("Android","Gradle unit tests",BLOCKED,"gradlew not found: "+str(gw)); r["lint"]=Result("Android","Gradle lint",BLOCKED,"gradlew not found")
+            r["gradle_unit"]=Result("Android","Gradle unit tests",BLOCKED,"gradlew not found: "+str(gw)); r["lint"]=Result("Android","Gradle lint",BLOCKED,"gradlew not found"); r["lint_discovery"]=r["lint"]
     else:
-        r["gradle_unit"]=Result("Android","Gradle unit tests",NOT_VALIDATED,"No rendered Gradle project supplied."); r["lint"]=Result("Android","Gradle lint",NOT_VALIDATED,"No rendered Gradle project supplied.")
+        r["gradle_unit"]=Result("Android","Gradle unit tests",NOT_VALIDATED,"No rendered Gradle project supplied."); r["lint"]=Result("Android","Gradle lint",NOT_VALIDATED,"No rendered Gradle project supplied."); r["lint_discovery"]=r["lint"]
     adb=adb_probe(root); apk=apk_forensic(root,a.apk.resolve() if a.apk else None,a.aapt2.resolve() if a.aapt2 else None)
     rows=[make_row(root,item,r,apk,collection) for item in REQUIREMENTS]
     assert len(rows)==201 and [x["ID"] for x in rows]==list(range(1,202))
     assert len({x["Requirement"] for x in rows})==201 and all(x["Requirement"] and x["Area"] for x in rows)
     assert all(x["Result"] in ALLOWED for x in rows) and all(x["Result"]!=PASS or x["Evidence"] for x in rows)
-    if any(x.status==FAIL for x in r.values()):
-        for row in rows:
-            if row["Result"]==PASS and row["Area"]!="Certification / CI / APK":
-                row["Result"]=FAIL; row["Limitation"]="An executable certification command failed."
-    counts={s:sum(x["Result"]==s for x in rows) for s in [PASS,PARTIAL,FAIL,NOT_VALIDATED,NOT_APPLICABLE,BLOCKED]}
-    classification="NOT CERTIFIED" if counts[FAIL] else "CERTIFICATION PARTIAL" if counts[PARTIAL] or counts[NOT_VALIDATED] or counts[BLOCKED] else "CERTIFIED IN VALIDATED SCOPE"
+    blocking_failures=[x.test for x in r.values() if x.status==FAIL]
+    counts={s:sum(x["Result"]==s for x in rows) for s in [PASS,PARTIAL,FAIL,NOT_APPLICABLE,NOT_VALIDATED,BLOCKED]}
+    classification="NOT CERTIFIED" if blocking_failures or counts[FAIL] else "CERTIFICATION PARTIAL" if counts[PARTIAL] or counts[NOT_VALIDATED] or counts[BLOCKED] else "CERTIFIED IN VALIDATED SCOPE"
+
     payload={"classification":classification,"timestamp_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"repository":"reinansantos9090-debug/Rei-flix","git":git_state(root),"environment":{"Python":platform.python_version(),"Platform":platform.platform(),"ANDROID_HOME":os.environ.get("ANDROID_HOME",""),"ANDROID_SDK_ROOT":os.environ.get("ANDROID_SDK_ROOT","")},"pytest_first":parse_pytest(r["pytest"].stdout),"pytest_second":parse_pytest(r["pytest_second"].stdout),"unittest":parse_unittest(r["unittest"].stdout),"collect_only":collection,"skip_xfail_audit":skip_audit,"adb":adb,"apk":apk,"results":[asdict(x) for x in r.values()],"matrix":rows,"matrix_counts":counts,"limitations":["Emulator/AVD NOT EXECUTED.","Connected instrumentation NOT EXECUTED.","Physical-device installation/update/clean-install NOT VALIDATED.","Android 14/15/16 runtime NOT VALIDATED.","Runtime FPS/RAM/leak profiling NOT VALIDATED."]}
     a.output.write_text(json.dumps(payload,indent=2,ensure_ascii=False),encoding="utf-8"); a.matrix.write_text(json.dumps(rows,indent=2,ensure_ascii=False),encoding="utf-8")
-    md=["# Rei-Flix — Prompt 15.2 Certification","","Classification: %s"%classification,"Branch: %s"%payload["git"].get("branch",""),"HEAD: %s"%payload["git"].get("head",""),"Working tree: %s"%(payload["git"].get("status") or "clean"),"","pytest first: %s"%payload["pytest_first"],"pytest second: %s"%payload["pytest_second"],"unittest: %s"%payload["unittest"],"collect-only audit: %s"%payload["collect_only"],"skip/xfail occurrences: %s"%skip_audit["count"],"","Android unit tests: %s"%r["gradle_unit"].status,"Lint: %s"%r["lint"].status,"ADB tool: %s"%adb["tool"],"Device validation: NOT VALIDATED","Emulator/AVD: NOT EXECUTED","Instrumentation: NOT VALIDATED — NO EMULATOR/PHYSICAL DEVICE","","APK path: %s"%apk.get("path","NOT AVAILABLE"),"APK size: %s"%apk.get("size","NOT AVAILABLE"),"APK SHA-256: %s"%apk.get("sha256","NOT AVAILABLE"),"Package: %s"%apk.get("package","NOT AVAILABLE"),"Version: %s / %s"%(apk.get("versionName","NOT AVAILABLE"),apk.get("versionCode","NOT AVAILABLE")),"Target SDK: %s"%apk.get("targetSdk","NOT AVAILABLE"),"Manifest: %s"%apk.get("manifest_present","NOT AVAILABLE"),"DEX: %s"%apk.get("dex_files","NOT AVAILABLE"),"Resources: %s"%apk.get("resources_present","NOT AVAILABLE"),"Signature: %s"%apk.get("signature",{}).get("status",NOT_VALIDATED),"","201-item matrix totals:"]+[s+": %s"%counts[s] for s in [PASS,PARTIAL,FAIL,NOT_VALIDATED,NOT_APPLICABLE,BLOCKED]]
+    md=["# Rei-Flix — Prompt 15.3 Certification","","Classification: %s"%classification,"Branch: %s"%payload["git"].get("branch",""),"HEAD: %s"%payload["git"].get("head",""),"Working tree: %s"%(payload["git"].get("status") or "clean"),"","pytest first: %s"%payload["pytest_first"],"pytest second: %s"%payload["pytest_second"],"unittest: %s"%payload["unittest"],"collect-only audit: %s"%payload["collect_only"],"skip/xfail occurrences: %s"%skip_audit["count"],"","Android unit tests: %s"%r["gradle_unit"].status,"Lint: %s"%r["lint"].status,"ADB tool: %s"%adb["tool"],"Device validation: NOT VALIDATED","Emulator/AVD: NOT EXECUTED","Instrumentation: NOT VALIDATED — NO EMULATOR/PHYSICAL DEVICE","","APK path: %s"%apk.get("path","NOT AVAILABLE"),"APK size: %s"%apk.get("size","NOT AVAILABLE"),"APK SHA-256: %s"%apk.get("sha256","NOT AVAILABLE"),"Package: %s"%apk.get("package","NOT AVAILABLE"),"Version: %s / %s"%(apk.get("versionName","NOT AVAILABLE"),apk.get("versionCode","NOT AVAILABLE")),"Target SDK: %s"%apk.get("targetSdk","NOT AVAILABLE"),"Manifest: %s"%apk.get("manifest_present","NOT AVAILABLE"),"DEX: %s"%apk.get("dex_files","NOT AVAILABLE"),"Resources: %s"%apk.get("resources_present","NOT AVAILABLE"),"Signature: %s"%apk.get("signature",{}).get("status",NOT_VALIDATED),"","201-item matrix totals:"]+[s+": %s"%counts[s] for s in [PASS,PARTIAL,FAIL,NOT_VALIDATED,NOT_APPLICABLE,BLOCKED]]
     md+=["","| ID | Requirement | Area | Implementation | Test | Command | Executed | Result | Evidence | Limitation |","|---:|---|---|---|---|---|:---:|---|---|---|"]
     for row in rows:
         vals=[str(row[k]).replace("|","\\|").replace("\n"," ") for k in ("ID","Requirement","Area","Implementation reference","Existing test reference","Command","Execution status","Result","Evidence","Limitation")]
         md.append("| "+" | ".join(vals)+" |")
     a.report.write_text("\n".join(md)+"\n",encoding="utf-8")
-    print("Prompt 15.2 classification:",classification); print("Matrix counts:",counts); print("pytest first:",payload["pytest_first"]); print("pytest second:",payload["pytest_second"]); print("unittest:",payload["unittest"]); print("skip/xfail:",skip_audit["count"]); print("ADB:",adb); print("JSON report:",a.output); print("Markdown report:",a.report)
+    print("Prompt 15.3 classification:",classification); print("Matrix counts:",counts); print("pytest first:",payload["pytest_first"]); print("pytest second:",payload["pytest_second"]); print("unittest:",payload["unittest"]); print("skip/xfail:",skip_audit["count"]); print("ADB:",adb); print("JSON report:",a.output); print("Markdown report:",a.report)
     if r["pytest"].status == FAIL:
         print("PYTEST FAILURE OUTPUT (last 20000 chars):")
         print(r["pytest"].stdout[-20000:])

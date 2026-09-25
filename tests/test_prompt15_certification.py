@@ -10,6 +10,11 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
             root=Path(tmp); (root/"tests").mkdir()
             (root/"tests"/"test_sample.py").write_text("def test_sample():\n    assert True\n",encoding="utf-8")
             report=root/"report.json"; markdown=root/"report.md"
+            subprocess.run(["git","init","-q",str(root)],check=True)
+            subprocess.run(["git","-C",str(root),"config","user.email","test@example.invalid"],check=True)
+            subprocess.run(["git","-C",str(root),"config","user.name","Prompt15 Test"],check=True)
+            subprocess.run(["git","-C",str(root),"add","."],check=True)
+            subprocess.run(["git","-C",str(root),"commit","-qm","fixture"],check=True)
             r=subprocess.run([sys.executable,str(SCRIPT),"--root",str(root),"--output",str(report),"--report",str(markdown)],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False)
             self.assertEqual(r.returncode,0,r.stdout)
             data=json.loads(report.read_text(encoding="utf-8"))

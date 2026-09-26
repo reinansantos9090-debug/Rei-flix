@@ -86,8 +86,6 @@ class NativeRequestState {
         requestSnapshots[id]=RequestSnapshot(resolvedAction,state,createdAt,now)
         while(requestSnapshots.size>64)requestSnapshots.remove(requestSnapshots.keys.first())
         persist()
-        android.util.Log.i("NativeRequestState","OPERATION_STATE requestId=" + id +
-            " action=" + resolvedAction + " state=" + state.name + " at=" + now)
         return true
     }
 

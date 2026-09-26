@@ -219,31 +219,32 @@ async def main(page: ft.Page):
     # Runtime snapshots are deliberately not stored in SQLite: only Android is
     # proof of a current grant. ``dismissed`` prevents an automatic onboarding loop.
     processed_native_operations = set()
-    back_state = {"last_at": 0.0, "last_action": None}
+    back_state = {
+        "last_at": 0.0,
+        "last_action": None,
+        "flet_pop_count": 0,
+        "navigation_count": 0,
+    }
     BACK_DEBOUNCE_SECONDS = 0.30
     navigation_state_path = os.path.join(data_dir, "navigation_state.json")
-    navigation_state_exit_marker = navigation_state_path + ".closed"
-    restored_detail_id = [None]
 
     def load_navigation_state():
+        """
+        Restore durable UI preferences only.
+
+        Runtime navigation is intentionally process-local. A fresh Python process
+        always starts from NavigationController's Home root; persisted route/stack
+        data from older versions is ignored rather than replayed.
+        """
         try:
-            if os.path.exists(navigation_state_exit_marker):
-                for path in (navigation_state_path, navigation_state_exit_marker):
-                    try:
-                        os.unlink(path)
-                    except FileNotFoundError:
-                        pass
-                return {}
             with open(navigation_state_path, "r", encoding="utf-8") as handle:
                 state = json.load(handle)
         except (OSError, ValueError, TypeError):
             return {}
         if not isinstance(state, dict):
-            logger.warning("[NAV] persisted navigation state is not an object; starting from Home")
+            logger.warning("[NAV] persisted UI state is not an object; starting from Home")
             return {}
-        if not navigation.restore(state.get("navigation")):
-            logger.warning("[NAV] invalid persisted navigation snapshot; starting from Home")
-            return {}
+
         restored = state.get("home_state")
         if isinstance(restored, dict):
             home_state.update(
@@ -252,23 +253,32 @@ async def main(page: ft.Page):
         for target, key in ((organize_state, "organize_state"), (settings_state, "settings_state")):
             restored_view = state.get(key)
             if isinstance(restored_view, dict):
-                target.update({str(name): value for name, value in restored_view.items() if not callable(value)})
-        detail_id = state.get("details_media_id")
-        restored_detail_id[0] = str(detail_id).strip() if detail_id not in (None, "") else None
+                target.update(
+                    {str(name): value for name, value in restored_view.items() if not callable(value)}
+                )
+
         logger.info(
-            "[NAV] restored stack=%s settings_depth=%s details_id=%s",
-            navigation.stack,
-            len(navigation.settings_path),
-            restored_detail_id[0] or "-",
+            "[NAV] startup route reset to Home; durable ui_state restored "
+            "home_keys=%s organize_keys=%s settings_keys=%s",
+            len(home_state),
+            len(organize_state),
+            len(settings_state),
         )
         return state
 
+    if navigation.current != "home":
+        navigation.reset_to_root()
+        logger.warning("[NAV] startup invariant repaired: runtime route was not Home")
+
     navigation_persist = {"pending": False, "running": False, "closing": False}
+
+    # Restore durable Home/Organize/Settings UI state only. Runtime route/stack
+    # remains process-local and therefore starts at Home on every fresh process.
+    load_navigation_state()
 
     def _navigation_state_payload():
         return {
-            "version": 2,
-            "navigation": navigation.snapshot(),
+            "version": 3,
             "home_state": {
                 str(key): value
                 for key, value in home_state.items()
@@ -284,11 +294,6 @@ async def main(page: ft.Page):
                 for key, value in settings_state.items()
                 if not callable(value)
             },
-            "details_media_id": (
-                str(current[0].get("id"))
-                if navigation.current == "details" and current[0] and current[0].get("id") is not None
-                else None
-            ),
         }
 
     def _write_navigation_state(state):
@@ -329,52 +334,12 @@ async def main(page: ft.Page):
             page.run_task(_flush_navigation_state)
 
     def clear_persisted_navigation_state():
+        # Kept as a lifecycle hook for the existing navigation contract. Runtime
+        # navigation is no longer persisted, so closing the app must not erase
+        # durable UI preferences such as filters and scroll positions.
         navigation_persist["closing"] = True
         navigation_persist["pending"] = False
-        temporary = navigation_state_exit_marker + ".tmp"
-        try:
-            with open(temporary, "w", encoding="utf-8") as handle:
-                handle.write("closed")
-            os.replace(temporary, navigation_state_exit_marker)
-            try:
-                os.unlink(navigation_state_path)
-            except FileNotFoundError:
-                pass
-        except OSError:
-            try:
-                if os.path.exists(temporary):
-                    os.unlink(temporary)
-            except OSError:
-                pass
-            logger.exception("[NAV] failed to clear persisted navigation snapshot")
-
-    def restore_details_context():
-        if navigation.current != "details":
-            return
-        detail_id = restored_detail_id[0]
-        if not detail_id:
-            navigation.replace("home")
-            return
-        try:
-            projected = library.catalog_by_ids([int(detail_id)])
-            current[0] = next(
-                (item for item in projected if str(item.get("id")) == detail_id),
-                None,
-            )
-        except (TypeError, ValueError):
-            current[0] = None
-        except Exception:
-            logger.exception("[NAV] failed to rebuild persisted Details context")
-            current[0] = None
-        if current[0] is None:
-            logger.warning(
-                "[NAV] persisted Details target unavailable id=%s; falling back to Home",
-                detail_id,
-            )
-            navigation.replace("home")
-            restored_detail_id[0] = None
-    # Restore only reconstructible UI state; durable library/player state remains in SQLite/Android.
-    load_navigation_state()
+        logger.info("[NAV] process exit: runtime route is not persisted")
 
     def _route_for_screen(screen):
         return {
@@ -415,10 +380,11 @@ async def main(page: ft.Page):
         _invalidate_catalog_views()
         return result
 
-    def _build_screen(route, *, force=False):
-        if force:
-            screen_cache.pop(route, None)
-        control = screen_cache.get(route)
+    def _build_screen(route, *, force=False, settings_path_override=None):
+        cache_key = route if settings_path_override is None else None
+        if force and cache_key is not None:
+            screen_cache.pop(cache_key, None)
+        control = screen_cache.get(cache_key) if cache_key is not None else None
         if control is not None:
             return control
         if route == "home":
@@ -447,6 +413,11 @@ async def main(page: ft.Page):
                 refresh_current_metadata, library.resolve_artwork, library.resolve_artwork_batch,
             )
         elif route == "settings":
+            fixed_settings_path = (
+                tuple(settings_path_override)
+                if settings_path_override is not None
+                else None
+            )
             control = SettingsView.build(
                 page, store, library,
                 lambda: navigate_back("visual:settings"),
@@ -467,37 +438,100 @@ async def main(page: ft.Page):
                 on_reconcile_after_restore=request_restore_reconciliation,
                 on_settings_changed=apply_settings_runtime,
                 on_open_settings_category=navigate_settings_category,
-                settings_path_provider=lambda: navigation.settings_path,
+                settings_path_provider=(
+                    (lambda path=fixed_settings_path: path)
+                    if fixed_settings_path is not None
+                    else (lambda: navigation.settings_path)
+                ),
             )
         else:
             raise RuntimeError(f"Unknown navigation route: {route}")
-        screen_cache[route] = control
+        if cache_key is not None:
+            screen_cache[cache_key] = control
         return control
 
+    def _settings_view_paths():
+        # page.views is only a projection of the existing NavigationController:
+        # one top-level Settings view plus one View per existing settings_path level.
+        paths = [()]
+        current_path = tuple(navigation.settings_path)
+        paths.extend(current_path[:index] for index in range(1, len(current_path) + 1))
+        return paths
+
     def render_current(force=False):
-        # page.views mirrors NavigationController exactly. The native player is
-        # intentionally absent: it is a separate Activity, so Back there never
-        # mutates the Flet navigation stack.
+        render_started = time.perf_counter()
         views = []
-        for index, route in enumerate(navigation.stack):
-            control = _build_screen(route, force=force and route == navigation.current)
-            views.append(
-                ft.View(
-                    route=_route_for_screen(route),
-                    controls=[
-                        ft.SafeArea(
-                            expand=True,
-                            content=control,
-                        )
-                    ],
-                    padding=0,
+        for route in navigation.stack:
+            if route != "settings":
+                control = _build_screen(
+                    route,
+                    force=force and route == navigation.current,
                 )
-            )
+                views.append(
+                    ft.View(
+                        route=_route_for_screen(route),
+                        bgcolor=page.bgcolor,
+                        controls=[
+                            ft.SafeArea(
+                                expand=True,
+                                content=control,
+                            )
+                        ],
+                        padding=0,
+                    )
+                )
+                continue
+
+            # Each nested Settings level gets its own Flet View, but all of them
+            # are derived from the one NavigationController.settings_path.
+            # This makes Android/Flet Back consume exactly one Settings level.
+            for path in _settings_view_paths():
+                control = _build_screen(
+                    "settings",
+                    force=force and path == navigation.settings_path,
+                    settings_path_override=path,
+                )
+                route_suffix = "/".join(path)
+                view_route = "/settings" + (f"/{route_suffix}" if route_suffix else "")
+                views.append(
+                    ft.View(
+                        route=view_route,
+                        bgcolor=page.bgcolor,
+                        controls=[
+                            ft.SafeArea(
+                                expand=True,
+                                content=control,
+                            )
+                        ],
+                        padding=0,
+                    )
+                )
+
         page.views.clear()
         page.views.extend(views)
         safe_update()
+        logger.info(
+            "NAV_RENDER_CURRENT duration_ms=%s current=%s settings_depth=%s view_count=%s force=%s",
+            int((time.perf_counter() - render_started) * 1000),
+            navigation.current,
+            len(navigation.settings_path),
+            len(views),
+            force,
+        )
 
     def handle_flet_view_pop(_event):
+        back_state["flet_pop_count"] += 1
+        pop_id = back_state["flet_pop_count"]
+        logger.info(
+            "BACK_FLET_VIEW_POP_RECEIVED id=%s nav=%s settings_depth=%s views=%s",
+            pop_id,
+            navigation.current,
+            len(navigation.settings_path),
+            len(page.views),
+        )
+        navigate_back(f"flet_view_pop:{pop_id}")
+
+
         navigate_back("flet_view_pop")
 
     def navigate_home():
@@ -815,6 +849,19 @@ async def main(page: ft.Page):
             return
 
         action = navigation.back()
+        logger.info(
+            "NAV_BACK_POLICY duration_ms=%s source=%s from=%s action=%s",
+            int((time.perf_counter() - back_started) * 1000),
+            source,
+            route_before,
+            action,
+        )
+        back_state["navigation_count"] += 1
+        navigation_event_id = back_state["navigation_count"]
+        logger.info(
+            "BACK_NAVIGATION_EXECUTED id=%s source=%s from=%s action=%s to=%s",
+            navigation_event_id, source, route_before, action, navigation.current,
+        )
         logger.info(
             "[NAV] NAVIGATE_BACK source=%s from=%s action=%s to=%s",
             source, route_before, action, navigation.current,
@@ -2065,11 +2112,8 @@ async def main(page: ft.Page):
         ))
         page.snack_bar.open = True
         safe_update()
-    # Rebuild only the durable Details target when lifecycle restoration says
-    # the last Flet screen was Details. The player remains a separate Android
-    # Activity and is never serialized into Python navigation state.
-    restore_details_context()
-
+    # Runtime navigation is deliberately process-local. The NavigationController
+    # was initialized at Home and no persisted route is restored here.
     # MainActivity publishes the authoritative SAF grant inventory from
     # onResume. There is intentionally no Python -> reiflix://native startup
     # verification call.

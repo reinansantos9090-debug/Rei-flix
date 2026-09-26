@@ -18,6 +18,8 @@ class BackLifecycleTests(unittest.TestCase):
         self.assertIn("import androidx.activity.OnBackPressedCallback", source)
         self.assertIn("onBackPressedDispatcher.addCallback(", source)
         self.assertIn("engine.navigationChannel.popRoute()", source)
+        self.assertIn("BACK_PHYSICAL_RECEIVED", source)
+        self.assertIn("BACK_FLUTTER_POP_SENT", source)
         self.assertNotIn('put("type", "android_back")', source)
         handler = source[source.index("private fun installSystemBackHandler"):source.index("private fun persistedSafTreeUris")]
         self.assertNotIn("finish()", handler)
@@ -27,6 +29,7 @@ class BackLifecycleTests(unittest.TestCase):
         self.assertIn("page.views.clear()", source)
         self.assertIn("page.views.extend(views)", source)
         self.assertIn("page.on_view_pop = handle_flet_view_pop", source)
+        self.assertIn("_settings_view_paths", source)
         self.assertNotIn("event_type == 'android_back'", source)
         self.assertNotIn('navigate_back("android_back")', source)
 
@@ -34,9 +37,9 @@ class BackLifecycleTests(unittest.TestCase):
         source = self.read(MAIN)
         navigation = self.read(ROOT / "core/navigation.py")
         self.assertIn("navigation = NavigationController()", source)
-        self.assertIn("for index, route in enumerate(navigation.stack)", source)
+        self.assertIn("for route in navigation.stack", source)
         self.assertIn("handle_flet_view_pop", source)
-        self.assertIn('navigate_back("flet_view_pop")', source)
+        self.assertIn('navigate_back(f"flet_view_pop:{pop_id}")', source)
         self.assertIn("push_settings", navigation)
         self.assertIn("settings_inner", navigation)
         self.assertNotIn("settings_system_back", source)
@@ -64,7 +67,7 @@ class BackLifecycleTests(unittest.TestCase):
         source = self.read(MAIN)
         settings = self.read(ROOT / "views/settings_view.py")
         self.assertIn("on_open_settings_category=navigate_settings_category", source)
-        self.assertIn("settings_path_provider=lambda: navigation.settings_path", source)
+        self.assertIn("lambda: navigation.settings_path", source)
         self.assertIn("on_open_settings_category=None", settings)
         self.assertNotIn("active_category = [None]", settings)
         self.assertNotIn("on_register_system_back", settings)
@@ -80,8 +83,8 @@ class BackLifecycleTests(unittest.TestCase):
         source = self.read(MAIN)
         navigation = self.read(ROOT / "core" / "navigation.py")
         self.assertIn("navigation_state.json", source)
-        self.assertIn("navigation.snapshot()", source)
-        self.assertIn("navigation.restore(", source)
+        self.assertNotIn("navigation.restore(state.get(\"navigation\"))", source)
+        self.assertNotIn('\"details_media_id\":', source)
         self.assertIn("asyncio.to_thread(", source)
         self.assertIn("def snapshot(self)", navigation)
         self.assertIn("def restore(self, state", navigation)
@@ -105,6 +108,23 @@ class BackLifecycleTests(unittest.TestCase):
         self.assertIn("PLAY_HANDOFF_DUPLICATE", source)
         self.assertIn("activePlayerRequestId = requestId.takeIf { it.isNotBlank() }", source)
         self.assertIn("FLAG_ACTIVITY_REORDER_TO_FRONT", source)
+
+    def test_startup_route_is_always_home_and_persisted_route_is_ignored(self):
+        source = self.read(MAIN)
+        self.assertIn('navigation = NavigationController()', source)
+        self.assertIn('navigation.reset_to_root()', source)
+        self.assertIn('startup route reset to Home', source)
+        payload_start = source.index('def _navigation_state_payload')
+        payload_end = source.index('def _write_navigation_state', payload_start)
+        payload = source[payload_start:payload_end]
+        self.assertNotIn('"navigation": navigation.snapshot()', payload)
+        self.assertNotIn('"details_media_id"', payload)
+
+    def test_nested_settings_views_mirror_the_existing_navigation_controller(self):
+        source = self.read(MAIN)
+        self.assertIn('paths = [()]', source)
+        self.assertIn('navigation.settings_path', source)
+        self.assertIn('settings_path_override=path', source)
 
     def test_main_resume_discovery_is_not_unconditional(self):
         source = self.read(MAIN_ACTIVITY)

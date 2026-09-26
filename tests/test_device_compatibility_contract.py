@@ -26,8 +26,8 @@ class DeviceCompatibilityContractTests(unittest.TestCase):
         self.assertEqual(source.count("class SystemUiController"), 1)
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", source)
         self.assertIn("LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS", source)
-        application = source[source.index("fun applyApplicationPolicy()"):source.index("/** Player-specific alias")]
-        normal = source[source.index("fun applyNormal()"):source.index("private fun applyEdgeToEdgeWindow")]
+        application = source[source.index("fun applyApplicationPolicy("):source.index("/** Player-specific alias")]
+        normal = source[source.index("fun applyNormal("):source.index("private fun applyEdgeToEdgeWindow")]
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", application)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", normal)
         self.assertIn("UI_MODE_NIGHT_MASK", source)

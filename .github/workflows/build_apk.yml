@@ -128,6 +128,7 @@ jobs:
               "tests.test_build_tools.TestNativePlayerHardening.test_player_uses_media3_dependencies",
               "tests.test_media_store.TestMediaStoreAndroidHost.test_player_accepts_saf_or_media_store_without_path_conversion",
               "tests.test_back_lifecycle",
+              "tests.test_runtime_regressions",
               "tests.test_runtime_android_contract",
               "tests.test_player_consumption_cycle",
               "tests.test_broad_storage.TestBroadStorageArchitecture.test_player_pip_has_manifest_and_device_feature_fallback",

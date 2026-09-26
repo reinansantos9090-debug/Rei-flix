@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import logging
 import os
+import time
 import flet as ft
 
 from core.consumption import consumption_state, progress_ratio
@@ -45,13 +46,21 @@ class HomeView:
         card_width = card_size
         card_height = round(card_size * 176 / 146)
         show_thumbnails = settings.get("appearance.show_thumbnails")
-        page_size = settings.get("library.page_size")
+        configured_page_size = settings.get("library.page_size")
+        try:
+            page_size = max(1, int(configured_page_size))
+        except (TypeError, ValueError):
+            page_size = 24
+        # Keep the eager Flet Row bounded even when a large user preference is
+        # selected. Pagination still loads the complete library incrementally.
+        home_page_size = min(page_size, 48)
         selected_tag = [view_state.get("tag", "Todos")]
         selected_season = [view_state.get("season", "Todos")]
         selected_episode_type = [view_state.get("episode_type", "Todos")]
         selected_availability = [view_state.get("availability", "Todos")]
         selected_metadata = [view_state.get("metadata", "Todos")]
         selected_artwork = [view_state.get("artwork", "Todos")]
+        logger.info("HOME_RENDER_LIMIT configured_page_size=%s effective_page_size=%s", configured_page_size, home_page_size)
         search_visible = [bool(view_state.get("search_visible", False))]
         render_generation = [0]
         search_generation = [0]
@@ -64,6 +73,8 @@ class HomeView:
         filter_options_loaded = [False]
         artwork_tasks: set[tuple] = set()
         artwork_bindings: dict[tuple, list] = {}
+        artwork_concurrency = asyncio.Semaphore(4)
+        artwork_ui_update_scheduled = [False]
 
         def save_view_state():
             view_state.update(
@@ -133,6 +144,27 @@ class HomeView:
         section_rows: dict[str, ft.Row] = {}
         section_cards: dict[str, ft.Container] = {}
 
+        def schedule_artwork_ui_update():
+            if artwork_ui_update_scheduled[0]:
+                return
+            artwork_ui_update_scheduled[0] = True
+
+            async def flush():
+                try:
+                    await asyncio.sleep(0)
+                    update_started = time.perf_counter()
+                    page.update()
+                    logger.info(
+                        "HOME_ARTWORK_UI_UPDATE duration_ms=%s",
+                        int((time.perf_counter() - update_started) * 1000),
+                    )
+                except Exception:
+                    logger.debug("Home artwork batch UI update skipped", exc_info=True)
+                finally:
+                    artwork_ui_update_scheduled[0] = False
+
+            page.run_task(flush)
+
         def artwork_holder(item, width, height, *, entity="anime", kind="poster", source=None):
             holder = ft.Container(
                 width=width, height=height, border_radius=RADIUS, bgcolor=theme.surface_raised,
@@ -176,9 +208,10 @@ class HomeView:
                     request_generation = render_generation[0]
                     async def hydrate():
                         try:
-                            resolved = await asyncio.to_thread(
-                                library.resolve_artwork, entity, item_id, kind, allow_network=False
-                            )
+                            async with artwork_concurrency:
+                                resolved = await asyncio.to_thread(
+                                    library.resolve_artwork, entity, item_id, kind, allow_network=False
+                                )
                             if request_generation != render_generation[0]:
                                 return
                             path = (resolved or {}).get("local_path")
@@ -187,9 +220,9 @@ class HomeView:
                                 meta["cover_cache"] = path
                                 item["cover"] = path
                                 try:
-                                    holder.update()
+                                    schedule_artwork_ui_update()
                                 except Exception:
-                                    page.update()
+                                    logger.debug("Home artwork UI scheduling skipped", exc_info=True)
                         except Exception:
                             logger.exception(
                                 "Artwork render hydration failed",
@@ -277,10 +310,11 @@ class HomeView:
             page_loading[0] = True
             token = render_generation[0]
             target_page = 0 if reset else current_page[0] + 1
+            browse_started = time.perf_counter()
             try:
                 result = await asyncio.to_thread(
                     library.browse_catalog_page,
-                    page=target_page, page_size=page_size, **_library_filters(),
+                    page=target_page, page_size=home_page_size, **_library_filters(),
                 )
             except Exception:
                 logger.exception("Home paged query failed", extra={"screen":"home","page":target_page})
@@ -290,6 +324,13 @@ class HomeView:
                     page.update()
                 page_loading[0] = False
                 return
+            finally:
+                logger.info(
+                    "HOME_BROWSE_CATALOG_PAGE duration_ms=%s page=%s reset=%s",
+                    int((time.perf_counter() - browse_started) * 1000),
+                    target_page,
+                    reset,
+                )
             if token != render_generation[0]:
                 page_loading[0] = False
                 return
@@ -364,9 +405,40 @@ class HomeView:
                     ft.Icon(ft.Icons.PUSH_PIN, color=ACCENT, size=14),
                     top=5, left=5, bgcolor=theme.overlay, border_radius=12, padding=3,
                 ))
+
+            def on_card_tap(item=anime):
+                try:
+                    current_screen = page.views[-1].route if page.views else "/"
+                except Exception:
+                    current_screen = "/"
+                logger.info(
+                    "HOME_CARD_TAP animeId=%s renderGeneration=%s cardGeneration=%s "
+                    "pageLoading=%s hydrationActive=%s currentScreen=%s",
+                    item.get("id"),
+                    render_generation[0],
+                    render_generation[0],
+                    page_loading[0],
+                    bool(artwork_tasks),
+                    current_screen,
+                )
+                tap_started = time.perf_counter()
+                try:
+                    on_select_anime(item)
+                except Exception:
+                    logger.exception(
+                        "HOME_CARD_TAP failed animeId=%s renderGeneration=%s",
+                        item.get("id"),
+                        render_generation[0],
+                    )
+                finally:
+                    logger.info(
+                        "HOME_CARD_TAP_END animeId=%s duration_ms=%s",
+                        item.get("id"),
+                        int((time.perf_counter() - tap_started) * 1000),
+                    )
+
             return ft.Container(
-                key=f"anime:{anime.get('id', '-')}",
-                width=card_width, ink=True, on_click=lambda _, item=anime: on_select_anime(item), border_radius=RADIUS,
+                width=card_width, ink=True, on_click=lambda _: on_card_tap(), border_radius=RADIUS,
                 content=ft.Column([
                     ft.Stack([artwork_holder(anime, card_width, card_height, source=cover), *indicators]),
                     ft.Text(anime.get("main_title", "Anime local"), size=12, weight=ft.FontWeight.BOLD, color=TEXT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
@@ -568,6 +640,11 @@ class HomeView:
         async def hydrate_metadata_and_artwork(items, token):
             if not items or token != render_generation[0]:
                 return
+            hydration_started = time.perf_counter()
+            logger.info(
+                "HOME_HYDRATION_START count=%s generation=%s active_artwork_tasks=%s",
+                len(items), token, len(artwork_tasks),
+            )
             try:
                 results = await asyncio.to_thread(library.hydrate_catalog_metadata, items)
                 if token != render_generation[0]:
@@ -588,21 +665,34 @@ class HomeView:
                     for holder, width, height in artwork_bindings.get((entity, int(item_id), 'poster'), []):
                         try:
                             holder.content = ft.Image(src=cover_path, width=width, height=height, fit=ft.BoxFit.COVER, border_radius=RADIUS)
-                            holder.update()
                             updated += 1
                         except Exception:
                             logger.exception('Home localized artwork update failed')
                 if updated:
                     logger.info('HOME_ARTWORK_BATCH_UPDATED count=%s', updated)
+                    schedule_artwork_ui_update()
             except Exception:
                 logger.exception('Home metadata/artwork hydration failed', extra={'screen':'home','requestId':'-','library_items':len(items)})
+            finally:
+                logger.info(
+                    "HOME_HYDRATION_END duration_ms=%s generation=%s active_artwork_tasks=%s",
+                    int((time.perf_counter() - hydration_started) * 1000),
+                    token,
+                    len(artwork_tasks),
+                )
 
         async def refresh_home_sections(token):
+            sections_started = time.perf_counter()
             try:
                 loaded = await asyncio.to_thread(library.media_center_home, limit=12)
             except Exception:
                 logger.exception("Home secondary sections load failed", extra={"screen":"home"})
                 return
+            finally:
+                logger.info(
+                    "HOME_MEDIA_CENTER_HOME duration_ms=%s",
+                    int((time.perf_counter() - sections_started) * 1000),
+                )
             if token != render_generation[0] or token != home_sections_generation[0]:
                 return
             home_data.clear()
@@ -713,6 +803,11 @@ class HomeView:
              )],
             spacing=14,
         )
+        # Deliberately keep the existing single outer scroll container: filters,
+        # pagination, saved scroll offset and touch navigation all depend on it.
+        # A nested GridView would introduce a second viewport here. We therefore
+        # use the stable Row+pagination architecture, with a bounded page size,
+        # instead of a blind GridView migration.
         layout = ft.Column([
             header, search, ft.Text("Sua biblioteca local, conteúdo primeiro.", size=12, color=TEXT_MUTED),
             status, hydration_status, continuation_section, main_library_bar, feedback, grid, sections_column, ft.Container(height=24),

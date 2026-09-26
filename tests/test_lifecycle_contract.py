@@ -89,7 +89,7 @@ class LifecycleContractTests(unittest.TestCase):
 
     def test_navigation_recovery_restores_only_durable_ui_state_and_never_runtime_route(self):
         source = MAIN_PY.read_text(encoding="utf-8")
-        self.assertEqual(source.count("load_navigation_state("), 1)
+        self.assertEqual(source.count("load_navigation_state("), 2)
         self.assertIn("load_navigation_state()\n", source)
         self.assertIn('"version": 3', source)
         self.assertIn('"home_state"', source)

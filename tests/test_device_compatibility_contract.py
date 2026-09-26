@@ -54,7 +54,7 @@ class DeviceCompatibilityContractTests(unittest.TestCase):
         exit_start = source.index("private fun restoreSystemUiBeforeExit")
         exit_end = source.index("private fun applyImmersiveAfterLayout", exit_start)
         exit_policy = source[exit_start:exit_end]
-        self.assertIn("systemUiController.applyNormal()", exit_policy)
+        self.assertIn("systemUiController.applyApplicationPolicy()", exit_policy)
         immersive_start = source.index("private fun enterImmersiveMode")
         immersive_end = source.index("private fun restoreSystemUiBeforeExit", immersive_start)
         immersive = source[immersive_start:immersive_end]

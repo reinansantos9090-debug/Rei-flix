@@ -66,8 +66,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "emulator"
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager_path="$(find "$sdk_root/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          test -n "$sdkmanager_path"
+          yes | "$sdkmanager_path" --licenses >/dev/null
+          "$sdkmanager_path" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "emulator"
       - name: Install Flet build dependencies
         run: |
           python -m pip install --upgrade pip
@@ -139,8 +142,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "platforms;android-${{ matrix.api }}" "emulator"
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager_path="$(find "$sdk_root/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          test -n "$sdkmanager_path"
+          yes | "$sdkmanager_path" --licenses >/dev/null
+          "$sdkmanager_path" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "platforms;android-${{ matrix.api }}" "emulator"
       - name: Download rendered Android test project
         uses: actions/download-artifact@v4
         with:

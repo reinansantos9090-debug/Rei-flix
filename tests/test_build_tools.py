@@ -127,21 +127,17 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertNotIn("gh run cancel", workflow)
         self.assertNotIn("|| true", workflow)
 
-    def test_android_certification_is_manual_without_emulators(self):
+    def test_android_certification_runs_real_emulators(self):
         workflow = (ROOT / ".github/workflows/android_instrumented.yml").read_text(encoding="utf-8")
-        self.assertIn("ReiFlix Android No-Emulator Contract Checks", workflow)
+        self.assertIn("ReiFlix Android Instrumented Runtime Matrix", workflow)
         self.assertIn("workflow_dispatch:", workflow)
-        self.assertIn("pytest -q", workflow)
-        self.assertIn("python -m unittest discover", workflow)
-        self.assertNotIn("pull_request:", workflow)
-        self.assertNotIn("push:", workflow)
-        self.assertNotIn("matrix:", workflow)
-        self.assertNotIn("reactivecircus/android-emulator-runner@v2", workflow)
-        self.assertNotIn("run_android_instrumented_diagnostic.sh", workflow)
-        self.assertNotIn("connectedDebugAndroidTest", workflow)
-        self.assertNotIn("connectedCheck", workflow)
-        self.assertNotIn("flet build apk", workflow)
-        self.assertNotIn("testDebugUnitTest", workflow)
+        self.assertIn("push:", workflow)
+        self.assertIn("matrix:", workflow)
+        self.assertIn("api: [30, 36]", workflow)
+        self.assertIn("reactivecircus/android-emulator-runner@v2", workflow)
+        self.assertIn("connectedDebugAndroidTest", workflow)
+        self.assertIn("flet build apk", workflow)
+        self.assertNotIn("ReiFlix Android No-Emulator Contract Checks", workflow)
 
     def test_android_build_declares_runtime_python_dependencies(self):
         project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
@@ -161,7 +157,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("com.android.internal.systemui.navbar.gestural", source)
         self.assertIn("com.android.internal.systemui.navbar.threebutton", source)
         self.assertIn("settings put secure navigation_mode", source)
-        self.assertIn("34|35|36)", source)
+        self.assertIn("30|31|32|33|34|35|36)", source)
         for token in (
             "adb devices -l",
             "getprop ro.build.version.sdk",

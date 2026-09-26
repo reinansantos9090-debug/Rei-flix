@@ -120,10 +120,30 @@ def theme_for_page(page, selected_mode=None) -> ThemeTokens:
     return theme_tokens(selected_mode, getattr(page, "platform_brightness", None))
 
 
+def _system_overlay_style(icon_brightness):
+    return ft.SystemOverlayStyle(
+        status_bar_color=ft.Colors.TRANSPARENT,
+        system_navigation_bar_color=ft.Colors.TRANSPARENT,
+        status_bar_icon_brightness=icon_brightness,
+        system_navigation_bar_icon_brightness=icon_brightness,
+        enforce_system_status_bar_contrast=False,
+        enforce_system_navigation_bar_contrast=False,
+    )
+
+
 def apply_page_theme(page, mode) -> ThemeTokens:
     selected = normalize_theme_mode(mode)
-    page.theme = ft.Theme(color_scheme_seed=DARK_THEME.primary, font_family="Roboto")
-    page.dark_theme = ft.Theme(color_scheme_seed=DARK_THEME.primary, font_family="Roboto")
+    page.theme = ft.Theme(
+        color_scheme_seed=LIGHT_THEME.primary,
+        font_family="Roboto",
+        system_overlay_style=_system_overlay_style(ft.Brightness.DARK),
+    )
+    page.dark_theme = ft.Theme(
+        color_scheme_seed=DARK_THEME.primary,
+        font_family="Roboto",
+        system_overlay_style=_system_overlay_style(ft.Brightness.LIGHT),
+    )
+    page.theme_animation_style = ft.AnimationStyle.no_animation()
     page.theme_mode = {
         "system": ft.ThemeMode.SYSTEM,
         "light": ft.ThemeMode.LIGHT,
@@ -131,6 +151,9 @@ def apply_page_theme(page, mode) -> ThemeTokens:
     }[selected]
     tokens = theme_tokens(selected, getattr(page, "platform_brightness", None))
     page.bgcolor = tokens.background
+    # The View/background and system-overlay surfaces must switch atomically
+    # with the same ThemeTokens so transparent system bars never reveal a
+    # different native/material background.
     return tokens
 
 

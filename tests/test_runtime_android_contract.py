@@ -305,11 +305,11 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         player = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         system_ui = SYSTEM_UI.read_text(encoding="utf-8")
         self.assertIn("applyApplicationSystemUi()", main)
-        self.assertIn("applyApplicationPolicy()", main)
+        self.assertIn("applyApplicationPolicy(useContextAppearance = false)", main)
         self.assertIn("applyApplicationPolicy()", player)
-        self.assertIn("fun applyApplicationPolicy()", system_ui)
+        self.assertIn("fun applyApplicationPolicy(useContextAppearance: Boolean = true)", system_ui)
         self.assertIn("applyImmersive()", system_ui)
-        self.assertIn("fun applyNormal()", system_ui)
+        self.assertIn("fun applyNormal(useContextAppearance: Boolean = true)", system_ui)
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", system_ui)
         application = system_ui[system_ui.index("fun applyApplicationPolicy()"):system_ui.index("/** Player-specific alias")]
         normal = system_ui[system_ui.index("fun applyNormal()"):system_ui.index("private fun applyEdgeToEdgeWindow")]

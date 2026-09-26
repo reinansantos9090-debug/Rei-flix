@@ -133,6 +133,49 @@ class LifecycleContractTests(unittest.TestCase):
         ):
             self.assertIn(token, source)
 
+    def test_on_create_and_on_new_intent_share_the_same_native_dispatcher(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        self.assertIn("handleNativeIntent(intent)", source)
+        self.assertGreaterEqual(source.count("handleNativeIntent(intent)"), 2)
+        start = source.index("override fun onNewIntent(intent: Intent)")
+        self.assertIn("handleNativeIntent(intent)", source[start:])
+
+    def test_native_command_dispatch_has_validation_and_explicit_lifecycle_diagnostics(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        for token in (
+            "BRIDGE_PROTOCOL_VERSION = 2",
+            "MISSING_OPERATION",
+            "UNSUPPORTED_OPERATION",
+            "MISSING_REQUEST_ID",
+            "UNSUPPORTED_PROTOCOL_VERSION",
+            "COMMAND_RECEIVED",
+            "COMMAND_DISPATCHED",
+            "COMMAND_DUPLICATE",
+            "OPERATION_STARTED",
+            "native_error",
+        ):
+            self.assertIn(token, source)
+        self.assertNotIn("data=${intent.dataString", source)
+
+    def test_python_mailbox_requires_event_identity_and_tracks_operation_state(self):
+        bridge = BRIDGE.read_text(encoding="utf-8")
+        main = MAIN_PY.read_text(encoding="utf-8")
+        for token in (
+            "BRIDGE_PROTOCOL_VERSION = 2",
+            "created_at = int(time.time() * 1000)",
+            "COMMAND_CREATED",
+            "COMMAND_SENT",
+            "def _normalize_event",
+            "EVENT_CLAIMED",
+            "EVENT_ACKED",
+            "EVENT_REQUEUED",
+        ):
+            self.assertIn(token, bridge)
+        self.assertIn("native_operation_states = {}", main)
+        self.assertIn("seen_native_event_ids = set()", main)
+        self.assertIn("operation_state = str(", main)
+        self.assertIn("EVENT_DUPLICATE", main)
+        self.assertIn("logger.exception(", main)
     def test_native_mailbox_recovery_requeues_before_acknowledgement(self):
         bridge = BRIDGE.read_text(encoding="utf-8")
         main = MAIN_PY.read_text(encoding="utf-8")

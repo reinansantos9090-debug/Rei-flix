@@ -34,7 +34,31 @@ class NativeMailboxInstrumentedTest {
         val payload = JSONObject(events.single().readText())
         assertEquals("mailbox_test", payload.getString("type"))
         assertFalse(payload.getString("eventId").isBlank())
+        assertEquals("mailbox_test", payload.getString("eventType"))
         assertTrue(payload.getLong("createdAt") > 0L)
+        assertTrue(payload.getLong("timestamp") >= payload.getLong("createdAt"))
         assertTrue(queue.listFiles { _, name -> name.endsWith(".tmp") }?.isEmpty() ?: true)
     }
+    @Test
+    fun mailbox_promotes_request_id_and_operation_state_without_partial_writes() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        NativeMailbox.write(
+            context,
+            JSONObject()
+                .put("type", "saf_permission")
+                .put("payload", JSONObject()
+                    .put("requestId", "request-A")
+                    .put("granted", true)),
+        )
+
+        val events = queue.listFiles { _, name -> name.startsWith("event-") && name.endsWith(".json") }
+            ?: emptyArray()
+        assertEquals(1, events.size)
+        val payload = JSONObject(events.single().readText())
+
+        assertEquals("request-A", payload.getString("requestId"))
+        assertEquals("COMPLETED", payload.getString("operationState"))
+        assertTrue(queue.listFiles { _, name -> name.endsWith(".tmp") }?.isEmpty() ?: true)
+    }
+
 }

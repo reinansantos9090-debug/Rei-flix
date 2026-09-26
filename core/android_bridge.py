@@ -6,9 +6,11 @@ Python periodically drains the mailbox and inserts document URIs into SQLite.
 Desktop deliberately reports this bridge as unavailable.
 """
 from __future__ import annotations
+import hashlib
 import json
 import logging
 import os
+import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlencode
@@ -17,6 +19,7 @@ import flet as ft
 
 logger = logging.getLogger("reiflix.android")
 MAILBOX = "reiflix-native-events.json"
+BRIDGE_PROTOCOL_VERSION = 2
 
 
 class AndroidBridge:
@@ -56,28 +59,35 @@ class AndroidBridge:
         if not self.available:
             raise RuntimeError("A ponte Android está disponível somente no APK ReiFlix.")
         request_id = uuid.uuid4().hex
-        query = urlencode({"action": action, "request_id": request_id, **{k: v for k, v in params.items() if v is not None}})
+        created_at = int(time.time() * 1000)
+        query = urlencode({
+            "action": action,
+            "request_id": request_id,
+            "protocol_version": BRIDGE_PROTOCOL_VERSION,
+            "created_at": created_at,
+            **{k: v for k, v in params.items() if v is not None},
+        })
         url = f"reiflix://native?{query}"
         logger.info(
-            "[ANDROID_BRIDGE] request_id=%s action=%s url=%s python_callback=dispatch",
+            "[ANDROID_BRIDGE] COMMAND_CREATED request_id=%s action=%s created_at=%s protocol=%s",
             request_id,
             action,
-            url,
+            created_at,
+            BRIDGE_PROTOCOL_VERSION,
         )
         # Flet 0.86.5 exposes Page.launch_url(url) without a mode parameter.
         try:
             await self.page.launch_url(url)
         except Exception as exc:
             logger.exception(
-                "[ANDROID_BRIDGE] launch failed request_id=%s action=%s url=%s",
+                "[ANDROID_BRIDGE] COMMAND_FAILED request_id=%s action=%s",
                 request_id,
                 action,
-                url,
             )
             raise RuntimeError(
                 f"Falha ao enviar a ação Android '{action}' (request {request_id})."
             ) from exc
-        logger.info("[ANDROID_BRIDGE] launch accepted request_id=%s action=%s", request_id, action)
+        logger.info("[ANDROID_BRIDGE] COMMAND_SENT request_id=%s action=%s", request_id, action)
         return request_id
 
     async def select_tree(self): return await self._launch("select_tree")
@@ -140,6 +150,36 @@ class AndroidBridge:
         return cls.normalize_local_media_reference(uri) is not None
 
     @staticmethod
+    def _normalize_event(event: dict, source_name: str, index: int) -> dict | None:
+        if not isinstance(event, dict):
+            return None
+        normalized = dict(event)
+        event_id = str(normalized.get("eventId") or "").strip()
+        if not event_id:
+            canonical = json.dumps(event, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            digest = hashlib.sha256(canonical).hexdigest()[:24]
+            event_id = f"legacy:{source_name}:{index}:{digest}"
+            normalized["eventId"] = event_id
+            logger.warning("[ANDROID] EVENT_ID_MISSING source=%s synthesized=%s", source_name, event_id)
+        event_type = str(normalized.get("type") or "").strip()
+        if not event_type:
+            logger.error("[ANDROID] EVENT_REJECTED source=%s eventId=%s reason=missing_type", source_name, event_id)
+            return None
+        try:
+            created_at = float(normalized.get("createdAt") or normalized.get("timestamp") or 0)
+        except (TypeError, ValueError):
+            created_at = 0
+        normalized["createdAt"] = created_at
+        logger.info(
+            "[ANDROID] EVENT_CLAIMED eventId=%s type=%s requestId=%s createdAt=%s",
+            event_id,
+            event_type,
+            str(normalized.get("requestId") or ""),
+            created_at,
+        )
+        return normalized
+
+    @staticmethod
     def _event_time(event: dict) -> float:
         for key in ("createdAt", "timestamp"):
             value = event.get(key)
@@ -166,9 +206,14 @@ class AndroidBridge:
                     try:
                         payload = json.loads(legacy.read_text(encoding="utf-8"))
                         if isinstance(payload, list):
-                            events.extend(event for event in payload if isinstance(event, dict))
+                            for index, event in enumerate(payload):
+                                normalized = self._normalize_event(event, legacy.name, index)
+                                if normalized is not None:
+                                    events.append(normalized)
                         elif isinstance(payload, dict):
-                            events.append(payload)
+                            normalized = self._normalize_event(payload, legacy.name, 0)
+                            if normalized is not None:
+                                events.append(normalized)
                         claimed.append(legacy)
                     except (OSError, json.JSONDecodeError) as exc:
                         logger.error("[ANDROID] Invalid legacy native mailbox batch discarded: %s", exc)
@@ -186,9 +231,14 @@ class AndroidBridge:
                     consumed.unlink(missing_ok=True)
                     continue
                 if isinstance(payload, list):
-                    events.extend(event for event in payload if isinstance(event, dict))
+                    for index, event in enumerate(payload):
+                        normalized = self._normalize_event(event, consumed.name, index)
+                        if normalized is not None:
+                            events.append(normalized)
                 elif isinstance(payload, dict):
-                    events.append(payload)
+                    normalized = self._normalize_event(payload, consumed.name, 0)
+                    if normalized is not None:
+                        events.append(normalized)
                 claimed.append(consumed)
             indexed = list(enumerate(events))
             indexed.sort(key=lambda item: (self._event_time(item[1]), item[0]))
@@ -221,6 +271,7 @@ class AndroidBridge:
             if isinstance(payload, dict) and str(payload.get("eventId") or "").strip() in wanted:
                 try:
                     consumed.replace(consumed.with_suffix(".json"))
+                    logger.info("[ANDROID] EVENT_REQUEUED eventId=%s", str(payload.get("eventId") or "-"))
                 except OSError as exc:
                     self._retained.add(consumed)
                     logger.warning("[ANDROID] Failed to requeue native event %s: %s", consumed.name, exc)
@@ -233,6 +284,7 @@ class AndroidBridge:
                 continue
             try:
                 consumed.unlink(missing_ok=True)
+                logger.info("[ANDROID] EVENT_ACKED file=%s", consumed.name)
             except OSError as exc:
                 logger.warning("[ANDROID] Failed to acknowledge native event %s: %s", consumed.name, exc)
         self._claimed = []

@@ -16,6 +16,29 @@ object NativeMailbox {
     private const val PREFIX = "event-"
     private const val EVENT_VERSION = 2
 
+    private fun operationState(event: JSONObject): String {
+        val type = event.optString("type")
+        val nested = event.optJSONObject("payload")
+        if (type == "diagnostic") {
+            return nested?.optString("state").orEmpty().uppercase()
+        }
+        return when (type) {
+            "saf_permission_request", "mediastore_permission_request", "broad_storage_permission_request" -> "REQUESTED"
+            "saf_permission", "saf_released", "mediastore_permission", "broad_storage_permission", "google_account" -> "COMPLETED"
+            "saf_cancelled", "google_cancelled" -> "CANCELLED"
+            "saf_error", "mediastore_error", "broad_storage_error", "google_error", "native_error" -> "FAILED"
+            "saf_scan_progress", "mediastore_scan_progress", "broad_storage_scan_progress" -> "RUNNING"
+            "saf_scan", "mediastore_scan", "broad_storage_scan" -> {
+                when ((nested?.optString("status") ?: nested?.optString("generationStatus")).orEmpty().uppercase()) {
+                    "CANCELLED" -> "CANCELLED"
+                    "FAILED", "UNAVAILABLE", "REVOKED" -> "FAILED"
+                    else -> "COMPLETED"
+                }
+            }
+            else -> ""
+        }
+    }
+
     private fun eventType(event: JSONObject): String {
         val type = event.optString("type")
         val payload = event.optJSONObject("payload")
@@ -114,6 +137,8 @@ object NativeMailbox {
             promote("duplicates", "duplicates")
             promote("removed", "removed")
             promote("elapsedMs", "elapsedMs", "elapsed_ms")
+            val operationState = operationState(payload)
+            if (operationState.isNotBlank()) payload.put("operationState", operationState)
             FileOutputStream(temp).use { stream ->
                 stream.write(payload.toString().toByteArray(Charsets.UTF_8))
                 stream.fd.sync()
@@ -132,7 +157,7 @@ object NativeMailbox {
                     StandardCopyOption.REPLACE_EXISTING,
                 )
             }
-            Log.i(TAG,"Native event queued: type=${event.optString("type")} eventType=${payload.optString("eventType")} requestId=${requestId.ifEmpty{"-"}}")
+            Log.i(TAG,"EVENT_WRITTEN eventId=$id type=${event.optString("type")} eventType=${payload.optString("eventType")} operationState=${operationState.ifEmpty{"-"}} requestId=${requestId.ifEmpty{"-"}} createdAt=$now")
         }catch(exception:Exception){
             temporary?.delete()
             Log.e(TAG,"Unable to queue native event",exception)

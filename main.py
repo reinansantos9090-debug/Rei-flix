@@ -222,6 +222,7 @@ async def main(page: ft.Page):
     # Runtime snapshots are deliberately not stored in SQLite: only Android is
     # proof of a current grant. ``dismissed`` prevents an automatic onboarding loop.
     processed_native_operations = set()
+    native_operation_states = {}
     back_state = {
         "last_at": 0.0,
         "last_action": None,
@@ -1180,12 +1181,21 @@ async def main(page: ft.Page):
             try:
                 events = bridge.drain()
                 failed_event_ids = set()
+                seen_native_event_ids = set()
                 for event in events:
                     try:
                         if not isinstance(event, dict):
                             continue
-                        event_id = event.get('eventId')
-                        if event_id and store.has_native_event(event_id):
+                        event_id = str(event.get('eventId') or '').strip()
+                        if not event_id:
+                            logger.error("[ANDROID] EVENT_REJECTED reason=missing_event_id type=%s", event.get('type'))
+                            continue
+                        if event_id in seen_native_event_ids:
+                            logger.warning("[ANDROID] EVENT_DUPLICATE_IN_BATCH eventId=%s", event_id)
+                            continue
+                        seen_native_event_ids.add(event_id)
+                        if store.has_native_event(event_id):
+                            logger.info("[ANDROID] EVENT_DUPLICATE eventId=%s result=already_processed", event_id)
                             continue
                         event_type = event.get('type')
                         payload = event.get('payload')
@@ -1195,7 +1205,26 @@ async def main(page: ft.Page):
                             continue
                         event_request_id = event.get('requestId') or payload.get('requestId')
                         event_scan_id = payload.get('scanId') or event.get('scanId')
+                        operation_state = str(
+                            event.get('operationState')
+                            or payload.get('operationState')
+                            or ''
+                        ).strip().upper()
+                        if event_request_id and operation_state:
+                            native_operation_states[str(event_request_id)] = operation_state
+                            if len(native_operation_states) > 128:
+                                native_operation_states.pop(next(iter(native_operation_states)))
                         if event_type == 'diagnostic':
+                            diagnostic_event = str(payload.get('event') or 'NATIVE_DIAGNOSTIC').strip()
+                            if diagnostic_event.startswith(('COMMAND_', 'OPERATION_')):
+                                logger.info(
+                                    "[ANDROID] %s requestId=%s action=%s state=%s result=%s",
+                                    diagnostic_event,
+                                    event_request_id or "-",
+                                    payload.get('action') or "-",
+                                    operation_state or "-",
+                                    payload.get('result') or "-",
+                                )
                             diagnostics.record(
                                 str(payload.get('event') or 'NATIVE_DIAGNOSTIC'),
                                 request_id=event_request_id,
@@ -2099,12 +2128,26 @@ async def main(page: ft.Page):
 
                         if operation_key:
                             processed_native_operations.add(operation_key)
+                        logger.info(
+                            "[ANDROID] EVENT_PROCESSED eventId=%s requestId=%s type=%s state=%s",
+                            event_id,
+                            event_request_id or "-",
+                            event_type or "-",
+                            operation_state or "-",
+                        )
                         if event_id:
-                            store.claim_native_event(event_id)
+                            claimed = store.claim_native_event(event_id)
+                            if not claimed:
+                                logger.info("[ANDROID] EVENT_DEDUPE_LEDGER_ALREADY_CLAIMED eventId=%s", event_id)
                     except Exception as exc:
                         if event_id:
                             failed_event_ids.add(str(event_id))
-                        print(f"[ANDROID] Erro ao processar evento nativo: {exc}")
+                        logger.exception(
+                            "[ANDROID] EVENT_PROCESS_FAILED eventId=%s requestId=%s type=%s",
+                            event_id or "-",
+                            event_request_id if 'event_request_id' in locals() else "-",
+                            event_type if 'event_type' in locals() else "-",
+                        )
                 # NativeMailbox retains the atomically claimed batch until this
                 # point, after SQLite/UI handling has completed. A process restart
                 # before acknowledgement replays the complete batch safely.
@@ -2112,7 +2155,7 @@ async def main(page: ft.Page):
                 bridge.acknowledge()
                 poll_interval = 0.2 if events else min(1.0, poll_interval * 1.5)
             except Exception as exc:
-                print(f"[ANDROID] Erro no loop da ponte nativa: {exc}")
+                logger.exception("[ANDROID] NATIVE_MAILBOX_LOOP_FAILED")
                 poll_interval = min(1.0, poll_interval * 1.5)
             await asyncio.sleep(poll_interval)
     page.on_login=login_done

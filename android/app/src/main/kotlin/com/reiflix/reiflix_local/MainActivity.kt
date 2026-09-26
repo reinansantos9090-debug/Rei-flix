@@ -103,6 +103,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
 
     companion object {
+        private const val BRIDGE_PROTOCOL_VERSION = 2
         private const val STATE_LAST_NATIVE_REQUEST_ID = "reiflix.lastNativeRequestId"
         private const val STATE_PENDING_LIFECYCLE_ACTION = "reiflix.pendingLifecycleAction"
         private const val STATE_BROAD_SETTINGS_PENDING = "reiflix.broadSettingsPending"
@@ -424,7 +425,11 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("access", access)
                 .put("source", MediaStoreScanner.SOURCE)
                 .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REVALIDATED))))
-        if (granted) publishScanRequest("PERMISSION_CHANGE", "mediastore", null, false, "media_permission_granted", requestId) else {
+        if (granted) {
+            nativeRequestState.markOperationState(requestId, "request_media_access", NativeRequestState.OperationState.COMPLETED)
+            publishScanRequest("PERMISSION_CHANGE", "mediastore", null, false, "media_permission_granted", requestId)
+        } else {
+            nativeRequestState.markOperationState(requestId, "request_media_access", NativeRequestState.OperationState.FAILED)
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
                 .put("requestId", requestId ?: "")
                 .put("message", "A permissão para acessar os vídeos do dispositivo foi negada.")
@@ -459,6 +464,13 @@ class MainActivity : FlutterFragmentActivity() {
         safPickerStartedAtMs = 0L
         safPickerFocusLost = false
         safPickerFocusRegainedAtMs = 0L
+        val terminalState = when (terminalPhase) {
+            SafPickerPhase.COMPLETED -> NativeRequestState.OperationState.COMPLETED
+            SafPickerPhase.CANCELLED -> NativeRequestState.OperationState.CANCELLED
+            SafPickerPhase.TIMEOUT -> NativeRequestState.OperationState.TIMEOUT
+            else -> NativeRequestState.OperationState.FAILED
+        }
+        nativeRequestState.markOperationState(requestId, "select_tree", terminalState)
         setSafPickerPhase(requestId, terminalPhase)
     }
 
@@ -466,6 +478,7 @@ class MainActivity : FlutterFragmentActivity() {
         requestId: String?, message: String, stage: String, code: String,
         status: String = SafScanner.STATUS_FAILED, treeUri: Uri? = null,
     ) {
+        nativeRequestState.markOperationState(requestId, "select_tree", NativeRequestState.OperationState.FAILED)
         val payload = JSONObject().put("source", "saf").put("status", status)
             .put("stage", stage).put("code", code)
         if (treeUri != null && treeUri.scheme.equals("content", true)) {
@@ -920,85 +933,240 @@ class MainActivity : FlutterFragmentActivity() {
         )
     }
 
+    private fun publishNativeDiagnostic(
+        event: String,
+        requestId: String?,
+        action: String? = null,
+        state: String? = null,
+        result: String? = null,
+        error: String? = null,
+        protocolVersion: Int? = null,
+        commandCreatedAt: Long? = null,
+    ) {
+        val payload = JSONObject()
+            .put("event", event)
+            .put("requestId", requestId ?: "")
+            .put("action", action ?: "")
+            .put("timestamp", System.currentTimeMillis())
+        if (state != null) payload.put("state", state)
+        if (result != null) payload.put("result", result)
+        if (error != null) payload.put("error", error)
+        if (protocolVersion != null) payload.put("protocolVersion", protocolVersion)
+        if (commandCreatedAt != null) payload.put("commandCreatedAt", commandCreatedAt)
+        NativeMailbox.write(
+            this,
+            JSONObject().put("type", "diagnostic").put("requestId", requestId ?: "").put("payload", payload),
+        )
+    }
+
+    private fun publishNativeCommandError(
+        requestId: String?,
+        action: String?,
+        stage: String,
+        code: String,
+        message: String,
+    ) {
+        nativeRequestState.markOperationState(
+            requestId, action, NativeRequestState.OperationState.FAILED,
+        )
+        NativeMailbox.write(
+            this,
+            JSONObject().put("type", "native_error").put("requestId", requestId ?: "")
+                .put("message", message)
+                .put("payload", JSONObject().put("stage", stage).put("code", code)
+                    .put("action", action ?: "").put("timestamp", System.currentTimeMillis())),
+        )
+        publishNativeDiagnostic(
+            "COMMAND_FAILED", requestId, action, NativeRequestState.OperationState.FAILED.name,
+            error = code,
+        )
+    }
     private fun handleNativeIntent(intent: Intent?) {
         val data = intent?.data ?: return
         if (data.scheme != "reiflix" || data.host != "native") {
-            Log.w(tag, "Ignoring unsupported native intent: $data")
+            Log.w(tag, "Ignoring unsupported native intent scheme/host")
             return
         }
-        val action = data.getQueryParameter("action")
-        if (!NativeRequestState.isSupportedAction(action)) {
-            Log.w(tag, "Ignoring malformed or unsupported native action: " + (action ?: "-"))
-            return
-        }
+        val action = data.getQueryParameter("action")?.trim()
         val requestId = data.getQueryParameter("request_id")?.trim()?.takeIf { it.isNotEmpty() }
-        if (!nativeRequestState.acceptRequest(requestId)) {
-            Log.i(tag, "Ignoring duplicate native request: action=$action requestId=$requestId")
+        val protocolRaw = data.getQueryParameter("protocol_version")?.trim()
+        val protocolVersion = protocolRaw?.toIntOrNull()
+        val commandCreatedAt = data.getQueryParameter("created_at")?.trim()?.toLongOrNull()
+
+        if (action.isNullOrBlank()) {
+            publishNativeCommandError(requestId, action, "command_validation", "MISSING_OPERATION",
+                "O comando Android não informou uma operação válida.")
             return
         }
-        Log.i(
-            tag,
-            "NATIVE_INTENT action=$action requestId=${requestId ?: "-"} " +
-                "data=${intent.dataString ?: "-"} task=$taskId resumed=$activityResumed " +
-                "focus=${window?.decorView?.hasWindowFocus() == true} " +
-                "flags=0x${intent.flags.toString(16)} " +
-                "extras=${intent.extras?.keySet()?.joinToString(",") ?: "-"}",
-        )
-        when (action) {
-            "select_tree" -> {
-                if (!activityResumed) {
-                    if (nativeRequestState.queueLifecycleAction("select_tree", requestId)) {
-                        Log.i(tag, "Queued SAF picker until Activity is resumed")
+        if (!NativeRequestState.isSupportedAction(action)) {
+            publishNativeCommandError(requestId, action, "command_validation", "UNSUPPORTED_OPERATION",
+                "A operação Android solicitada não é suportada.")
+            return
+        }
+        if (requestId.isNullOrBlank()) {
+            publishNativeCommandError(requestId, action, "command_validation", "MISSING_REQUEST_ID",
+                "O comando Android não possui um identificador de requisição.")
+            return
+        }
+        if (protocolRaw != null && (protocolVersion == null || protocolVersion != BRIDGE_PROTOCOL_VERSION)) {
+            publishNativeCommandError(requestId, action, "command_validation", "UNSUPPORTED_PROTOCOL_VERSION",
+                "A versão do protocolo nativo não é compatível com este Rei-Flix.")
+            return
+        }
+        if (protocolRaw != null && (commandCreatedAt == null || commandCreatedAt <= 0L)) {
+            publishNativeCommandError(requestId, action, "command_validation", "INVALID_CREATED_AT",
+                "O comando Android possui um timestamp inválido.")
+            return
+        }
+        if (!nativeRequestState.acceptRequest(requestId, action, commandCreatedAt ?: System.currentTimeMillis())) {
+            Log.i(tag, "COMMAND_DUPLICATE action=" + action + " requestId=" + requestId)
+            publishNativeDiagnostic("COMMAND_DUPLICATE", requestId, action, result = "ignored_duplicate")
+            return
+        }
+        Log.i(tag, "INTENT_RECEIVED action=" + action + " requestId=" + requestId +
+            " task=" + taskId + " resumed=" + activityResumed +
+            " focus=" + (window?.decorView?.hasWindowFocus() == true) +
+            " protocol=" + (protocolVersion ?: "legacy") +
+            " createdAt=" + (commandCreatedAt ?: "-") +
+            " flags=0x" + intent.flags.toString(16))
+        publishNativeDiagnostic("COMMAND_RECEIVED", requestId, action,
+            NativeRequestState.OperationState.RECEIVED.name,
+            protocolVersion = protocolVersion ?: 1, commandCreatedAt = commandCreatedAt)
+
+        try {
+            when (action) {
+                "select_tree" -> {
+                    if (!activityResumed) {
+                        if (nativeRequestState.queueLifecycleAction("select_tree", requestId)) {
+                            Log.i(tag, "COMMAND_QUEUED action=select_tree requestId=" + requestId)
+                            publishNativeDiagnostic("COMMAND_QUEUED", requestId, action, NativeRequestState.OperationState.QUEUED.name)
+                        } else {
+                            publishNativeCommandError(requestId, action, "lifecycle_queue", "LIFECYCLE_QUEUE_BUSY",
+                                "Não foi possível iniciar a seleção da pasta agora. Tente novamente.")
+                        }
+                        return
                     }
-                    return
-                }
-                pendingSafRequestId = requestId
-                openTreePicker(requestId)
-            }
-            "scan_tree" -> scanTree(intent.data?.getQueryParameter("tree_uri"), requestId)
-            "verify_tree" -> verifyTree(intent.data?.getQueryParameter("tree_uri"))
-            "release_tree" -> releaseTree(intent.data?.getQueryParameter("tree_uri"))
-            "scan_media_store" -> scanMediaStore(requestId)
-            "request_media_access", "open_broad_storage_settings" -> {
-                if (!activityResumed) {
-                    if (nativeRequestState.queueLifecycleAction(action, requestId)) {
-                        Log.i(tag, "Queued lifecycle-sensitive action until Activity is resumed: $action")
-                    } else {
-                        Log.i(tag, "Ignoring duplicate lifecycle-sensitive action: $action")
+                    if (safPickerPending) {
+                        publishNativeCommandError(requestId, action, "dispatch", "OPERATION_BUSY",
+                            "Já existe uma seleção de pasta em andamento.")
+                        return
                     }
-                    return
+                    pendingSafRequestId = requestId
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
+                    openTreePicker(requestId)
                 }
-                if (action == "request_media_access") {
+                "scan_tree" -> {
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
+                    scanTree(intent.data?.getQueryParameter("tree_uri"), requestId)
+                }
+                "verify_tree" -> {
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
+                    verifyTree(intent.data?.getQueryParameter("tree_uri"), requestId)
+                }
+                "release_tree" -> {
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
+                    releaseTree(intent.data?.getQueryParameter("tree_uri"), requestId)
+                }
+                "scan_media_store" -> {
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
+                    scanMediaStore(requestId)
+                }
+                "request_media_access" -> {
+                    if (!activityResumed) {
+                        if (nativeRequestState.queueLifecycleAction(action, requestId)) {
+                            publishNativeDiagnostic("COMMAND_QUEUED", requestId, action, NativeRequestState.OperationState.QUEUED.name)
+                        } else {
+                            publishNativeCommandError(requestId, action, "lifecycle_queue", "LIFECYCLE_QUEUE_BUSY",
+                                "Não foi possível iniciar a solicitação de acesso aos vídeos agora. Tente novamente.")
+                        }
+                        return
+                    }
+                    if (mediaPermissionRequestPending) {
+                        publishNativeCommandError(requestId, action, "dispatch", "OPERATION_BUSY",
+                            "Já existe uma solicitação de acesso aos vídeos em andamento.")
+                        return
+                    }
                     pendingMediaRequestId = requestId
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
                     requestMediaAccess()
-                } else {
+                }
+                "open_broad_storage_settings" -> {
+                    if (!activityResumed) {
+                        if (nativeRequestState.queueLifecycleAction(action, requestId)) {
+                            publishNativeDiagnostic("COMMAND_QUEUED", requestId, action, NativeRequestState.OperationState.QUEUED.name)
+                        } else {
+                            publishNativeCommandError(requestId, action, "lifecycle_queue", "LIFECYCLE_QUEUE_BUSY",
+                                "Não foi possível abrir as configurações de armazenamento agora. Tente novamente.")
+                        }
+                        return
+                    }
                     pendingBroadRequestId = requestId
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
                     openBroadStorageSettings()
                 }
-            }
-            "check_storage_access" -> publishStorageStatus()
-            "scan_all_storage" -> scanAllStorage(requestId)
-            "extract_thumbnail" -> requestThumbnail(intent.data, requestId)
-            "cancel_scan" -> cancelNativeScans(requestId)
-            "google_sign_in" -> signInWithGoogle(intent.data?.getQueryParameter("server_client_id"))
-            "play" -> {
-                if (!activityResumed) {
-                    pendingPlayUri = data.getQueryParameter("uri")
-                    pendingPlayTitle = data.getQueryParameter("title") ?: "Episódio"
-                    pendingPlayPositionMs = data.getQueryParameter("position_ms")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
-                    pendingPlayCanNext = data.getQueryParameter("can_next")?.toBooleanStrictOrNull() ?: false
-                    pendingPlayCanPrevious = data.getQueryParameter("can_previous")?.toBooleanStrictOrNull() ?: false
-                    pendingPlayAutoplay = data.getQueryParameter("autoplay")?.toBooleanStrictOrNull() ?: true
-                    pendingPlayRequestId = requestId
-                    if (!nativeRequestState.queueLifecycleAction("play", requestId)) {
-                        Log.i(tag, "PLAY request could not be queued because another lifecycle action is pending; requestId=" + requestId)
+                "check_storage_access" -> {
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
+                    publishStorageStatus(requestId)
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.COMPLETED)
+                    publishNativeDiagnostic("OPERATION_COMPLETED", requestId, action, NativeRequestState.OperationState.COMPLETED.name)
+                }
+                "scan_all_storage" -> {
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
+                    scanAllStorage(requestId)
+                }
+                "extract_thumbnail" -> {
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
+                    requestThumbnail(intent.data, requestId)
+                }
+                "cancel_scan" -> {
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
+                    cancelNativeScans(requestId)
+                }
+                "google_sign_in" -> {
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
+                    signInWithGoogle(intent.data?.getQueryParameter("server_client_id"), requestId)
+                }
+                "play" -> {
+                    if (!activityResumed) {
+                        pendingPlayUri = data.getQueryParameter("uri")
+                        pendingPlayTitle = data.getQueryParameter("title") ?: "Episódio"
+                        pendingPlayPositionMs = data.getQueryParameter("position_ms")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+                        pendingPlayCanNext = data.getQueryParameter("can_next")?.toBooleanStrictOrNull() ?: false
+                        pendingPlayCanPrevious = data.getQueryParameter("can_previous")?.toBooleanStrictOrNull() ?: false
+                        pendingPlayAutoplay = data.getQueryParameter("autoplay")?.toBooleanStrictOrNull() ?: true
+                        pendingPlayRequestId = requestId
+                        if (nativeRequestState.queueLifecycleAction("play", requestId)) {
+                            publishNativeDiagnostic("COMMAND_QUEUED", requestId, action, NativeRequestState.OperationState.QUEUED.name)
+                        } else {
+                            clearPendingPlay()
+                            publishNativeCommandError(requestId, action, "lifecycle_queue", "LIFECYCLE_QUEUE_BUSY",
+                                "Não foi possível iniciar a reprodução agora. Tente novamente.")
+                        }
                     } else {
-                        Log.i(tag, "PLAY queued until Activity is resumed requestId=" + requestId)
+                        nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                        publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
+                        openPlayer(data)
                     }
-                } else {
-                    openPlayer(data)
                 }
             }
+            publishNativeDiagnostic("COMMAND_DISPATCHED", requestId, action,
+                nativeRequestState.operationState(requestId)?.name, result = "dispatched")
+        } catch (exception: Exception) {
+            Log.e(tag, "NATIVE_DISPATCH_FAILED requestId=" + requestId + " action=" + action, exception)
+            publishNativeCommandError(requestId, action, "dispatch", "DISPATCH_EXCEPTION",
+                "Não foi possível executar a operação Android solicitada. Tente novamente.")
         }
     }
     private fun scanTree(reference: String?, requestId: String? = null) {
@@ -1159,6 +1327,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
         val currentAccess = MediaStoreScanner.accessLevel(this)
         if (currentAccess != "denied") {
+        nativeRequestState.markOperationState(pendingMediaRequestId, "request_media_access", NativeRequestState.OperationState.COMPLETED)
             Log.i(tag, "Media access already present; continuing directly to scan access=" + currentAccess)
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_permission")
                 .put("requestId", pendingMediaRequestId ?: "")
@@ -1192,6 +1361,7 @@ class MainActivity : FlutterFragmentActivity() {
             mediaPermissionRequester.launch(permissions)
         } catch (exception: Exception) {
             mediaPermissionRequestPending = false
+            nativeRequestState.markOperationState(pendingMediaRequestId, "request_media_access", NativeRequestState.OperationState.FAILED)
             pendingMediaRequestId = null
             Log.e(tag, "Media permission launcher failed", exception)
             NativeMailbox.write(this, JSONObject().put("type", "mediastore_error")
@@ -1200,7 +1370,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun publishStorageStatus() {
+    private fun publishStorageStatus(requestId: String? = null) {
         val broadAccess = BroadStorageScanner.accessSnapshot(this)
         val mediaAccess = MediaStoreScanner.accessLevel(this)
         val broadGranted = BroadStorageScanner.hasAccess(this)
@@ -1208,6 +1378,7 @@ class MainActivity : FlutterFragmentActivity() {
         NativeMailbox.write(
             this,
             JSONObject().put("type", "broad_storage_status")
+                .put("requestId", requestId ?: "")
                 .put("payload", broadAccess)
                 .put("diagnostics", JSONObject()
                     .put("activity", javaClass.name)
@@ -1219,6 +1390,7 @@ class MainActivity : FlutterFragmentActivity() {
         NativeMailbox.write(
             this,
             JSONObject().put("type", "mediastore_permission")
+                .put("requestId", requestId ?: "")
                 .put("payload", JSONObject()
                     .put("granted", mediaAccess != "denied")
                     .put("access", mediaAccess)
@@ -1242,7 +1414,7 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("reason", "lifecycle")
                     .put("timestamp", System.currentTimeMillis())))
         }
-        NativeMailbox.write(this, JSONObject().put("type", "storage_capabilities").put("payload", capabilities))
+        NativeMailbox.write(this, JSONObject().put("type", "storage_capabilities").put("requestId", requestId ?: "").put("payload", capabilities))
         publishSafInventory()
     }
 
@@ -1651,8 +1823,12 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun releaseTree(reference: String?) {
-        if (reference.isNullOrBlank()) return
+    private fun releaseTree(reference: String?, requestId: String? = null) {
+        if (reference.isNullOrBlank()) {
+            publishNativeCommandError(requestId, "verify_tree", "command_validation", "MISSING_TREE_URI",
+                "A pasta SAF não foi informada corretamente.")
+            return
+        }
         val treeUri = Uri.parse(reference)
         try {
             contentResolver.releasePersistableUriPermission(
@@ -1660,27 +1836,39 @@ class MainActivity : FlutterFragmentActivity() {
                 Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
             Log.i(tag, "SAF permission released")
+            nativeRequestState.markOperationState(requestId, "release_tree", NativeRequestState.OperationState.COMPLETED)
             NativeMailbox.write(this, JSONObject().put("type", "saf_released")
+                .put("requestId", requestId ?: "")
                 .put("payload", JSONObject().put("treeUri", reference)))
         } catch (exception: Exception) {
+            nativeRequestState.markOperationState(requestId, "release_tree", NativeRequestState.OperationState.FAILED)
             Log.e(tag, "Failed to release SAF permission", exception)
             NativeMailbox.write(this, JSONObject().put("type", "saf_error")
+                .put("requestId", requestId ?: "")
                 .put("message", "Não foi possível liberar a permissão desta pasta.")
                 .put("payload", JSONObject().put("treeUri", reference)))
         }
     }
-    private fun verifyTree(reference: String?) {
+    private fun verifyTree(reference: String?, requestId: String? = null) {
         if (reference.isNullOrBlank()) return
         val uri = runCatching { Uri.parse(reference) }.getOrNull()
-        if (uri == null) return
+        if (uri == null) {
+            publishNativeCommandError(requestId, "verify_tree", "command_validation", "INVALID_TREE_URI",
+                "A referência da pasta SAF é inválida.")
+            return
+        }
         val inspection = SafScanner.inspectTree(this, uri, requirePersisted = true)
         val status = inspection.optString("status")
         Log.i(tag, "SAF permission verification: status=" + status + " uri=" + reference)
         if (status == SafScanner.STATUS_COMPLETED) {
+            nativeRequestState.markOperationState(requestId, "verify_tree", NativeRequestState.OperationState.COMPLETED)
             NativeMailbox.write(this, JSONObject().put("type", "saf_permission")
+                .put("requestId", requestId ?: "")
                 .put("payload", inspection.put("granted", true).put("selected", false).put("status", status)))
         } else {
+            nativeRequestState.markOperationState(requestId, "verify_tree", NativeRequestState.OperationState.FAILED)
             NativeMailbox.write(this, JSONObject().put("type", "saf_error")
+                .put("requestId", requestId ?: "")
                 .put("message", when (status) {
                     SafScanner.STATUS_REVOKED -> "A autorização desta pasta foi removida."
                     SafScanner.STATUS_UNAVAILABLE -> "O provedor desta pasta está indisponível no momento."
@@ -1900,6 +2088,7 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         pendingSafRequestId = correlationId
+        nativeRequestState.markOperationState(correlationId, "select_tree", NativeRequestState.OperationState.RUNNING)
         val focused = window?.decorView?.hasWindowFocus() == true
         if (!activityResumed || !focused) {
             setSafPickerPhase(correlationId, SafPickerPhase.REQUESTED)
@@ -1980,8 +2169,8 @@ class MainActivity : FlutterFragmentActivity() {
         applyApplicationSystemUi()
         ViewCompat.requestApplyInsets(window.decorView)
     }
-    private fun signInWithGoogle(serverClientId: String?) {
-        if (serverClientId.isNullOrBlank()) { NativeMailbox.write(this, JSONObject().put("type", "google_error").put("message", "Configure o Web Client ID do Google.")); return }
-        CoroutineScope(Dispatchers.Main).launch { GoogleIdentity.signIn(this@MainActivity, serverClientId) }
+    private fun signInWithGoogle(serverClientId: String?, requestId: String? = null) {
+        if (serverClientId.isNullOrBlank()) { NativeMailbox.write(this, JSONObject().put("type", "google_error").put("requestId", requestId ?: "").put("message", "Configure o Web Client ID do Google.")); return }
+        CoroutineScope(Dispatchers.Main).launch { GoogleIdentity.signIn(this@MainActivity, serverClientId, requestId) }
     }
 }

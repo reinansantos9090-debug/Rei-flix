@@ -71,6 +71,9 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("async with artwork_concurrency:", home)
         self.assertIn("artwork_ui_update_scheduled", home)
         self.assertIn("schedule_artwork_ui_update()", home)
+        hydration_start = home.index("async def hydrate_metadata_and_artwork")
+        hydration_end = home.index("async def refresh_home_sections", hydration_start)
+        self.assertNotIn("holder.update()", home[hydration_start:hydration_end])
 
     def test_home_initial_page_is_bounded(self):
         home = self.read(HOME)

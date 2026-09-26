@@ -455,6 +455,7 @@ async def main(page: ft.Page):
         return paths
 
     def render_current(force=False):
+        render_started = time.perf_counter()
         views = []
         for route in navigation.stack:
             if route != "settings":
@@ -505,6 +506,14 @@ async def main(page: ft.Page):
         page.views.clear()
         page.views.extend(views)
         safe_update()
+        logger.info(
+            "NAV_RENDER_CURRENT duration_ms=%s current=%s settings_depth=%s view_count=%s force=%s",
+            int((time.perf_counter() - render_started) * 1000),
+            navigation.current,
+            len(navigation.settings_path),
+            len(views),
+            force,
+        )
 
     def handle_flet_view_pop(_event):
         back_state["flet_pop_count"] += 1
@@ -836,6 +845,13 @@ async def main(page: ft.Page):
             return
 
         action = navigation.back()
+        logger.info(
+            "NAV_BACK_POLICY duration_ms=%s source=%s from=%s action=%s",
+            int((time.perf_counter() - back_started) * 1000),
+            source,
+            route_before,
+            action,
+        )
         back_state["navigation_count"] += 1
         navigation_event_id = back_state["navigation_count"]
         logger.info(

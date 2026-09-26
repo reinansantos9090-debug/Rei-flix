@@ -287,6 +287,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
     private var storageReceiverRegistered = false
     private var systemBackDispatchPosted = false
+    private var systemBackEventCount = 0
     private var externalSettingsKind: String? = null
     private var externalSettingsRequestId: String? = null
     private val externalSettingsLauncher =
@@ -541,7 +542,9 @@ class MainActivity : FlutterFragmentActivity() {
         logLifecycle("onCreate", intent)
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
-        applyApplicationSystemUi()
+        // Flet owns the visual theme/system-overlay appearance; the native host
+        // still owns edge-to-edge + immersive policy.
+        systemUiController.applyApplicationPolicy(useContextAppearance = false)
         // Permission-sensitive actions are queued until the Activity is resumed.
         handleNativeIntent(intent)
     }
@@ -712,7 +715,11 @@ class MainActivity : FlutterFragmentActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    systemBackEventCount += 1
+                    val backId = systemBackEventCount
+                    Log.i(tag, "BACK_PHYSICAL_RECEIVED id=" + backId)
                     if (systemBackDispatchPosted) {
+                        Log.i(tag, "BACK_PHYSICAL_RECEIVED duplicate_dispatch id=" + backId)
                         Log.i(tag, "SYSTEM_BACK duplicate_dispatch_suppressed")
                         return
                     }
@@ -723,7 +730,7 @@ class MainActivity : FlutterFragmentActivity() {
                         Log.w(tag, "SYSTEM_BACK ignored reason=flutter_engine_unavailable")
                         return
                     }
-                    Log.i(tag, "SYSTEM_BACK forward_to_flet route_dispatch")
+                    Log.i(tag, "BACK_FLUTTER_POP_SENT id=" + backId)
                     engine.navigationChannel.popRoute()
                     // Keep the native guard only for same-loop/re-entrant dispatch.
                     // The longer human-visible debounce remains in Python's
@@ -745,7 +752,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun applyApplicationSystemUi() {
         if (::systemUiController.isInitialized) {
-            systemUiController.applyApplicationPolicy()
+            systemUiController.applyApplicationPolicy(useContextAppearance = false)
         }
     }
 

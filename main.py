@@ -822,6 +822,7 @@ async def main(page: ft.Page):
     def navigate_back(source="unknown"):
         # One user Back gesture/button owns one logical operation. This protects
         # against Android + Flutter delivering the same physical Back twice.
+        back_policy_started = time.perf_counter()
         now = time.monotonic()
         route_before = navigation.current
         if now - back_state["last_at"] < BACK_DEBOUNCE_SECONDS:
@@ -854,7 +855,7 @@ async def main(page: ft.Page):
         action = navigation.back()
         logger.info(
             "NAV_BACK_POLICY duration_ms=%s source=%s from=%s action=%s",
-            int((time.perf_counter() - back_started) * 1000),
+            int((time.perf_counter() - back_policy_started) * 1000),
             source,
             route_before,
             action,

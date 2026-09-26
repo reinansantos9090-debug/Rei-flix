@@ -23,4 +23,4 @@ target_sdk_version = 36
 
 [tool.flet.app]
 # Keep development-only tests, docs and CI metadata out of the production app bundle.
-exclude = ["tests", "docs", ".github"]
+exclude = ["tests", "docs", ".github", "android", "scripts", ".pytest_cache", ".mypy_cache", "README.md", "BACKUP_RESTORE.md", ".env.example", ".gitignore", "pyproject.toml", "requirements.txt"]

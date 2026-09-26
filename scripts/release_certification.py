@@ -298,9 +298,27 @@ def apk_forensic(root,apk,aapt2):
     m=re.search(r"targetSdkVersion:'([^']+)'",badging)
     if m:d["targetSdk"]=m.group(1)
     if aapt2 and aapt2.is_file():
-        p=subprocess.run([str(aapt2),"dump","xmltree",str(apk),"AndroidManifest.xml"],cwd=root,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=60,check=False); tree=p.stdout or ""
-        d["manifest_contract"]={"singleTask":"singleTask" in tree,"documentLaunchModeNever":"never" in tree,"deepLink":"reiflix" in tree,"pip":"supportsPictureInPicture" in tree}
-        d["permissions"]=sorted(set(re.findall(r"android\.permission\.[A-Z0-9_]+",tree)))
+        try:
+            from verify_apk_manifest import (
+                _dump,
+                extract_activity_block,
+                has_attribute,
+                has_deep_link,
+            )
+            manifest_tree=_dump(aapt2,apk,"xmltree")
+            main_block=extract_activity_block(manifest_tree,"com.reiflix.reiflix_local.MainActivity")
+            player_block=extract_activity_block(manifest_tree,"com.reiflix.reiflix_local.NativePlayerActivity")
+            d["manifest_contract"]={
+                "singleTask":bool(main_block and has_attribute(main_block,"launchMode","0x00000002","0x2","=2","singleTask")),
+                "documentLaunchModeNever":bool(main_block and has_attribute(main_block,"documentLaunchMode","0x00000003","0x3","=3","never")),
+                "deepLink":has_deep_link(main_block),
+                "pip":bool(player_block and has_attribute(player_block,"supportsPictureInPicture","0xffffffff","true")),
+            }
+            d["permissions"]=sorted(set(re.findall(r"android\.permission\.[A-Z0-9_]+",manifest_tree)))
+        except Exception as exc:
+            d["manifest_contract"]={}
+            d["permissions"]=[]
+            d["manifest_error"]=str(exc)
     apksigner=shutil.which("apksigner")
     if not apksigner and os.environ.get("ANDROID_HOME"):
         c=sorted((Path(os.environ["ANDROID_HOME"])/"build-tools").glob("*/apksigner")); apksigner=str(c[-1]) if c else None

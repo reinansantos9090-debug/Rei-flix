@@ -26,7 +26,7 @@ that cannot be implemented by Python:
 | Java toolchain | 17 |
 | compile / target SDK | 36 / 36 |
 | minimum SDK | 24 |
-| Media3 | `1.5.1` for ExoPlayer and UI |
+| Media3 | `1.11.1` for ExoPlayer and UI |
 
 The repository does **not** commit an APK. The workflow builds one and refuses
 to publish it unless DEX contains `MainActivity`, `NativeMailbox`,

@@ -106,7 +106,7 @@ projeções locais podem filtrar por favorito, pin, progresso, nota, metadata,
 capa e etiqueta. Configurações mostra estatísticas agregadas e o relatório
 real do último scan, sem abrir arquivos nem chamar serviços de metadata.
 
-O player Android usa Media3 1.5.1 para conteúdo autorizado localmente. Ele
+O player Android usa Media3 1.11.1 para conteúdo autorizado localmente. Ele
 preserva retomada/progresso via `NativeMailbox` e inclui velocidade entre
 0,5x–2x, fit/fill/zoom, reinício, marcar visto/não visto, autoplay do próximo
 episódio e timer de sono de sessão. PiP, codecs e reprodução devem ser

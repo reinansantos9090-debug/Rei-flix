@@ -35,7 +35,7 @@ A implementação do Rei-Flix continua própria e usa SettingsStore, LibraryServ
 | Aniyomi | escala de legenda | SubtitleView | Novo e aplicado | IMPLEMENTAR |
 | Aniyomi | margem da legenda | SubtitleView | Novo e aplicado | IMPLEMENTAR |
 | Aniyomi | estilo embutido | SubtitleView | Novo e aplicado | IMPLEMENTAR |
-| Aniyomi / CloudStream | delay de legenda | Exigiria política persistente de offset da cue/player | Sem infraestrutura segura neste Media3 1.5.1 | REQUER INFRAESTRUTURA |
+| Aniyomi / CloudStream | delay de legenda | Exigiria política persistente de offset da cue/player | Sem infraestrutura segura neste Media3 1.11.1 | REQUER INFRAESTRUTURA |
 | Aniyomi | delay de áudio | Exigiria offset de reprodução por track | Sem infraestrutura equivalente no player atual | REQUER INFRAESTRUTURA |
 | Aniyomi | filtros de vídeo | Não há pipeline de filtros Media3 no player atual | Não suportado sem nova infraestrutura | NÃO COMPATÍVEL |
 | Aniyomi | marcação como assistido em percentual | Sistema de consumo do Rei-Flix usa 0.90 como contrato | Não alterado nesta fase | JÁ EXISTE |

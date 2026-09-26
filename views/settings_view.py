@@ -800,7 +800,7 @@ class SettingsView:
                     ("auto", "always", "never"),
                     {"auto": "Automático", "always": "Sempre", "never": "Nunca"},
                 ),
-                ft.Text("Delay global de legenda: NÃO IMPLEMENTADO. Media3 1.5.1 não expõe uma preferência persistente de offset nessa camada; nenhuma configuração falsa é exibida.", color=TEXT_MUTED, size=10),
+                ft.Text("Delay global de legenda: NÃO IMPLEMENTADO. Media3 1.11.1 não expõe uma preferência persistente de offset nessa camada; nenhuma configuração falsa é exibida.", color=TEXT_MUTED, size=10),
             ], ("áudio","legenda","subtitle","audio","pt-br","en","ja")))
 
             items.append(section("Metadata", ft.Icons.MANAGE_SEARCH_OUTLINED, [

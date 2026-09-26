@@ -253,7 +253,7 @@ else:
 # Android 16 APIs require SDK 36 even when Flutter's bundled default lags behind.
 existing = existing.replace("compileSdk = flutter.compileSdkVersion", "compileSdk = 36")
 existing = existing.replace("compileSdk = 35", "compileSdk = 36")
-if "androidx.media3:media3-exoplayer:1.5.1" not in existing:
+if "// ReiFlix native host dependencies" not in existing:
     if gradle.suffix == ".kts":
         block = "\n// ReiFlix native host dependencies\ndependencies {\n" + "".join(f'    implementation("{item}")\n' for item in dependencies) + "}\n"
     else:

@@ -11,6 +11,7 @@ from core.navigation import NavigationController, SafSelectionState
 from core.scan_coordinator import ScanCoordinator, ScanOrigin, ScanState, ScanTarget
 from core.storage_access import StorageAccessState, StorageCapabilities, ScanUiState, scan_ui_state_from_native, storage_access_state, storage_source_states
 from core.diagnostics import DiagnosticTimeline
+from core.build_identity import as_dict as build_identity
 from core.diagnostic_service import DiagnosticsService
 from core.backup import BackupError, BackupService
 from core.library_store import LibraryStore
@@ -73,6 +74,8 @@ async def main(page: ft.Page):
     backup_service = BackupService(store, settings=settings, app_version="0.2.1")
     diagnostic_service = DiagnosticsService(store, timeline=diagnostics, app_version="0.2.1")
     diagnostics.record("APP_START", result="python_ui_initialized")
+    logger.info("[BUILD] identity=%s", build_identity())
+    diagnostics.record("BUILD_IDENTITY", result=json.dumps(build_identity(), sort_keys=True))
     scan_state = [{
         "state": ScanUiState.IDLE.value,
         "source": None,

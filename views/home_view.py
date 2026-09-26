@@ -665,7 +665,6 @@ class HomeView:
                     for holder, width, height in artwork_bindings.get((entity, int(item_id), 'poster'), []):
                         try:
                             holder.content = ft.Image(src=cover_path, width=width, height=height, fit=ft.BoxFit.COVER, border_radius=RADIUS)
-                            holder.update()
                             updated += 1
                         except Exception:
                             logger.exception('Home localized artwork update failed')

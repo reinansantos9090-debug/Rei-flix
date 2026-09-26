@@ -65,6 +65,7 @@ if layout_source.is_dir():
 manifest_path = app / "src" / "main" / "AndroidManifest.xml"
 tree = ET.parse(manifest_path)
 manifest = tree.getroot()
+name = "{" + ANDROID + "}name"
 
 # Package visibility is required before preflighting ACTION_OPEN_DOCUMENT_TREE
 # on Android 11+; keep the query in the generated APK as part of the native host
@@ -87,7 +88,6 @@ if tree_action is None:
 application = manifest.find("application")
 if application is None:
     raise RuntimeError("Rendered Flet AndroidManifest has no application element")
-name = "{" + ANDROID + "}name"
 
 # MediaStore is an optional read-only source alongside SAF. Keep the
 # permissions version-scoped so Android 13+ uses granular video access while

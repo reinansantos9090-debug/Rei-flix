@@ -62,9 +62,12 @@ class SearchDetailsOrganizeTests(unittest.TestCase):
             self.assertEqual(["Alpha Show"], [item["main_title"] for item in page["items"]])
             self.assertEqual(1, page["total"])
 
-    def test_details_identity_restore_uses_bounded_projection(self):
+    def test_startup_does_not_restore_transient_details_context(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn("library.catalog_by_ids([int(detail_id)])", source)
+        self.assertIn("navigation = NavigationController()", source)
+        self.assertIn("navigation.reset_to_root()", source)
+        self.assertNotIn("restore_details_context", source)
+        self.assertNotIn('"details_media_id"', source)
         self.assertNotIn("catalog = library.catalog()", source)
 
     def test_details_mutations_invalidate_only_cached_library_projections(self):

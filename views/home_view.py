@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import logging
 import os
+import time
 import flet as ft
 
 from core.consumption import consumption_state, progress_ratio
@@ -151,7 +152,12 @@ class HomeView:
             async def flush():
                 try:
                     await asyncio.sleep(0)
+                    update_started = time.perf_counter()
                     page.update()
+                    logger.info(
+                        "HOME_ARTWORK_UI_UPDATE duration_ms=%s",
+                        int((time.perf_counter() - update_started) * 1000),
+                    )
                 except Exception:
                     logger.debug("Home artwork batch UI update skipped", exc_info=True)
                 finally:
@@ -304,10 +310,18 @@ class HomeView:
             page_loading[0] = True
             token = render_generation[0]
             target_page = 0 if reset else current_page[0] + 1
+            browse_started = time.perf_counter()
             try:
                 result = await asyncio.to_thread(
                     library.browse_catalog_page,
                     page=target_page, page_size=home_page_size, **_library_filters(),
+                )
+            finally:
+                logger.info(
+                    "HOME_BROWSE_CATALOG_PAGE duration_ms=%s page=%s reset=%s",
+                    int((time.perf_counter() - browse_started) * 1000),
+                    target_page,
+                    reset,
                 )
             except Exception:
                 logger.exception("Home paged query failed", extra={"screen":"home","page":target_page})
@@ -407,6 +421,7 @@ class HomeView:
                     bool(artwork_tasks),
                     current_screen,
                 )
+                tap_started = time.perf_counter()
                 try:
                     on_select_anime(item)
                 except Exception:
@@ -414,6 +429,12 @@ class HomeView:
                         "HOME_CARD_TAP failed animeId=%s renderGeneration=%s",
                         item.get("id"),
                         render_generation[0],
+                    )
+                finally:
+                    logger.info(
+                        "HOME_CARD_TAP_END animeId=%s duration_ms=%s",
+                        item.get("id"),
+                        int((time.perf_counter() - tap_started) * 1000),
                     )
 
             return ft.Container(
@@ -619,6 +640,7 @@ class HomeView:
         async def hydrate_metadata_and_artwork(items, token):
             if not items or token != render_generation[0]:
                 return
+            hydration_started = time.perf_counter()
             logger.info(
                 "HOME_HYDRATION_START count=%s generation=%s active_artwork_tasks=%s",
                 len(items), token, len(artwork_tasks),
@@ -652,13 +674,26 @@ class HomeView:
                     schedule_artwork_ui_update()
             except Exception:
                 logger.exception('Home metadata/artwork hydration failed', extra={'screen':'home','requestId':'-','library_items':len(items)})
+            finally:
+                logger.info(
+                    "HOME_HYDRATION_END duration_ms=%s generation=%s active_artwork_tasks=%s",
+                    int((time.perf_counter() - hydration_started) * 1000),
+                    token,
+                    len(artwork_tasks),
+                )
 
         async def refresh_home_sections(token):
+            sections_started = time.perf_counter()
             try:
                 loaded = await asyncio.to_thread(library.media_center_home, limit=12)
             except Exception:
                 logger.exception("Home secondary sections load failed", extra={"screen":"home"})
                 return
+            finally:
+                logger.info(
+                    "HOME_MEDIA_CENTER_HOME duration_ms=%s",
+                    int((time.perf_counter() - sections_started) * 1000),
+                )
             if token != render_generation[0] or token != home_sections_generation[0]:
                 return
             home_data.clear()
@@ -769,6 +804,11 @@ class HomeView:
              )],
             spacing=14,
         )
+        # Deliberately keep the existing single outer scroll container: filters,
+        # pagination, saved scroll offset and touch navigation all depend on it.
+        # A nested GridView would introduce a second viewport here. We therefore
+        # use the stable Row+pagination architecture, with a bounded page size,
+        # instead of a blind GridView migration.
         layout = ft.Column([
             header, search, ft.Text("Sua biblioteca local, conteúdo primeiro.", size=12, color=TEXT_MUTED),
             status, hydration_status, continuation_section, main_library_bar, feedback, grid, sections_column, ft.Container(height=24),

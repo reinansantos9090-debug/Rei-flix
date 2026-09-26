@@ -419,7 +419,7 @@ E: manifest
         self.assertIn("import androidx.activity.OnBackPressedCallback", main)
         self.assertIn("private fun installSystemBackHandler()", main)
         self.assertIn("onBackPressedDispatcher.addCallback(", main)
-        self.assertIn("flutterEngine?.navigationChannel?.popRoute()", main)
+        self.assertIn("engine.navigationChannel.popRoute()", main)
         self.assertNotIn("finish()", main[main.index("private fun installSystemBackHandler"):main.index("private fun persistedSafTreeUris")])
 
     def test_native_player_back_logs_use_explicit_player_back_marker(self):
@@ -441,7 +441,7 @@ E: manifest
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("import androidx.activity.OnBackPressedCallback", main)
         self.assertIn("onBackPressedDispatcher.addCallback(", main)
-        self.assertIn("flutterEngine?.navigationChannel?.popRoute()", main)
+        self.assertIn("engine.navigationChannel.popRoute()", main)
         self.assertNotIn("override fun onBackPressed()", main)
         self.assertNotIn("return@registerForActivityResult", main)
         self.assertIn("handleTreePickerResult(result)", main)

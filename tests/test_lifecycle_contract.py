@@ -77,25 +77,27 @@ class LifecycleContractTests(unittest.TestCase):
             "mailbox poller must be started through the tracked task handle exactly once",
         )
 
-    def test_navigation_snapshot_is_durable_and_disconnect_guarded(self):
+    def test_navigation_state_writer_is_durable_and_disconnect_guarded(self):
         source = MAIN_PY.read_text(encoding="utf-8")
         state_start = source.index("def _write_navigation_state")
-        state_end = source.index("def restore_details_context", state_start)
+        state_end = source.index("def _route_for_screen", state_start)
         block = source[state_start:state_end]
         self.assertIn("handle.flush()", block)
         self.assertIn("os.fsync(handle.fileno())", block)
         self.assertIn('and ui_alive[0]', block)
         self.assertIn('if navigation_persist["closing"] or not ui_alive[0]:', block)
 
-    def test_navigation_recovery_restores_reconstructible_view_state(self):
+    def test_navigation_recovery_restores_only_durable_ui_state_and_never_runtime_route(self):
         source = MAIN_PY.read_text(encoding="utf-8")
         self.assertEqual(source.count("load_navigation_state("), 2)
         self.assertIn("load_navigation_state()\n", source)
-        self.assertIn('"version": 2', source)
+        self.assertIn('"version": 3', source)
         self.assertIn('"home_state"', source)
         self.assertIn('"organize_state"', source)
         self.assertIn('"settings_state"', source)
-        self.assertIn('"details_media_id"', source)
+        self.assertNotIn('"navigation": navigation.snapshot()', source)
+        self.assertNotIn('"details_media_id"', source)
+        self.assertNotIn("def restore_details_context", source)
         self.assertIn("json.dump(state", source)
         self.assertIn("os.replace(temporary, navigation_state_path)", source)
 

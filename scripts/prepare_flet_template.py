@@ -76,7 +76,7 @@ if queries is None:
 tree_action = None
 for query_intent in queries.findall("intent"):
     for action in query_intent.findall("action"):
-        if action.get(name := "{" + ANDROID + "}name") == "android.intent.action.OPEN_DOCUMENT_TREE":
+        if action.get("{" + ANDROID + "}name") == "android.intent.action.OPEN_DOCUMENT_TREE":
             tree_action = action
             break
     if tree_action is not None:

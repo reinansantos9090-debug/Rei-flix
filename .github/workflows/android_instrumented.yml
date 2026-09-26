@@ -107,8 +107,14 @@ jobs:
         run: |
           test -f build/flutter/android/gradlew
           test -f build/flutter/android/app/build.gradle.kts
-          test -f build/flutter/android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/NativePlayerPlaybackInstrumentedTest.kt
-          test -f build/flutter/android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/EndToEndPlayerHandoffInstrumentedTest.kt
+          for test_file in \
+            NativePlayerPlaybackInstrumentedTest.kt \
+            BackAndSettingsReturnInstrumentedTest.kt \
+            DeviceFlowInstrumentedTest.kt \
+            NativeIndexInstrumentedTest.kt \
+            NativeMailboxInstrumentedTest.kt; do
+            test -f "build/flutter/android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/$test_file"
+          done
       - name: Pack rendered Android project
         shell: bash
         run: |

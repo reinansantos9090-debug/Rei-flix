@@ -208,7 +208,7 @@ def audit_architecture(root: Path, failures: list[str]) -> None:
             failures.append(f"NativeMailbox durability contract missing: {token}")
 
     player = read(root, "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt")
-    for token in ("player_error", "player_exited", "WindowInsetsController", "Media3", "onResume"):
+    for token in ("player_error", "player_exited", "SystemUiController", "Media3", "onResume"):
         if token not in player:
             failures.append(f"NativePlayerActivity contract missing: {token}")
 

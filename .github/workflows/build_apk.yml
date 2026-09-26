@@ -66,8 +66,8 @@ jobs:
           python -c "import flet; print('FLET_PYTHON_VERSION=' + flet.__version__); assert flet.__version__ == '0.86.5'"
           flet --version
           python -m pip show flet
-          python -m pip freeze | grep -i '^flet==' | tee build-flet-version.txt
-          grep -Fqx "flet==0.86.5" build-flet-version.txt
+          python -m pip freeze | grep -i '^flet==' | tee build/flet-version.txt
+          grep -Fqx "flet==0.86.5" build/flet-version.txt
 
       - name: Clean Flet build cache and generate immutable build identity
         shell: bash
@@ -347,7 +347,7 @@ jobs:
         shell: bash
         run: |
           git checkout -- core/build_identity.py
-          rm -f .reiflix-build-identity.json build-flet-version.txt
+          rm -f .reiflix-build-identity.json build/flet-version.txt
           test "$(git status --porcelain -- core/build_identity.py .reiflix-build-identity.json build-flet-version.txt)" = ""
 
       - name: Run Android unit tests on rendered project

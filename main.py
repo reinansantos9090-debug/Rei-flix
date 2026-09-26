@@ -272,6 +272,10 @@ async def main(page: ft.Page):
 
     navigation_persist = {"pending": False, "running": False, "closing": False}
 
+    # Restore durable Home/Organize/Settings UI state only. Runtime route/stack
+    # remains process-local and therefore starts at Home on every fresh process.
+    load_navigation_state()
+
     def _navigation_state_payload():
         return {
             "version": 3,

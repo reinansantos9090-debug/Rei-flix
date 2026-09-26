@@ -162,6 +162,12 @@ jobs:
           PY
 
 
+      - name: Remove development caches before Flet packaging
+        shell: bash
+        run: |
+          find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '.coverage' \) -delete
+
       - name: Prepare Flet build template with Android host
         run: |
           mkdir -p build

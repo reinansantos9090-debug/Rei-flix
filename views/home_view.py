@@ -316,13 +316,6 @@ class HomeView:
                     library.browse_catalog_page,
                     page=target_page, page_size=home_page_size, **_library_filters(),
                 )
-            finally:
-                logger.info(
-                    "HOME_BROWSE_CATALOG_PAGE duration_ms=%s page=%s reset=%s",
-                    int((time.perf_counter() - browse_started) * 1000),
-                    target_page,
-                    reset,
-                )
             except Exception:
                 logger.exception("Home paged query failed", extra={"screen":"home","page":target_page})
                 if reset:
@@ -331,6 +324,13 @@ class HomeView:
                     page.update()
                 page_loading[0] = False
                 return
+            finally:
+                logger.info(
+                    "HOME_BROWSE_CATALOG_PAGE duration_ms=%s page=%s reset=%s",
+                    int((time.perf_counter() - browse_started) * 1000),
+                    target_page,
+                    reset,
+                )
             if token != render_generation[0]:
                 page_loading[0] = False
                 return

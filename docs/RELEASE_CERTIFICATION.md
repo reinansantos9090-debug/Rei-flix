@@ -1,146 +1,82 @@
 # Rei-Flix — Release Certification
 
-## Scope
+## Evidence boundary
 
-Release certification finalizes the evidence-first certification started in earlier certification stage. It corrects the observed certification failure and tightens requirement-specific evidence without rewriting production architecture.
+The release certification is split into two evidence classes:
 
-The certification runner is:
+1. **Source/build/APK evidence** from `scripts/release_certification.py` and `build_apk.yml`.
+2. **Runtime Android evidence** from `.github/workflows/android_instrumented.yml`.
 
-    python scripts/release_certification.py
+A build, unit-test run, packaged APK inspection, or source contract is never promoted to a runtime PASS.
 
-The runner now owns the executable certification evidence for Python, pytest collection, deterministic repeated pytest execution, unittest discovery, skip/xfail auditing, Android unit tests, Gradle lint discovery/execution, ADB availability, APK forensic inspection, and the 201-item matrix.
+## Runtime matrix
 
-## 201-item matrix
+The instrumented workflow runs on GitHub-hosted Android emulators for:
 
-The 201 IDs are stable and contain real requirements grouped by area:
+- API 30 (Android 11)
+- API 36 (Android 16)
 
-- Database / Library
-- Consumption
-- Navigation
-- Player
-- Storage
-- Artwork
-- Search
-- Settings / Theme
-- Home
-- Performance / Static audit
-- Certification / CI / APK
+The matrix uses the rendered Flet Android project from the same repository and executes:
 
-Every row records:
+    ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
 
-ID, Requirement, Area, Implementation reference, Existing test reference, Command, Execution status, Result, Evidence, Limitation.
+The emulator job fails when the instrumented suite fails. A timeout or an unavailable device is not converted into a success result.
 
-The runner rejects the old generic form such as "Certification requirement N" and derives totals directly from the generated rows.
+Runtime evidence artifacts include the connected-test log, ADB device state, SDK level, Activity/Window state, and logcat.
 
-## Evidence rules
+## Static release certification
 
-Only these result classifications are permitted:
+`python scripts/release_certification.py` remains the deterministic source/build/APK certification runner. It records Python test counts, Android unit tests, APK hashing, packaged manifest inspection, native-host DEX checks, and explicit no-device limitations.
 
-- PASS
-- PARTIAL
-- FAIL
-- NOT VALIDATED
-- NOT APPLICABLE
-- BLOCKED
+Its no-device result is intentionally separate from the runtime matrix.
 
-PASS requires executable evidence. A source path by itself does not become PASS.
+## Git and architecture integrity
 
-PARTIAL means the implementation/test surface exists but complete executable evidence is incomplete.
+`python scripts/audit_release.py --root .` validates:
 
-FAIL means an executable check ran and failed.
+- tracked-file presence in the CI worktree;
+- absence of the competing `views/player_view.py`;
+- singleton native player/mailbox/index components;
+- canonical storage state names;
+- MediaStore/SAF/Broad storage host files;
+- the central consumption threshold;
+- catalog identification fields;
+- runtime matrix presence;
+- shell failure-suppression patterns;
+- silent `except Exception: pass` handlers.
 
-NOT VALIDATED is used for deliberately excluded runtime checks such as physical-device validation, Android 14/15/16 runtime validation, installation/update validation, and profiler-only measurements.
-
-BLOCKED is reserved for an executable check that the environment prevented from running.
-
-## No-device policy
-
-This certification does not start:
-
-- Android Emulator / AVD
-- connected instrumentation
-- Device Farm
-- API 34/35/36 runtime matrices
-
-adb devices -l is split into:
-
-- ADB tool availability
-- physical/emulator device validation
-
-A zero-device ADB result is never treated as device PASS.
-
-## Executable checks
-
-The runner executes, when the corresponding environment exists:
-
-    python -m compileall .
-    pytest --collect-only -q
-    pytest -q
-    pytest -q
-    python -m unittest discover -s tests -v
-    ./gradlew :app:testDebugUnitTest --no-daemon
-    ./gradlew tasks --all --no-daemon
-    ./gradlew <discovered app lint task> --no-daemon
-
-The two pytest executions are compared for test counts and result consistency.
-
-The collection audit compares repository Python test files with pytest-discovered test files.
-
-The skip/xfail audit covers Python and Android test trees and records an explicit classification for each occurrence.
-
-## APK evidence
-
-When the workflow supplies the real APK, the runner records:
-
-- APK path
-- file size
-- SHA-256
-- package
-- versionName
-- versionCode
-- target SDK
-- manifest presence and selected manifest contracts
-- DEX files and required native host classes
-- packaged resources
-- APK signature verification when apksigner is available
-
-No device installation is required for these APK-only checks.
+The audit reports `exit 0` locations for human branch review rather than treating every `exit 0` as an error.
 
 ## Historical regressions
 
-The certification reuses existing tests and source contracts for the previously reported problem areas, including:
+The Android instrumented suite reuses the existing native tests for:
 
-- player launch / exit
-- player error events
-- status and navigation bars
-- immersive lifecycle
-- gestures
-- Back and predictive Back
-- PiP contract
-- StorageCapabilities
-- Flet launch_url
-- permission/cancel/scan flows
-- catalog-preservation rules
-- NativeMailbox / NativeIndex
-- parser and thumbnail regressions
-- Theme / Home / performance contracts
+- SAF picker Back/cancel behavior;
+- external Settings Back behavior;
+- MainActivity lifecycle;
+- NativeMailbox atomic event envelopes;
+- NativeIndex partial-generation preservation;
+- MediaStore-backed NativePlayerActivity playback;
+- immersive system bars;
+- player gestures and pinch fit/zoom;
+- visual and system Back;
+- Picture-in-Picture where supported.
 
-Production code is changed only when the executable/static audit exposes an actual defect.
+The test fixtures use locally created MediaStore content and do not require remote video sources.
 
-## Generated artifacts
+The previously reported files `66619.mp4`, `66621.mp4`, and `66625.mp4` are not claimed as validated unless a runtime environment actually provides them.
 
-The certification run writes:
+## Final classification
 
-- build/release-certification.json
-- build/release-certification.md
-- build/release-certification-matrix.json
+The final result is based on evidence, not on the existence of code alone.
 
-The GitHub Actions workflow uploads the three certification artifacts with the release-certification artifact name.
+Allowed final classifications for the Prompt 3 report:
 
-## Final status
+- VALIDADO
+- PARCIALMENTE VALIDADO
+- FALHOU
+- NÃO VALIDÁVEL
 
-The final classification and 201-item totals in this document are intentionally sourced from the actual earlier certification stage workflow run rather than manually copied numbers. The workflow is blocking on executable failures, while explicit no-device limitations remain NOT VALIDATED.
+A runtime area without a connected emulator/device remains **NÃO VALIDÁVEL**.
 
-## Release certification evidence rule
-
-A functional row is not promoted to PASS merely because its implementation file exists and the shared pytest suite passes. PASS requires a requirement-specific static assertion, targeted evidence, package/manifest forensic result, or another objective check recorded in the row. Shared suite coverage without that direct proof remains PARTIAL.
+A successful APK build does not by itself certify storage, SAF, lifecycle, Flet scrolling, or the player.

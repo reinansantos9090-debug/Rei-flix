@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Android no-emulator: manual/physical-device diagnostic only; the no-emulator
-# certification workflow does not invoke this script or launch AVDs.
+# Android instrumentation diagnostic for physical devices or CI emulators.
+# The runtime certification workflow uses this diagnostic surface when deeper
+# class-level evidence is required after the normal connected test suite.
 set -Eeuo pipefail
 
 WORKSPACE="${GITHUB_WORKSPACE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 PACKAGE="com.reiflix.reiflix_local"
 API_LEVEL="${REIFLIX_ANDROID_API_LEVEL:-}"
 case "${API_LEVEL}" in
-    34|35|36) ;;
+    30|31|32|33|34|35|36) ;;
     *)
         printf 'REIFLIX_ANDROID_API_LEVEL must be 34, 35, or 36 (got %q)\n' "${API_LEVEL}" >&2
         exit 2
@@ -164,9 +165,11 @@ configure_navigation_mode() {
             ;;
     esac
 
-    adb shell cmd overlay disable com.android.internal.systemui.navbar.threebutton >/dev/null 2>&1 || true
-    adb shell cmd overlay disable com.android.internal.systemui.navbar.gestural >/dev/null 2>&1 || true
-    adb shell cmd overlay disable com.android.internal.systemui.navbar.twobutton >/dev/null 2>&1 || true
+    for overlay in         com.android.internal.systemui.navbar.threebutton         com.android.internal.systemui.navbar.gestural         com.android.internal.systemui.navbar.twobutton; do
+        if ! adb shell cmd overlay disable "$overlay" >/dev/null 2>&1; then
+            printf 'NAVIGATION_OVERLAY_DISABLE_FAILED overlay=%s (continuing; expected overlay is validated below)\n' "$overlay"
+        fi
+    done
     adb shell cmd overlay enable "$expected_overlay" >/dev/null 2>&1 || {
         echo "Unable to enable navigation overlay: $expected_overlay" >&2
         return 1

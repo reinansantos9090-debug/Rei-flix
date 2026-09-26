@@ -85,6 +85,12 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertNotIn("Gravity.CENTER + fixed", source)
         self.assertNotIn("sleep(", source)
 
+    def test_runtime_dependency_versions_are_currently_supported_baselines(self):
+        gradle = (ROOT / "android/app/build.gradle.kts").read_text(encoding="utf-8")
+        self.assertIn("androidx.activity:activity-ktx:1.13.0", gradle)
+        self.assertIn("androidx.media3:media3-exoplayer:1.11.1", gradle)
+        self.assertIn("androidx.media3:media3-ui:1.11.1", gradle)
+
     def test_native_player_uses_transformable_media3_texture_surface(self):
         layout = PLAYER_LAYOUT.read_text(encoding="utf-8")
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
@@ -199,15 +205,20 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         ):
             self.assertIn(token, player)
 
-    def test_host_activity_keeps_primary_system_bars_visible_with_edge_to_edge(self):
+    def test_main_and_player_reapply_application_system_ui_after_lifecycle_boundaries(self):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")
-        system_ui = SYSTEM_UI.read_text(encoding="utf-8")
-        self.assertIn("applyNormalSystemUi()", main)
-        self.assertIn("applyNormal()", system_ui)
-        self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", system_ui)
-        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", system_ui)
-        self.assertNotIn("applyNormal()\n", system_ui[system_ui.index("fun applyNormal()"):system_ui.index("private fun applyEdgeToEdgeWindow")])
-
+        player = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        for token in (
+            "override fun onCreate(savedInstanceState: Bundle?)",
+            "override fun onResume()",
+            "override fun onWindowFocusChanged(hasFocus: Boolean)",
+            "override fun onConfigurationChanged(newConfig:",
+        ):
+            self.assertIn(token, main)
+        self.assertIn("applyApplicationSystemUi()", main)
+        self.assertIn("applyApplicationPolicy()", player)
+        self.assertIn("applyImmersiveAfterLayout()", player)
+        self.assertIn("ViewCompat.requestApplyInsets", player)
     def test_native_player_primary_surface_does_not_expose_secondary_controls(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         controls = source[source.index("private fun installControls()"):source.index("private fun installBackHandler()")]
@@ -289,19 +300,36 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertIn("Última varredura:", settings)
         self.assertIn("Status:", settings)
 
-    def test_system_ui_has_distinct_normal_and_immersive_policies(self):
+    def test_system_ui_has_one_application_immersive_policy_and_an_explicit_external_normal_policy(self):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        player = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         system_ui = SYSTEM_UI.read_text(encoding="utf-8")
-        self.assertIn("applyNormalSystemUi", main)
-        self.assertIn("applyNormal()", system_ui)
+        self.assertIn("applyApplicationSystemUi()", main)
+        self.assertIn("applyApplicationPolicy()", main)
+        self.assertIn("applyApplicationPolicy()", player)
+        self.assertIn("fun applyApplicationPolicy()", system_ui)
         self.assertIn("applyImmersive()", system_ui)
+        self.assertIn("fun applyNormal()", system_ui)
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", system_ui)
+        application = system_ui[system_ui.index("fun applyApplicationPolicy()"):system_ui.index("/** Player-specific alias")]
         normal = system_ui[system_ui.index("fun applyNormal()"):system_ui.index("private fun applyEdgeToEdgeWindow")]
-        immersive = system_ui[system_ui.index("fun applyImmersive()"):system_ui.index("fun applyNormal()")]
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", application)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", normal)
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", immersive)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", system_ui)
+        self.assertNotIn("systemUiController.applyNormal()", main)
+        self.assertNotIn("systemUiController.applyNormal()", player)
 
+    def test_player_immersive_policy_is_global_and_first_frame_timeout_is_diagnostic_only(self):
+        source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
+        self.assertIn("private fun shouldUseImmersive(): Boolean = true", source)
+        self.assertIn("setKeepContentOnPlayerReset(true)", source)
+        self.assertIn("firstFrameDiagnosticTimeoutMs", source)
+        self.assertIn("FIRST_FRAME_WATCH_ARMED", source)
+        self.assertIn("FIRST_FRAME_TIMEOUT", source)
+        self.assertIn('"type", "player_diagnostic"', source)
+        self.assertIn("cancelFirstFrameDiagnostics", source)
+        self.assertNotIn("Thread.sleep(", source)
+        self.assertNotIn("SystemClock.sleep(", source)
     def test_no_silent_exception_suppression_in_runtime_android_sources(self):
         for path in (MAIN_ACTIVITY, PLAYER_ACTIVITY, SYSTEM_UI):
             source = path.read_text(encoding="utf-8")

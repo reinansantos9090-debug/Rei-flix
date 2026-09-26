@@ -286,8 +286,7 @@ class MainActivity : FlutterFragmentActivity() {
         )
     }
     private var storageReceiverRegistered = false
-    private var lastBackEventAt = 0L
-    private val backEventDebounceMs = 300L
+    private var systemBackDispatchPosted = false
     private var externalSettingsKind: String? = null
     private var externalSettingsRequestId: String? = null
     private val externalSettingsLauncher =
@@ -542,7 +541,7 @@ class MainActivity : FlutterFragmentActivity() {
         logLifecycle("onCreate", intent)
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
-        applyNormalSystemUi()
+        applyApplicationSystemUi()
         // Permission-sensitive actions are queued until the Activity is resumed.
         handleNativeIntent(intent)
     }
@@ -566,7 +565,7 @@ class MainActivity : FlutterFragmentActivity() {
         activityResumed = true
         logLifecycle("onResume")
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "ON_RESUME").put("lifecycle", "onResume")))
-        applyNormalSystemUi()
+        applyApplicationSystemUi()
 
         // A lifecycle-sensitive command may have been queued because the
         // Activity was not resumed when Python delivered the request. Do not
@@ -703,18 +702,33 @@ class MainActivity : FlutterFragmentActivity() {
 
     /**
      * Android owns the physical Back dispatch, while Flutter/Flet remains the
-     * single logical navigation owner. The callback deliberately never calls
-     * finish() and never emits a NativeMailbox back event; it forwards platform
-     * Back to Flutter so page.on_view_pop / NavigationController stay
-     * authoritative, including the double-back exit policy.
+     * single logical navigation owner. One platform Back dispatch becomes one
+     * Flutter popRoute call; no mailbox event or native finish path is allowed
+     * here. NavigationController then decides settings nesting, Home double-back
+     * exit, dialogs and the final close operation.
      */
     private fun installSystemBackHandler() {
         onBackPressedDispatcher.addCallback(
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    if (systemBackDispatchPosted) {
+                        Log.i(tag, "SYSTEM_BACK duplicate_dispatch_suppressed")
+                        return
+                    }
+                    systemBackDispatchPosted = true
+                    val engine = flutterEngine
+                    if (engine == null) {
+                        systemBackDispatchPosted = false
+                        Log.w(tag, "SYSTEM_BACK ignored reason=flutter_engine_unavailable")
+                        return
+                    }
                     Log.i(tag, "SYSTEM_BACK forward_to_flet route_dispatch")
-                    flutterEngine?.navigationChannel?.popRoute()
+                    engine.navigationChannel.popRoute()
+                    // Keep the native guard only for same-loop/re-entrant dispatch.
+                    // The longer human-visible debounce remains in Python's
+                    // NavigationController boundary.
+                    window.decorView.post { systemBackDispatchPosted = false }
                 }
             },
         )
@@ -729,9 +743,9 @@ class MainActivity : FlutterFragmentActivity() {
             .sorted()
             .toList()
 
-    private fun applyNormalSystemUi() {
+    private fun applyApplicationSystemUi() {
         if (::systemUiController.isInitialized) {
-            systemUiController.applyNormal()
+            systemUiController.applyApplicationPolicy()
         }
     }
 
@@ -1785,7 +1799,7 @@ class MainActivity : FlutterFragmentActivity() {
         super.onWindowFocusChanged(hasFocus)
         logLifecycle("onWindowFocusChanged")
         if (hasFocus) {
-            applyNormalSystemUi()
+            applyApplicationSystemUi()
             ViewCompat.requestApplyInsets(window.decorView)
         }
     }
@@ -1793,7 +1807,7 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         Log.i(tag, "CONFIGURATION_CHANGED orientation=${newConfig.orientation}")
-        applyNormalSystemUi()
+        applyApplicationSystemUi()
         ViewCompat.requestApplyInsets(window.decorView)
     }
     private fun signInWithGoogle(serverClientId: String?) {

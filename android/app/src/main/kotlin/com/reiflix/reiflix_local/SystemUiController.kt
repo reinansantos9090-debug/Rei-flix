@@ -12,15 +12,23 @@ import androidx.core.view.WindowInsetsControllerCompat
 /**
  * Single authority for the host Activity system-bar policy.
  *
- * Primary/Flet screens stay edge-to-edge but expose the real Android system bars.
- * Safe-area handling is owned by Flet/Flutter content via ft.SafeArea.
- * The native Player is the only surface that hides the system bars.
+ * Rei-Flix uses one application-wide edge-to-edge + immersive policy. Both the
+ * Flet/MainActivity surface and the native Media3 player restore this policy
+ * after lifecycle/configuration boundaries. Android-owned external surfaces
+ * (permissions/settings/pickers) may reveal their own system UI while they are
+ * in the foreground; the app reapplies its policy when focus returns.
  */
 class SystemUiController(private val window: Window) {
     private val controller: WindowInsetsControllerCompat
         get() = WindowCompat.getInsetsController(window, window.decorView)
 
-    fun applyImmersive() {
+    /**
+     * Reapply the application policy after resume/focus/configuration changes.
+     *
+     * Android system gestures remain available because transient bars may be
+     * revealed by an edge swipe; hiding the bars does not disable system Back.
+     */
+    fun applyApplicationPolicy() {
         applyEdgeToEdgeWindow()
         applySystemBarAppearance()
         controller.apply {
@@ -30,6 +38,10 @@ class SystemUiController(private val window: Window) {
         }
     }
 
+    /** Player-specific alias kept for existing call sites and tests. */
+    fun applyImmersive() = applyApplicationPolicy()
+
+    /** Explicit non-immersive policy for an Activity that truly needs visible bars. */
     fun applyNormal() {
         applyEdgeToEdgeWindow()
         applySystemBarAppearance()

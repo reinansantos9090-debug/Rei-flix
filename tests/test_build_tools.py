@@ -231,7 +231,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
             hook = hook_path.read_text(encoding="utf-8")
             self.assertIn("NativePlayerActivity", hook)
             self.assertIn("shutil.copytree(source, destination, dirs_exist_ok=True)", hook)
-            self.assertIn("media3-exoplayer:1.5.1", hook)
+            self.assertIn("media3-exoplayer:1.11.1", hook)
             self.assertIn("MANAGE_EXTERNAL_STORAGE", hook)
             self.assertIn('main.set(launch_attr, "singleTask")', hook)
             self.assertIn('main.set(document_launch_attr, "never")', hook)
@@ -244,7 +244,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
             wrapper = rendered.parent / "gradlew"
             wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             wrapper.chmod(0o755)
-            (rendered / "build.gradle").write_text("plugins {}\ncompileSdk = 35\ndependencies { implementation \'androidx.media3:media3-exoplayer:1.5.1\' }\n", encoding="utf-8")
+            (rendered / "build.gradle").write_text("plugins {}\ncompileSdk = 35\ndependencies { implementation \'androidx.media3:media3-exoplayer:1.11.1\' }\n", encoding="utf-8")
             (rendered / "src" / "main" / "AndroidManifest.xml").write_text(
                 '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application><activity android:name=".MainActivity" /></application></manifest>',
                 encoding="utf-8",
@@ -269,7 +269,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
             )
             self.assertEqual(main.get(f"{{{android_ns}}}launchMode"), "singleTask")
             self.assertEqual(main.get(f"{{{android_ns}}}documentLaunchMode"), "never")
-            self.assertIn("media3-exoplayer:1.5.1", (rendered / "build.gradle").read_text(encoding="utf-8"))
+            self.assertIn("media3-exoplayer:1.11.1", (rendered / "build.gradle").read_text(encoding="utf-8"))
             self.assertIn("compileSdk 36", (rendered / "build.gradle").read_text(encoding="utf-8"))
 
     def test_native_thumbnail_pipeline_uses_metadata_retriever_and_mailbox_reference(self):
@@ -419,7 +419,7 @@ E: manifest
         self.assertIn("import androidx.activity.OnBackPressedCallback", main)
         self.assertIn("private fun installSystemBackHandler()", main)
         self.assertIn("onBackPressedDispatcher.addCallback(", main)
-        self.assertIn("flutterEngine?.navigationChannel?.popRoute()", main)
+        self.assertIn("engine.navigationChannel.popRoute()", main)
         self.assertNotIn("finish()", main[main.index("private fun installSystemBackHandler"):main.index("private fun persistedSafTreeUris")])
 
     def test_native_player_back_logs_use_explicit_player_back_marker(self):
@@ -441,7 +441,7 @@ E: manifest
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("import androidx.activity.OnBackPressedCallback", main)
         self.assertIn("onBackPressedDispatcher.addCallback(", main)
-        self.assertIn("flutterEngine?.navigationChannel?.popRoute()", main)
+        self.assertIn("engine.navigationChannel.popRoute()", main)
         self.assertNotIn("override fun onBackPressed()", main)
         self.assertNotIn("return@registerForActivityResult", main)
         self.assertIn("handleTreePickerResult(result)", main)
@@ -488,7 +488,7 @@ E: manifest
         self.assertIn("private lateinit var systemUiController: SystemUiController", main)
         self.assertIn("systemUiController = SystemUiController(window)", main)
         self.assertIn("override fun onResume()", main)
-        self.assertIn("applyNormalSystemUi()", main)
+        self.assertIn("applyApplicationSystemUi()", main)
         self.assertIn("WindowCompat.getInsetsController(window, window.decorView)", controller)
         self.assertIn("setDecorFitsSystemWindows(window, false)", controller)
         self.assertNotIn("setDecorFitsSystemWindows(window, true)", controller)
@@ -536,14 +536,14 @@ E: manifest
         controller = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SystemUiController.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("systemUiController = SystemUiController(window)", main)
-        self.assertIn("applyNormalSystemUi()", main)
+        self.assertIn("applyApplicationSystemUi()", main)
         self.assertNotIn("applyImmersiveSystemUi()", main)
         self.assertIn("setDecorFitsSystemWindows(window, false)", controller)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("systemUiController = SystemUiController(window)", player)
         self.assertIn("systemUiController.applyImmersive()", player)
-        self.assertIn("systemUiController.applyNormal()", player)
+        self.assertIn("systemUiController.applyApplicationPolicy()", player)
         self.assertIn("ViewCompat.setOnApplyWindowInsetsListener(root)", player)
         self.assertNotIn("WindowInsetsControllerCompat(window, window.decorView)", player)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", controller)
@@ -853,8 +853,8 @@ class TestNativePlayerHardening(unittest.TestCase):
 
     def test_player_uses_media3_dependencies(self):
         gradle = (ROOT / "android" / "app" / "build.gradle.kts").read_text(encoding="utf-8")
-        self.assertIn('implementation("androidx.media3:media3-exoplayer:1.5.1")', gradle)
-        self.assertIn('implementation("androidx.media3:media3-ui:1.5.1")', gradle)
+        self.assertIn('implementation("androidx.media3:media3-exoplayer:1.11.1")', gradle)
+        self.assertIn('implementation("androidx.media3:media3-ui:1.11.1")', gradle)
 
 
 class TestFletAsyncCallbacks(unittest.TestCase):

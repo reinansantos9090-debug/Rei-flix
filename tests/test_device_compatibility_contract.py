@@ -26,10 +26,10 @@ class DeviceCompatibilityContractTests(unittest.TestCase):
         self.assertEqual(source.count("class SystemUiController"), 1)
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", source)
         self.assertIn("LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS", source)
+        application = source[source.index("fun applyApplicationPolicy()"):source.index("/** Player-specific alias")]
         normal = source[source.index("fun applyNormal()"):source.index("private fun applyEdgeToEdgeWindow")]
-        immersive = source[source.index("fun applyImmersive()"):source.index("fun applyNormal()")]
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", application)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", normal)
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", immersive)
         self.assertIn("UI_MODE_NIGHT_MASK", source)
         self.assertIn("isAppearanceLightStatusBars = !darkTheme", source)
         self.assertIn("isAppearanceLightNavigationBars = !darkTheme", source)
@@ -54,7 +54,7 @@ class DeviceCompatibilityContractTests(unittest.TestCase):
         exit_start = source.index("private fun restoreSystemUiBeforeExit")
         exit_end = source.index("private fun applyImmersiveAfterLayout", exit_start)
         exit_policy = source[exit_start:exit_end]
-        self.assertIn("systemUiController.applyNormal()", exit_policy)
+        self.assertIn("systemUiController.applyApplicationPolicy()", exit_policy)
         immersive_start = source.index("private fun enterImmersiveMode")
         immersive_end = source.index("private fun restoreSystemUiBeforeExit", immersive_start)
         immersive = source[immersive_start:immersive_end]
@@ -98,7 +98,7 @@ class DeviceCompatibilityContractTests(unittest.TestCase):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")
         manifest = MANIFEST.read_text(encoding="utf-8")
         self.assertIn("onBackPressedDispatcher.addCallback", main)
-        self.assertIn("flutterEngine?.navigationChannel?.popRoute()", main)
+        self.assertIn("engine.navigationChannel.popRoute()", main)
         self.assertIn('android:enableOnBackInvokedCallback="true"', manifest)
         self.assertNotIn("OnBackInvokedDispatcher.registerOnBackInvokedCallback", main)
 

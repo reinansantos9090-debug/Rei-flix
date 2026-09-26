@@ -151,6 +151,8 @@ class NativePlayerActivity : ComponentActivity() {
         Thread(runnable, "ReiFlix-PlayerIO").apply { isDaemon = true }
     }
     private var activeAnalyticsListener: AnalyticsListener? = null
+    private var firstFrameWatchGeneration = -1L
+    private val firstFrameDiagnosticTimeoutMs = 8_000L
 
     private val titleValue: String
         get() = intent.getStringExtra("title") ?: "Episódio"
@@ -191,6 +193,95 @@ class NativePlayerActivity : ComponentActivity() {
                 handler.postDelayed(this, PROGRESS_INTERVAL_MS)
             }
         }
+    }
+
+    /**
+     * Diagnostics-only first-frame watchdog. It never retries playback and never
+     * converts a slow renderer into an automatic error/restart loop.
+     */
+    private val firstFrameDiagnostic = object : Runnable {
+        override fun run() {
+            val generation = firstFrameWatchGeneration
+            if (generation < 0L ||
+                generation != playerGeneration ||
+                sessionState != SessionState.ACTIVE ||
+                firstFrameRenderedForTesting ||
+                errorVisible ||
+                !::player.isInitialized
+            ) {
+                return
+            }
+
+            val payload = diagnosticPayload()
+                .put("event", "FIRST_FRAME_TIMEOUT")
+                .put("generation", generation)
+                .put("playWhenReady", player.playWhenReady)
+                .put("videoWidth", player.videoSize.width)
+                .put("videoHeight", player.videoSize.height)
+                .put("playerViewAttached", ::playerView.isInitialized && playerView.isAttachedToWindow)
+                .put("playerViewVisible", ::playerView.isInitialized && playerView.isShown)
+                .put("playerViewWidth", if (::playerView.isInitialized) playerView.width else 0)
+                .put("playerViewHeight", if (::playerView.isInitialized) playerView.height else 0)
+                .put("windowFocus", window.decorView.hasWindowFocus())
+                .put("orientation", resources.configuration.orientation)
+                .put("surfaceType", "texture_view")
+
+            logPlayer(
+                "FIRST_FRAME_TIMEOUT requestId=" + requestId.ifEmpty { "-" } +
+                    " generation=" + generation +
+                    " state=" + player.playbackStateLabel() +
+                    " isPlaying=" + player.isPlaying +
+                    " playWhenReady=" + player.playWhenReady +
+                    " video=" + player.videoSize.width + "x" + player.videoSize.height +
+                    " playerView=" + playerView.width + "x" + playerView.height +
+                    " attached=" + playerView.isAttachedToWindow +
+                    " focus=" + window.decorView.hasWindowFocus() +
+                    " orientation=" + resources.configuration.orientation +
+                    " surfaceType=texture_view",
+            )
+            val written = NativeMailbox.write(
+                this@NativePlayerActivity,
+                JSONObject()
+                    .put("type", "player_diagnostic")
+                    .put("requestId", requestId)
+                    .put("payload", payload),
+            )
+            if (!written) {
+                logPlayer("FAILED_TO_PUBLISH player_diagnostic requestId=" + requestId.ifEmpty { "-" })
+            }
+            firstFrameWatchGeneration = -1L
+        }
+    }
+
+    private fun armFirstFrameDiagnostics(generation: Long) {
+        handler.removeCallbacks(firstFrameDiagnostic)
+        if (sessionState != SessionState.ACTIVE ||
+            firstFrameRenderedForTesting ||
+            errorVisible ||
+            generation != playerGeneration
+        ) {
+            firstFrameWatchGeneration = -1L
+            return
+        }
+        firstFrameWatchGeneration = generation
+        handler.postDelayed(firstFrameDiagnostic, firstFrameDiagnosticTimeoutMs)
+        logPlayer(
+            "FIRST_FRAME_WATCH_ARMED requestId=" + requestId.ifEmpty { "-" } +
+                " generation=" + generation +
+                " timeoutMs=" + firstFrameDiagnosticTimeoutMs,
+        )
+    }
+
+    private fun cancelFirstFrameDiagnostics(reason: String) {
+        handler.removeCallbacks(firstFrameDiagnostic)
+        if (firstFrameWatchGeneration >= 0L) {
+            logPlayer(
+                "FIRST_FRAME_WATCH_CANCELLED requestId=" + requestId.ifEmpty { "-" } +
+                    " generation=" + firstFrameWatchGeneration +
+                    " reason=" + reason,
+            )
+        }
+        firstFrameWatchGeneration = -1L
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -478,6 +569,7 @@ class NativePlayerActivity : ComponentActivity() {
         audioFormatSummary = null
         currentErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN
         pendingPreparation?.cancel(true)
+        cancelFirstFrameDiagnostics("prepare_start")
         if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
         logPlayer(
             "PREPARE_ASYNC_START generation=$generation requestId=" +
@@ -577,9 +669,16 @@ class NativePlayerActivity : ComponentActivity() {
             if (!isCurrent()) return
             if (events.contains(Player.EVENT_RENDERED_FIRST_FRAME)) {
                 firstFrameRenderedForTesting = true
+                cancelFirstFrameDiagnostics("first_frame")
                 if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
-                logPlayer("FIRST_FRAME_RENDERED requestId=" + requestId.ifEmpty { "-" } +
-                    " positionMs=" + player.currentPosition)
+                logPlayer(
+                    "FIRST_FRAME_RENDERED requestId=" + requestId.ifEmpty { "-" } +
+                        " generation=" + generation +
+                        " positionMs=" + player.currentPosition +
+                        " video=" + player.videoSize.width + "x" + player.videoSize.height +
+                        " playerView=" + playerView.width + "x" + playerView.height +
+                        " orientation=" + resources.configuration.orientation,
+                )
             }
         }
 
@@ -635,6 +734,9 @@ class NativePlayerActivity : ComponentActivity() {
                     updatePlayPauseButton()
                     updateProgressUi()
                     startProgressReporting()
+                    if (!firstFrameRenderedForTesting && !errorVisible) {
+                        armFirstFrameDiagnostics(generation)
+                    }
                     if (!errorVisible) scheduleControlsHide()
                 }
                 Player.STATE_BUFFERING -> {
@@ -724,6 +826,7 @@ class NativePlayerActivity : ComponentActivity() {
                 ),
             )
             currentErrorCategory = category
+            cancelFirstFrameDiagnostics("player_error")
             logPlayer(
                 "PlaybackException requestId=" + requestId.ifEmpty { "-" } +
                     " code=" + code + " detail=" + detail +
@@ -788,6 +891,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun beginPlayerGeneration(reason: String) {
         if (!::player.isInitialized || sessionState == SessionState.DESTROYED) return
+        cancelFirstFrameDiagnostics("new_generation")
         activePlayerListener?.let { player.removeListener(it) }
         activeAnalyticsListener?.let { player.removeAnalyticsListener(it) }
         activePlayerListener = null
@@ -908,6 +1012,7 @@ class NativePlayerActivity : ComponentActivity() {
             controllerAutoShow = false
             controllerHideOnTouch = false
             keepScreenOn = true
+            setKeepContentOnPlayerReset(true)
             setShutterBackgroundColor(Color.BLACK)
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
@@ -1534,6 +1639,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun diagnosticPayload(): JSONObject = JSONObject()
         .put("timestamp", System.currentTimeMillis())
+        .put("requestId", requestId)
         .put("mediaId", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("mediaId").orEmpty())
         .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
         .put("playerState", if (::player.isInitialized) player.playbackStateLabel() else "STATE_IDLE")
@@ -1550,6 +1656,18 @@ class NativePlayerActivity : ComponentActivity() {
         .put("audioTrackCount", if (::player.isInitialized) player.currentTracks.groups.count { it.type == C.TRACK_TYPE_AUDIO && it.isSupported } else 0)
         .put("subtitleTrackCount", if (::player.isInitialized) player.currentTracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported } else 0)
         .put("durationMs", if (::player.isInitialized) player.duration.coerceAtLeast(0L) else 0L)
+        .put("playWhenReady", if (::player.isInitialized) player.playWhenReady else false)
+        .put("firstFrameRendered", firstFrameRenderedForTesting)
+        .put("sessionState", sessionState.name)
+        .put("windowFocus", window.decorView.hasWindowFocus())
+        .put("orientation", resources.configuration.orientation)
+        .put("surfaceType", "texture_view")
+        .put("playerViewAttached", ::playerView.isInitialized && playerView.isAttachedToWindow)
+        .put("playerViewVisible", ::playerView.isInitialized && playerView.isShown)
+        .put("playerViewWidth", if (::playerView.isInitialized) playerView.width else 0)
+        .put("playerViewHeight", if (::playerView.isInitialized) playerView.height else 0)
+        .put("videoWidth", if (::player.isInitialized) player.videoSize.width else 0)
+        .put("videoHeight", if (::player.isInitialized) player.videoSize.height else 0)
 
     private fun ExoPlayer.playbackStateLabel(): String = when (playbackState) {
         Player.STATE_IDLE -> "STATE_IDLE"
@@ -1864,6 +1982,7 @@ class NativePlayerActivity : ComponentActivity() {
     private fun finishPlayer(reason: String) {
         if (sessionState == SessionState.DESTROYED) return
         sessionState = SessionState.EXITING
+        cancelFirstFrameDiagnostics("finish_player")
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         handler.removeCallbacks(controlsHider)
         handler.removeCallbacks(feedbackHider)
@@ -1958,10 +2077,14 @@ class NativePlayerActivity : ComponentActivity() {
         if (::player.isInitialized && !errorVisible) {
             updateProgressUi()
             updatePlayPauseButton()
+            if (player.playbackState == Player.STATE_READY && !firstFrameRenderedForTesting) {
+                armFirstFrameDiagnostics(playerGeneration)
+            }
         }
     }
 
     override fun onPause() {
+        cancelFirstFrameDiagnostics("pause")
         saveProgress("player_paused", force = true)
         logPlayer("onPause requestId=" + requestId.ifEmpty { "-" })
         super.onPause()
@@ -1992,9 +2115,8 @@ class NativePlayerActivity : ComponentActivity() {
             findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
             setControlsVisible(false)
         } else {
-            // Re-enter according to the configured immersive policy. PiP exit is
-            // a lifecycle/configuration boundary and must not force immersive
-            // when the user's setting says the player should not hide system bars.
+            // PiP exit is a lifecycle/configuration boundary. Reapply the
+            // application-wide immersive policy after Android returns focus.
             applyImmersiveAfterLayout()
             if (::player.isInitialized && player.isPlaying && !errorVisible) {
                 touchControls()
@@ -2007,9 +2129,19 @@ class NativePlayerActivity : ComponentActivity() {
         super.onConfigurationChanged(newConfig)
         logPlayer("onConfigurationChanged orientation=" + newConfig.orientation)
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
+        cancelFirstFrameDiagnostics("configuration_change")
         ViewCompat.requestApplyInsets(root)
         applyImmersiveAfterLayout()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.refreshZoomForLayout()
+        window.decorView.post {
+            if (::player.isInitialized &&
+                player.playbackState == Player.STATE_READY &&
+                !firstFrameRenderedForTesting &&
+                sessionState == SessionState.ACTIVE
+            ) {
+                armFirstFrameDiagnostics(playerGeneration)
+            }
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -2040,6 +2172,7 @@ class NativePlayerActivity : ComponentActivity() {
         handler.removeCallbacks(progressReporter)
         handler.removeCallbacks(controlsHider)
         handler.removeCallbacks(feedbackHider)
+        cancelFirstFrameDiagnostics("destroy")
         restoreSystemUiBeforeExit()
         pendingPreparation?.cancel(true)
         playbackWorker.shutdownNow()
@@ -2065,12 +2198,13 @@ class NativePlayerActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun shouldUseImmersive(): Boolean =
-        when (immersiveSetting) {
-            "never" -> false
-            "landscape" -> resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-            else -> true
-        }
+    /**
+     * System UI is an application-wide invariant. The legacy player preference
+     * is retained in the intent contract for compatibility, but it cannot make
+     * the application reveal status/navigation bars. Android-owned external
+     * surfaces manage their own system UI while they are in the foreground.
+     */
+    private fun shouldUseImmersive(): Boolean = true
 
     private fun applyConfiguredRotation() {
         requestedOrientation = when (intent.getStringExtra("setting_player_rotation") ?: "auto") {
@@ -2100,7 +2234,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun restoreSystemUiBeforeExit() {
         runCatching {
-            systemUiController.applyNormal()
+            systemUiController.applyApplicationPolicy()
             ViewCompat.requestApplyInsets(window.decorView)
             logPlayer("PLAYER_SYSTEM_UI_RESTORED requestId=" + requestId.ifEmpty { "-" })
         }.onFailure { error ->

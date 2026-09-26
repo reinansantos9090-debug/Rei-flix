@@ -1,6 +1,8 @@
 name: ReiFlix Android No-Emulator Contract Checks
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:

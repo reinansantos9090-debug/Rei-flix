@@ -28,9 +28,11 @@ class SystemUiController(private val window: Window) {
      * Android system gestures remain available because transient bars may be
      * revealed by an edge swipe; hiding the bars does not disable system Back.
      */
-    fun applyApplicationPolicy() {
+    fun applyApplicationPolicy(useContextAppearance: Boolean = true) {
         applyEdgeToEdgeWindow()
-        applySystemBarAppearance()
+        if (useContextAppearance) {
+            applySystemBarAppearance()
+        }
         controller.apply {
             systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -42,9 +44,11 @@ class SystemUiController(private val window: Window) {
     fun applyImmersive() = applyApplicationPolicy()
 
     /** Explicit non-immersive policy for an Activity that truly needs visible bars. */
-    fun applyNormal() {
+    fun applyNormal(useContextAppearance: Boolean = true) {
         applyEdgeToEdgeWindow()
-        applySystemBarAppearance()
+        if (useContextAppearance) {
+            applySystemBarAppearance()
+        }
         controller.apply {
             systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE

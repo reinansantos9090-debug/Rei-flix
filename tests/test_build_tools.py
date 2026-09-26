@@ -337,9 +337,19 @@ E: manifest
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
         self.assertIn('[tool.flet.app]', pyproject)
-        self.assertIn('exclude = ["tests", "docs", ".github"]', pyproject)
+        for entry in (
+            '"tests"', '"docs"', '".github"', '"android"', '"scripts"',
+            '".pytest_cache"', '".mypy_cache"', '"README.md"',
+            '"BACKUP_RESTORE.md"', '".env.example"', '".gitignore"',
+            '"pyproject.toml"', '"requirements.txt"',
+        ):
+            self.assertIn(entry, pyproject)
+        self.assertIn("Remove development caches before Flet packaging", workflow)
         self.assertIn("Verify APK contains no development test/docs artifacts", workflow)
-        self.assertIn('forbidden_roots = ("tests/", "docs/", ".github/")', workflow)
+        self.assertIn('"tests/", "docs/", ".github/", "android/", "scripts/"', workflow)
+        self.assertIn('".pytest_cache/", ".mypy_cache/", "__pycache__/", ".git/"', workflow)
+        self.assertIn('"Flat .pyc files are allowed because Flet 0.86 compiles the runtime application to bytecode."', workflow)
+
     def test_workflow_validates_effective_manifest_and_hash(self):
         workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
         verifier = (ROOT / "scripts/verify_apk_manifest.py").read_text(encoding="utf-8")

@@ -357,12 +357,6 @@ jobs:
             ./gradlew :app:testDebugUnitTest --no-daemon
           )
 
-      - name: Verify packaged Python identity and Back symbols
-        shell: bash
-        run: |
-          apk="build/ReiFlix.apk"
-          test -s build/reiflix-build-identity.json
-          python scripts/verify_python_bundle.py "$apk" --identity build/reiflix-build-identity.json
       - name: Locate APK
         id: apk
         shell: bash
@@ -375,6 +369,12 @@ jobs:
           test -s "$published"
           echo "path=$published" >> "$GITHUB_OUTPUT"
           file "$published"
+      - name: Verify packaged Python identity and Back symbols
+        shell: bash
+        run: |
+          apk="build/ReiFlix.apk"
+          test -s build/reiflix-build-identity.json
+          python scripts/verify_python_bundle.py "$apk" --identity build/reiflix-build-identity.json
 
       - name: Verify APK contains no Git metadata
         shell: bash
@@ -531,6 +531,7 @@ jobs:
             exit 1
           fi
           test -s build/reiflix-release-metadata.txt
+          test -s build/reiflix-build-identity.json
 
       - name: Create standalone APK ZIP
         shell: bash

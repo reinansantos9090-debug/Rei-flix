@@ -373,13 +373,27 @@ jobs:
           with ZipFile(apk_path) as apk:
               app_zip = apk.read("assets/app.zip")
           with ZipFile(BytesIO(app_zip)) as app:
-              forbidden_roots = ("tests/", "docs/", ".github/")
-              leaked = [name for name in app.namelist() if name.startswith(forbidden_roots)]
+              names = app.namelist()
+              forbidden_prefixes = (
+                  "tests/", "docs/", ".github/", "android/", "scripts/",
+                  ".pytest_cache/", ".mypy_cache/", "__pycache__/", ".git/",
+              )
+              forbidden_root_files = {
+                  "README.md", "BACKUP_RESTORE.md", ".env.example", ".gitignore",
+                  "pyproject.toml", "requirements.txt", ".coverage",
+              }
+              leaked = [
+                  name for name in names
+                  if name.startswith(forbidden_prefixes)
+                  or name in forbidden_root_files
+                  or name.endswith(".pyo")
+              ]
           if leaked:
               print("Development artifacts found in production app.zip:")
-              print("\n".join(leaked[:50]))
+              print("\n".join(leaked[:100]))
               raise SystemExit(1)
-          print("APK app.zip contains no tests/docs/.github development artifacts.")
+          print("APK app.zip contains no forbidden development/project artifacts.")
+          print("Flat .pyc files are allowed because Flet 0.86 compiles the runtime application to bytecode.")
           PY
       - name: Verify final APK permissions and target SDK
         shell: bash

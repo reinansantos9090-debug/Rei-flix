@@ -872,3 +872,38 @@ class TestFletAsyncCallbacks(unittest.TestCase):
         self.assertNotIn("page.run_task(lambda:", source)
         self.assertIn("async def run(_):", source)
         self.assertIn("inspect.isawaitable(result)", source)
+
+
+class Prompt1BuildIdentityContractTests(unittest.TestCase):
+    def test_main_does_not_reference_legacy_back_started(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertNotIn("back_started", main)
+        self.assertIn("back_state", main)
+        self.assertIn("from core.build_identity import as_dict as build_identity", main)
+        self.assertIn('diagnostics.record("BUILD_IDENTITY"', main)
+
+    def test_project_pins_python_312_for_flet_086(self):
+        project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
+        self.assertIn('requires-python = ">=3.12,<3.13"', project)
+        self.assertIn('flet==0.86.5', project)
+        self.assertIn('--python-version "3.12"', workflow)
+        self.assertIn("assert flet.__version__ == '0.86.5'", workflow)
+
+    def test_workflow_generates_and_verifies_packaged_python_identity(self):
+        workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
+        self.assertIn("scripts/generate_build_identity.py", workflow)
+        self.assertIn("scripts/verify_python_bundle.py", workflow)
+        self.assertIn(".reiflix-build-identity.json", workflow)
+        self.assertIn("Verify packaged Python identity and Back symbols", workflow)
+        self.assertIn("rm -rf build", workflow)
+        self.assertIn("git checkout -- core/build_identity.py", workflow)
+        self.assertIn('python-version "3.12"', workflow)
+        self.assertIn('versionName=\'0.2.1\'', workflow)
+
+    def test_flet_template_and_serious_python_path_are_not_hidden_by_legacy_build_outputs(self):
+        workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
+        self.assertIn("flet-build-template.zip", workflow)
+        self.assertIn("SERIOUS_PYTHON_SITE_PACKAGES", workflow)
+        self.assertIn("assets/app.zip", workflow)
+        self.assertNotIn("flet clear-cache", workflow)

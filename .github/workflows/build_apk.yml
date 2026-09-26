@@ -59,6 +59,32 @@ jobs:
           python -m pip install -r requirements.txt "flet[cli]==0.86.5" pytest
           flet --version
           flutter --version
+      - name: Validate exact Python and Flet toolchain
+        shell: bash
+        run: |
+          python --version
+          python -c "import flet; print('FLET_PYTHON_VERSION=' + flet.__version__); assert flet.__version__ == '0.86.5'"
+          flet --version
+          python -m pip show flet
+          python -m pip freeze | grep -i '^flet==' | tee build-flet-version.txt
+          grep -Fqx "flet==0.86.5" build-flet-version.txt
+
+      - name: Clean Flet build cache and generate immutable build identity
+        shell: bash
+        run: |
+          flet clean
+          mkdir -p build
+          python scripts/generate_build_identity.py \
+            --root . \
+            --python-output core/build_identity.py \
+            --json-output .reiflix-build-identity.json \
+            --python-runtime 3.12 \
+            --flet-version 0.86.5 \
+            --build-version 0.2.1 \
+            --build-number "$GITHUB_RUN_NUMBER"
+          test -s core/build_identity.py
+          test -s .reiflix-build-identity.json
+          git diff --check
 
       - name: Validate public Google configuration for Android build
         shell: bash
@@ -165,6 +191,12 @@ jobs:
           python scripts/prepare_flet_template.py \
             --template "$GITHUB_WORKSPACE/build/flet-build-template" \
             --overlay "$GITHUB_WORKSPACE/android"
+      - name: Audit Serious Python in rendered Flet template
+        shell: bash
+        run: |
+          grep -Rni "serious_python" build/flet-build-template | head -40
+          test -s build/flet-build-template/pubspec.yaml
+          grep -q "serious_python" build/flet-build-template/pubspec.yaml
 
       - name: Fix generated JSON files
         shell: bash
@@ -254,6 +286,7 @@ jobs:
             --template build/flet-build-template
             --build-number "$GITHUB_RUN_NUMBER"
             --build-version "0.2.1"
+            --python-version "3.12"
             --yes
             -v
           )
@@ -291,12 +324,25 @@ jobs:
           echo "::error::APK build failed after 3 attempts."
           exit 1
 
+      - name: Preserve build identity evidence
+        shell: bash
+        run: |
+          cp .reiflix-build-identity.json build/reiflix-build-identity.json
+          test -s build/reiflix-build-identity.json
+
       - name: Restore source configuration after build
         shell: bash
         run: |
           test -f build/app_config.source.py
           cp build/app_config.source.py app_config.py
           cmp -s build/app_config.source.py app_config.py
+
+      - name: Restore generated build identity source
+        shell: bash
+        run: |
+          git checkout -- core/build_identity.py
+          rm -f .reiflix-build-identity.json build-flet-version.txt
+          test "$(git status --porcelain -- core/build_identity.py .reiflix-build-identity.json build-flet-version.txt)" = ""
 
       - name: Run Android unit tests on rendered project
         shell: bash
@@ -323,6 +369,12 @@ jobs:
           test -s "$published"
           echo "path=$published" >> "$GITHUB_OUTPUT"
           file "$published"
+      - name: Verify packaged Python identity and Back symbols
+        shell: bash
+        run: |
+          apk="build/ReiFlix.apk"
+          test -s build/reiflix-build-identity.json
+          python scripts/verify_python_bundle.py "$apk" --identity build/reiflix-build-identity.json
 
       - name: Verify APK contains no Git metadata
         shell: bash
@@ -444,10 +496,19 @@ jobs:
             echo "commit_sha=${GITHUB_SHA}"
             echo "apk_path=${apk}"
             echo "apk_sha256=${sha256}"
+            python - <<'PY'
+            import json
+            from pathlib import Path
+            identity = json.loads(Path("build/reiflix-build-identity.json").read_text(encoding="utf-8"))
+            print(f"python_bundle_fingerprint={identity['python_bundle_fingerprint']}")
+            print(f"bundled_python_runtime={identity['python_runtime']}")
+            print(f"flet_version={identity['flet_version']}")
+            PY
             echo "signing_mode=${REIFLIX_SIGNING_MODE:-unknown}"
             echo "$badging" | grep -E "package: name=|versionCode=|versionName=|targetSdkVersion"
           } | tee build/reiflix-release-metadata.txt
           test -s build/reiflix-release-metadata.txt
+          test -s build/reiflix-build-identity.json
 
       - name: Print APK signing certificate fingerprints
         shell: bash
@@ -470,6 +531,7 @@ jobs:
             exit 1
           fi
           test -s build/reiflix-release-metadata.txt
+          test -s build/reiflix-build-identity.json
 
       - name: Create standalone APK ZIP
         shell: bash
@@ -508,4 +570,5 @@ jobs:
           path: |
             ${{ steps.apk.outputs.path }}.sha256
             build/reiflix-release-metadata.txt
+            build/reiflix-build-identity.json
           if-no-files-found: error

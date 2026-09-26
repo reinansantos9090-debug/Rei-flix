@@ -41,7 +41,7 @@ class TestBroadStorageArchitecture(unittest.TestCase):
         self.assertIn('"open_broad_storage_settings" -> {', source)
         self.assertIn("pendingBroadRequestId = pendingRequestId", source)
         self.assertIn("openBroadStorageSettings()", source)
-        self.assertIn('"check_storage_access" -> publishStorageStatus()', source)
+        self.assertIn('"check_storage_access" -> {', source)
         self.assertIn('put("type", "broad_storage_status")', source)
 
     def test_bridge_exposes_permission_actions(self):

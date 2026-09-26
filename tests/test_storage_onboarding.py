@@ -257,7 +257,7 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertIn('getQueryParameter("request_id")', main)
         self.assertIn("nativeRequestState", main)
         self.assertIn("NativeRequestState.isSupportedAction", main)
-        self.assertIn("Ignoring duplicate native request", main)
+        self.assertIn("COMMAND_DUPLICATE", main)
 
     def test_activity_preserves_request_state_across_recreation(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
@@ -476,7 +476,7 @@ class TestAuthorizedStorageDiscovery(unittest.TestCase):
     def test_media_permission_transition_and_existing_access_converge_to_scan(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("mediaAccessChangedToUsable", source)
-        request = source[source.index("private fun requestMediaAccess()"):source.index("private fun publishStorageStatus()", source.index("private fun requestMediaAccess()"))]
+        request = source[source.index("private fun requestMediaAccess()"):source.index("private fun publishStorageStatus(requestId: String? = null)", source.index("private fun requestMediaAccess()"))]
         self.assertIn("if (currentAccess != \"denied\")", request)
         self.assertIn("publishScanRequest(", request)
         callback = source[source.index("private val mediaPermissionRequester"):source.index("private val treePicker", source.index("private val mediaPermissionRequester"))]

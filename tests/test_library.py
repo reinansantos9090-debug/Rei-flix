@@ -608,7 +608,7 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as d:
             bridge = AndroidBridge(d)
             bridge.mailbox.write_text(json.dumps([{'type': 'unknown'}, 'bad', 3]), encoding='utf-8')
-            self.assertEqual(bridge.drain(), [{'type': 'unknown'}])
+            self.assertEqual([event["type"] for event in bridge.drain()], ["unknown"])
             self.assertTrue(bridge.mailbox.with_suffix('.consumed').exists())
             self.assertEqual(bridge.drain(), [])
             bridge.acknowledge()

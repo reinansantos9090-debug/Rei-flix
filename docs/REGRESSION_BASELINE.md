@@ -15,7 +15,7 @@ The inspected HEAD contains NativeMailbox, NativeIndex, LibraryStore, LibrarySer
 
 | ID | Problem | Current evidence | State | Area owner |
 |---|---|---|---|---|
-| RF-001 | Android Back | MainActivity uses OnBackPressedCallback, writes android_back to NativeMailbox; main.py consumes it with navigate_back. | REGRESSÃO / ANÁLISE ESTÁTICA | navigation / lifecycle |
+| RF-001 | Android Back | MainActivity uses one OnBackPressedCallback and forwards one physical Back to Flet's navigationChannel.popRoute(); Python consumes page.on_view_pop with navigate_back(). NativeMailbox is not the Back transport. | CORRIGIDO / ANÁLISE ESTÁTICA | navigation / lifecycle |
 | RF-002 | Library reload | MainActivity.onResume contains authorized scanMediaStore(null) / scanAllStorage(null); observers can also schedule scans. | REGRESSÃO POTENCIAL / ANÁLISE ESTÁTICA | lifecycle / scanning |
 | RF-003 | Organize click | open_collection is async def while category/genre cards bind directly to on_click lambdas. | REGRESSÃO POTENCIAL / ANÁLISE ESTÁTICA | organize navigation |
 | RF-004 | Genre limitation | Local GenreClassifier has 7 heuristic rules; AniList stores provider genres separately. The reported 16-item display limit is not proven to be a global hardcoded limit. | PARCIAL / INCONCLUSIVO | genre / catalog |
@@ -28,9 +28,9 @@ The inspected HEAD contains NativeMailbox, NativeIndex, LibraryStore, LibrarySer
 ## Key findings
 
 ### Android Back
-The current MainActivity intercepts Android Back with AndroidX OnBackPressedCallback, generates a request ID, writes an android_back NativeMailbox event and lets Python call navigate_back(). The player has its own OnBackPressedCallback and finishes itself with android_back.
+The current MainActivity intercepts Android Back with one AndroidX OnBackPressedCallback and forwards the physical event directly to Flutter/Flet through navigationChannel.popRoute(). Flet's page.on_view_pop is the single Python navigation entry point and calls navigate_back() exactly once. The player has its own OnBackPressedCallback and finishes itself locally; it does not route Back through the Python mailbox.
 
-This is an existing cross-layer contract, not a missing feature. navigation / lifecycle should decide whether it remains mailbox-mediated or moves toward direct/native navigation while preserving the Flet stack.
+This is the existing single navigation contract. Do not reintroduce a Back mailbox or a second native navigation authority; Android dispatches, Flet receives popRoute, and NavigationController decides the logical result.
 
 AndroidX documents OnBackPressedDispatcher/OnBackPressedCallback and integration with OnBackInvokedDispatcher for Android 13+ predictive Back. citeturn0search3turn0search13
 

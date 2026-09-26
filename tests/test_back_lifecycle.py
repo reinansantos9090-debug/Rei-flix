@@ -24,6 +24,12 @@ class BackLifecycleTests(unittest.TestCase):
         handler = source[source.index("private fun installSystemBackHandler"):source.index("private fun persistedSafTreeUris")]
         self.assertNotIn("finish()", handler)
 
+    def test_flet_view_pop_dispatches_exactly_one_logical_back_operation(self):
+        handler = source[source.index("def handle_flet_view_pop"):source.index("def navigate_home")]
+        self.assertEqual(handler.count("navigate_back("), 1)
+        self.assertIn('navigate_back(f"flet_view_pop:{pop_id}")', handler)
+        self.assertNotIn('navigate_back("flet_view_pop")', handler)
+
     def test_flet_is_the_python_navigation_surface_for_system_back(self):
         source = self.read(MAIN)
         self.assertIn("page.views.clear()", source)

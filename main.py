@@ -534,9 +534,6 @@ async def main(page: ft.Page):
         )
         navigate_back(f"flet_view_pop:{pop_id}")
 
-
-        navigate_back("flet_view_pop")
-
     def navigate_home():
         navigation.reset_to_root()
         render_current()

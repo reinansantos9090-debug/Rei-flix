@@ -506,14 +506,7 @@ jobs:
             echo "commit_sha=${GITHUB_SHA}"
             echo "apk_path=${apk}"
             echo "apk_sha256=${sha256}"
-            python - <<'PY'
-            import json
-            from pathlib import Path
-            identity = json.loads(Path("build/reiflix-build-identity.json").read_text(encoding="utf-8"))
-            print(f"python_bundle_fingerprint={identity['python_bundle_fingerprint']}")
-            print(f"bundled_python_runtime={identity['python_runtime']}")
-            print(f"flet_version={identity['flet_version']}")
-            PY
+            python -c 'import json; from pathlib import Path; x=json.loads(Path("build/reiflix-build-identity.json").read_text(encoding="utf-8")); print("python_bundle_fingerprint="+x["python_bundle_fingerprint"]); print("bundled_python_runtime="+x["python_runtime"]); print("flet_version="+x["flet_version"])'
             echo "signing_mode=${REIFLIX_SIGNING_MODE:-unknown}"
             echo "$badging" | grep -E "package: name=|versionCode=|versionName=|targetSdkVersion"
           } | tee build/reiflix-release-metadata.txt

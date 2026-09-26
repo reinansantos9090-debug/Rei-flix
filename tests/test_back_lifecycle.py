@@ -2,6 +2,7 @@ from pathlib import Path
 import unittest
 
 
+
 ROOT = Path(__file__).resolve().parents[1]
 MAIN_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt"
 PLAYER_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt"
@@ -25,6 +26,7 @@ class BackLifecycleTests(unittest.TestCase):
         self.assertNotIn("finish()", handler)
 
     def test_flet_view_pop_dispatches_exactly_one_logical_back_operation(self):
+        source = self.read(MAIN)
         handler = source[source.index("def handle_flet_view_pop"):source.index("def navigate_home")]
         self.assertEqual(handler.count("navigate_back("), 1)
         self.assertIn('navigate_back(f"flet_view_pop:{pop_id}")', handler)

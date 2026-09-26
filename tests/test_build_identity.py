@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -36,11 +37,16 @@ class BuildIdentityTests(unittest.TestCase):
             subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True)
             subprocess.run(["git", "add", "."], cwd=root, check=True)
             subprocess.run(["git", "commit", "-qm", "test"], cwd=root, check=True)
+            temp_head = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True
+            ).strip()
+            env = os.environ.copy()
+            env["GITHUB_SHA"] = temp_head
             subprocess.run(
                 [sys.executable, str(GENERATE), "--root", str(root),
                  "--python-output", str(root / "core" / "build_identity.py"),
                  "--json-output", str(root / "build-identity.json")],
-                cwd=ROOT, check=True,
+                cwd=ROOT, env=env, check=True,
             )
             manifest = json.loads((root / "build-identity.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["version"], "0.2.1")

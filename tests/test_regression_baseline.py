@@ -5,7 +5,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-class Prompt1RegressionBaselineTests(unittest.TestCase):
+class RegressionBaselineTests(unittest.TestCase):
     """Static regression baseline; it does not replace device/runtime validation."""
 
     def read(self, path):

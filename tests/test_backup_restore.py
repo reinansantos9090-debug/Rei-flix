@@ -17,7 +17,7 @@ from core.scan_coordinator import ScanCoordinator, ScanOrigin
 from core.settings import SettingsStore
 
 
-class Prompt15BackupRestoreTests(unittest.TestCase):
+class BackupRestoreTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)

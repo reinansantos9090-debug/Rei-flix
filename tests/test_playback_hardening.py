@@ -8,7 +8,7 @@ POLICY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/PlayerMed
 GRADLE = ROOT / "android/app/build.gradle.kts"
 
 
-class Prompt13PlaybackHardeningTests(unittest.TestCase):
+class PlaybackHardeningTests(unittest.TestCase):
     def test_player_uses_local_media3_without_parallel_decoder_stack(self):
         player = PLAYER.read_text(encoding="utf-8")
         gradle = GRADLE.read_text(encoding="utf-8")
@@ -75,7 +75,7 @@ class Prompt13PlaybackHardeningTests(unittest.TestCase):
         self.assertIn("durationMs <= 0L", policy)
         self.assertIn("requestedMs.coerceIn(0L, lastPlayable)", policy)
 
-    def test_prompt12_contract_remains_present(self):
+    def test_gesture_contract_remains_present(self):
         player = PLAYER.read_text(encoding="utf-8")
         for token in (
             "horizontal_seek",

@@ -9,7 +9,7 @@ from core.library_store import LibraryStore
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class Prompt6HomeLibraryTests(unittest.TestCase):
+class HomeLibraryTests(unittest.TestCase):
     def test_service_bounded_catalog_projection_reuses_canonical_store(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

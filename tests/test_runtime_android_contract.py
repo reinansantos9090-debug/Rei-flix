@@ -140,7 +140,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             self.assertIn(token, source)
         self.assertNotIn("calculateCloudStreamSeekTarget", source)
 
-    def test_prompt12_generation_back_immersive_and_error_contracts(self):
+    def test_generation_back_immersive_and_error_contracts(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         required = (
             "playerGeneration",

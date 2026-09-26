@@ -7,11 +7,11 @@ import unittest
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
-SCRIPT=ROOT/"scripts"/"prompt15_certification.py"
+SCRIPT=ROOT/"scripts"/"release_certification.py"
 sys.path.insert(0,str(ROOT/"scripts"))
-import prompt15_certification as runner
+import release_certification as runner
 
-class Prompt15CertificationRunnerTests(unittest.TestCase):
+class CertificationRunnerTests(unittest.TestCase):
     def test_matrix_has_exactly_201_unique_real_requirements(self):
         self.assertEqual(len(runner.REQUIREMENTS),201)
         ids=[x[0] for x in runner.REQUIREMENTS]
@@ -22,7 +22,7 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
         self.assertEqual(len(reqs),len(set(reqs)))
         self.assertTrue(all(reqs))
         self.assertTrue(all(areas))
-        self.assertTrue(all(not x.startswith("Prompt 15.1 item") for x in reqs))
+        self.assertTrue(all(not x.startswith("old generic requirement label item") for x in reqs))
 
     def test_classifications_are_exactly_the_allowed_set(self):
         self.assertEqual(runner.ALLOWED,{"PASS","PARTIAL","FAIL","NOT VALIDATED","NOT APPLICABLE","BLOCKED"})
@@ -90,8 +90,8 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
             (root/"android/app/src/main/kotlin/com/reiflix/reiflix_local").mkdir(parents=True)
             (root/"android/app/src/main/kotlin/com/reiflix/reiflix_local"/"MainActivity.kt").write_text("// MainActivity\n",encoding="utf-8")
             (root/"android/app/src/main/kotlin/com/reiflix/reiflix_local"/"NativePlayerActivity.kt").write_text("// player\n",encoding="utf-8")
-            (root/"tests"/"test_prompt2_back_lifecycle.py").write_text("",encoding="utf-8")
-            (root/"tests"/"test_prompt14_device_compatibility_contract.py").write_text("",encoding="utf-8")
+            (root/"tests"/"test_back_lifecycle.py").write_text("",encoding="utf-8")
+            (root/"tests"/"test_device_compatibility_contract.py").write_text("",encoding="utf-8")
             (root/"tests"/"test_runtime_android_contract.py").write_text("",encoding="utf-8")
             results={"pytest":runner.Result("Python","pytest","PASS"),"unittest":runner.Result("Python","unittest","PASS")}
             item=next(x for x in runner.REQUIREMENTS if x[2]=="MainActivity uses singleTask launch semantics")
@@ -150,11 +150,11 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
             self.assertEqual(result["not_discovered"],[])
             self.assertEqual(result["ignored_non_test_files"],["tests/test_helper.py"])
 
-    def test_workflow_and_report_are_named_prompt15_5(self):
+    def test_workflow_and_report_are_named_release_certification(self):
         workflow=(ROOT/".github/workflows/build_apk.yml").read_text(encoding="utf-8")
-        self.assertIn("Run Prompt 15.5 evidence certification",workflow)
-        self.assertIn("name: prompt15-5-certification",workflow)
-        self.assertNotIn("Run Prompt 15.3 evidence certification",workflow)
+        self.assertIn("Run Release certification evidence certification",workflow)
+        self.assertIn("name: release-certification",workflow)
+        self.assertNotIn("Run release evidence certification",workflow)
 
     def test_rendered_gradle_environment_uses_staged_site_packages(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -194,7 +194,7 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
             (root/"tests"/"test_sample.py").write_text("def test_sample():\n    assert True\n",encoding="utf-8")
             subprocess.run(["git","init","-q",str(root)],check=True)
             subprocess.run(["git","-C",str(root),"config","user.email","test@example.invalid"],check=True)
-            subprocess.run(["git","-C",str(root),"config","user.name","Prompt15 Test"],check=True)
+            subprocess.run(["git","-C",str(root),"config","user.name","Certification Test"],check=True)
             subprocess.run(["git","-C",str(root),"add","."],check=True)
             subprocess.run(["git","-C",str(root),"commit","-qm","fixture"],check=True)
             out=root/"out.json"; report=root/"report.md"; matrix=root/"matrix.json"
@@ -204,7 +204,7 @@ class Prompt15CertificationRunnerTests(unittest.TestCase):
             rows=json.loads(matrix.read_text(encoding="utf-8"))
             self.assertEqual(len(rows),201)
             self.assertEqual(len({x["ID"] for x in rows}),201)
-            self.assertTrue(all(not x["Requirement"].startswith("Prompt 15.1 item") for x in rows))
+            self.assertTrue(all(not x["Requirement"].startswith("old generic requirement label item") for x in rows))
             self.assertEqual(sum(data["matrix_counts"].values()),201)
             self.assertEqual(data["classification"],"NOT CERTIFIED")
             self.assertEqual(data["matrix_counts"]["PASS"],0)

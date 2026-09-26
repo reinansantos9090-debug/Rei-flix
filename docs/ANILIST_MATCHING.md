@@ -26,4 +26,4 @@ A persisted AniList ID and metadata are reused offline. A missing network connec
 
 ## Genre integration
 
-When a match supplies genres, they continue through the existing GenreRegistry from Prompt 6. No second genre store is introduced.
+When a match supplies genres, they continue through the existing GenreRegistry from the existing genre integration. No second genre store is introduced.

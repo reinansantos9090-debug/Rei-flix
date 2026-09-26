@@ -119,7 +119,7 @@ O LibraryService.finish_ingest_documents() já exige uma generation completa e s
 
 Assim, um scan parcial ou cancelado não significa que tudo que não apareceu foi removido.
 
-O endurecimento definitivo de permissões, volumes e acesso parcial continua no Prompt 4.
+O endurecimento definitivo de permissões, volumes e acesso parcial permanece documentado no fluxo de storage.
 
 ## Refresh da UI
 O resultado de cada scanner pode conter vários lotes/volumes, mas o Coordinator só sinaliza logical_finished ao terminar a execução lógica inteira.
@@ -154,4 +154,4 @@ Esta fase não implementa:
 - Settings Center
 - backup/restore
 
-Storage e permissões continuam sendo aprofundados no Prompt 4.
+Storage e permissões são mantidos pelo fluxo de storage e seus contratos.

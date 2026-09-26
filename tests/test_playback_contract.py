@@ -8,7 +8,7 @@ MANIFEST = ROOT / "android/app/src/main/AndroidManifest.xml"
 MAIN = ROOT / "main.py"
 
 
-class Prompt5PlaybackContractTests(unittest.TestCase):
+class PlaybackContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.player = PLAYER.read_text(encoding="utf-8")

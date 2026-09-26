@@ -14,7 +14,7 @@ INSTRUMENTED_WORKFLOW = ROOT / ".github/workflows/android_instrumented.yml"
 INSTRUMENTED_SCRIPT = ROOT / "scripts/run_android_instrumented_diagnostic.sh"
 
 
-class Prompt14DeviceCompatibilityContractTests(unittest.TestCase):
+class DeviceCompatibilityContractTests(unittest.TestCase):
     def test_android_sdk_contract_is_explicit_and_stable(self):
         source = GRADLE.read_text(encoding="utf-8")
         self.assertIn("compileSdk = 36", source)
@@ -80,9 +80,9 @@ class Prompt14DeviceCompatibilityContractTests(unittest.TestCase):
         self.assertIn("wrap=True", block)
         self.assertNotIn("width=470)", block)
 
-    def test_prompt14_2_certification_has_no_emulator_matrix(self):
+    def test_certification_has_no_emulator_matrix(self):
         workflow = INSTRUMENTED_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("ReiFlix Prompt 14.2 No-Emulator Contract Checks", workflow)
+        self.assertIn("ReiFlix Android No-Emulator Contract Checks", workflow)
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("pytest -q", workflow)
         self.assertIn("python -m unittest discover", workflow)

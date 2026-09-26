@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-O Prompt 17 usa CloudStream, Nova Video Player e Animiru/AnIyomi somente como referências de comportamento e de organização de opções. Nenhum branding, tela ou código desses projetos foi copiado.
+As opções avançadas usam CloudStream, Nova Video Player e Animiru/AnIyomi somente como referências de comportamento e de organização de opções. Nenhum branding, tela ou código desses projetos foi copiado.
 
 CloudStream mantém um player configurável, mas seu projeto é GPL-3.0 e seu foco inclui extensões/fontes/streaming; essas partes não foram incorporadas ao Rei-Flix.  
 Nova Video Player documenta gestos, velocidade, aspect ratio e modos de reprodução para mídia local; seu repositório é Apache-2.0.  

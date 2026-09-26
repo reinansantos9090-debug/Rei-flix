@@ -129,7 +129,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
 
     def test_android_certification_is_manual_without_emulators(self):
         workflow = (ROOT / ".github/workflows/android_instrumented.yml").read_text(encoding="utf-8")
-        self.assertIn("ReiFlix Prompt 14.2 No-Emulator Contract Checks", workflow)
+        self.assertIn("ReiFlix Android No-Emulator Contract Checks", workflow)
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("pytest -q", workflow)
         self.assertIn("python -m unittest discover", workflow)

@@ -127,13 +127,13 @@ jobs:
               "tests.test_build_tools.TestNativePlayerHardening.test_native_player_reapplies_immersive_mode_on_resume",
               "tests.test_build_tools.TestNativePlayerHardening.test_player_uses_media3_dependencies",
               "tests.test_media_store.TestMediaStoreAndroidHost.test_player_accepts_saf_or_media_store_without_path_conversion",
-              "tests.test_prompt2_back_lifecycle",
+              "tests.test_back_lifecycle",
               "tests.test_runtime_android_contract",
               "tests.test_player_consumption_cycle",
               "tests.test_broad_storage.TestBroadStorageArchitecture.test_player_pip_has_manifest_and_device_feature_fallback",
-              "tests.test_prompt13_playback_hardening",
-              "tests.test_prompt13_lifecycle_contract",
-              "tests.test_prompt1_regression_baseline.Prompt1RegressionBaselineTests.test_player_contracts_and_horizontal_seek_are_present",
+              "tests.test_playback_hardening",
+              "tests.test_lifecycle_contract",
+              "tests.test_regression_baseline.RegressionBaselineTests.test_player_contracts_and_horizontal_seek_are_present",
           ]
 
           suite = unittest.TestSuite(
@@ -407,29 +407,29 @@ jobs:
             --expected-version-code "$GITHUB_RUN_NUMBER" \
             --expected-version-name "0.2.1"
 
-      - name: Run Prompt 15.5 evidence certification (no emulator)
+      - name: Run release evidence certification (no emulator)
         shell: bash
         run: |
-          python scripts/prompt15_certification.py \
+          python scripts/release_certification.py \
             --root . \
             --gradle-root build/flutter/android \
             --apk "${{ steps.apk.outputs.path }}" \
             --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
-            --output build/prompt15-certification.json \
-            --report build/prompt15-certification.md \
-            --matrix build/prompt15-201-matrix.json \
+            --output build/release-certification.json \
+            --report build/release-certification.md \
+            --matrix build/release-certification-matrix.json \
             --prevalidated-compileall \
             --prevalidated-gradle
 
-      - name: Upload Prompt 15.5 certification evidence
+      - name: Upload release certification evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: prompt15-5-certification
+          name: release-certification
           path: |
-            build/prompt15-certification.json
-            build/prompt15-certification.md
-            build/prompt15-201-matrix.json
+            build/release-certification.json
+            build/release-certification.md
+            build/release-certification-matrix.json
           if-no-files-found: error
 
       - name: Print and publish APK SHA-256

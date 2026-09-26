@@ -7,7 +7,7 @@ from core.library_service import LibraryService
 from core.library_store import LibraryStore
 
 
-class Prompt9StorePaginationTests(unittest.TestCase):
+class StorePaginationTests(unittest.TestCase):
     def _seed(self, store, count=40):
         for index in range(count):
             anime_id = store.upsert_anime(
@@ -181,7 +181,7 @@ class Prompt9StorePaginationTests(unittest.TestCase):
             self.assertEqual(second, sections["next_episode"][0]["next_episode"]["path"])
 
 
-class Prompt9ServiceAndSourceTests(unittest.TestCase):
+class ServiceAndSourceTests(unittest.TestCase):
     def test_service_exposes_paged_catalog_and_bounded_home_sections(self):
         with tempfile.TemporaryDirectory() as directory:
             service = LibraryService(LibraryStore(directory))

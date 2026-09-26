@@ -18,7 +18,7 @@ MANIFEST = ROOT / "android/app/src/main/AndroidManifest.xml"
 BRIDGE = ROOT / "core/android_bridge.py"
 
 
-class TestPrompt4StoragePermissionFlow(unittest.TestCase):
+class TestStoragePermissionFlow(unittest.TestCase):
     def test_permission_states_are_explicit_and_distinct(self):
         self.assertEqual(StorageAccessState.MEDIA_DENIED.value, "media_denied")
         self.assertEqual(StorageAccessState.MEDIA_PARTIAL.value, "media_partial")

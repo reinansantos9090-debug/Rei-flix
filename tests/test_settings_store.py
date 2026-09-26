@@ -47,7 +47,7 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(self.settings.get("player.default_speed"), 1.0)
         self.assertEqual(self.settings.get("appearance.theme"), "light")
 
-    def test_prompt17_advanced_defaults_persist_and_reset(self):
+    def test_advanced_defaults_persist_and_reset(self):
         self.assertEqual(self.settings.get("player.double_tap_seek_seconds"), 10)
         self.assertEqual(self.settings.get("player.long_press_speed"), 2.0)
         self.assertEqual(self.settings.get("player.max_video_resolution"), "auto")

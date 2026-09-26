@@ -1113,7 +1113,7 @@ class LibraryService:
     def clear_anilist_cache(self):
         """Compatibility facade for Settings: clear refreshable artwork safely."""
         removed = self.clear_artwork_cache()
-        # Prompt-1..7 stored AniList covers directly in store.cache_dir.
+        # legacy stored AniList covers directly in store.cache_dir.
         # Keep that legacy cache migration-safe: only files in the dedicated
         # covers root are removed; the new artwork/ subdirectory is owned by
         # ArtworkEngine and was already cleared above.

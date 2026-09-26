@@ -7,7 +7,7 @@ PLAYER_PATH = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/Nati
 ANDROID_TEST_PATH = ROOT / "android/app/src/test/kotlin/com/reiflix/reiflix_local/PlayerGesturePolicyTest.kt"
 
 
-class Prompt4PlayerGestureUxTests(unittest.TestCase):
+class PlayerGestureUxTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.player = PLAYER_PATH.read_text(encoding="utf-8")

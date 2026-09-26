@@ -14,7 +14,7 @@ HOME = ROOT / "views/home_view.py"
 ORGANIZE = ROOT / "views/organize_view.py"
 
 
-class Prompt13LifecycleContractTests(unittest.TestCase):
+class LifecycleContractTests(unittest.TestCase):
     def test_main_activity_restores_recreation_state_and_limits_scan_cancel_to_true_finish(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
         for token in (

@@ -1,4 +1,4 @@
-name: ReiFlix Prompt 14.2 No-Emulator Contract Checks
+name: ReiFlix Android No-Emulator Contract Checks
 
 on:
   workflow_dispatch:

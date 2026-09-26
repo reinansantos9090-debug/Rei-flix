@@ -9,7 +9,7 @@ MANIFEST = ROOT / "android/app/src/main/AndroidManifest.xml"
 MAIN = ROOT / "main.py"
 
 
-class Prompt2BackLifecycleTests(unittest.TestCase):
+class BackLifecycleTests(unittest.TestCase):
     def read(self, path):
         return path.read_text(encoding="utf-8")
 

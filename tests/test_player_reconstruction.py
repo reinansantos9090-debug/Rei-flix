@@ -7,7 +7,7 @@ PLAYER = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePla
 LAYOUT = ROOT / "android/app/src/main/res/layout/native_player_view.xml"
 
 
-class Prompt3PlayerReconstructionTests(unittest.TestCase):
+class PlayerReconstructionTests(unittest.TestCase):
     def setUp(self):
         self.player = PLAYER.read_text(encoding="utf-8")
         self.layout = LAYOUT.read_text(encoding="utf-8")

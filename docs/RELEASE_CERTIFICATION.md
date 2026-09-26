@@ -1,12 +1,12 @@
-# Rei-Flix — Prompt 15.5 Final Certification
+# Rei-Flix — Release Certification
 
 ## Scope
 
-Prompt 15.5 finalizes the evidence-first certification started in Prompt 15.2. It corrects the observed certification failure and tightens requirement-specific evidence without rewriting production architecture.
+Release certification finalizes the evidence-first certification started in earlier certification stage. It corrects the observed certification failure and tightens requirement-specific evidence without rewriting production architecture.
 
 The certification runner is:
 
-    python scripts/prompt15_certification.py
+    python scripts/release_certification.py
 
 The runner now owns the executable certification evidence for Python, pytest collection, deterministic repeated pytest execution, unittest discovery, skip/xfail auditing, Android unit tests, Gradle lint discovery/execution, ADB availability, APK forensic inspection, and the 201-item matrix.
 
@@ -30,7 +30,7 @@ Every row records:
 
 ID, Requirement, Area, Implementation reference, Existing test reference, Command, Execution status, Result, Evidence, Limitation.
 
-The runner rejects the old generic form such as "Prompt 15.1 item N" and derives totals directly from the generated rows.
+The runner rejects the old generic form such as "Certification requirement N" and derives totals directly from the generated rows.
 
 ## Evidence rules
 
@@ -55,7 +55,7 @@ BLOCKED is reserved for an executable check that the environment prevented from 
 
 ## No-device policy
 
-Prompt 15.5 does not start:
+This certification does not start:
 
 - Android Emulator / AVD
 - connected instrumentation
@@ -131,16 +131,16 @@ Production code is changed only when the executable/static audit exposes an actu
 
 The certification run writes:
 
-- build/prompt15-certification.json
-- build/prompt15-certification.md
-- build/prompt15-201-matrix.json
+- build/release-certification.json
+- build/release-certification.md
+- build/release-certification-matrix.json
 
-The GitHub Actions workflow uploads the three certification artifacts with the prompt15-5-certification artifact name.
+The GitHub Actions workflow uploads the three certification artifacts with the release-certification artifact name.
 
 ## Final status
 
-The final classification and 201-item totals in this document are intentionally sourced from the actual Prompt 15.2 workflow run rather than manually copied numbers. The workflow is blocking on executable failures, while explicit no-device limitations remain NOT VALIDATED.
+The final classification and 201-item totals in this document are intentionally sourced from the actual earlier certification stage workflow run rather than manually copied numbers. The workflow is blocking on executable failures, while explicit no-device limitations remain NOT VALIDATED.
 
-## Prompt 15.5 evidence rule
+## Release certification evidence rule
 
 A functional row is not promoted to PASS merely because its implementation file exists and the shared pytest suite passes. PASS requires a requirement-specific static assertion, targeted evidence, package/manifest forensic result, or another objective check recorded in the row. Shared suite coverage without that direct proof remains PARTIAL.

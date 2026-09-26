@@ -9,7 +9,7 @@ from core.library_store import LibraryStore
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class Prompt7SearchDetailsOrganizeTests(unittest.TestCase):
+class SearchDetailsOrganizeTests(unittest.TestCase):
     def test_sqlite_search_uses_shared_normalization_for_case_punctuation_and_accents(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

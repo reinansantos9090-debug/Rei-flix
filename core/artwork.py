@@ -175,7 +175,7 @@ class ArtworkEngine:
             )
 
             # Backfill deterministic keys for records created by the older
-            # Prompt-1..7 artwork implementation.
+            # legacy artwork implementation.
             rows = con.execute(
                 "SELECT id,entity_type,entity_id,artwork_type,source,source_ref,variant "
                 "FROM artwork WHERE artwork_key IS NULL"

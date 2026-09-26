@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prompt 14.2: manual/physical-device diagnostic only; the no-emulator
+# Android no-emulator: manual/physical-device diagnostic only; the no-emulator
 # certification workflow does not invoke this script or launch AVDs.
 set -Eeuo pipefail
 

@@ -6,7 +6,7 @@ import org.junit.Test
 
 class PlayerAdvancedSettingsTest {
     @Test
-    fun media3TrackConstraintsAcceptPrompt17Limits() {
+    fun media3TrackConstraintsAcceptConfiguredLimits() {
         val parameters = TrackSelectionParameters.Builder()
             .setMaxVideoSize(1920, 1080)
             .setMaxVideoFrameRate(30)

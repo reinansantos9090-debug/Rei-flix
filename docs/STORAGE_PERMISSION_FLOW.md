@@ -1,6 +1,6 @@
 # Rei-Flix — Storage / Permission Flow 3.0
 
-This document records the storage contract hardened in Prompt 4.
+This document records the hardened storage permission contract.
 
 ## Authority
 
@@ -80,7 +80,7 @@ logical scan coordinator.
 ## Deduplication
 
 MediaStore, SAF and Broad Storage may discover the same physical media. Native
-identity/fingerprint logic is retained; Prompt 4 does not replace NativeIndex,
+identity/fingerprint logic is retained; The storage hardening does not replace NativeIndex,
 LibraryStore, LibraryService, Media3 or NativeMailbox.
 
 ## References

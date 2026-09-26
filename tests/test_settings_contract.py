@@ -12,7 +12,7 @@ PLAYER_REQUEST = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/N
 HOME = ROOT / "views/home_view.py"
 
 
-class Prompt141SettingsContractTests(unittest.TestCase):
+class SettingsContractTests(unittest.TestCase):
     def read(self, path):
         return path.read_text(encoding="utf-8")
 
@@ -58,7 +58,7 @@ class Prompt141SettingsContractTests(unittest.TestCase):
         self.assertIn("setPreferredTextLanguage", player)
         self.assertIn("setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)", player)
 
-    def test_prompt14_player_contracts_stay_intact(self):
+    def test_player_contracts_stay_intact(self):
         player = self.read(PLAYER)
         self.assertIn("horizontal_seek", player)
         self.assertIn("horizontalSeekDelta", player)
@@ -76,7 +76,7 @@ class Prompt141SettingsContractTests(unittest.TestCase):
         self.assertIn('settings.get("appearance.theme")', main)
 
 
-    def test_prompt17_settings_are_real_and_exported(self):
+    def test_advanced_settings_are_real_and_exported(self):
         settings = self.read(SETTINGS)
         view = self.read(SETTINGS_VIEW)
         main = self.read(MAIN)

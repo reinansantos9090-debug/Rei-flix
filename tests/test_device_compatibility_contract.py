@@ -80,19 +80,14 @@ class DeviceCompatibilityContractTests(unittest.TestCase):
         self.assertIn("wrap=True", block)
         self.assertNotIn("width=470)", block)
 
-    def test_certification_has_no_emulator_matrix(self):
+    def test_certification_has_real_api30_api36_emulator_matrix(self):
         workflow = INSTRUMENTED_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("ReiFlix Android No-Emulator Contract Checks", workflow)
-        self.assertIn("workflow_dispatch:", workflow)
-        self.assertIn("pytest -q", workflow)
-        self.assertIn("python -m unittest discover", workflow)
-        self.assertNotIn("pull_request:", workflow)
-        self.assertNotIn("push:", workflow)
-        self.assertNotIn("matrix:", workflow)
-        self.assertNotIn("reactivecircus/android-emulator-runner@v2", workflow)
-        self.assertNotIn("run_android_instrumented_diagnostic.sh", workflow)
-        self.assertNotIn("connectedDebugAndroidTest", workflow)
-        self.assertNotIn("connectedCheck", workflow)
+        self.assertIn("ReiFlix Android Instrumented Runtime Matrix", workflow)
+        self.assertIn("api: [30, 36]", workflow)
+        self.assertIn("reactivecircus/android-emulator-runner@v2", workflow)
+        self.assertIn("connectedDebugAndroidTest", workflow)
+        self.assertIn("timeout --foreground", workflow)
+        self.assertNotIn("No-Emulator Contract Checks", workflow)
 
     def test_predictive_back_uses_androidx_dispatcher_without_fake_gesture_implementation(self):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")

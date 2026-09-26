@@ -578,13 +578,22 @@ class MainActivity : FlutterFragmentActivity() {
         val pending = nativeRequestState.consumeLifecycleAction()
         val pendingRequestId = nativeRequestState.consumedLifecycleRequestId()
         if (pending != null) {
-            pendingMediaRequestId = pendingRequestId
-            pendingBroadRequestId = pendingRequestId
-            pendingSafRequestId = pendingRequestId
+            // Restore only the correlation id owned by the queued lifecycle action.
+            // Keeping one request id in unrelated permission fields can make a later
+            // Settings/SAF callback look like it belongs to the wrong operation.
             when (pending) {
-                "select_tree" -> openTreePicker()
-                "request_media_access" -> requestMediaAccess()
-                "open_broad_storage_settings" -> openBroadStorageSettings()
+                "select_tree" -> {
+                    pendingSafRequestId = pendingRequestId
+                    openTreePicker()
+                }
+                "request_media_access" -> {
+                    pendingMediaRequestId = pendingRequestId
+                    requestMediaAccess()
+                }
+                "open_broad_storage_settings" -> {
+                    pendingBroadRequestId = pendingRequestId
+                    openBroadStorageSettings()
+                }
                 "play" -> {
                     val uri = pendingPlayUri
                     if (!uri.isNullOrBlank()) {

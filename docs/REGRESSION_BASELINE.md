@@ -1,10 +1,10 @@
 # Rei-Flix — Regression Baseline
 
-Baseline commit: b1f5bb8636f85c341d2d57c477973765c9ca1ca9
+Baseline commit: c97e9f0cd4d103e117eb51299b1bd721de756786
 Diagnostic branch: diagnostic/regression-baseline
 
 ## Scope
-Diagnosis, reproduction contracts, regression guards and documentation only. No definitive fixes from later changes were implemented.
+Runtime regression baseline and validation ledger. Structural fixes recorded below are already present in the current main branch; emulator/device execution remains a separate runtime evidence source.
 
 ## Architecture found
 Python/Flet -> AndroidBridge -> MainActivity -> Android APIs -> NativeMailbox -> Python polling -> LibraryService/LibraryStore -> SQLite/catalog -> Home/Organize/Details/Settings.
@@ -16,8 +16,8 @@ The inspected HEAD contains NativeMailbox, NativeIndex, LibraryStore, LibrarySer
 | ID | Problem | Current evidence | State | Area owner |
 |---|---|---|---|---|
 | RF-001 | Android Back | MainActivity uses one OnBackPressedCallback and forwards one physical Back to Flet's navigationChannel.popRoute(); Python consumes page.on_view_pop with navigate_back(). NativeMailbox is not the Back transport. | CORRIGIDO / ANÁLISE ESTÁTICA | navigation / lifecycle |
-| RF-002 | Library reload | MainActivity.onResume contains authorized scanMediaStore(null) / scanAllStorage(null); observers can also schedule scans. | REGRESSÃO POTENCIAL / ANÁLISE ESTÁTICA | lifecycle / scanning |
-| RF-003 | Organize click | open_collection is async def while category/genre cards bind directly to on_click lambdas. | REGRESSÃO POTENCIAL / ANÁLISE ESTÁTICA | organize navigation |
+| RF-002 | Library reload | MainActivity.onResume now publishes a lifecycle signal and only requests discovery on first startup or an actual permission transition; normal player/background returns do not issue a scan command. | CORRIGIDO / ANÁLISE ESTÁTICA | lifecycle / scanning |
+| RF-003 | Organize click | Organize category/genre cards now wrap async callbacks through a task on the running event loop instead of returning coroutine objects to Flet. | CORRIGIDO / ANÁLISE ESTÁTICA | organize navigation |
 | RF-004 | Genre limitation | Local GenreClassifier has 7 heuristic rules; AniList stores provider genres separately. The reported 16-item display limit is not proven to be a global hardcoded limit. | PARCIAL / INCONCLUSIVO | genre / catalog |
 | RF-005 | AniList/artwork | LibraryService already owns AniListClient and ArtworkEngine; cover_url/cover_cache and SQLite artwork persistence exist. | EXISTE / PARCIAL | earlier artwork and metadata work |
 | RF-006 | Navigation lag | Home/Organize already use asyncio.to_thread/page.run_task in relevant paths; full attribution requires runtime profiling. | PARCIAL / INCONCLUSIVO | performance |

@@ -1,12 +1,22 @@
-name: ReiFlix Android No-Emulator Contract Checks
+name: ReiFlix Android Instrumented Runtime Matrix
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: reiflix-android-instrumented-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   python-contracts:
-    name: Python contracts (no emulator)
+    name: Python contracts
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       PYTHONPATH: ${{ github.workspace }}
     steps:
@@ -22,10 +32,169 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt "flet[cli]==0.86.5" pytest
       - name: Compile Python sources
-        run: python -m compileall .
-      - name: Run pytest
-        run: pytest -q
-      - name: Run unittest discovery
-        run: python -m unittest discover -s tests -p 'test*.py' -t .
+        run: python -m compileall -q main.py app_config.py core views scripts
+      - name: Run full Python tests
+        run: |
+          python -m pytest -q
+          python -m unittest discover -s tests -p 'test*.py' -t .
       - name: Check diff whitespace
         run: git diff --check
+
+  prepare-android-test-project:
+    name: Render Android test project
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.8"
+          channel: stable
+          cache: true
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android platform
+        run: |
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "emulator"
+      - name: Install Flet build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt "flet[cli]==0.86.5"
+      - name: Prepare Flet template with Rei-Flix Android host
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          curl -sSL -o build/flet-build-template.zip https://github.com/flet-dev/flet/releases/download/v0.86.5/flet-build-template.zip
+          mkdir -p build/temp_tmpl build/flet-build-template
+          unzip -q build/flet-build-template.zip -d build/temp_tmpl
+          cp -a build/temp_tmpl/build/. build/flet-build-template/
+          rm -rf build/temp_tmpl build/flet-build-template.zip
+          python scripts/prepare_flet_template.py             --template "$GITHUB_WORKSPACE/build/flet-build-template"             --overlay "$GITHUB_WORKSPACE/android"
+      - name: Render Android Gradle project
+        shell: bash
+        run: |
+          set -euo pipefail
+          git_backup_root="$(mktemp -d)"
+          git_backup="$git_backup_root/.git"
+          mv .git "$git_backup"
+          restore_git() {
+            if [ -d "$git_backup" ] && [ ! -e .git ]; then
+              mv "$git_backup" .git
+            fi
+            rmdir "$git_backup_root" 2>/dev/null || true
+          }
+          trap restore_git EXIT
+          flet build apk             --template build/flet-build-template             --build-number "$GITHUB_RUN_NUMBER"             --build-version "0.2.1"             --python-version "3.12"             --yes
+      - name: Verify rendered Android test project
+        run: |
+          test -f build/flutter/android/gradlew
+          test -f build/flutter/android/app/build.gradle.kts
+          test -f build/flutter/android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/NativePlayerPlaybackInstrumentedTest.kt
+          test -f build/flutter/android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/EndToEndPlayerHandoffInstrumentedTest.kt
+      - name: Pack rendered Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -C build/flutter -czf build/reiflix-android-test-project.tgz android
+          test -s build/reiflix-android-test-project.tgz
+      - name: Upload rendered Android test project
+        uses: actions/upload-artifact@v4
+        with:
+          name: reiflix-android-test-project
+          path: build/reiflix-android-test-project.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  instrumented:
+    name: Android API ${{ matrix.api }}
+    needs: prepare-android-test-project
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [30, 36]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install emulator dependencies
+        run: |
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "platforms;android-${{ matrix.api }}" "emulator"
+      - name: Download rendered Android test project
+        uses: actions/download-artifact@v4
+        with:
+          name: reiflix-android-test-project
+          path: build
+      - name: Extract rendered Android test project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s build/reiflix-android-test-project.tgz
+          mkdir -p build/flutter
+          tar -xzf build/reiflix-android-test-project.tgz -C build/flutter
+          test -x build/flutter/android/gradlew || chmod +x build/flutter/android/gradlew
+      - name: Run instrumented tests on API ${{ matrix.api }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          force-avd-creation: true
+          disable-animations: true
+          emulator-options: "-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect"
+          script: |
+            set -euo pipefail
+            mkdir -p "$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}"
+            cd "$GITHUB_WORKSPACE/build/flutter/android"
+            chmod +x gradlew
+            log="$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}/connectedDebugAndroidTest.log"
+            set +e
+            timeout --foreground --signal=TERM --kill-after=30s 15m               ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee "$log"
+            status=${PIPESTATUS[0]}
+            set -e
+            if [ "$status" -ne 0 ]; then
+              echo "connectedDebugAndroidTest failed with exit=$status"
+              exit "$status"
+            fi
+            echo "connectedDebugAndroidTest PASS api=${{ matrix.api }}"
+      - name: Capture Android runtime diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          out="$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}"
+          mkdir -p "$out"
+          adb devices -l >"$out/adb_devices.txt" 2>&1
+          adb shell getprop ro.build.version.sdk >"$out/sdk.txt" 2>&1
+          adb shell dumpsys activity top >"$out/activity_top.txt" 2>&1
+          adb shell dumpsys window >"$out/window.txt" 2>&1
+          adb logcat -d -v threadtime >"$out/logcat.txt" 2>&1
+          set -e
+      - name: Upload API ${{ matrix.api }} instrumentation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reiflix-android-api${{ matrix.api }}-evidence
+          path: build/android-api${{ matrix.api }}
+          if-no-files-found: warn
+          retention-days: 7

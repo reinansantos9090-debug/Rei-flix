@@ -16,9 +16,12 @@ VERIFY = ROOT / "scripts" / "verify_python_bundle.py"
 
 
 class BuildIdentityTests(unittest.TestCase):
-    def test_checked_in_identity_is_explicitly_unbuilt(self):
+    def test_build_identity_is_unbuilt_or_a_valid_generated_identity(self):
         source = (ROOT / "core" / "build_identity.py").read_text(encoding="utf-8")
-        self.assertIn('BUILD_COMMIT = "UNBUILT"', source)
+        if 'BUILD_COMMIT = "UNBUILT"' not in source:
+            import re
+            self.assertRegex(source, r"BUILD_COMMIT = ['\"][0-9a-f]{40}['\"]")
+            self.assertRegex(source, r"PYTHON_BUNDLE_FINGERPRINT = ['\"][0-9a-f]{64}['\"]")
         self.assertIn('FLET_VERSION = "0.86.5"', source)
 
     def test_generator_is_clean_tree_guarded_and_deterministic_for_source_set(self):

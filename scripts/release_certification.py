@@ -92,6 +92,16 @@ def run_command(area,test,command,*,cwd,timeout=1800):
     else:
         limit=6000
     evidence="exit=%s\nstdout:\n%s\nstderr:\n%s"%(p.returncode,out[-limit:],err[-limit:])
+    if test in {"pytest","pytest determinism"} and p.returncode != 0:
+        failure_lines=[]
+        for line in out.splitlines():
+            clean=re.sub(r"\\x1b\\[[0-9;]*m","",line).strip()
+            if (" short test summary info " in clean.lower()
+                    or clean.startswith("FAILED ")
+                    or re.search(r"^tests/.*::.*(?:FAILED|ERROR)$", clean)):
+                failure_lines.append(clean)
+        if failure_lines:
+            evidence += "\\npytest failure summary (from complete stdout):\\n" + "\\n".join(failure_lines[-50:])
     return Result(area,test,PASS if p.returncode==0 else FAIL,evidence,time.monotonic()-start," ".join(map(str,command)),p.returncode,out[-limit:],err[-limit:])
 
 def parse_pytest(output):

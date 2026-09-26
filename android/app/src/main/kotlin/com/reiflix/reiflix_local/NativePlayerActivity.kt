@@ -2115,9 +2115,8 @@ class NativePlayerActivity : ComponentActivity() {
             findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
             setControlsVisible(false)
         } else {
-            // Re-enter according to the configured immersive policy. PiP exit is
-            // a lifecycle/configuration boundary and must not force immersive
-            // when the user's setting says the player should not hide system bars.
+            // PiP exit is a lifecycle/configuration boundary. Reapply the
+            // application-wide immersive policy after Android returns focus.
             applyImmersiveAfterLayout()
             if (::player.isInitialized && player.isPlaying && !errorVisible) {
                 touchControls()
@@ -2199,12 +2198,13 @@ class NativePlayerActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun shouldUseImmersive(): Boolean =
-        when (immersiveSetting) {
-            "never" -> false
-            "landscape" -> resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-            else -> true
-        }
+    /**
+     * System UI is an application-wide invariant. The legacy player preference
+     * is retained in the intent contract for compatibility, but it cannot make
+     * the application reveal status/navigation bars. Android-owned external
+     * surfaces manage their own system UI while they are in the foreground.
+     */
+    private fun shouldUseImmersive(): Boolean = true
 
     private fun applyConfiguredRotation() {
         requestedOrientation = when (intent.getStringExtra("setting_player_rotation") ?: "auto") {

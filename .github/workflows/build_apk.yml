@@ -60,6 +60,497 @@ jobs:
           flet --version
           flutter --version
 
+      - name: Validate exact Python and Flet toolchain
+        shell: bash
+        run: |
+          python --version
+          python -c "import flet; print('FLET_PYTHON_VERSION=' + flet.__version__); assert flet.__version__ == '0.86.5'"
+          flet --version
+          python -m pip show flet
+          python -m pip freeze | grep -i '^flet==' | tee build-flet-version.txt
+          grep -q '^flet==0.86.5        shell: bash
+        env:
+          REIFLIX_GOOGLE_WEB_CLIENT_ID: ${{ vars.REIFLIX_GOOGLE_WEB_CLIENT_ID || secrets.REIFLIX_GOOGLE_WEB_CLIENT_ID }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          value = os.environ.get("REIFLIX_GOOGLE_WEB_CLIENT_ID", "").strip()
+          if value and not value.endswith(".apps.googleusercontent.com"):
+              raise SystemExit("REIFLIX_GOOGLE_WEB_CLIENT_ID must be a Google OAuth Web client ID")
+          path = Path("app_config.py")
+          original = path.read_text(encoding="utf-8")
+          Path("build").mkdir(parents=True, exist_ok=True)
+          marker = 'GOOGLE_WEB_CLIENT_ID = ""'
+          path.write_text(original.replace(marker, f'GOOGLE_WEB_CLIENT_ID = {value!r}'), encoding="utf-8")
+          Path("build/app_config.source.py").write_text(original, encoding="utf-8")
+          print("Google Web Client ID injected into this APK build:" + (" yes" if value else " no (login will show configuration required)"))
+          PY
+
+      - name: Validate JSON configuration
+        shell: bash
+        run: |
+          while IFS= read -r -d '' file; do
+            if grep -q "{{cookiecutter." "$file" || grep -q "{%" "$file"; then
+              echo "Unrendered Jinja JSON template (skipped): $file"
+              continue
+            fi
+            python -m json.tool "$file" >/dev/null
+            echo "Valid JSON: $file"
+          done < <(find . -path './.git' -prune -o -path './build' -prune -o -type f -name '*.json' -print0)
+
+      - name: Validate Python application
+        run: |
+          python -m compileall -q main.py app_config.py core views scripts
+          bash -n scripts/run_android_instrumented_diagnostic.sh
+          python scripts/audit_release.py --root .
+          git diff --check
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git status --short
+
+      - name: Validate blocking runtime/player/lifecycle contracts
+        shell: bash
+        run: |
+          python - <<'PY'
+          import sys
+          import unittest
+
+          names = [
+              "tests.test_build_tools.AndroidHostVerificationTests.test_player_system_back_requires_reiflix_foreground_return",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_player_orientation_and_responsive_overlay_contract",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_back_logs_use_explicit_player_back_marker",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_native_host_and_player_use_immersive_system_bars",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_player_exit_is_not_suppressed_after_normal_completion",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_entry_requires_a_persisted_saf_document",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_entry_rejects_non_local_deep_link_uris",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_rechecks_saf_authorization_before_media3_start",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_player_preflight_uses_authorized_source_and_real_readability",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_player_recreates_with_track_selection_and_pip_is_optional",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_packaged_manifest_verifier_checks_native_player_pip_contract",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_player_rejects_removed_or_invalid_saf_documents_without_starting_media3",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_accepts_saf_media_store_and_broad_paths",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_error_does_not_emit_a_second_exit_event",
+              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_next_previous_suppress_normal_exit",
+              "tests.test_build_tools.TestNativePlayerHardening.test_native_player_reapplies_immersive_mode_on_resume",
+              "tests.test_build_tools.TestNativePlayerHardening.test_player_uses_media3_dependencies",
+              "tests.test_media_store.TestMediaStoreAndroidHost.test_player_accepts_saf_or_media_store_without_path_conversion",
+              "tests.test_back_lifecycle",
+              "tests.test_runtime_regressions",
+              "tests.test_runtime_android_contract",
+              "tests.test_player_consumption_cycle",
+              "tests.test_broad_storage.TestBroadStorageArchitecture.test_player_pip_has_manifest_and_device_feature_fallback",
+              "tests.test_playback_hardening",
+              "tests.test_lifecycle_contract",
+              "tests.test_regression_baseline.RegressionBaselineTests.test_player_contracts_and_horizontal_seek_are_present",
+          ]
+
+          suite = unittest.TestSuite(
+              unittest.defaultTestLoader.loadTestsFromName(name)
+              for name in names
+          )
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful():
+              sys.exit(1)
+          PY
+
+
+      - name: Remove development caches before Flet packaging
+        shell: bash
+        run: |
+          find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '.coverage' \) -delete
+
+      - name: Prepare Flet build template with Android host
+        run: |
+          mkdir -p build
+          curl -sSL -o build/flet-build-template.zip https://github.com/flet-dev/flet/releases/download/v0.86.5/flet-build-template.zip
+          mkdir -p build/temp_tmpl
+          unzip -q build/flet-build-template.zip -d build/temp_tmpl
+          mkdir -p build/flet-build-template
+          cp -a build/temp_tmpl/build/. build/flet-build-template/
+          rm -rf build/temp_tmpl build/flet-build-template.zip
+          python scripts/prepare_flet_template.py \
+            --template "$GITHUB_WORKSPACE/build/flet-build-template" \
+            --overlay "$GITHUB_WORKSPACE/android"
+
+      - name: Fix generated JSON files
+        shell: bash
+        run: |
+          python - <<'PY'
+          import glob
+          import json
+
+          def strip_trailing_commas(raw):
+              out = []
+              in_string = False
+              escaped = False
+              i = 0
+              while i < len(raw):
+                  char = raw[i]
+                  if in_string:
+                      out.append(char)
+                      if escaped:
+                          escaped = False
+                      elif char == chr(92):
+                          escaped = True
+                      elif char == chr(34):
+                          in_string = False
+                      i += 1
+                      continue
+                  if char == chr(34):
+                      in_string = True
+                      out.append(char)
+                      i += 1
+                      continue
+                  if char == chr(44):
+                      j = i + 1
+                      while j < len(raw) and raw[j] in " \t\r\n":
+                          j += 1
+                      if j < len(raw) and raw[j] in "}]":
+                          i = j
+                          continue
+                  out.append(char)
+                  i += 1
+              return "".join(out)
+
+          for path in glob.glob("build/flet-build-template/**/*.json", recursive=True):
+              with open(path, "r", encoding="utf-8") as handle:
+                  raw = handle.read()
+              if "{{cookiecutter." in raw or "{%" in raw:
+                  print(f"Unrendered Jinja JSON template (skipped): {path}")
+                  continue
+              cleaned = strip_trailing_commas(raw)
+              try:
+                  data = json.loads(cleaned)
+              except json.JSONDecodeError as exc:
+                  raise SystemExit(f"Invalid generated JSON {path}: {exc}") from exc
+              with open(path, "w", encoding="utf-8") as handle:
+                  json.dump(data, handle, indent=2)
+          PY
+
+      - name: Configure Android release signing
+        shell: bash
+        env:
+          REIFLIX_ANDROID_KEYSTORE_B64: ${{ secrets.REIFLIX_ANDROID_KEYSTORE_B64 }}
+          REIFLIX_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.REIFLIX_ANDROID_KEYSTORE_PASSWORD }}
+          REIFLIX_ANDROID_KEY_PASSWORD: ${{ secrets.REIFLIX_ANDROID_KEY_PASSWORD }}
+          REIFLIX_ANDROID_KEY_ALIAS: ${{ secrets.REIFLIX_ANDROID_KEY_ALIAS }}
+        run: |
+          if [[ -n "${REIFLIX_ANDROID_KEYSTORE_B64:-}" && -n "${REIFLIX_ANDROID_KEYSTORE_PASSWORD:-}" && -n "${REIFLIX_ANDROID_KEY_PASSWORD:-}" && -n "${REIFLIX_ANDROID_KEY_ALIAS:-}" ]]; then
+            printf "%s" "$REIFLIX_ANDROID_KEYSTORE_B64" | base64 --decode > "$GITHUB_WORKSPACE/build/reiflix-release.jks"
+            test -s "$GITHUB_WORKSPACE/build/reiflix-release.jks"
+            {
+              echo "FLET_ANDROID_SIGNING_KEY_STORE=$GITHUB_WORKSPACE/build/reiflix-release.jks"
+              echo "FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD=$REIFLIX_ANDROID_KEYSTORE_PASSWORD"
+              echo "FLET_ANDROID_SIGNING_KEY_PASSWORD=$REIFLIX_ANDROID_KEY_PASSWORD"
+              echo "FLET_ANDROID_SIGNING_KEY_ALIAS=$REIFLIX_ANDROID_KEY_ALIAS"
+              echo "REIFLIX_SIGNING_MODE=stable"
+            } >> "$GITHUB_ENV"
+            echo "Stable Android release signing configured."
+          else
+            echo "REIFLIX_SIGNING_MODE=ephemeral-debug" >> "$GITHUB_ENV"
+            echo "::warning::Stable Android signing secrets are not configured; this APK is not update-compatible with previous CI-signed installs."
+          fi
+
+      - name: Build APK
+        shell: bash
+        run: |
+          set -o pipefail
+          build_args=(
+            apk
+            --template build/flet-build-template
+            --build-number "$GITHUB_RUN_NUMBER"
+            --build-version "0.2.1"
+            --python-version "3.12"
+            --yes
+            -v
+          )
+
+          # Never package Git metadata into assets/app.zip.
+          # actions/checkout may place an ephemeral Authorization header in
+          # .git/config; packaging it would leak CI credentials and history.
+          git_backup_root="$(mktemp -d)"
+          git_backup="$git_backup_root/.git"
+          mv .git "$git_backup"
+          restore_git() {
+            if [ -d "$git_backup" ] && [ ! -e .git ]; then
+              mv "$git_backup" .git
+            fi
+            if [ -d "$git_backup_root" ]; then
+              rmdir "$git_backup_root"
+            fi
+          }
+          trap restore_git EXIT
+
+          # Flet/Gradle downloads native artifacts from GitHub Releases.
+          # A transient HTTP 5xx from that service must not make an otherwise
+          # reproducible APK build fail before the APK exists.
+          for attempt in 1 2 3; do
+            echo "APK build attempt $attempt/3"
+            if flet build "${build_args[@]}"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::APK build attempt $attempt failed; retrying after transient dependency/download failure."
+              sleep 10
+            fi
+          done
+
+          echo "::error::APK build failed after 3 attempts."
+          exit 1
+
+      - name: Restore source configuration after build
+        shell: bash
+        run: |
+          test -f build/app_config.source.py
+          cp build/app_config.source.py app_config.py
+          cmp -s build/app_config.source.py app_config.py
+
+      - name: Restore generated build identity source
+        shell: bash
+        run: |
+          git checkout -- core/build_identity.py
+          rm -f .reiflix-build-identity.json build-flet-version.txt
+          test "$(git status --porcelain -- core/build_identity.py .reiflix-build-identity.json build-flet-version.txt)" = ""
+
+      - name: Run Android unit tests on rendered project
+        shell: bash
+        run: |
+          test -f build/flutter/android/gradlew
+          chmod +x build/flutter/android/gradlew
+          mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
+          export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
+          test -d "$SERIOUS_PYTHON_SITE_PACKAGES"
+          (
+            cd build/flutter/android
+            ./gradlew :app:testDebugUnitTest --no-daemon
+          )
+
+      - name: Verify packaged Python identity and Back symbols
+        shell: bash
+        run: |
+          apk="build/ReiFlix.apk"
+          test -s .reiflix-build-identity.json
+          python scripts/verify_python_bundle.py "$apk" --identity .reiflix-build-identity.json
+
+      - name: Locate APK
+        id: apk
+        shell: bash
+        run: |
+          apk="$(find build -type f -name '*.apk' -print -quit)"
+          test -n "$apk"
+          test -s "$apk"
+          published="build/ReiFlix.apk"
+          cp "$apk" "$published"
+          test -s "$published"
+          echo "path=$published" >> "$GITHUB_OUTPUT"
+          file "$published"
+
+      - name: Verify APK contains no Git metadata
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          python - <<'PY'
+          from io import BytesIO
+          from zipfile import ZipFile
+
+          apk_path = "${{ steps.apk.outputs.path }}"
+          with ZipFile(apk_path) as apk:
+              app_zip = apk.read("assets/app.zip")
+          with ZipFile(BytesIO(app_zip)) as app:
+              leaked = [
+                  name for name in app.namelist()
+                  if name == ".git" or name.startswith(".git/")
+              ]
+          if leaked:
+              print("Leaked Git metadata:")
+              print("\n".join(leaked[:30]))
+              raise SystemExit(1)
+          print("APK app.zip contains no .git metadata.")
+
+      - name: Verify APK contains no development test/docs artifacts
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          python - <<'PY'
+          from io import BytesIO
+          from zipfile import ZipFile
+
+          apk_path = "${{ steps.apk.outputs.path }}"
+          with ZipFile(apk_path) as apk:
+              app_zip = apk.read("assets/app.zip")
+          with ZipFile(BytesIO(app_zip)) as app:
+              names = app.namelist()
+              forbidden_prefixes = (
+                  "tests/", "docs/", ".github/", "android/", "scripts/",
+                  ".pytest_cache/", ".mypy_cache/", "__pycache__/", ".git/",
+              )
+              forbidden_root_files = {
+                  "README.md", "BACKUP_RESTORE.md", ".env.example", ".gitignore",
+                  "pyproject.toml", "requirements.txt", ".coverage",
+              }
+              leaked = [
+                  name for name in names
+                  if name.startswith(forbidden_prefixes)
+                  or name in forbidden_root_files
+                  or name.endswith(".pyo")
+              ]
+          if leaked:
+              print("Development artifacts found in production app.zip:")
+              print("\n".join(leaked[:100]))
+              raise SystemExit(1)
+          print("APK app.zip contains no forbidden development/project artifacts.")
+          print("Flat .pyc files are allowed because Flet 0.86 compiles the runtime application to bytecode.")
+          PY
+      - name: Verify final APK permissions and target SDK
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          aapt2="$ANDROID_HOME/build-tools/36.0.0/aapt2"
+          badging="$("$aapt2" dump badging "$apk")"
+          echo "$badging" | grep -q "package: name='com.reiflix.reiflix_local'"
+          echo "$badging" | grep -q "versionCode='$GITHUB_RUN_NUMBER'"
+          echo "$badging" | grep -q "versionName='0.2.1'"
+          echo "$badging" | grep -q "targetSdkVersion:'36'"
+          "$aapt2" dump permissions "$apk" | grep -q "android.permission.MANAGE_EXTERNAL_STORAGE"
+          "$aapt2" dump permissions "$apk" | grep -q "android.permission.READ_MEDIA_VIDEO"
+
+      - name: Verify Android host packaging
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          python scripts/verify_android_host.py "$apk"
+
+      - name: Verify effective APK AndroidManifest
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          python scripts/verify_apk_manifest.py "$apk" \
+            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
+            --expected-version-code "$GITHUB_RUN_NUMBER" \
+            --expected-version-name "0.2.1"
+
+      - name: Run release evidence certification (no emulator)
+        shell: bash
+        run: |
+          python scripts/release_certification.py \
+            --root . \
+            --gradle-root build/flutter/android \
+            --apk "${{ steps.apk.outputs.path }}" \
+            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
+            --output build/release-certification.json \
+            --report build/release-certification.md \
+            --matrix build/release-certification-matrix.json \
+            --prevalidated-compileall \
+            --prevalidated-gradle
+
+      - name: Upload release certification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-certification
+          path: |
+            build/release-certification.json
+            build/release-certification.md
+            build/release-certification-matrix.json
+          if-no-files-found: error
+
+      - name: Print and publish APK SHA-256
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          sha256sum "$apk" | tee "${apk}.sha256"
+          sha256="$(sha256sum "$apk" | awk '{print $1}')"
+          badging="$("$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$apk")"
+          {
+            echo "commit_sha=${GITHUB_SHA}"
+            echo "apk_path=${apk}"
+            echo "apk_sha256=${sha256}"
+            echo "signing_mode=${REIFLIX_SIGNING_MODE:-unknown}"
+            echo "$badging" | grep -E "package: name=|versionCode=|versionName=|targetSdkVersion"
+          } | tee build/reiflix-release-metadata.txt
+          test -s build/reiflix-release-metadata.txt
+
+      - name: Print APK signing certificate fingerprints
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          apksigner="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          "$apksigner" verify --verbose --print-certs "$apk"
+
+      - name: Final Git integrity check
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --check
+          status="$(git status --porcelain)"
+          if [ -n "$status" ]; then
+            echo "Unexpected working-tree changes:"
+            printf '%s\n' "$status"
+            echo "Diff summary:"
+            git diff --stat
+            exit 1
+          fi
+          test -s build/reiflix-release-metadata.txt
+
+      - name: Create standalone APK ZIP
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          apk = Path("${{ steps.apk.outputs.path }}")
+          archive = Path("build/ReiFlix-apk.zip")
+          if not apk.is_file() or apk.stat().st_size == 0:
+              raise SystemExit(f"APK not found or empty: {apk}")
+          with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
+              bundle.write(apk, arcname="ReiFlix.apk")
+          if not archive.is_file() or archive.stat().st_size == 0:
+              raise SystemExit("APK ZIP was not created")
+          print(f"Created {archive} containing ReiFlix.apk")
+          PY
+      - name: Upload APK as direct artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.apk.outputs.path }}
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload APK ZIP as direct artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/ReiFlix-apk.zip
+          archive: false
+          if-no-files-found: error
+      - name: Upload APK metadata
+        uses: actions/upload-artifact@v7
+        with:
+          name: reiflix-release-metadata
+          path: |
+            ${{ steps.apk.outputs.path }}.sha256
+            build/reiflix-release-metadata.txt
+          if-no-files-found: error
+ build-flet-version.txt
+
+      - name: Clean Flet build cache and generate immutable build identity
+        shell: bash
+        run: |
+          rm -rf build
+          mkdir -p build
+          python scripts/generate_build_identity.py \
+            --root . \
+            --python-output core/build_identity.py \
+            --json-output .reiflix-build-identity.json \
+            --python-runtime 3.12 \
+            --flet-version 0.86.5 \
+            --build-version 0.2.1 \
+            --build-number "$GITHUB_RUN_NUMBER"
+          test -s core/build_identity.py
+          test -s .reiflix-build-identity.json
+          git diff --check
+          git status --short
+
       - name: Validate public Google configuration for Android build
         shell: bash
         env:

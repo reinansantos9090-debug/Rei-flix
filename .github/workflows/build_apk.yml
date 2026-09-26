@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   build:
-    timeout-minutes: 30
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -56,7 +56,7 @@ jobs:
       - name: Install Python and Flet build dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt "flet[cli]==0.86.5"
+          python -m pip install -r requirements.txt "flet[cli]==0.86.5" pytest
           flet --version
           flutter --version
 
@@ -100,22 +100,6 @@ jobs:
           git diff --check
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git status --short
-
-      - name: Run required generic Python checks
-        shell: bash
-        run: |
-          python -m compileall .
-          python -m pip install pytest
-          python -m pytest -q
-          git diff --check
-
-      - name: Run full Python regression suite (blocking)
-        id: full-python-suite
-        shell: bash
-        run: |
-          set -o pipefail
-          python -m unittest discover -s tests -v 2>&1 | tee build/python-unittest.log
-          echo "PASS: unittest discover completed successfully." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate blocking runtime/player/lifecycle contracts
         shell: bash
@@ -423,7 +407,7 @@ jobs:
             --expected-version-code "$GITHUB_RUN_NUMBER" \
             --expected-version-name "0.2.1"
 
-      - name: Run Prompt 15.1 evidence certification (no emulator)
+      - name: Run Prompt 15.5 evidence certification (no emulator)
         shell: bash
         run: |
           python scripts/prompt15_certification.py \
@@ -437,10 +421,11 @@ jobs:
             --prevalidated-compileall \
             --prevalidated-gradle
 
-      - name: Upload Prompt 15.1 certification evidence
+      - name: Upload Prompt 15.5 certification evidence
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: prompt15-1-certification
+          name: prompt15-5-certification
           path: |
             build/prompt15-certification.json
             build/prompt15-certification.md

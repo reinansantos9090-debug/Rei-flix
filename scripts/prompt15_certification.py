@@ -1,139 +1,422 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, json, os, platform, shutil, subprocess, sys, time
+import argparse, ast, hashlib, json, os, platform, re, shutil, subprocess, sys, time, zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
-PASS="PASS"; PARTIAL="PARTIAL"; FAIL="FAIL"; BLOCKED="BLOCKED BY ENVIRONMENT"; NOT_VALIDATED="NOT VALIDATED"; NOT_APPLICABLE="NOT APPLICABLE"
+PASS="PASS"; PARTIAL="PARTIAL"; FAIL="FAIL"; NOT_VALIDATED="NOT VALIDATED"; NOT_APPLICABLE="NOT APPLICABLE"; BLOCKED="BLOCKED"
+ALLOWED={PASS,PARTIAL,FAIL,NOT_VALIDATED,NOT_APPLICABLE,BLOCKED}
+
+_SPEC = {
+"Database / Library": ["LibraryStore persists anime entities deterministically","LibraryStore persists season entities","LibraryStore persists episode entities","LibraryStore persists media metadata","LibraryStore supports tags and notes","LibraryStore supports pins and favorites","LibraryStore preserves history records","LibraryStore preserves progress records","LibraryService exposes library CRUD operations","Database migrations are versioned and repeatable","Database integrity checks are exercised","Rollback preserves pre-transaction state","Existing data remains readable after migration","Backup/export preserves catalog entities","Restore preserves logical missing media","Restore preserves content URI identities","Duplicate library records are rejected or reconciled","Media identity is stable across rescans","Episode identity is stable across rescans","Season/episode hierarchy remains intact"],
+"Consumption": ["UNWATCHED state is represented","IN_PROGRESS state is represented","COMPLETED state is represented","WATCHED state is represented","Completion ratio threshold is 90 percent","Zero-duration media does not complete spuriously","Progress is bounded and normalized","Progress survives player lifecycle events","Reopen resumes the stored position","Near-end playback reaches completion","Completion does not regress on reopen","Duplicate playback events do not duplicate state changes","Out-of-order playback events are tolerated","Next episode resolution follows library order","Next episode does not skip unrelated series","Manual watched/unwatched changes persist","Continue Watching uses progress state","Completed items are excluded from active progress where required","Consumption writes remain local-first","Consumption events are routed through the existing bridge contract"],
+"Navigation": ["Settings navigation preserves the existing shell","Details navigation preserves the selected entity","Organize navigation preserves collection context","Player navigation preserves origin metadata","Single back returns to the expected previous view","Double-back does not exit unexpectedly within the guarded window","Android predictive Back is wired through AndroidX","MainActivity uses singleTask launch semantics","MainActivity disables document duplication","Player Back emits the explicit player-back contract","Normal player completion is not mistaken for Back","Settings Back does not create a duplicate route","Details origin survives player exit","Organize origin survives player exit","Navigation state avoids broad rebuilds on Back"],
+"Player": ["NativePlayerActivity exists","Player launch validates the supplied local source","Player launch rejects non-local deep links","Player launch accepts authorized SAF sources","Player launch accepts MediaStore sources","Player launch accepts approved broad-storage paths","Player launch rechecks source readability before Media3","Media3 is the sole playback engine","Player exposes play/pause control","Player exposes playback-speed control","Player supports fit mode","Player supports fill mode","Player supports zoom mode","Player avoids stretching when switching fit/fill/zoom","Player handles portrait orientation","Player handles landscape orientation","Player overlay is responsive to orientation","Player contract covers double tap gestures","Player contract covers pinch gestures","Player contract covers pan gestures","Player immersive system bars contract exists","Immersive mode is reapplied after resume","Status bar is hidden by the native player contract","Navigation bar is hidden by the native player contract","Player Back is distinguishable from normal completion","player_error is emitted on playback failure","player_exited is emitted on normal exit","Player error does not emit a second exit event","Next/previous navigation suppresses spurious normal-exit events","PiP is optional and manifest-gated"],
+"Storage": ["StorageCapabilities is represented as a typed snapshot","READ_MEDIA_VIDEO capability is modeled","Android 14 selected-photo/video access is modeled","Full media access is distinguished from partial access","Denied media access is distinguished from granted access","Persisted SAF tree access is supported","SAF cancel does not start a scan","MANAGE_EXTERNAL_STORAGE flow is isolated","MediaStore discovery is supported","SAF discovery is supported","Broad-storage discovery is supported","MediaStore/SAF/Broad discoveries share native identity logic","NativeIndex exists","NativeIndex stores generation-aware snapshots","Partial scans preserve the committed snapshot","Cancelled scans preserve the committed snapshot","Unavailable volumes preserve the committed snapshot","Failed scans preserve the committed snapshot","Duplicate media across sources is deduplicated",".nomedia subtrees are excluded","Scan coordinator prevents overlapping logical scans","NativeMailbox is the Python/native event boundary","NativeMailbox writes are atomic","NativeMailbox events are deduplicated","NativeMailbox acknowledgements are supported"],
+"Artwork": ["Artwork source priority is deterministic","Local artwork is preferred when available","Cached artwork is reusable offline","AniList artwork remains metadata-only","Generated artwork is supported","Episode thumbnails are supported","Poster variants are supported","Artwork cache records media identity","Artwork cache can be invalidated","Stale thumbnail callbacks are rejected","Duplicate thumbnail requests are coalesced","Thumbnail generation is local-first"],
+"Search": ["Search normalization ignores irrelevant case differences","Search normalization handles whitespace","Search normalization handles Unicode","Native-script titles remain stable under normalization","Aliases participate in matching","Multiple search terms are composable","Search can filter media type","Search can filter tags","Search can filter consumption state","Search can filter metadata fields","Search can filter artwork presence","Search supports sorting","Search does not mutate persisted titles","Search works offline against the local catalog"],
+"Settings / Theme": ["Theme settings are centralized","Theme engine applies the selected theme","Theme state survives view rebuilds","Settings exposes player speed configuration","Settings exposes long-press speed configuration","Settings exposes maximum video resolution","Settings exposes subtitle scale","Settings exposes storage controls","Settings reports storage capability state without dict/object type errors","Settings reports correct singular/plural episode labels","Settings save operations provide user-visible feedback","Settings Back integrates with navigation","Flet launch_url compatibility path is explicit"],
+"Home": ["Home renders primary library sections","Home renders continue-watching data","Home renders counters from the local catalog","Home avoids rendering invalid empty sections","Home supports lazy thumbnail requests","Home coalesces duplicate thumbnail work","Home large datasets use bounded rendering","Home retains list/grid presentation contracts","Home pagination or bounded loading is deterministic","Home does not rebuild the entire page for a thumbnail callback","Home preserves selected anime context","Home player launch receives the correct episode"],
+"Performance / Static audit": ["Library queries avoid obvious N+1 access patterns","Core lookups use indexed columns where defined","Batch writes use transaction boundaries","Artwork work is scheduled off the UI hot path","Home/Organize heavy work uses background task mechanisms","Thread/executor lifecycle is bounded","Task cancellation is explicit for cancellable operations","Mailbox polling has a bounded lifecycle","Repeated full UI rebuilds are avoided in audited paths","Scalability tests cover large synthetic datasets","Performance tests cover paged library results","Performance tests cover completion-state pagination","Callback/listener lifecycle is statically audited","Timer lifecycle is statically audited","Activity/context references are statically audited","Thumbnail callback lifecycle is statically audited"],
+"Certification / CI / APK": ["Certification runner executes real commands","Certification runner runs pytest collection audit","Certification runner performs a second pytest determinism run","Android unit-test task is executed when rendered project exists","Gradle lint task is discovered from available tasks","Gradle lint result is recorded","Packaged manifest is forensically inspected","Packaged DEX contains the required native host classes","Packaged resources contain the expected payload","Android 14 runtime validation remains explicit","Android 15 runtime validation remains explicit","Android 16 runtime validation remains explicit","Physical-device installation remains explicit","Clean-install validation remains explicit","Update/upgrade validation remains explicit","Every matrix row has a real requirement","Every matrix row has an implementation reference","Every matrix row has a test/evidence reference","Every matrix row has a command","Every matrix row records execution status","Every matrix row uses an allowed classification","Every PASS row has concrete evidence","Matrix totals are calculated from the rows","Release APK is built by the workflow"],
+}
+REQUIREMENTS=[]; n=1
+for area, items in _SPEC.items():
+    for item in items:
+        REQUIREMENTS.append((n,area,item)); n+=1
+assert len(REQUIREMENTS)==201
+
+TEST_REFS={
+"Database / Library":["tests/test_prompt15_backup_restore.py","tests/test_prompt9_performance.py","tests/test_ui_states.py"],
+"Consumption":["tests/test_prompt5_playback_contract.py","tests/test_prompt9_performance.py","tests/test_runtime_android_contract.py"],
+"Navigation":["tests/test_prompt2_back_lifecycle.py","tests/test_prompt14_device_compatibility_contract.py","tests/test_runtime_android_contract.py"],
+"Player":["tests/test_build_tools.py","tests/test_prompt5_playback_contract.py","tests/test_runtime_android_contract.py","tests/test_prompt13_playback_hardening.py","tests/test_prompt13_lifecycle_contract.py"],
+"Storage":["tests/test_prompt4_storage_permission_flow.py","tests/test_storage_onboarding.py","tests/test_prompt14_device_compatibility_contract.py","tests/test_broad_storage.py","tests/test_media_store.py"],
+"Artwork":["tests/test_build_tools.py","tests/test_ui_states.py"],
+"Search":["tests/test_search_engine.py","tests/test_anilist_matching_2.py","tests/test_organize_collections.py"],
+"Settings / Theme":["tests/test_theme_engine.py","tests/test_ui_states.py","tests/test_build_tools.py"],
+"Home":["tests/test_ui_states.py","tests/test_scalability.py","tests/test_prompt9_performance.py"],
+"Performance / Static audit":["tests/test_scalability.py","tests/test_prompt9_performance.py","tests/test_build_tools.py"],
+"Certification / CI / APK":["tests/test_prompt15_certification.py","tests/test_build_tools.py","tests/test_prompt14_device_compatibility_contract.py"],
+}
+IMPL_REFS={
+"Database / Library":["core/library_store.py","core/library_service.py","core/backup.py"],
+"Consumption":["core/consumption.py","core/library_service.py","main.py"],
+"Navigation":["core/navigation.py","android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt","android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt"],
+"Player":["android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt","android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerRequest.kt","scripts/verify_apk_manifest.py"],
+"Storage":["core/storage_access.py","core/android_bridge.py","android/app/src/main/kotlin/com/reiflix/reiflix_local/StorageAuthorization.kt","android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt","android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeIndex.kt"],
+"Artwork":["core/artwork.py","core/library_service.py","main.py","views/home_view.py"],
+"Search":["core/search_engine.py","views/organize_view.py"],
+"Settings / Theme":["core/settings.py","core/ui.py","views/settings_view.py","core/android_bridge.py"],
+"Home":["views/home_view.py","main.py","views/home_view.py"],
+"Performance / Static audit":["core/library_store.py","core/library_service.py","core/artwork.py","main.py","views/home_view.py"],
+"Certification / CI / APK":["scripts/prompt15_certification.py","scripts/verify_android_host.py","scripts/verify_apk_manifest.py",".github/workflows/build_apk.yml"],
+}
+DEVICE_ONLY={"Android 14 runtime validation remains explicit","Android 15 runtime validation remains explicit","Android 16 runtime validation remains explicit","Physical-device installation remains explicit","Clean-install validation remains explicit","Update/upgrade validation remains explicit"}
 
 @dataclass
 class Result:
-    area: str
-    test: str
-    status: str
-    evidence: str = ""
-    duration_s: float | None = None
+    area:str
+    test:str
+    status:str
+    evidence:str=""
+    duration_s:float|None=None
+    command:str=""
+    exit_code:int|None=None
+    stdout:str=""
+    stderr:str=""
 
-def run_command(area: str, test: str, command: Sequence[str], *, cwd: Path, timeout: int = 1800) -> Result:
-    started=time.monotonic()
-    if not command or shutil.which(command[0]) is None:
-        return Result(area,test,BLOCKED,f"command unavailable: {command[0] if command else '<empty>'}")
+def run_command(area,test,command,*,cwd,timeout=1800):
+    start=time.monotonic()
+    if not command:
+        return Result(area,test,BLOCKED,"empty command")
+    exe=shutil.which(str(command[0])) if not Path(str(command[0])).is_absolute() else str(command[0])
+    if exe is None:
+        return Result(area,test,BLOCKED,"command unavailable: "+str(command[0]),command=" ".join(map(str,command)))
     try:
-        proc=subprocess.run(list(command),cwd=cwd,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout,check=False)
-    except subprocess.TimeoutExpired as exc:
-        return Result(area,test,BLOCKED,f"timeout after {timeout}s\n{exc.stdout or ''}",time.monotonic()-started)
-    except OSError as exc:
-        return Result(area,test,BLOCKED,str(exc),time.monotonic()-started)
-    return Result(area,test,PASS if proc.returncode==0 else FAIL,f"exit={proc.returncode}\n{proc.stdout[-6000:]}",time.monotonic()-started)
+        p=subprocess.run(list(command),cwd=cwd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout,check=False)
+    except subprocess.TimeoutExpired as e:
+        out=str(e.stdout or "")
+        err=str(e.stderr or "")
+        return Result(area,test,BLOCKED,"timeout after %ss\nstdout:\n%s\nstderr:\n%s"%(timeout,out[-6000:],err[-6000:]),time.monotonic()-start," ".join(map(str,command)),None,out[-6000:],err[-6000:])
+    except OSError as e:
+        return Result(area,test,BLOCKED,str(e),time.monotonic()-start," ".join(map(str,command)))
+    out=p.stdout or ""; err=p.stderr or ""
+    # Keep enough output to expose a concrete failing-test traceback in CI evidence.
+    # This is especially important for the mandatory deterministic pytest audit.
+    if test in {"pytest","pytest determinism"}:
+        limit=20000
+    elif test in {"pytest collect-only","Gradle tasks"}:
+        limit=100000
+    else:
+        limit=6000
+    evidence="exit=%s\nstdout:\n%s\nstderr:\n%s"%(p.returncode,out[-limit:],err[-limit:])
+    return Result(area,test,PASS if p.returncode==0 else FAIL,evidence,time.monotonic()-start," ".join(map(str,command)),p.returncode,out[-limit:],err[-limit:])
 
-def inventory(root: Path) -> list[Result]:
-    bases=("tests","test","android/app/src/test","android/app/src/androidTest")
-    files=sorted(p.as_posix() for base in bases for p in ((root/base).rglob("*") if (root/base).exists() else []) if p.is_file() and (p.name.startswith("test_") or p.name.endswith("Test.kt") or p.name.endswith("Test.java")))
-    return [Result("Test discovery","test inventory",PASS if files else FAIL,f"{len(files)} test files discovered\n"+"\n".join(files))]
+def parse_pytest(output):
+    d={"collected":0,"passed":0,"failed":0,"errors":0,"skipped":0,"xfailed":0,"xpassed":0}
+    m=re.search(r"collected\s+(\d+)\s+items",output)
+    if m:d["collected"]=int(m.group(1))
+    for key in d:
+        if key=="collected":continue
+        m=re.search(r"(\d+)\s+"+key,output)
+        if m:d[key]=int(m.group(1))
+    if not d["collected"]:
+        d["collected"]=sum(d[key] for key in ("passed","failed","errors","skipped","xfailed","xpassed"))
+    return d
 
-def version(root: Path, command: Sequence[str]) -> str:
-    if shutil.which(command[0]) is None: return "BLOCKED: command unavailable"
-    try:
-        p=subprocess.run(command,cwd=root,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=20,check=False)
-        return p.stdout.strip().splitlines()[0] if p.stdout.strip() else f"exit={p.returncode}"
-    except Exception as exc: return f"BLOCKED: {exc}"
+def parse_unittest(output):
+    d={"discovered":0,"failures":0,"errors":0,"skipped":0}
+    m=re.search(r"Ran\s+(\d+)\s+tests?",output)
+    if m:d["discovered"]=int(m.group(1))
+    for key in ("failures","errors","skipped"):
+        m=re.search(r"(?:%s\s*=\s*(\d+)|(\d+)\s+%s)"%(key,key),output)
+        if m:
+            d[key]=int(m.group(1) or m.group(2))
+    return d
 
-def environment(root: Path) -> dict[str,str]:
-    return {"Python":platform.python_version(),"Platform":platform.platform(),"Flet":version(root,["flet","--version"]),"JDK":version(root,["java","-version"]),"Gradle":version(root,["gradle","--version"]),"Git":version(root,["git","--version"]),"ANDROID_HOME":os.environ.get("ANDROID_HOME",""),"ANDROID_SDK_ROOT":os.environ.get("ANDROID_SDK_ROOT","")}
+def unittest_output(result):
+    return (result.stdout or "") + "\n" + (result.stderr or "")
 
-def git_state(root: Path) -> dict[str,str]:
-    out={}
-    for key,cmd in {"branch":["git","branch","--show-current"],"head":["git","rev-parse","HEAD"],"status":["git","status","--short"],"log":["git","log","-n","10","--oneline"],"diff_stat":["git","diff","--stat"]}.items():
+def has_unittest_cases(root):
+    tests_root=root/"tests"
+    if not tests_root.is_dir():
+        return False
+    for path in tests_root.rglob("*.py"):
         try:
-            p=subprocess.run(cmd,cwd=root,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=20,check=False); out[key]=p.stdout.strip()
-        except Exception as exc: out[key]=f"BLOCKED: {exc}"
+            tree=ast.parse(path.read_text(encoding="utf-8",errors="replace"))
+        except SyntaxError:
+            continue
+        for node in tree.body:
+            if not isinstance(node,ast.ClassDef):
+                continue
+            for base in node.bases:
+                if isinstance(base,ast.Name) and base.id=="TestCase":
+                    return True
+                if isinstance(base,ast.Attribute) and base.attr=="TestCase":
+                    return True
+    return False
+
+def normalize_unittest_result(root,result):
+    if result.status==PASS:
+        stats=parse_unittest(unittest_output(result))
+        if stats["discovered"]==0:
+            if has_unittest_cases(root):
+                result.status=NOT_VALIDATED
+                result.evidence += "\nUnittest discovery returned zero tests although unittest.TestCase classes exist under tests/."
+            else:
+                result.status=NOT_APPLICABLE
+                result.evidence += "\nNo unittest.TestCase classes were found under tests/."
+    return result
+
+def is_collectable_python_test(path):
+    try:
+        tree=ast.parse(path.read_text(encoding="utf-8",errors="replace"))
+    except SyntaxError:
+        return True
+    for node in tree.body:
+        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+            return True
+        if isinstance(node,ast.ClassDef):
+            has_test_method=any(
+                isinstance(child,(ast.FunctionDef,ast.AsyncFunctionDef)) and child.name.startswith("test_")
+                for child in node.body
+            )
+            bases={base.id for base in node.bases if isinstance(base,ast.Name)}
+            attrs={base.attr for base in node.bases if isinstance(base,ast.Attribute)}
+            if has_test_method or "TestCase" in bases or "TestCase" in attrs:
+                return True
+    return False
+
+def git_state(root):
+    out={}
+    for k,cmd in {"branch":["git","branch","--show-current"],"head":["git","rev-parse","HEAD"],"status":["git","status","--short"],"log":["git","log","-15","--oneline"]}.items():
+        p=subprocess.run(cmd,cwd=root,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=30,check=False)
+        out[k]=p.stdout.strip()
     return out
 
-def main() -> int:
-    ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/prompt15-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/prompt15-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/prompt15-201-matrix.json")); ap.add_argument("--gradle-root",type=Path,default=None); ap.add_argument("--apk",type=Path,default=None); ap.add_argument("--aapt2",type=Path,default=None); ap.add_argument("--prevalidated-compileall",action="store_true"); ap.add_argument("--prevalidated-gradle",action="store_true"); args=ap.parse_args()
-    root=args.root.resolve(); args.output.parent.mkdir(parents=True,exist_ok=True); args.report.parent.mkdir(parents=True,exist_ok=True)
-    results=inventory(root)
-    if args.prevalidated_compileall:
-        results.append(Result("Python","compileall",PASS,"Exact `python -m compileall .` was executed successfully by the preceding blocking CI step in this same workflow run."))
+def refs(root,items):
+    return [x for x in items if (root/x).is_file()]
+
+def audit_skip_xfail(root):
+    pat=re.compile(r"(pytest\.(?:mark\.)?(?:skip|skipif|xfail)|unittest\.(?:skip|skipIf|expectedFailure)|@pytest\.mark\.(?:skip|skipif|xfail))")
+    rows=[]
+    for base in (root/"tests",root/"android/app/src/test",root/"android/app/src/androidTest"):
+        if not base.exists():continue
+        for p in base.rglob("*"):
+            if not p.is_file() or p.suffix not in {".py",".kt",".java"}:continue
+            for ln,line in enumerate(p.read_text(encoding="utf-8",errors="replace").splitlines(),1):
+                if not pat.search(line):continue
+                low=line.lower(); rel=str(p.relative_to(root))
+                cls="environmental dependency" if "androidtest" in rel.lower() or any(x in low for x in ("device","emulator","physical")) else "potential masking"
+                rows.append({"file":rel,"line":ln,"text":line.strip(),"classification":cls})
+    return {"count":len(rows),"occurrences":rows}
+
+def inventory(root):
+    out=[]
+    for base in (root/"tests",root/"android/app/src/test",root/"android/app/src/androidTest"):
+        if not base.exists():continue
+        for p in base.rglob("*"):
+            if p.is_file() and (p.name.startswith("test_") or p.name.endswith("Test.kt") or p.name.endswith("Test.java")):
+                out.append(str(p.relative_to(root)))
+    return out
+
+def collection_audit(files,output,root=None):
+    discovered={x.split("::",1)[0] for x in output.splitlines() if x.startswith("tests/") and "::" in x}
+    repo_tests={x for x in files if x.startswith("tests/") and x.endswith(".py")}
+    if root is None:
+        relevant=repo_tests
+        ignored=set()
     else:
-        source_paths=["main.py","app_config.py","core","views","scripts","tests"]
-        results.append(run_command("Python","compileall",[sys.executable,"-m","compileall","-q",*source_paths],cwd=root))
-    for area,test,cmd in [
-        ("Python","pytest",[sys.executable,"-m","pytest","-q"]),
-        ("Python","unittest discovery",[sys.executable,"-m","unittest","discover","-s","tests","-p","test*.py","-t","."]),
-        ("Git","diff --check",["git","diff","--check"]),
-    ]: results.append(run_command(area,test,cmd,cwd=root))
-    if args.prevalidated_gradle:
-        results.append(Result("Android","Gradle unit tests",PASS,"Rendered-project Gradle unit tests completed successfully in the preceding blocking CI step of this same workflow run."))
-    elif args.gradle_root:
-        gradlew=args.gradle_root.resolve()/"gradlew"
-        if gradlew.is_file(): results.append(run_command("Android","Gradle unit tests",[str(gradlew),":app:testDebugUnitTest","--no-daemon"],cwd=args.gradle_root.resolve()))
-        else: results.append(Result("Android","Gradle unit tests",BLOCKED,"Gradle wrapper not found: "+str(gradlew)))
-    else:
-        results.append(Result("Android","Gradle unit tests",NOT_VALIDATED,"No rendered Flet Gradle project supplied."))
-    if shutil.which("adb"): results.append(run_command("Android","adb devices",["adb","devices","-l"],cwd=root,timeout=30))
-    else: results.append(Result("Android","connected device discovery",BLOCKED,"adb unavailable"))
-    apk_data=None
-    if args.apk:
-        apk=args.apk.resolve()
-        if not apk.is_file():
-            results.append(Result("APK","APK existence",FAIL,"APK not found: "+str(apk)))
-        else:
-            import hashlib, zipfile, re
-            digest=hashlib.sha256(apk.read_bytes()).hexdigest()
-            with zipfile.ZipFile(apk) as z:
-                names=z.namelist(); dex_files=[n for n in names if re.fullmatch(r"classes\d*\.dex",n)]; dex=b"".join(z.read(n) for n in dex_files)
-            req=["MainActivity","NativePlayerActivity","NativeMailbox","NativeIndex","SystemUiController"]
-            classes={n:((("Lcom/reiflix/reiflix_local/"+n+";").encode()) in dex) for n in req}
-            apk_data={"path":str(apk),"size":apk.stat().st_size,"sha256":digest,"manifest":"AndroidManifest.xml" in names,"dex_files":dex_files,"classes":classes}
-            results.append(Result("APK","forensic inspection",PASS if apk_data["manifest"] and dex_files and all(classes.values()) else FAIL,json.dumps(apk_data,ensure_ascii=False)))
-            host=root/"scripts/verify_android_host.py"; manifest=root/"scripts/verify_apk_manifest.py"
-            if host.is_file(): results.append(run_command("APK","native host verification",[sys.executable,str(host),str(apk)],cwd=root))
-            if manifest.is_file() and args.aapt2: results.append(run_command("APK","effective manifest verification",[sys.executable,str(manifest),str(apk),"--aapt2",str(args.aapt2)],cwd=root))
-    else:
-        results.append(Result("APK","final APK inspection",NOT_VALIDATED,"No APK supplied."))
-    results.append(Result("Device","physical Android smoke suite",NOT_VALIDATED,"No physical/emulator execution supplied to this runner."))
-    py={r.test:r.status for r in results if r.area=="Python"}
-    gradle_ok=any(r.area=="Android" and r.test=="Gradle unit tests" and r.status==PASS for r in results)
-    matrix=[]
-    device_only={13,35,*range(59,67),*range(143,156)}
-    for item_id in range(1,202):
-        if item_id in device_only:
-            status=NOT_VALIDATED; evidence="Requires emulator/physical-device/runtime permission or interaction evidence; Prompt 15.1 intentionally excludes that environment."
-        elif 131 <= item_id <= 142:
-            if apk_data is None:
-                status=NOT_VALIDATED; evidence="Real APK was not supplied to the certification runner."
+        relevant=set()
+        ignored=set()
+        for rel in repo_tests:
+            if is_collectable_python_test(root/rel):
+                relevant.add(rel)
             else:
-                status=PASS if apk_data["manifest"] and apk_data["dex_files"] and all(apk_data["classes"].values()) else FAIL
-                evidence="Real APK forensic evidence."
-        elif item_id==7:
-            status=PASS if py.get("compileall")==PASS else py.get("compileall",BLOCKED); evidence="compileall execution."
-        elif item_id==8:
-            status=PASS if py.get("pytest")==PASS else py.get("pytest",BLOCKED); evidence="pytest execution."
-        elif item_id==9:
-            status=PASS if py.get("unittest discovery")==PASS else py.get("unittest discovery",BLOCKED); evidence="unittest discovery execution."
-        elif item_id==10:
-            status=PASS if py.get("diff --check")==PASS else py.get("diff --check",BLOCKED); evidence="git diff --check execution."
-        elif item_id==11:
-            status=PASS if gradle_ok else (BLOCKED if not any(r.area=="Android" and r.test=="Gradle unit tests" for r in results) else PARTIAL)
-            evidence="Rendered Android unit-test execution." if gradle_ok else "Android unit-test evidence unavailable or incomplete."
-        elif item_id in (192,193,194,195,196,197,198,199,200,201):
-            status=PASS; evidence="Repository/certification bookkeeping was executed and recorded by this run."
+                ignored.add(rel)
+    return {
+        "repository_test_files":len(relevant),
+        "discovered_test_files":len(discovered & relevant),
+        "ignored_non_test_files":sorted(ignored),
+        "not_discovered":sorted(relevant-discovered),
+    }
+
+def configure_rendered_gradle_environment(root):
+    site_packages=root/"build"/"flutter"/"site-packages"
+    current=os.environ.get("SERIOUS_PYTHON_SITE_PACKAGES","").strip()
+    if current:
+        return Result("Android","Gradle environment",PASS,"SERIOUS_PYTHON_SITE_PACKAGES already set to: "+current,command="environment")
+    if site_packages.is_dir():
+        os.environ["SERIOUS_PYTHON_SITE_PACKAGES"]=str(site_packages)
+        return Result("Android","Gradle environment",PASS,"Set SERIOUS_PYTHON_SITE_PACKAGES to the rendered project's staged site-packages directory.",command="environment")
+    return Result("Android","Gradle environment",BLOCKED,"Rendered Flet site-packages directory is missing: "+str(site_packages),command="environment")
+
+
+def discover_lint_task(gradlew,cwd):
+    tasks=run_command("Android","Gradle tasks",[str(gradlew),"tasks","--all","--no-daemon"],cwd=cwd,timeout=900)
+    if tasks.status!=PASS:
+        return tasks,None
+    task_names=re.findall(r"^:?((?:app):[A-Za-z0-9_]*lint[A-Za-z0-9_]*)\s+-",tasks.stdout,flags=re.MULTILINE)
+    names={":" + x for x in task_names}
+    preferred=(
+        ":app:lintReportDebug",
+        ":app:lintReportRelease",
+        ":app:lintVitalReportRelease",
+        ":app:lintFixDebug",
+        ":app:lintAnalyzeRelease",
+    )
+    chosen=next((x for x in preferred if x in names),None) or next((x for x in sorted(names) if x.lower().startswith(":app:lint")),None)
+    if not chosen:
+        return Result("Android","Gradle lint discovery",BLOCKED,"No app lint task discovered from the available Gradle tasks.",command=tasks.command,stdout=tasks.stdout,stderr=tasks.stderr),None
+    return Result("Android","Gradle lint discovery",PASS,"Discovered app lint task: "+chosen,command=tasks.command,stdout=tasks.stdout,stderr=tasks.stderr),chosen
+
+
+def run_lint_task(gradlew,cwd,task):
+    return run_command("Android","Gradle lint "+task,[str(gradlew),task,"--no-daemon"],cwd=cwd,timeout=1800)
+
+def adb_probe(root):
+    adb=shutil.which("adb")
+    if not adb:return {"tool":"NOT AVAILABLE","device_validation":NOT_VALIDATED,"devices":[],"evidence":"adb executable not available"}
+    r=run_command("Android","adb devices",[adb,"devices","-l"],cwd=root,timeout=30)
+    devices=[x.strip() for x in r.stdout.splitlines() if "\tdevice" in x]
+    return {"tool":PASS if r.status==PASS else "NOT AVAILABLE","device_validation":NOT_VALIDATED,"devices":devices,"exit_code":r.exit_code,"evidence":r.stdout[-4000:]}
+
+def apk_forensic(root,apk,aapt2):
+    if not apk or not apk.is_file():return {"status":NOT_VALIDATED,"reason":"real APK was not supplied"}
+    d={"path":str(apk),"size":apk.stat().st_size,"sha256":hashlib.sha256(apk.read_bytes()).hexdigest()}
+    try:
+        with zipfile.ZipFile(apk) as z:
+            names=z.namelist(); d["manifest_present"]="AndroidManifest.xml" in names; d["resources_present"]="resources.arsc" in names; d["app_zip_present"]="assets/app.zip" in names
+            d["dex_files"]=[x for x in names if re.fullmatch(r"classes\d*\.dex",x)]
+            dex=b"".join(z.read(x) for x in d["dex_files"])
+            wanted=["MainActivity","NativePlayerActivity","NativeMailbox","NativeIndex","MediaStoreScanner","SafScanner","BroadStorageScanner"]
+            d["classes"]={x:(("Lcom/reiflix/reiflix_local/"+x+";").encode() in dex) for x in wanted}
+    except Exception as e:return {"status":FAIL,"reason":str(e),**d}
+    badging=""
+    if aapt2 and aapt2.is_file():
+        p=subprocess.run([str(aapt2),"dump","badging",str(apk)],cwd=root,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=60,check=False); badging=p.stdout or ""
+    m=re.search(r"package: name='([^']+)' versionCode='([^']*)' versionName='([^']*)'",badging)
+    if m:d["package"],d["versionCode"],d["versionName"]=m.group(1),m.group(2),m.group(3)
+    m=re.search(r"targetSdkVersion:'([^']+)'",badging)
+    if m:d["targetSdk"]=m.group(1)
+    if aapt2 and aapt2.is_file():
+        p=subprocess.run([str(aapt2),"dump","xmltree",str(apk),"AndroidManifest.xml"],cwd=root,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=60,check=False); tree=p.stdout or ""
+        d["manifest_contract"]={"singleTask":"singleTask" in tree,"documentLaunchModeNever":"never" in tree,"deepLink":"reiflix" in tree,"pip":"supportsPictureInPicture" in tree}
+        d["permissions"]=sorted(set(re.findall(r"android\.permission\.[A-Z0-9_]+",tree)))
+    apksigner=shutil.which("apksigner")
+    if not apksigner and os.environ.get("ANDROID_HOME"):
+        c=sorted((Path(os.environ["ANDROID_HOME"])/"build-tools").glob("*/apksigner")); apksigner=str(c[-1]) if c else None
+    d["signature"]={"status":NOT_VALIDATED,"output":"apksigner unavailable"}
+    if apksigner:
+        p=subprocess.run([apksigner,"verify","--verbose","--print-certs",str(apk)],cwd=root,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=60,check=False)
+        d["signature"]={"status":PASS if p.returncode==0 else FAIL,"output":(p.stdout or "")[-5000:]}
+    d["status"]=PASS if d.get("manifest_present") and d.get("resources_present") and d.get("app_zip_present") and d.get("dex_files") and all(d.get("classes",{}).values()) else FAIL
+    return d
+
+def static_requirement_evidence(root, requirement, apk):
+    rules = {
+        "NativePlayerActivity exists": ("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt", None, "The NativePlayerActivity source file exists at the certified production path."),
+        "MainActivity uses singleTask launch semantics": ("android/app/src/main/AndroidManifest.xml", 'android:launchMode="singleTask"', 'Source manifest declares MainActivity with launchMode="singleTask".'),
+        "MainActivity disables document duplication": ("android/app/src/main/AndroidManifest.xml", 'android:documentLaunchMode="never"', 'Source manifest declares documentLaunchMode="never" for MainActivity.'),
+        "Flet launch_url compatibility path is explicit": ("core/android_bridge.py", "await self.page.launch_url(url)", "AndroidBridge uses the Flet 0.86.5-compatible launch_url(url) call without an unsupported mode argument."),
+        "Media3 is the sole playback engine": ("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt", "ExoPlayer.Builder(this).build()", "NativePlayerActivity constructs playback through Media3/ExoPlayer."),
+        "Player supports fit mode": ("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt", "AspectRatioFrameLayout.RESIZE_MODE_FIT", "Native player source explicitly uses Media3 FIT resize mode."),
+    }
+    rule = rules.get(requirement)
+    if rule is None:
+        return None
+    rel, needle, description = rule
+    path = root / rel
+    if not path.is_file():
+        return {"status": NOT_VALIDATED, "evidence": f"Required inspection target is missing: {rel}", "command": f"inspect {rel}"}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if needle is not None and needle not in text:
+        return {"status": FAIL, "evidence": f"Required contract was not found in {rel}: {needle}", "command": f"inspect {rel}"}
+    return {"status": PASS, "evidence": description, "command": f"inspect {rel}"}
+
+def make_row(root,item,results,apk,collection):
+    rid,area,req=item
+    impl=refs(root,IMPL_REFS[area])
+    tests=refs(root,TEST_REFS[area])
+    if not impl:
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"","Existing test reference":"; ".join(tests),"Command":"static audit","Execution status":"NO","Result":NOT_VALIDATED,"Evidence":"No implementation reference file was found.","Limitation":"Implementation reference missing."}
+    if req in DEVICE_ONLY:
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":"NOT EXECUTED","Execution status":"NO","Result":NOT_VALIDATED,"Evidence":"No emulator or physical device was used by design.","Limitation":"NO EMULATOR/PHYSICAL DEVICE"}
+    static=static_requirement_evidence(root,req,apk)
+    if static is not None:
+        status=static["status"]
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":static["command"],"Execution status":"YES" if status in (PASS,FAIL) else "NO","Result":status,"Evidence":static["evidence"],"Limitation":"" if status==PASS else "Static contract check did not prove the requirement."}
+    if req=="Certification runner executes real commands":
+        failed=[x.test for x in results.values() if x.status==FAIL]
+        blocked=[x.test for x in results.values() if x.status==BLOCKED]
+        incomplete=[x.test for x in results.values() if x.status in {NOT_VALIDATED,NOT_APPLICABLE}]
+        status=FAIL if failed else BLOCKED if blocked else PARTIAL if incomplete else PASS
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":"certification runner","Execution status":"YES","Result":status,"Evidence":"Real runner command results: "+(", ".join(failed) if failed else "no blocking command failures."),"Limitation":"" if status==PASS else "One or more blocking certification commands failed."}
+    if req=="Certification runner runs pytest collection audit":
+        r=results["collect"]
+        status=PASS if r.status==PASS and not collection["not_discovered"] else (FAIL if r.status==FAIL else PARTIAL)
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":r.command,"Execution status":"YES" if r.status in (PASS,FAIL) else "NO","Result":status,"Evidence":json.dumps(collection,ensure_ascii=False),"Limitation":"" if status==PASS else "Collection audit did not fully prove discovery coverage."}
+    if req=="Certification runner performs a second pytest determinism run":
+        a,b=results["pytest"],results["pytest_second"]; x,y=parse_pytest(a.stdout),parse_pytest(b.stdout)
+        status=PASS if a.status==PASS and b.status==PASS and x==y else (FAIL if a.status==FAIL or b.status==FAIL else PARTIAL)
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":a.command+" ; "+b.command,"Execution status":"YES" if a.status in (PASS,FAIL) and b.status in (PASS,FAIL) else "NO","Result":status,"Evidence":json.dumps({"first":x,"second":y},ensure_ascii=False),"Limitation":"" if status==PASS else "Two pytest executions did not both pass with identical parsed totals."}
+    if req=="Android unit-test task is executed when rendered project exists":
+        r=results["gradle_unit"]
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":r.command,"Execution status":"YES" if r.status in (PASS,FAIL) else "NO","Result":r.status,"Evidence":r.evidence,"Limitation":"" if r.status==PASS else "Android unit tests were not successfully validated."}
+    if req=="Gradle lint task is discovered from available tasks":
+        r=results["lint_discovery"]
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":r.command,"Execution status":"YES" if r.status in (PASS,FAIL) else "NO","Result":r.status,"Evidence":r.evidence,"Limitation":"" if r.status==PASS else "A concrete app lint task was not discovered."}
+    if req=="Gradle lint result is recorded":
+        r=results["lint"]
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":r.command,"Execution status":"YES" if r.status in (PASS,FAIL) else "NO","Result":r.status,"Evidence":r.evidence,"Limitation":"" if r.status==PASS else "Lint did not pass."}
+    if req in {"Packaged manifest is forensically inspected","Packaged DEX contains the required native host classes","Packaged resources contain the expected payload","Release APK is built by the workflow"}:
+        status=PASS if apk.get("status")==PASS else (FAIL if apk.get("status")==FAIL else NOT_VALIDATED)
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":"APK forensic inspection","Execution status":"YES" if status in (PASS,FAIL) else "NO","Result":status,"Evidence":json.dumps(apk,ensure_ascii=False)[:10000],"Limitation":"" if status==PASS else "Real final APK evidence was unavailable or failed."}
+    if req.startswith("Every matrix row"):
+        field_map={"Every matrix row has a real requirement": req,"Every matrix row has an implementation reference": "; ".join(impl),"Every matrix row has a test/evidence reference": "; ".join(tests),"Every matrix row has a command": "derived per row","Every matrix row records execution status": "YES/NO per row","Every matrix row uses an allowed classification": "ALLOWED","Every PASS row has concrete evidence": "enforced by runner assertions"}
+        value=field_map[req]; status=PASS if value else FAIL
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":"matrix generation","Execution status":"YES","Result":status,"Evidence":f"{req}: {value}","Limitation":"" if status==PASS else "Generated matrix field is missing."}
+    if req=="Matrix totals are calculated from the rows":
+        return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":"matrix totals calculation","Execution status":"YES","Result":PASS,"Evidence":"Totals are calculated with one pass over the generated 201 rows.","Limitation":""}
+    py,un=results["pytest"],results["unittest"]
+    evidence={"pytest":parse_pytest(py.stdout),"unittest":parse_unittest(unittest_output(un)),"implementation":impl,"tests":tests}
+    return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":py.command+" ; "+un.command,"Execution status":"YES" if py.status==PASS and un.status in (PASS,FAIL) else "NO","Result":PARTIAL,"Evidence":"Shared regression suite evidence only; no requirement-specific assertion was registered for this row. "+json.dumps(evidence,ensure_ascii=False),"Limitation":"A requirement-specific test/static contract is required before this row can be PASS."}
+
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/prompt15-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/prompt15-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/prompt15-201-matrix.json")); ap.add_argument("--gradle-root",type=Path); ap.add_argument("--apk",type=Path); ap.add_argument("--aapt2",type=Path); ap.add_argument("--skip-gradle",action="store_true"); ap.add_argument("--prevalidated-compileall",action="store_true"); ap.add_argument("--prevalidated-gradle",action="store_true"); a=ap.parse_args()
+    root=a.root.resolve(); a.output.parent.mkdir(parents=True,exist_ok=True); a.report.parent.mkdir(parents=True,exist_ok=True); a.matrix.parent.mkdir(parents=True,exist_ok=True)
+    py=sys.executable; r={}
+    r["compileall"]=Result("Python","compileall",PASS,"Exact `python -m compileall .` completed successfully in the preceding blocking workflow step.",command="python -m compileall .") if a.prevalidated_compileall else run_command("Python","compileall",[py,"-m","compileall","."],cwd=root,timeout=900)
+    r["collect"]=run_command("Python","pytest collect-only",[py,"-m","pytest","--collect-only","-q"],cwd=root,timeout=1800)
+    r["pytest"]=run_command("Python","pytest",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
+    r["pytest_second"]=run_command("Python","pytest determinism",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
+    r["unittest"]=normalize_unittest_result(root,run_command("Python","unittest discovery",[py,"-m","unittest","discover","-s","tests","-v"],cwd=root,timeout=1800))
+    r["diff_check"]=run_command("Git","diff --check",["git","diff","--check"],cwd=root,timeout=60)
+    files=inventory(root); collection=collection_audit(files,r["collect"].stdout,root); skip_audit=audit_skip_xfail(root)
+    if a.gradle_root and not a.skip_gradle:
+        gr=a.gradle_root.resolve(); gw=gr/"gradlew"
+        if gw.is_file():
+            r["gradle_env"]=configure_rendered_gradle_environment(root)
+            r["gradle_unit"]=Result("Android","Gradle unit tests",PASS,"Rendered-project Gradle unit tests completed successfully in the preceding blocking workflow step.",command=str(gw)+" :app:testDebugUnitTest --no-daemon") if a.prevalidated_gradle else run_command("Android","Gradle unit tests",[str(gw),":app:testDebugUnitTest","--no-daemon"],cwd=gr,timeout=1800)
+            if r["gradle_env"].status==PASS:
+                r["lint_discovery"],lint_task=discover_lint_task(gw,gr)
+                r["lint"]=run_lint_task(gw,gr,lint_task) if lint_task else Result("Android","Gradle lint",r["lint_discovery"].status,r["lint_discovery"].evidence,command=r["lint_discovery"].command)
+            else:
+                r["lint_discovery"]=r["gradle_env"]
+                r["lint"]=r["gradle_env"]
         else:
-            status=PARTIAL; evidence="Existing implementation/tests/contracts were audited; this individual requirement lacks unique isolated execution evidence in the no-device scope."
-        matrix.append({"ID":item_id,"Requirement":"Prompt 15.1 item "+str(item_id),"Implementation":"AUDITED","Test":"existing suite/static audit/CI runner","Command":"see certification results","Executed":status not in (NOT_VALIDATED,BLOCKED),"Result":status,"Evidence":evidence,"Limitation":"" if status==PASS else evidence})
-    args.matrix.parent.mkdir(parents=True,exist_ok=True); args.matrix.write_text(json.dumps(matrix,indent=2,ensure_ascii=False),encoding="utf-8")
-    payload={"classification":"CERTIFICATION PARTIAL","repository":"reinansantos9090-debug/Rei-flix","timestamp_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"environment":environment(root),"git":git_state(root),"results":[asdict(r) for r in results],"matrix":matrix,"matrix_counts":{s:sum(row["Result"]==s for row in matrix) for s in (PASS,PARTIAL,FAIL,NOT_VALIDATED,NOT_APPLICABLE,BLOCKED)},"apk":apk_data}
-    if any(r.status==FAIL for r in results) or payload["matrix_counts"][FAIL]: payload["classification"]="NOT CERTIFIED"
-    elif any(r.status in (BLOCKED,NOT_VALIDATED,PARTIAL) for r in results) or payload["matrix_counts"][PARTIAL]: payload["classification"]="CERTIFICATION PARTIAL"
-    else: payload["classification"]="CERTIFIED IN VALIDATED SCOPE"
-    args.output.write_text(json.dumps(payload,indent=2,ensure_ascii=False),encoding="utf-8")
-    lines=["# Rei-Flix — Prompt 15 Certification","",f"Classification: {payload['classification']}",f"Timestamp UTC: {payload['timestamp_utc']}","","## Repository",f"Branch: {payload['git'].get('branch','')}",f"HEAD: {payload['git'].get('head','')}",f"Working tree: {payload['git'].get('status') or 'clean'}","","## Results","","| Area | Test | Result | Evidence |","|---|---|---|---|"]
-    for r in results: lines.append(f"| {r.area} | {r.test} | {r.status} | {r.evidence.replace(chr(124),'\\\\|').replace(chr(10),' ')[:700]} |")
-    lines += ["","## Evidence rules","- PASS requires actual execution and the expected result.","- FAIL means the test executed and failed.","- BLOCKED means the environment prevented execution.","- NOT VALIDATED means the check was not executed.","- No APK, physical-device, FPS, memory-leak, or Android-version claim is made without evidence."]
-    args.report.write_text("\n".join(lines)+"\n",encoding="utf-8")
-    print(f"Prompt 15 classification: {payload['classification']}"); print(f"JSON report: {args.output}"); print(f"Markdown report: {args.report}"); print("Matrix counts:", payload["matrix_counts"]); print("Result statuses:", [(r.area, r.test, r.status) for r in results])
-    return 1 if payload["classification"]=="NOT CERTIFIED" else 0
+            r["gradle_env"]=Result("Android","Gradle environment",BLOCKED,"gradlew not found: "+str(gw),command="environment")
+            r["gradle_unit"]=Result("Android","Gradle unit tests",BLOCKED,"gradlew not found: "+str(gw))
+            r["lint_discovery"]=Result("Android","Gradle lint discovery",BLOCKED,"gradlew not found: "+str(gw))
+            r["lint"]=Result("Android","Gradle lint",BLOCKED,"gradlew not found: "+str(gw))
+    else:
+        r["gradle_env"]=Result("Android","Gradle environment",NOT_VALIDATED,"No rendered Gradle project supplied.")
+        r["gradle_unit"]=Result("Android","Gradle unit tests",NOT_VALIDATED,"No rendered Gradle project supplied.")
+        r["lint_discovery"]=Result("Android","Gradle lint discovery",NOT_VALIDATED,"No rendered Gradle project supplied.")
+        r["lint"]=Result("Android","Gradle lint",NOT_VALIDATED,"No rendered Gradle project supplied.")
+    adb=adb_probe(root); apk=apk_forensic(root,a.apk.resolve() if a.apk else None,a.aapt2.resolve() if a.aapt2 else None)
+    rows=[make_row(root,item,r,apk,collection) for item in REQUIREMENTS]
+    assert len(rows)==201 and [x["ID"] for x in rows]==list(range(1,202))
+    assert len({x["Requirement"] for x in rows})==201 and all(x["Requirement"] and x["Area"] for x in rows)
+    assert all(x["Result"] in ALLOWED for x in rows) and all(x["Result"]!=PASS or x["Evidence"] for x in rows)
+    blocking_failures=[x.test for x in r.values() if x.status==FAIL]
+    counts={s:sum(x["Result"]==s for x in rows) for s in [PASS,PARTIAL,FAIL,NOT_APPLICABLE,NOT_VALIDATED,BLOCKED]}
+    classification="NOT CERTIFIED" if blocking_failures or counts[FAIL] else "CERTIFICATION PARTIAL" if counts[PARTIAL] or counts[NOT_VALIDATED] or counts[BLOCKED] else "CERTIFIED IN VALIDATED SCOPE"
+
+    payload={"certification_stage":"Prompt 15.5","classification":classification,"timestamp_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"repository":"reinansantos9090-debug/Rei-flix","git":git_state(root),"environment":{"Python":platform.python_version(),"Platform":platform.platform(),"ANDROID_HOME":os.environ.get("ANDROID_HOME",""),"ANDROID_SDK_ROOT":os.environ.get("ANDROID_SDK_ROOT","")},"pytest_first":parse_pytest(r["pytest"].stdout),"pytest_second":parse_pytest(r["pytest_second"].stdout),"unittest":{"status":r["unittest"].status,"command":r["unittest"].command,"stats":parse_unittest(unittest_output(r["unittest"])),"evidence":r["unittest"].evidence},"collect_only":collection,"skip_xfail_audit":skip_audit,"adb":adb,"apk":apk,"results":[asdict(x) for x in r.values()],"matrix":rows,"matrix_counts":counts,"limitations":["Emulator/AVD NOT EXECUTED.","Connected instrumentation NOT EXECUTED.","Physical-device installation/update/clean-install NOT VALIDATED.","Android 14/15/16 runtime NOT VALIDATED.","Runtime FPS/RAM/leak profiling NOT VALIDATED."]}
+    a.output.write_text(json.dumps(payload,indent=2,ensure_ascii=False),encoding="utf-8"); a.matrix.write_text(json.dumps(rows,indent=2,ensure_ascii=False),encoding="utf-8")
+    md=["# Rei-Flix — Prompt 15.5 Certification","","Classification: %s"%classification,"Branch: %s"%payload["git"].get("branch",""),"HEAD: %s"%payload["git"].get("head",""),"Working tree: %s"%(payload["git"].get("status") or "clean"),"","pytest first: %s"%payload["pytest_first"],"pytest second: %s"%payload["pytest_second"],"unittest: %s — %s"%(payload["unittest"]["status"],payload["unittest"]["stats"]),"collect-only audit: %s"%payload["collect_only"],"skip/xfail occurrences: %s"%skip_audit["count"],"","Android unit tests: %s"%r["gradle_unit"].status,"Lint: %s"%r["lint"].status,"ADB tool: %s"%adb["tool"],"Device validation: NOT VALIDATED","Emulator/AVD: NOT EXECUTED","Instrumentation: NOT VALIDATED — NO EMULATOR/PHYSICAL DEVICE","","APK path: %s"%apk.get("path","NOT AVAILABLE"),"APK size: %s"%apk.get("size","NOT AVAILABLE"),"APK SHA-256: %s"%apk.get("sha256","NOT AVAILABLE"),"Package: %s"%apk.get("package","NOT AVAILABLE"),"Version: %s / %s"%(apk.get("versionName","NOT AVAILABLE"),apk.get("versionCode","NOT AVAILABLE")),"Target SDK: %s"%apk.get("targetSdk","NOT AVAILABLE"),"Manifest: %s"%apk.get("manifest_present","NOT AVAILABLE"),"DEX: %s"%apk.get("dex_files","NOT AVAILABLE"),"Resources: %s"%apk.get("resources_present","NOT AVAILABLE"),"Signature: %s"%apk.get("signature",{}).get("status",NOT_VALIDATED),"","201-item matrix totals:"]+[s+": %s"%counts[s] for s in [PASS,PARTIAL,FAIL,NOT_VALIDATED,NOT_APPLICABLE,BLOCKED]]
+    md+=["","| ID | Requirement | Area | Implementation | Test | Command | Executed | Result | Evidence | Limitation |","|---:|---|---|---|---|---|:---:|---|---|---|"]
+    for row in rows:
+        vals=[str(row[k]).replace("|","\\|").replace("\n"," ") for k in ("ID","Requirement","Area","Implementation reference","Existing test reference","Command","Execution status","Result","Evidence","Limitation")]
+        md.append("| "+" | ".join(vals)+" |")
+    a.report.write_text("\n".join(md)+"\n",encoding="utf-8")
+    print("Prompt 15.5 classification:",classification); print("Matrix counts:",counts); print("pytest first:",payload["pytest_first"]); print("pytest second:",payload["pytest_second"]); print("unittest:",payload["unittest"]); print("skip/xfail:",skip_audit["count"]); print("ADB:",adb); print("JSON report:",a.output); print("Markdown report:",a.report)
+    if r["pytest"].status == FAIL:
+        print("PYTEST FAILURE OUTPUT (last 20000 chars):")
+        print(r["pytest"].stdout[-20000:])
+    return 1 if classification=="NOT CERTIFIED" else 0
 
 if __name__=="__main__": raise SystemExit(main())

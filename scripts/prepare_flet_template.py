@@ -182,11 +182,11 @@ else:
 tree.write(manifest_path, encoding="utf-8", xml_declaration=True)
 
 dependencies = [
-    "androidx.activity:activity-ktx:1.9.3",
+    "androidx.activity:activity-ktx:1.13.0",
     "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0",
     "androidx.documentfile:documentfile:1.0.1",
-    "androidx.media3:media3-exoplayer:1.5.1",
-    "androidx.media3:media3-ui:1.5.1",
+    "androidx.media3:media3-exoplayer:1.11.1",
+    "androidx.media3:media3-ui:1.11.1",
     "androidx.credentials:credentials:1.6.0",
     "androidx.credentials:credentials-play-services-auth:1.6.0",
     "com.google.android.libraries.identity.googleid:googleid:1.2.0",

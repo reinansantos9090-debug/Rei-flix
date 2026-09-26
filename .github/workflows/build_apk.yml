@@ -202,8 +202,11 @@ jobs:
         shell: bash
         run: |
           grep -Rni "serious_python" build/flet-build-template | head -40
-          test -s build/flet-build-template/pubspec.yaml
-          grep -q "serious_python" build/flet-build-template/pubspec.yaml
+          pubspec="$(find build/flet-build-template -type f -name pubspec.yaml -print -quit)"
+          test -n "$pubspec"
+          test -s "$pubspec"
+          grep -q "serious_python" "$pubspec"
+          echo "SERIOUS_PYTHON_PUBSPEC=$pubspec"
 
       - name: Fix generated JSON files
         shell: bash

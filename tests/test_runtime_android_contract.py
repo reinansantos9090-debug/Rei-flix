@@ -209,7 +209,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")
         player = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         for token in (
-            "override fun onCreate(savedInstanceState: Bundle)",
+            "override fun onCreate(savedInstanceState: Bundle?)",
             "override fun onResume()",
             "override fun onWindowFocusChanged(hasFocus: Boolean)",
             "override fun onConfigurationChanged(newConfig:",

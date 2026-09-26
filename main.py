@@ -2042,11 +2042,21 @@ async def main(page: ft.Page):
                                 )
                                 saf_selection.finish()
                                 tree_uri = payload.get('treeUri')
+                                error_message = event.get('message') or 'Não foi possível abrir o seletor de pastas do Android. Tente novamente.'
+                                logger.error(
+                                    "[SAF] native error request_id=%s stage=%s code=%s status=%s has_tree_uri=%s",
+                                    event_request_id or "-",
+                                    payload.get('stage') or "-",
+                                    payload.get('code') or "-",
+                                    payload.get('status') or "-",
+                                    bool(tree_uri),
+                                )
                                 if tree_uri and tree_uri in pending_folder_removals:
                                     pending_folder_removals.discard(tree_uri)
                                     page.snack_bar=ft.SnackBar(ft.Text(event.get('message', 'Não foi possível liberar a pasta.'))); page.snack_bar.open=True; safe_update()
                                     refresh_settings_if_active()
                                     continue
+                                page.snack_bar=ft.SnackBar(ft.Text(error_message)); page.snack_bar.open=True; safe_update()
                                 if tree_uri:
                                     status = str(payload.get('status') or '').upper()
                                     if status == 'REVOKED':

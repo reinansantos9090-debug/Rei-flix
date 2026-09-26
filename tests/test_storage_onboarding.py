@@ -100,9 +100,9 @@ class StorageOnboardingTests(unittest.TestCase):
 
     def test_saf_picker_is_lifecycle_gated_and_single_shot(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
-        picker = source.split("private fun openTreePicker()", 1)[1].split("override fun onWindowFocusChanged", 1)[0]
-        self.assertIn('if (!activityResumed)', picker)
-        self.assertIn('queueLifecycleAction("select_tree")', picker)
+        picker = source.split("private fun openTreePicker(", 1)[1].split("override fun onWindowFocusChanged", 1)[0]
+        self.assertIn('if (!activityResumed || !focused)', picker)
+        self.assertIn('queueLifecycleAction("select_tree", correlationId)', picker)
         self.assertIn("safPickerPending", picker)
         self.assertIn("treePicker.launch(", picker)
         self.assertIn("safPickerPending = false", source)

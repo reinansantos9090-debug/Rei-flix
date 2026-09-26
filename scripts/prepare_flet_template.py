@@ -65,6 +65,25 @@ if layout_source.is_dir():
 manifest_path = app / "src" / "main" / "AndroidManifest.xml"
 tree = ET.parse(manifest_path)
 manifest = tree.getroot()
+
+# Package visibility is required before preflighting ACTION_OPEN_DOCUMENT_TREE
+# on Android 11+; keep the query in the generated APK as part of the native host
+# contract rather than treating resolveActivity() as an unobservable guess.
+queries = manifest.find("queries")
+if queries is None:
+    queries = ET.Element("queries")
+    manifest.insert(0, queries)
+tree_action = None
+for query_intent in queries.findall("intent"):
+    for action in query_intent.findall("action"):
+        if action.get(name := "{" + ANDROID + "}name") == "android.intent.action.OPEN_DOCUMENT_TREE":
+            tree_action = action
+            break
+    if tree_action is not None:
+        break
+if tree_action is None:
+    query_intent = ET.SubElement(queries, "intent")
+    ET.SubElement(query_intent, "action", {name: "android.intent.action.OPEN_DOCUMENT_TREE"})
 application = manifest.find("application")
 if application is None:
     raise RuntimeError("Rendered Flet AndroidManifest has no application element")

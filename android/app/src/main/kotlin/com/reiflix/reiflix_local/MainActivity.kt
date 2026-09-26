@@ -38,6 +38,15 @@ class MainActivity : FlutterFragmentActivity() {
     private var broadStoragePermissionPending = false
     private var mediaPermissionRequestPending = false
     private var safPickerPending = false
+    private enum class SafPickerPhase {
+        IDLE, REQUESTED, LAUNCHING, WAITING_RESULT, COMPLETED, CANCELLED, FAILED, TIMEOUT
+    }
+    private var safPickerPhase = SafPickerPhase.IDLE
+    private var safPickerStartedAtMs: Long = 0L
+    private var safPickerFocusLost = false
+    private var safPickerFocusRegainedAtMs: Long = 0L
+    private var safPickerWatchdog: Runnable? = null
+    private val safPickerWatchdogHandler = Handler(Looper.getMainLooper())
     private var activityResumed = false
     private var pendingMediaRequestId: String? = null
     private var pendingBroadRequestId: String? = null
@@ -110,6 +119,10 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_PENDING_PLAY_REQUEST_ID = "reiflix.pendingPlayRequestId"
         private const val STATE_ACTIVE_PLAYER_REQUEST_ID = "reiflix.activePlayerRequestId"
         private const val STATE_SAF_PICKER_PENDING = "reiflix.safPickerPending"
+        private const val STATE_SAF_PICKER_STARTED_AT_MS = "reiflix.safPickerStartedAtMs"
+        private const val STATE_SAF_PICKER_FOCUS_LOST = "reiflix.safPickerFocusLost"
+        private const val STATE_SAF_PICKER_FOCUS_REGAINED_AT_MS = "reiflix.safPickerFocusRegainedAtMs"
+        private const val STATE_SAF_PICKER_PHASE = "reiflix.safPickerPhase"
         private const val STATE_SEEN_NATIVE_REQUEST_IDS = "reiflix.seenNativeRequestIds"
         private const val STATE_STARTUP_DISCOVERY_TRIGGERED = "reiflix.startupDiscoveryTriggered"
         private const val STATE_LAST_OBSERVED_MEDIA_ACCESS = "reiflix.lastObservedMediaAccess"
@@ -118,6 +131,9 @@ class MainActivity : FlutterFragmentActivity() {
         private val safInventoryInFlight = AtomicBoolean(false)
         private val mediaStoreRetryHandler = Handler(Looper.getMainLooper())
         private val mediaStoreRetryScheduled = AtomicBoolean(false)
+        private const val SAF_PICKER_LAUNCH_TIMEOUT_MS = 5000L
+        private const val SAF_PICKER_RETURN_GRACE_MS = 2500L
+        private const val SAF_PICKER_WATCHDOG_RETRY_MS = 250L
 
         /**
          * Process-wide MediaStore retry signal. It deliberately captures only
@@ -419,39 +435,121 @@ class MainActivity : FlutterFragmentActivity() {
         handleTreePickerResult(result)
     }
 
+    private fun cancelSafPickerWatchdog() {
+        safPickerWatchdog?.let { safPickerWatchdogHandler.removeCallbacks(it) }
+        safPickerWatchdog = null
+    }
+
+    private fun setSafPickerPhase(requestId: String?, phase: SafPickerPhase) {
+        if (safPickerPhase == phase) return
+        safPickerPhase = phase
+        val now = System.currentTimeMillis()
+        Log.i(tag, "SAF_PICKER_STATE requestId=" + (requestId ?: "-") +
+            " phase=" + phase.name + " at=" + now)
+        NativeMailbox.write(this, JSONObject().put("type", "diagnostic")
+            .put("requestId", requestId ?: "")
+            .put("payload", JSONObject().put("event", "SAF_PICKER_STATE")
+                .put("state", phase.name).put("requestId", requestId ?: "").put("timestamp", now)))
+    }
+
+    private fun clearSafPickerPending(requestId: String?, terminalPhase: SafPickerPhase) {
+        cancelSafPickerWatchdog()
+        safPickerPending = false
+        pendingSafRequestId = null
+        safPickerStartedAtMs = 0L
+        safPickerFocusLost = false
+        safPickerFocusRegainedAtMs = 0L
+        setSafPickerPhase(requestId, terminalPhase)
+    }
+
+    private fun publishSafPickerError(
+        requestId: String?, message: String, stage: String, code: String,
+        status: String = SafScanner.STATUS_FAILED, treeUri: Uri? = null,
+    ) {
+        val payload = JSONObject().put("source", "saf").put("status", status)
+            .put("stage", stage).put("code", code)
+        if (treeUri != null && treeUri.scheme.equals("content", true)) {
+            payload.put("treeUri", treeUri.toString())
+        }
+        NativeMailbox.write(this, JSONObject().put("type", "saf_error")
+            .put("requestId", requestId ?: "").put("message", message).put("payload", payload))
+    }
+
+    private fun timeoutSafPicker(requestId: String?) {
+        if (!safPickerPending || pendingSafRequestId != requestId) return
+        Log.e(tag, "SAF_PICKER_TIMEOUT requestId=" + (requestId ?: "-") +
+            " startedAt=" + safPickerStartedAtMs + " now=" + System.currentTimeMillis() +
+            " focusLost=" + safPickerFocusLost)
+        clearSafPickerPending(requestId, SafPickerPhase.TIMEOUT)
+        publishSafPickerError(requestId,
+            "Não foi possível abrir o seletor de pastas do Android. Tente novamente.",
+            stage = "picker_watchdog", code = "TIMEOUT")
+    }
+
+    private fun scheduleSafPickerWatchdog(requestId: String?) {
+        val correlationId = requestId?.trim().orEmpty()
+        if (!safPickerPending || correlationId.isBlank()) return
+        cancelSafPickerWatchdog()
+        val runnable = object : Runnable {
+            override fun run() {
+                if (!safPickerPending || pendingSafRequestId != correlationId) return
+                val now = System.currentTimeMillis()
+                val focused = window?.decorView?.hasWindowFocus() == true
+                if (!activityResumed || !focused) {
+                    safPickerWatchdogHandler.postDelayed(this, SAF_PICKER_WATCHDOG_RETRY_MS)
+                    return
+                }
+                if (safPickerFocusLost) {
+                    if (safPickerFocusRegainedAtMs == 0L) safPickerFocusRegainedAtMs = now
+                    val elapsed = now - safPickerFocusRegainedAtMs
+                    if (elapsed >= SAF_PICKER_RETURN_GRACE_MS) timeoutSafPicker(correlationId)
+                    else safPickerWatchdogHandler.postDelayed(this, SAF_PICKER_RETURN_GRACE_MS - elapsed)
+                    return
+                }
+                val elapsed = now - safPickerStartedAtMs
+                if (elapsed >= SAF_PICKER_LAUNCH_TIMEOUT_MS) timeoutSafPicker(correlationId)
+                else safPickerWatchdogHandler.postDelayed(this, SAF_PICKER_LAUNCH_TIMEOUT_MS - elapsed)
+            }
+        }
+        safPickerWatchdog = runnable
+        safPickerWatchdogHandler.postDelayed(runnable, SAF_PICKER_WATCHDOG_RETRY_MS)
+    }
+
     private fun handleTreePickerResult(result: androidx.activity.result.ActivityResult) {
         val resultIntent = result.data
         val uri = resultIntent?.data
         val requestId = pendingSafRequestId
-        pendingSafRequestId = null
-        safPickerPending = false
-        Log.i(
-            tag,
-            "SETTINGS_RETURN kind=saf_picker resultCode=" + result.resultCode +
-                " requestId=" + (requestId ?: "-"),
-        )
+        Log.i(tag, "SAF_PICKER_ACTIVITY_RESULT requestId=" + (requestId ?: "-") +
+            " resultCode=" + result.resultCode + " hasUri=" + (uri != null) +
+            " timestamp=" + System.currentTimeMillis())
+
         if (result.resultCode != RESULT_OK || uri == null) {
+            clearSafPickerPending(requestId, SafPickerPhase.CANCELLED)
             Log.i(tag, "SAF selection cancelled resultCode=" + result.resultCode)
             NativeMailbox.write(this, JSONObject().put("type", "saf_cancelled")
-                .put("requestId", requestId ?: "")
-                .put("payload", JSONObject().put("source", "saf").put("reason", "picker_cancelled")))
+                .put("requestId", requestId ?: "").put("payload", JSONObject()
+                    .put("source", "saf").put("reason", "picker_cancelled")))
             return
         }
+
+        setSafPickerPhase(requestId, SafPickerPhase.WAITING_RESULT)
         try {
-            Log.i(tag, "SAF result received")
-            val identity = SafScanner.treeIdentity(uri)
+            if (uri.scheme?.lowercase() != "content" || !DocumentsContract.isTreeUri(uri)) {
+                clearSafPickerPending(requestId, SafPickerPhase.FAILED)
+                publishSafPickerError(requestId, "A pasta selecionada não é uma árvore SAF válida.",
+                    stage = "selection_validation", code = "INVALID_TREE_URI")
+                return
+            }
+            Log.i(tag, "SAF_PICKER_RESULT_VALID requestId=" + (requestId ?: "-") +
+                " authority=" + (uri.authority ?: "-"))
             val transientInspection = SafScanner.inspectTree(this, uri, requirePersisted = false)
             val transientStatus = transientInspection.optString("status")
             if (transientStatus != SafScanner.STATUS_COMPLETED) {
-                val status = if (transientStatus == SafScanner.STATUS_REVOKED) SafScanner.STATUS_REVOKED else SafScanner.STATUS_UNAVAILABLE
-                NativeMailbox.write(this, JSONObject().put("type", "saf_error")
-                    .put("requestId", requestId ?: "")
-                    .put("message", "O provedor não conseguiu abrir a pasta selecionada.")
-                    .put("payload", SafScanner.identityPayload(uri)
-                        .put("scanId", "")
-                        .put("status", status)
-                        .put("stage", "selection_validation")
-                        .put("error", transientInspection.optString("error", "provider_unavailable"))))
+                val status = if (transientStatus == SafScanner.STATUS_REVOKED)
+                    SafScanner.STATUS_REVOKED else SafScanner.STATUS_UNAVAILABLE
+                clearSafPickerPending(requestId, SafPickerPhase.FAILED)
+                publishSafPickerError(requestId, "O provedor não conseguiu abrir a pasta selecionada.",
+                    stage = "selection_validation", code = "PROVIDER_UNAVAILABLE", status = status, treeUri = uri)
                 return
             }
             val flags = resultIntent.flags
@@ -459,44 +557,42 @@ class MainActivity : FlutterFragmentActivity() {
             val persistedInspection = SafScanner.inspectTree(this, uri, requirePersisted = true)
             val persistedStatus = persistedInspection.optString("status")
             if (persistedStatus != SafScanner.STATUS_COMPLETED) {
-                val status = if (!SafScanner.hasPersistedReadPermission(this, uri)) SafScanner.STATUS_REVOKED else SafScanner.STATUS_UNAVAILABLE
-                NativeMailbox.write(this, JSONObject().put("type", "saf_error")
-                    .put("requestId", requestId ?: "")
-                    .put("message", "A autorização da pasta não pôde ser validada.")
-                    .put("payload", SafScanner.identityPayload(uri)
-                        .put("status", status)
-                        .put("stage", "persisted_validation")
-                        .put("error", persistedInspection.optString("error", "provider_unavailable"))))
+                val status = if (!SafScanner.hasPersistedReadPermission(this, uri))
+                    SafScanner.STATUS_REVOKED else SafScanner.STATUS_UNAVAILABLE
+                clearSafPickerPending(requestId, SafPickerPhase.FAILED)
+                publishSafPickerError(requestId, "A autorização da pasta não pôde ser validada.",
+                    stage = "persisted_validation", code = "PERSISTED_PERMISSION_INVALID",
+                    status = status, treeUri = uri)
                 return
             }
             val payload = SafScanner.identityPayload(uri)
-                .put("granted", true)
-                .put("selected", true)
+                .put("granted", true).put("selected", true)
                 .put("status", SafScanner.STATUS_COMPLETED)
                 .put("name", SafScanner.displayName(this, uri))
                 .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REVALIDATED))
+            clearSafPickerPending(requestId, SafPickerPhase.COMPLETED)
             NativeMailbox.write(this, JSONObject().put("type", "saf_permission")
-                .put("requestId", requestId ?: "")
-                .put("payload", payload))
-            publishScanRequest("PERMISSION_CHANGE", "saf", uri.toString(), false, "saf_granted", requestId)
+                .put("requestId", requestId ?: "").put("payload", payload))
+            try {
+                publishScanRequest("PERMISSION_CHANGE", "saf", uri.toString(), false, "saf_granted", requestId)
+            } catch (exception: Exception) {
+                Log.e(tag, "SAF_PICKER_SCAN_TRIGGER_FAILED requestId=" + (requestId ?: "-"), exception)
+            }
         } catch (exception: IllegalArgumentException) {
+            clearSafPickerPending(requestId, SafPickerPhase.FAILED)
             Log.e(tag, "Invalid SAF selection", exception)
-            NativeMailbox.write(this, JSONObject().put("type", "saf_error")
-                .put("requestId", requestId ?: "")
-                .put("message", "A pasta selecionada não é uma árvore SAF válida.")
-                .put("payload", JSONObject().put("source", "saf").put("status", SafScanner.STATUS_FAILED)
-                    .put("stage", "selection_validation")))
+            publishSafPickerError(requestId, "A pasta selecionada não é uma árvore SAF válida.",
+                stage = "selection_validation", code = "INVALID_TREE_URI")
         } catch (exception: Exception) {
+            clearSafPickerPending(requestId, SafPickerPhase.FAILED)
             Log.e(tag, "SAF selection failed", exception)
-            NativeMailbox.write(this, JSONObject().put("type", "saf_error")
-                .put("requestId", requestId ?: "")
-                .put("message", "Não foi possível autorizar esta pasta. Escolha-a novamente.")
-                .put("payload", SafScanner.identityPayload(uri)
-                    .put("status", if (SafScanner.hasPersistedReadPermission(this, uri)) SafScanner.STATUS_UNAVAILABLE else SafScanner.STATUS_FAILED)
-                    .put("stage", "persist")))
+            publishSafPickerError(requestId,
+                "Não foi possível autorizar esta pasta. Escolha-a novamente.",
+                stage = "persist", code = "PERSISTENCE_FAILED",
+                status = if (SafScanner.hasPersistedReadPermission(this, uri))
+                    SafScanner.STATUS_UNAVAILABLE else SafScanner.STATUS_FAILED, treeUri = uri)
         }
     }
-
     private fun logLifecycle(event: String, intent: Intent? = null) {
         val data = intent?.data
         val action = data?.getQueryParameter("action")
@@ -534,6 +630,12 @@ class MainActivity : FlutterFragmentActivity() {
         pendingPlayRequestId = savedInstanceState?.getString(STATE_PENDING_PLAY_REQUEST_ID)
         activePlayerRequestId = savedInstanceState?.getString(STATE_ACTIVE_PLAYER_REQUEST_ID)?.trim()?.takeIf { it.isNotEmpty() }
         safPickerPending = savedInstanceState?.getBoolean(STATE_SAF_PICKER_PENDING) ?: false
+        safPickerStartedAtMs = savedInstanceState?.getLong(STATE_SAF_PICKER_STARTED_AT_MS, 0L) ?: 0L
+        safPickerFocusLost = savedInstanceState?.getBoolean(STATE_SAF_PICKER_FOCUS_LOST) ?: false
+        safPickerFocusRegainedAtMs = savedInstanceState?.getLong(STATE_SAF_PICKER_FOCUS_REGAINED_AT_MS, 0L) ?: 0L
+        safPickerPhase = savedInstanceState?.getString(STATE_SAF_PICKER_PHASE)?.let {
+            runCatching { SafPickerPhase.valueOf(it) }.getOrNull()
+        } ?: if (safPickerPending) SafPickerPhase.WAITING_RESULT else SafPickerPhase.IDLE
         startupDiscoveryTriggered = savedInstanceState?.getBoolean(STATE_STARTUP_DISCOVERY_TRIGGERED) ?: false
         lastObservedMediaAccess = savedInstanceState?.getString(STATE_LAST_OBSERVED_MEDIA_ACCESS)
         if (savedInstanceState?.containsKey(STATE_LAST_OBSERVED_BROAD_ACCESS) == true) {
@@ -569,6 +671,7 @@ class MainActivity : FlutterFragmentActivity() {
         logLifecycle("onResume")
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "ON_RESUME").put("lifecycle", "onResume")))
         applyApplicationSystemUi()
+        if (safPickerPending) scheduleSafPickerWatchdog(pendingSafRequestId)
 
         // A lifecycle-sensitive command may have been queued because the
         // Activity was not resumed when Python delivered the request. Do not
@@ -584,7 +687,12 @@ class MainActivity : FlutterFragmentActivity() {
             when (pending) {
                 "select_tree" -> {
                     pendingSafRequestId = pendingRequestId
-                    openTreePicker()
+                    if (window?.decorView?.hasWindowFocus() == true) {
+                        openTreePicker(pendingRequestId)
+                    } else {
+                        Log.i(tag, "SAF_PICKER_WAITING_FOR_FOCUS requestId=" + (pendingRequestId ?: "-"))
+                        nativeRequestState.queueLifecycleAction("select_tree", pendingRequestId)
+                    }
                 }
                 "request_media_access" -> {
                     pendingMediaRequestId = pendingRequestId
@@ -680,6 +788,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        cancelSafPickerWatchdog()
         logLifecycle("onDestroy")
         if (isFinishing) NativeScanController.cancelAll()
         unregisterStorageReceiver()
@@ -703,6 +812,10 @@ class MainActivity : FlutterFragmentActivity() {
         outState.putString(STATE_ACTIVE_PLAYER_REQUEST_ID, activePlayerRequestId)
         outState.putBoolean(STATE_BROAD_SETTINGS_PENDING, broadStoragePermissionPending)
         outState.putBoolean(STATE_SAF_PICKER_PENDING, safPickerPending)
+        outState.putLong(STATE_SAF_PICKER_STARTED_AT_MS, safPickerStartedAtMs)
+        outState.putBoolean(STATE_SAF_PICKER_FOCUS_LOST, safPickerFocusLost)
+        outState.putLong(STATE_SAF_PICKER_FOCUS_REGAINED_AT_MS, safPickerFocusRegainedAtMs)
+        outState.putString(STATE_SAF_PICKER_PHASE, safPickerPhase.name)
         outState.putString("reiflix.externalSettingsKind", externalSettingsKind)
         outState.putString("reiflix.externalSettingsRequestId", externalSettingsRequestId)
         outState.putBoolean(STATE_STARTUP_DISCOVERY_TRIGGERED, startupDiscoveryTriggered)
@@ -840,7 +953,7 @@ class MainActivity : FlutterFragmentActivity() {
                     return
                 }
                 pendingSafRequestId = requestId
-                openTreePicker()
+                openTreePicker(requestId)
             }
             "scan_tree" -> scanTree(intent.data?.getQueryParameter("tree_uri"), requestId)
             "verify_tree" -> verifyTree(intent.data?.getQueryParameter("tree_uri"))
@@ -1778,37 +1891,63 @@ class MainActivity : FlutterFragmentActivity() {
         pendingPlayRequestId = null
     }
 
-    private fun openTreePicker() {
-        if (!activityResumed) {
-            if (nativeRequestState.queueLifecycleAction("select_tree")) {
-                Log.i(tag, "Deferring SAF picker until Activity is resumed")
+    private fun openTreePicker(requestId: String? = pendingSafRequestId) {
+        val correlationId = requestId?.trim().orEmpty()
+        if (safPickerPending) { Log.i(tag, "SAF_PICKER_ALREADY_PENDING requestId=" + (pendingSafRequestId ?: "-")); return }
+        if (correlationId.isBlank()) {
+            Log.e(tag, "SAF_PICKER_REQUEST_REJECTED reason=missing_request_id")
+            publishSafPickerError(null, "Não foi possível iniciar a seleção da pasta.", "request_validation", "MISSING_REQUEST_ID")
+            return
+        }
+        pendingSafRequestId = correlationId
+        val focused = window?.decorView?.hasWindowFocus() == true
+        if (!activityResumed || !focused) {
+            setSafPickerPhase(correlationId, SafPickerPhase.REQUESTED)
+            val queued = nativeRequestState.queueLifecycleAction("select_tree", correlationId)
+            if (!queued && !(nativeRequestState.pendingLifecycleAction == "select_tree" && nativeRequestState.pendingLifecycleRequestId == correlationId)) {
+                clearSafPickerPending(correlationId, SafPickerPhase.FAILED)
+                publishSafPickerError(correlationId, "Não foi possível iniciar o seletor de pastas agora. Tente novamente.",
+                    "lifecycle_queue", "LIFECYCLE_QUEUE_BUSY")
+            } else {
+                Log.i(tag, "SAF_PICKER_QUEUED requestId=" + correlationId + " resumed=" + activityResumed + " focus=" + focused)
             }
             return
         }
-        if (safPickerPending) {
-            Log.i(tag, "SAF picker request already pending")
+        safPickerPending = true
+        safPickerStartedAtMs = System.currentTimeMillis()
+        safPickerFocusLost = false
+        safPickerFocusRegainedAtMs = 0L
+        setSafPickerPhase(correlationId, SafPickerPhase.REQUESTED)
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+        }
+        Log.i(tag, "SAF_PICKER_INTENT_CREATED requestId=" + correlationId + " action=" + intent.action +
+            " flags=0x" + intent.flags.toString(16) + " timestamp=" + System.currentTimeMillis())
+        val resolvedActivity = intent.resolveActivity(packageManager)
+        Log.i(tag, "SAF_PICKER_RESOLVE requestId=" + correlationId + " resolved=" +
+            (resolvedActivity?.flattenToShortString() ?: "null"))
+        if (resolvedActivity == null) {
+            clearSafPickerPending(correlationId, SafPickerPhase.FAILED)
+            publishSafPickerError(correlationId, "O seletor de pastas do Android não está disponível nesta instalação.",
+                "resolve_activity", "NO_DOCUMENT_TREE_HANDLER")
             return
         }
-        safPickerPending = true
+        setSafPickerPhase(correlationId, SafPickerPhase.LAUNCHING)
         NativeMailbox.write(this, JSONObject().put("type", "saf_permission_request")
-            .put("requestId", pendingSafRequestId ?: "")
-            .put("payload", JSONObject()
-                .put("source", "saf")
-                .put("state", "requesting")
+            .put("requestId", correlationId).put("payload", JSONObject().put("source", "saf")
+                .put("state", "requesting").put("status", "REQUESTED")
                 .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REQUESTING))))
-        Log.i(tag, "SAF launch requested taskId=" + taskId)
         try {
-            treePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
-                    Intent.FLAG_GRANT_PREFIX_URI_PERMISSION))
+            Log.i(tag, "SAF_PICKER_LAUNCH requestId=" + correlationId + " resolved=" + resolvedActivity.flattenToShortString() +
+                " timestamp=" + System.currentTimeMillis())
+            treePicker.launch(intent)
+            setSafPickerPhase(correlationId, SafPickerPhase.WAITING_RESULT)
+            scheduleSafPickerWatchdog(correlationId)
+            Log.i(tag, "SAF_PICKER_LAUNCH_ACCEPTED requestId=" + correlationId + " timestamp=" + System.currentTimeMillis())
         } catch (exception: Exception) {
-            safPickerPending = false
-            pendingSafRequestId = null
-            Log.e(tag, "SAF picker launcher failed", exception)
-            NativeMailbox.write(this, JSONObject().put("type", "saf_error")
-                .put("message", "Não foi possível abrir o seletor de pasta.")
-                .put("payload", JSONObject().put("stage", "launch")))
+            clearSafPickerPending(correlationId, SafPickerPhase.FAILED)
+            Log.e(tag, "SAF_PICKER_LAUNCH_FAILED requestId=" + correlationId, exception)
+            publishSafPickerError(correlationId, "Não foi possível abrir o seletor de pasta.", "launch", "LAUNCH_EXCEPTION")
         }
     }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -1817,9 +1956,24 @@ class MainActivity : FlutterFragmentActivity() {
         if (hasFocus) {
             applyApplicationSystemUi()
             ViewCompat.requestApplyInsets(window.decorView)
+            if (activityResumed && safPickerPending) {
+                if (safPickerFocusLost) safPickerFocusRegainedAtMs = System.currentTimeMillis()
+                scheduleSafPickerWatchdog(pendingSafRequestId)
+            }
+            if (activityResumed && nativeRequestState.pendingLifecycleAction == "select_tree") {
+                val queued = nativeRequestState.consumeLifecycleRequest()
+                if (queued?.action == "select_tree") {
+                    pendingSafRequestId = queued.requestId
+                    openTreePicker(queued.requestId)
+                }
+            }
+        } else if (safPickerPending) {
+            safPickerFocusLost = true
+            safPickerFocusRegainedAtMs = 0L
+            setSafPickerPhase(pendingSafRequestId, SafPickerPhase.WAITING_RESULT)
+            cancelSafPickerWatchdog()
         }
     }
-
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         Log.i(tag, "CONFIGURATION_CHANGED orientation=${newConfig.orientation}")

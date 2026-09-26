@@ -20,6 +20,45 @@ class TestSafProfessionalContract(unittest.TestCase):
         self.assertIn('publishScanRequest("PERMISSION_CHANGE"', source)
         self.assertNotIn("scanTree(uri.toString(), requestId)", source)
 
+    def test_picker_preflights_document_tree_handler_before_launch(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        self.assertIn("intent.resolveActivity(packageManager)", source)
+        self.assertIn("NO_DOCUMENT_TREE_HANDLER", source)
+        self.assertIn('"resolve_activity"', source)
+        self.assertIn("SAF_PICKER_LAUNCH", source)
+
+    def test_picker_has_focus_aware_watchdog_and_terminal_phases(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        for marker in (
+            "SafPickerPhase",
+            "WAITING_RESULT",
+            "safPickerFocusLost",
+            "SAF_PICKER_LAUNCH_TIMEOUT_MS",
+            "SAF_PICKER_RETURN_GRACE_MS",
+            "SAF_PICKER_TIMEOUT",
+            "picker_watchdog",
+        ):
+            self.assertIn(marker, source)
+
+    def test_picker_queues_the_real_request_id_across_lifecycle(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        self.assertIn('queueLifecycleAction("select_tree", correlationId)', source)
+        self.assertIn("openTreePicker(requestId)", source)
+        self.assertIn("openTreePicker(pendingRequestId)", source)
+
+    def test_picker_validates_content_tree_uri_without_path_conversion(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        self.assertIn('uri.scheme?.lowercase() != "content"', source)
+        self.assertIn("DocumentsContract.isTreeUri(uri)", source)
+        self.assertNotIn('Uri.fromFile(File(uri.path', source)
+
+    def test_manifest_and_generated_manifest_query_document_tree_visibility(self):
+        manifest = (ROOT / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        template = (ROOT / "scripts/prepare_flet_template.py").read_text(encoding="utf-8")
+        self.assertIn("OPEN_DOCUMENT_TREE", manifest)
+        self.assertIn('manifest.find("queries")', template)
+        self.assertIn("android.intent.action.OPEN_DOCUMENT_TREE", template)
+
     def test_picker_uses_persistable_read_grant(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
         self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", source)

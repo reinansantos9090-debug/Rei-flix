@@ -62,10 +62,11 @@ jobs:
           flutter-version: "3.44.8"
           channel: stable
           cache: true
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-      - name: Install Android platform
+      - name: Accept Android SDK licenses and install platform
+        shell: bash
         run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "emulator"
       - name: Install Flet build dependencies
         run: |
@@ -134,10 +135,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-      - name: Install emulator dependencies
+      - name: Accept Android SDK licenses and install emulator dependencies
+        shell: bash
         run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "platforms;android-${{ matrix.api }}" "emulator"
       - name: Download rendered Android test project
         uses: actions/download-artifact@v4

@@ -201,7 +201,8 @@ class ServiceAndSourceTests(unittest.TestCase):
 
         self.assertIn("browse_catalog_page", source)
         self.assertIn('page_size = settings.get("library.page_size")', source)
-        self.assertIn("page_size=page_size", source)
+        self.assertIn("home_page_size = min(page_size, 48)", source)
+        self.assertIn("page_size=home_page_size", source)
         self.assertIn("on_scroll=on_home_scroll", source)
         self.assertIn("search_generation", source)
         self.assertIn("if token != search_generation[0]:", source)

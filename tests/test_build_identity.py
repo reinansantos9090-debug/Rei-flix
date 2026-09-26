@@ -22,7 +22,7 @@ class BuildIdentityTests(unittest.TestCase):
             import re
             self.assertRegex(source, r"BUILD_COMMIT = ['\"][0-9a-f]{40}['\"]")
             self.assertRegex(source, r"PYTHON_BUNDLE_FINGERPRINT = ['\"][0-9a-f]{64}['\"]")
-        self.assertRegex(source, r"FLET_VERSION = ['\"]0\\.86\\.5['\"]")
+        self.assertRegex(source, r"FLET_VERSION = ['\"]0\.86\.5['\"]")
 
     def test_generator_is_clean_tree_guarded_and_deterministic_for_source_set(self):
         with tempfile.TemporaryDirectory() as d:

@@ -38,7 +38,9 @@ class TestBroadStorageArchitecture(unittest.TestCase):
     def test_main_activity_exposes_explicit_permission_actions(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn('"request_media_access" -> requestMediaAccess()', source)
-        self.assertIn('"open_broad_storage_settings" -> openBroadStorageSettings()', source)
+        self.assertIn('"open_broad_storage_settings" -> {', source)
+        self.assertIn("pendingBroadRequestId = pendingRequestId", source)
+        self.assertIn("openBroadStorageSettings()", source)
         self.assertIn('"check_storage_access" -> publishStorageStatus()', source)
         self.assertIn('put("type", "broad_storage_status")', source)
 

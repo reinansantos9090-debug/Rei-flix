@@ -84,7 +84,10 @@ class EndToEndPlayerHandoffInstrumentedTest {
             InstrumentationRegistry.getInstrumentation()
         )
         device.pressBack()
-        await(timeoutMs = 8_000L) { isMainActivityResumed() }
+        assertTrue(
+            "Android Back must return to MainActivity within the guarded window",
+            await(timeoutMs = 8_000L) { isMainActivityResumed() } == true,
+        )
         assertFalse("Player must not finish the whole Rei-Flix task", isPlayerActivityResumed())
         assertTrue("Android Back must return to MainActivity", isMainActivityResumed())
     }
@@ -171,8 +174,14 @@ class EndToEndPlayerHandoffInstrumentedTest {
         } else {
             "android.permission.READ_EXTERNAL_STORAGE"
         }
-        val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", "pm grant ${target.packageName} $permission"))
-        process.waitFor(5, TimeUnit.SECONDS)
+        val descriptor = InstrumentationRegistry.getInstrumentation()
+            .uiAutomation
+            .executeShellCommand("pm grant ${target.packageName} $permission")
+        descriptor.close()
+        assertTrue(
+            "Media read permission must be granted before the real native handoff test",
+            target.checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+        )
     }
 
     private fun insertFixtureIntoMediaStore(): Uri {

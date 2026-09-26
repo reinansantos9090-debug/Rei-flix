@@ -45,7 +45,8 @@ class HomeLibraryTests(unittest.TestCase):
 
         self.assertIn("library.browse_catalog_page", source)
         self.assertIn('page_size = settings.get("library.page_size")', source)
-        self.assertIn("page_size=page_size", source)
+        self.assertIn("home_page_size = min(page_size, 48)", source)
+        self.assertIn("page_size=home_page_size", source)
         self.assertIn("if remaining < 800", source)
         self.assertIn("catalog.extend(fresh_items)", source)
         self.assertNotIn("library.catalog()", source)

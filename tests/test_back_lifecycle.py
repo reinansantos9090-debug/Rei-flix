@@ -17,7 +17,7 @@ class BackLifecycleTests(unittest.TestCase):
         source = self.read(MAIN_ACTIVITY)
         self.assertIn("import androidx.activity.OnBackPressedCallback", source)
         self.assertIn("onBackPressedDispatcher.addCallback(", source)
-        self.assertIn("flutterEngine?.navigationChannel?.popRoute()", source)
+        self.assertIn("engine.navigationChannel.popRoute()", source)
         self.assertNotIn('put("type", "android_back")', source)
         handler = source[source.index("private fun installSystemBackHandler"):source.index("private fun persistedSafTreeUris")]
         self.assertNotIn("finish()", handler)

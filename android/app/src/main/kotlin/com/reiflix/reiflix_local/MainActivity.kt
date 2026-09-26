@@ -745,7 +745,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun applyApplicationSystemUi() {
         if (::systemUiController.isInitialized) {
-            systemUiController.applyNormal()
+            systemUiController.applyApplicationPolicy()
         }
     }
 

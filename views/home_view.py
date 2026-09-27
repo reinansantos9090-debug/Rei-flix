@@ -9,7 +9,7 @@ import flet as ft
 
 from core.consumption import consumption_state, progress_ratio
 from core.settings import SettingsStore
-from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, activate_theme_for_page, empty_state, media_artwork, count_label
+from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, activate_theme_for_page, empty_state, media_artwork, count_label, focus_button_style
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ class HomeView:
         filter_options_loaded = [False]
         artwork_tasks: set[tuple] = set()
         artwork_bindings: dict[tuple, list] = {}
+        catalog_focus_targets: dict[str, object] = {}
         artwork_concurrency = asyncio.Semaphore(4)
         artwork_ui_update_scheduled = [False]
 
@@ -252,6 +253,30 @@ class HomeView:
             anime_title = item.get("anime_title") or item.get("main_title") or item.get("title") or "Reproduzir"
             on_play_episode(episode["path"], player_episode_title(anime_title, episode), progress_seconds=episode.get("progress", 0) or 0)
 
+        async def reveal_focus(scrollable, scroll_key):
+            try:
+                await scrollable.scroll_to(scroll_key=scroll_key, duration=120)
+            except Exception:
+                logger.debug("Home focus scroll skipped key=%s", scroll_key, exc_info=True)
+
+        async def reveal_catalog_focus(index: int, key: str):
+            await reveal_focus(layout, key)
+            if index != len(catalog) - 1 or not has_more[0] or page_loading[0]:
+                return
+            previous_count = len(catalog)
+            await load_library_page(reset=False)
+            if len(catalog) <= previous_count:
+                return
+            next_item = catalog[previous_count]
+            next_id = next_item.get("id")
+            next_key = f"home-catalog-{next_id if next_id is not None else previous_count}"
+            target = catalog_focus_targets.get(next_key)
+            if target is not None:
+                try:
+                    await target.focus()
+                except Exception:
+                    logger.debug("Home pagination focus restore skipped key=%s", next_key, exc_info=True)
+
         def home_card(item, action=None, episode=False):
             meta = item.get("meta") or {}
             cover = item.get("cover") or meta.get("cover_cache")
@@ -268,9 +293,12 @@ class HomeView:
                     candidate = next((ep for season_data in item.get("seasons", []) for ep in season_data.get("episodes", []) if ep.get("path") and not ep.get("missing")), None)
                 if candidate:
                     on_request_thumbnail(candidate)
-            return ft.Container(
-                width=card_width, ink=True, border_radius=RADIUS,
+            return ft.OutlinedButton(
+                width=card_width,
+                height=card_height + 48,
+                autofocus=False,
                 on_click=(lambda _, value=item: action(value)) if action else None,
+                style=focus_button_style(theme=theme, background=SURFACE),
                 content=ft.Column([holder,
                     ft.Text(title, size=12, weight=ft.FontWeight.BOLD, color=TEXT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
                     ft.Text(subtitle, size=10, color=TEXT_MUTED, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
@@ -304,6 +332,7 @@ class HomeView:
                 has_more[0] = True
                 total_matches[0] = 0
                 artwork_bindings.clear()
+                catalog_focus_targets.clear()
                 catalog.clear()
                 grid.controls.clear()
                 feedback.visible = False
@@ -344,7 +373,17 @@ class HomeView:
             if catalog:
                 library_label.value = f"MINHA BIBLIOTECA • {total_matches[0]}"
                 feedback.visible = False
-                grid.controls.extend(card(item) for item in fresh_items)
+                start_index = len(catalog) - len(fresh_items)
+                for offset, item in enumerate(fresh_items):
+                    index = start_index + offset
+                    key = f"home-catalog-{item.get('id') if item.get('id') is not None else index}"
+                    control = card(item)
+                    control.key = key
+                    control.on_focus = lambda _event, i=index, k=key: page.run_task(reveal_catalog_focus, i, k)
+                    if index == 0:
+                        control.autofocus = True
+                    catalog_focus_targets[key] = control
+                    grid.controls.append(control)
             elif scan_active[0]:
                 library_label.value = "DESCOBRINDO BIBLIOTECA LOCAL…"
                 feedback.visible = False
@@ -437,8 +476,12 @@ class HomeView:
                         int((time.perf_counter() - tap_started) * 1000),
                     )
 
-            return ft.Container(
-                width=card_width, ink=True, on_click=lambda _: on_card_tap(), border_radius=RADIUS,
+            return ft.OutlinedButton(
+                width=card_width,
+                height=card_height + 48,
+                autofocus=False,
+                on_click=lambda _: on_card_tap(),
+                style=focus_button_style(theme=theme, background=SURFACE),
                 content=ft.Column([
                     ft.Stack([artwork_holder(anime, card_width, card_height, source=cover), *indicators]),
                     ft.Text(anime.get("main_title", "Anime local"), size=12, weight=ft.FontWeight.BOLD, color=TEXT, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
@@ -617,7 +660,7 @@ class HomeView:
         async def toggle_search(_):
             search_visible[0] = not search_visible[0]
             search.visible = search_visible[0]
-            search.autofocus = search_visible[0]
+            search.autofocus = False
             if not search_visible[0]:
                 search.value = ""
             save_view_state()

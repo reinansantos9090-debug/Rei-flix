@@ -320,13 +320,17 @@ class ServiceAndSourceTests(unittest.TestCase):
     def test_service_home_batches_genre_enrichment_across_sections(self):
         with tempfile.TemporaryDirectory() as directory:
             store = TracingLibraryStore(directory)
-            self._seed(store, 8)
+            anime_id = store.upsert_anime("genre-home", {"title": "Genre Home", "genres": "[]"})
+            store.upsert_episode(anime_id, "/library/genre-home-01.mkv", "Genre Home 01", 1, 1)
             service = LibraryService(store)
+            service.genre_registry.sync_anime(anime_id, ["Action"], source="local")
             store.clear_trace()
 
-            service.media_center_home(limit=3)
+            home = service.media_center_home(limit=3)
 
             self.assertLessEqual(len(store.read_statements()), 15)
+            self.assertIn("Action", home["recently_added"][0]["genres"])
+            self.assertIn("Action", home["next_episode"][0]["genres"])
 
     def test_service_exposes_paged_catalog_and_bounded_home_sections(self):
         with tempfile.TemporaryDirectory() as directory:

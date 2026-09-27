@@ -542,16 +542,17 @@ jobs:
           python - <<'PY'
           import hashlib
           from pathlib import Path
-          from zipfile import ZIP_STORED, ZipFile
+          from zipfile import ZIP_DEFLATED, ZipFile
 
           apk = Path("${{ steps.apk.outputs.path }}")
           archive = Path("build/ReiFlix-apk.zip")
           if not apk.is_file() or apk.stat().st_size == 0:
               raise SystemExit(f"APK not found or empty: {apk}")
 
-          # An APK is already a ZIP container. Do not DEFLATE it again: store the
-          # APK byte-for-byte and validate the resulting package before upload.
-          with ZipFile(archive, "w", compression=ZIP_STORED) as bundle:
+          # Keep the downloadable artifact compact. The APK remains byte-for-byte
+          # recoverable because the outer ZIP is validated by CRC and SHA-256
+          # after writing it.
+          with ZipFile(archive, "w", compression=ZIP_DEFLATED, compresslevel=9) as bundle:
               bundle.write(apk, arcname="ReiFlix.apk")
 
           if not archive.is_file() or archive.stat().st_size == 0:
@@ -593,6 +594,7 @@ jobs:
           print(f"  member: ReiFlix.apk")
           print(f"  size: {apk.stat().st_size} bytes")
           print(f"  SHA-256: {actual}")
+          print(f"  compressed ZIP size: {archive.stat().st_size} bytes")
           PY
       - name: Upload APK as direct artifact
         uses: actions/upload-artifact@v7

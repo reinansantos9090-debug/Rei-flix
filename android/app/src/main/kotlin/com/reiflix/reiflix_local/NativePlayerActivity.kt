@@ -482,7 +482,6 @@ class NativePlayerActivity : ComponentActivity() {
         errorVisible = false
         doubleTapSeekMs = newIntent.getLongExtra("setting_player_double_tap_seek_seconds", doubleTapSeekMs / 1000L)
         horizontalSeekEnabled = newIntent.getBooleanExtra("setting_gestures_horizontal_swipe_seek", horizontalSeekEnabled)
-            .coerceIn(1L, 120L) * 1000L
         longPressSpeed = newIntent.getFloatExtra("setting_player_long_press_speed", longPressSpeed)
             .coerceIn(1f, 3f)
         maxVideoResolution = newIntent.getStringExtra("setting_player_max_video_resolution") ?: maxVideoResolution

@@ -6,6 +6,7 @@ Python periodically drains the mailbox and inserts document URIs into SQLite.
 Desktop deliberately reports this bridge as unavailable.
 """
 from __future__ import annotations
+import asyncio
 import hashlib
 import json
 import logging
@@ -29,6 +30,10 @@ class AndroidBridge:
         self.queue_dir = self.data_dir / "reiflix-native-events"
         self._claimed: list[Path] = []
         self._retained: set[Path] = set()
+        self._command_delivery_timeout_s = max(
+            1.0, float(os.getenv("REIFLIX_ANDROID_COMMAND_TIMEOUT_S", "10.0"))
+        )
+        self._command_delivery_waiters: dict[str, asyncio.Future] = {}
         self._recover_unacknowledged_batches()
 
     def _recover_unacknowledged_batches(self) -> None:
@@ -55,6 +60,37 @@ class AndroidBridge:
             or os.getenv("ANDROID_ARGUMENT") is not None
         )
 
+    def observe_native_event(self, event: dict) -> None:
+        """Resolve an in-flight command only after MainActivity emitted COMMAND_RECEIVED."""
+        if not isinstance(event, dict) or event.get("type") != "diagnostic":
+            return
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            return
+        event_name = str(payload.get("event") or "").strip()
+        request_id = str(event.get("requestId") or payload.get("requestId") or "").strip()
+        if not request_id or not event_name.startswith("COMMAND_"):
+            return
+        waiter = self._command_delivery_waiters.get(request_id)
+        if waiter is None or waiter.done():
+            return
+        if event_name == "COMMAND_RECEIVED":
+            logger.info(
+                "[ANDROID_BRIDGE] COMMAND_RECEIVED_CONFIRMED request_id=%s action=%s timestamp=%s",
+                request_id,
+                payload.get("action") or "-",
+                payload.get("timestamp") or "-",
+            )
+            waiter.set_result(payload)
+        elif event_name == "COMMAND_FAILED":
+            reason = str(payload.get("error") or payload.get("result") or "native_command_failed")
+            waiter.set_exception(
+                RuntimeError(
+                    f"O Android recebeu o comando '{payload.get('action') or '-'}', "
+                    f"mas não conseguiu processá-lo (request {request_id}, reason={reason})."
+                )
+            )
+
     async def _launch(self, action: str, **params):
         if not self.available:
             raise RuntimeError("A ponte Android está disponível somente no APK ReiFlix.")
@@ -68,6 +104,9 @@ class AndroidBridge:
             **{k: v for k, v in params.items() if v is not None},
         })
         url = f"reiflix://native?{query}"
+        loop = asyncio.get_running_loop()
+        delivery_waiter = loop.create_future()
+        self._command_delivery_waiters[request_id] = delivery_waiter
         logger.info(
             "[ANDROID_BRIDGE] COMMAND_CREATED request_id=%s action=%s created_at=%s protocol=%s",
             request_id,
@@ -75,10 +114,37 @@ class AndroidBridge:
             created_at,
             BRIDGE_PROTOCOL_VERSION,
         )
-        # Flet 0.86.5 exposes Page.launch_url(url) without a mode parameter.
+        logger.info(
+            "[ANDROID_BRIDGE] COMMAND_LAUNCH_REQUESTED request_id=%s action=%s timestamp=%s params=%s",
+            request_id,
+            action,
+            created_at,
+            ",".join(sorted(str(key) for key, value in params.items() if value is not None)) or "-",
+        )
         try:
-            await self.page.launch_url(url)
+            launcher = getattr(self.page, "url_launcher", None)
+            launch_mode_type = getattr(ft, "LaunchMode", None)
+            external_non_browser = getattr(
+                launch_mode_type,
+                "EXTERNAL_NON_BROWSER_APPLICATION",
+                None,
+            )
+            if launcher is None or external_non_browser is None:
+                raise RuntimeError(
+                    "Flet 0.86.5 não expôs UrlLauncher/EXTERNAL_NON_BROWSER_APPLICATION."
+                )
+            await launcher.launch_url(url, mode=external_non_browser)
+            logger.info(
+                "[ANDROID_BRIDGE] COMMAND_LAUNCH_ACCEPTED request_id=%s action=%s "
+                "timestamp=%s launcher=UrlLauncher mode=EXTERNAL_NON_BROWSER_APPLICATION",
+                request_id,
+                action,
+                int(time.time() * 1000),
+            )
         except Exception as exc:
+            self._command_delivery_waiters.pop(request_id, None)
+            if not delivery_waiter.done():
+                delivery_waiter.cancel()
             logger.exception(
                 "[ANDROID_BRIDGE] COMMAND_FAILED request_id=%s action=%s",
                 request_id,
@@ -87,7 +153,26 @@ class AndroidBridge:
             raise RuntimeError(
                 f"Falha ao enviar a ação Android '{action}' (request {request_id})."
             ) from exc
-        logger.info("[ANDROID_BRIDGE] COMMAND_SENT request_id=%s action=%s", request_id, action)
+
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(delivery_waiter),
+                timeout=self._command_delivery_timeout_s,
+            )
+        except asyncio.TimeoutError as exc:
+            logger.error(
+                "[ANDROID_BRIDGE] COMMAND_DELIVERY_TIMEOUT request_id=%s action=%s "
+                "timeout_s=%s reason=main_activity_not_confirmed",
+                request_id,
+                action,
+                self._command_delivery_timeout_s,
+            )
+            raise RuntimeError(
+                f"O comando Android '{action}' não chegou à MainActivity "
+                f"(request {request_id}) dentro de {self._command_delivery_timeout_s:.1f}s."
+            ) from exc
+        finally:
+            self._command_delivery_waiters.pop(request_id, None)
         return request_id
 
     async def select_tree(self): return await self._launch("select_tree")

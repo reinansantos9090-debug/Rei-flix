@@ -11,11 +11,14 @@
     <item name="android:windowLightNavigationBar">false</item>
   </style>
 
-  <!-- The native Media3 activity is also immersive/fullscreen. -->
+  <!-- Native Media3 player system bars are controlled exclusively by SystemUiController. -->
   <style name="ReiFlixPlayerTheme" parent="android:style/Theme.Material.NoActionBar">
     <item name="android:fontFamily">sans</item>
     <item name="android:windowActionModeOverlay">true</item>
     <item name="android:windowNoTitle">true</item>
-    <item name="android:windowFullscreen">true</item>
+    <item name="android:statusBarColor">@android:color/transparent</item>
+    <item name="android:navigationBarColor">@android:color/transparent</item>
+    <item name="android:windowLightStatusBar">false</item>
+    <item name="android:windowLightNavigationBar">false</item>
   </style>
 </resources>

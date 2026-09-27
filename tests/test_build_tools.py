@@ -478,10 +478,16 @@ E: manifest
 
     def test_saf_picker_requests_only_persisted_read_access(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
-        self.assertIn("Intent.FLAG_GRANT_READ_URI_PERMISSION", main)
-        self.assertIn("Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION", main)
-        self.assertIn("Intent.FLAG_GRANT_PREFIX_URI_PERMISSION", main)
-        self.assertNotIn("Intent.FLAG_GRANT_WRITE_URI_PERMISSION", main)
+        proxy = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafPickerProxyActivity.kt").read_text(encoding="utf-8")
+        self.assertNotIn("Intent.FLAG_GRANT_WRITE_URI_PERMISSION", proxy)
+        for token in (
+            "Intent.ACTION_OPEN_DOCUMENT_TREE",
+            "Intent.FLAG_GRANT_READ_URI_PERMISSION",
+            "Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION",
+            "Intent.FLAG_GRANT_PREFIX_URI_PERMISSION",
+        ):
+            self.assertIn(token, proxy)
+        self.assertIn("treePicker.launch(proxyIntent)", main)
 
     def test_startup_uses_activity_saf_inventory_instead_of_self_deep_link(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")

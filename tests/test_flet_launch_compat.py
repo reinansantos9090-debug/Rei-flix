@@ -83,7 +83,12 @@ class FletLaunchCompatibilityTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_android_bridge_generates_distinct_request_ids_for_retries(self):
         class StrictLauncher:
+            def __init__(self, page):
+                self.page = page
+                self.calls = []
+
             async def launch_url(self, value, *, mode):
+                self.calls.append((value, mode))
                 params = parse_qs(urlsplit(value).query)
                 request_id = params["request_id"][0]
                 self.page.bridge.observe_native_event(
@@ -99,16 +104,12 @@ class FletLaunchCompatibilityTests(unittest.IsolatedAsyncioTestCase):
                     }
                 )
 
-            def __init__(self):
-                self.page = None
-
         class StrictPage:
             platform = "android"
 
             def __init__(self):
-                self.launcher = StrictLauncher()
-                self.launcher.page = self
                 self.bridge = None
+                self.launcher = StrictLauncher(self)
 
             @property
             def url_launcher(self):
@@ -121,10 +122,13 @@ class FletLaunchCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             await bridge.select_tree()
             await bridge.select_tree()
 
-        # The launcher itself saw two independent request identities.
-        self.assertEqual(2, len(page.launcher.page.bridge._command_delivery_waiters))
-        # Both waiters are cleaned up after confirmation.
-        self.assertEqual({}, page.launcher.page.bridge._command_delivery_waiters)
+        self.assertEqual(2, len(page.launcher.calls))
+        first = parse_qs(urlsplit(page.launcher.calls[0][0]).query)["request_id"][0]
+        second = parse_qs(urlsplit(page.launcher.calls[1][0]).query)["request_id"][0]
+        self.assertTrue(first)
+        self.assertTrue(second)
+        self.assertNotEqual(first, second)
+        self.assertEqual({}, bridge._command_delivery_waiters)
 
     def test_android_bridge_normalizes_legacy_events_with_stable_ids(self):
         event = AndroidBridge._normalize_event(

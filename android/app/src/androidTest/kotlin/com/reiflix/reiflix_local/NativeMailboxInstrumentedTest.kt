@@ -40,6 +40,22 @@ class NativeMailboxInstrumentedTest {
         assertTrue(queue.listFiles { _, name -> name.endsWith(".tmp") }?.isEmpty() ?: true)
     }
     @Test
+    fun mailbox_best_effort_writes_atomic_envelope() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        NativeMailbox.writeBestEffort(context, JSONObject().put("type", "player_progress"))
+
+        val events = queue.listFiles { _, name -> name.startsWith("event-") && name.endsWith(".json") }
+            ?: emptyArray()
+        assertEquals(1, events.size)
+
+        val payload = JSONObject(events.single().readText())
+        assertEquals("player_progress", payload.getString("eventType"))
+        assertFalse(payload.getString("eventId").isBlank())
+        assertTrue(payload.getLong("createdAt") > 0L)
+        assertTrue(queue.listFiles { _, name -> name.endsWith(".tmp") }?.isEmpty() ?: true)
+    }
+
+    @Test
     fun mailbox_promotes_request_id_and_operation_state_without_partial_writes() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         NativeMailbox.write(

@@ -781,7 +781,7 @@ class MainActivity : FlutterFragmentActivity() {
         if (::systemUiController.isInitialized) {
             // MainActivity is not the immersive surface. Keep status/navigation
             // bars available whenever the native player is not foreground.
-            systemUiController.applyApplicationPolicy(useContextAppearance = false)
+            systemUiController.applyNormal(useContextAppearance = false)
          publishInteractionProfileIfChanged(force = true)
             ViewCompat.requestApplyInsets(window.decorView)
         }

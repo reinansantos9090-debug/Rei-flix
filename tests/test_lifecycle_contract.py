@@ -284,5 +284,20 @@ class LifecycleContractTests(unittest.TestCase):
         self.assertIn("applyImmersiveAfterLayout()", pip_block)
         self.assertNotIn("} else {\n            enterImmersiveMode()", pip_block)
 
+
+    def test_cached_catalog_views_expose_disposable_background_tasks(self):
+        home = HOME.read_text(encoding="utf-8")
+        organize = ORGANIZE.read_text(encoding="utf-8")
+        main = MAIN_PY.read_text(encoding="utf-8")
+        for source in (home, organize):
+            self.assertIn("tracked_tasks: set[object] = set()", source)
+            self.assertIn("def _track_task", source)
+            self.assertIn("def cancel_view_tasks", source)
+            self.assertIn("view_state['_cancel_tasks'] = cancel_view_tasks", source)
+            self.assertIn("task.cancel()", source)
+        self.assertIn("screen_disposers = {}", main)
+        self.assertIn("_dispose_cached_screen", main)
+        self.assertIn("_dispose_cached_screen(route)", main)
+
 if __name__ == "__main__":
     unittest.main()

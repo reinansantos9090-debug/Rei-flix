@@ -567,13 +567,36 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(AndroidBridge(d, Page()).available)
 
     async def test_native_saf_actions_use_only_encoded_content_uris(self):
+        class Launcher:
+            def __init__(self, page):
+                self.page = page
+
+            async def launch_url(self, value, *, mode):
+                self.page.urls.append(value)
+                request_id = value.split("request_id=", 1)[1].split("&", 1)[0]
+                self.page.bridge.observe_native_event({
+                    "type": "diagnostic",
+                    "requestId": request_id,
+                    "payload": {
+                        "event": "COMMAND_RECEIVED",
+                        "requestId": request_id,
+                        "action": value.split("action=", 1)[1].split("&", 1)[0],
+                        "timestamp": 123456789,
+                    },
+                })
+
         class Page:
             platform = 'android'
-            def __init__(self): self.urls = []
-            async def launch_url(self, value): self.urls.append(value)
+            def __init__(self):
+                self.urls = []
+                self.bridge = None
+                self.url_launcher = Launcher(self)
+
+            async def launch_url(self, value):
+                raise AssertionError("legacy Page.launch_url must not be used for native Android commands")
 
         with tempfile.TemporaryDirectory() as d:
-            page = Page(); bridge = AndroidBridge(d, page)
+            page = Page(); bridge = AndroidBridge(d, page); page.bridge = bridge
             tree = 'content://com.android.providers.media.documents/tree/video%3AAnime'
             await bridge.select_tree(); await bridge.verify_tree(tree); await bridge.rescan_tree(tree)
             self.assertTrue(page.urls[0].startswith('reiflix://native?action=select_tree&request_id='))

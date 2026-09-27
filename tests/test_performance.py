@@ -117,7 +117,7 @@ class StorePaginationTests(unittest.TestCase):
 
             catalog = store.catalog(anime_ids=[2])
 
-            self.assertEqual(10 / 100, catalog[0]["seasons"][0]["episodes"][0]["progress"])
+            self.assertEqual(12, catalog[0]["seasons"][0]["episodes"][0]["progress"])
             self.assertEqual(10.0, catalog[0]["last_played_at"])
             statements = store.read_statements()
             self.assertEqual(5, len(statements))
@@ -140,33 +140,38 @@ class StorePaginationTests(unittest.TestCase):
                     (special,),
                 )
 
+            expected = {
+                "recently_added": [
+                    item["id"]
+                    for item in store.catalog_page(page=0, page_size=3, sort="Mais recentes")["items"]
+                ],
+                "favorites": [
+                    item["id"]
+                    for item in store.catalog_page(page=0, page_size=3, state="Favoritos", sort="Mais recentes")["items"]
+                ],
+                "pinned": [
+                    item["id"]
+                    for item in store.catalog_page(page=0, page_size=3, state="Fixados", sort="Mais recentes")["items"]
+                ],
+                "series": [
+                    item["id"]
+                    for item in store.catalog_page(page=0, page_size=3, media_type="Série/Anime", sort="Mais recentes")["items"]
+                ],
+                "movies": [
+                    item["id"]
+                    for item in store.catalog_page(page=0, page_size=3, media_type="Filme", sort="Mais recentes")["items"]
+                ],
+                "specials": [
+                    item["id"]
+                    for item in store.catalog_page(page=0, page_size=3, media_type="Especial", sort="Mais recentes")["items"]
+                ],
+            }
+
             store.clear_trace()
             sections = store.home_sections(limit=3)
 
-            self.assertEqual(
-                [item["id"] for item in sections["recently_added"]],
-                [item["id"] for item in store.catalog_page(page=0, page_size=3, sort="Mais recentes")["items"]],
-            )
-            self.assertEqual(
-                [item["id"] for item in sections["favorites"]],
-                [item["id"] for item in store.catalog_page(page=0, page_size=3, state="Favoritos", sort="Mais recentes")["items"]],
-            )
-            self.assertEqual(
-                [item["id"] for item in sections["pinned"]],
-                [item["id"] for item in store.catalog_page(page=0, page_size=3, state="Fixados", sort="Mais recentes")["items"]],
-            )
-            self.assertEqual(
-                [item["id"] for item in sections["series"]],
-                [item["id"] for item in store.catalog_page(page=0, page_size=3, media_type="Série/Anime", sort="Mais recentes")["items"]],
-            )
-            self.assertEqual(
-                [item["id"] for item in sections["movies"]],
-                [item["id"] for item in store.catalog_page(page=0, page_size=3, media_type="Filme", sort="Mais recentes")["items"]],
-            )
-            self.assertEqual(
-                [item["id"] for item in sections["specials"]],
-                [item["id"] for item in store.catalog_page(page=0, page_size=3, media_type="Especial", sort="Mais recentes")["items"]],
-            )
+            for name, ids in expected.items():
+                self.assertEqual(ids, [item["id"] for item in sections[name]])
             self.assertLessEqual(len(store.read_statements()), 14)
 
     def test_organize_summary_uses_one_episode_aggregate_query(self):

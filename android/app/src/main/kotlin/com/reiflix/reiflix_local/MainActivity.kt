@@ -405,6 +405,14 @@ class MainActivity : FlutterFragmentActivity() {
             " resultCode=" + result.resultCode + " hasUri=" + (uri != null) +
             " timestamp=" + System.currentTimeMillis())
 
+        val proxyError = resultIntent?.getStringExtra(SafPickerProxyActivity.ERROR_EXTRA)?.trim().orEmpty()
+        if (proxyError.isNotBlank()) {
+            clearSafPickerPending(requestId, SafPickerPhase.FAILED)
+            publishSafPickerError(requestId,
+                "O Android não conseguiu abrir o seletor de pastas.",
+                stage = "documents_ui_launch", code = "DOCUMENTS_UI_LAUNCH_FAILED")
+            return
+        }
         if (result.resultCode != RESULT_OK || uri == null) {
             clearSafPickerPending(requestId, SafPickerPhase.CANCELLED)
             Log.i(tag, "SAF selection cancelled resultCode=" + result.resultCode)
@@ -1987,36 +1995,25 @@ class MainActivity : FlutterFragmentActivity() {
         safPickerFocusLost = false
         safPickerFocusRegainedAtMs = 0L
         setSafPickerPhase(correlationId, SafPickerPhase.REQUESTED)
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
-        }
-        Log.i(tag, "SAF_PICKER_INTENT_CREATED requestId=" + correlationId + " action=" + intent.action +
-            " flags=0x" + intent.flags.toString(16) + " timestamp=" + System.currentTimeMillis())
-        val resolvedActivity = intent.resolveActivity(packageManager)
-        Log.i(tag, "SAF_PICKER_RESOLVE requestId=" + correlationId + " resolved=" +
-            (resolvedActivity?.flattenToShortString() ?: "null"))
-        if (resolvedActivity == null) {
-            clearSafPickerPending(correlationId, SafPickerPhase.FAILED)
-            publishSafPickerError(correlationId, "O seletor de pastas do Android não está disponível nesta instalação.",
-                "resolve_activity", "NO_DOCUMENT_TREE_HANDLER")
-            return
-        }
+        val proxyIntent = Intent(this, SafPickerProxyActivity::class.java)
         setSafPickerPhase(correlationId, SafPickerPhase.LAUNCHING)
         NativeMailbox.write(this, JSONObject().put("type", "saf_permission_request")
             .put("requestId", correlationId).put("payload", JSONObject().put("source", "saf")
                 .put("state", "requesting").put("status", "REQUESTED")
                 .put("capabilities", storageCapabilitiesPayload(StorageLifecycleState.REQUESTING))))
         try {
-            Log.i(tag, "SAF_PICKER_LAUNCH requestId=" + correlationId + " resolved=" + resolvedActivity.flattenToShortString() +
+            Log.i(tag, "SAF_PICKER_PROXY_LAUNCH requestId=" + correlationId +
                 " timestamp=" + System.currentTimeMillis())
-            treePicker.launch(intent)
+            treePicker.launch(proxyIntent)
             setSafPickerPhase(correlationId, SafPickerPhase.WAITING_RESULT)
             scheduleSafPickerWatchdog(correlationId)
-            Log.i(tag, "SAF_PICKER_LAUNCH_ACCEPTED requestId=" + correlationId + " timestamp=" + System.currentTimeMillis())
+            Log.i(tag, "SAF_PICKER_PROXY_LAUNCH_ACCEPTED requestId=" + correlationId +
+                " timestamp=" + System.currentTimeMillis())
         } catch (exception: Exception) {
             clearSafPickerPending(correlationId, SafPickerPhase.FAILED)
-            Log.e(tag, "SAF_PICKER_LAUNCH_FAILED requestId=" + correlationId, exception)
-            publishSafPickerError(correlationId, "Não foi possível abrir o seletor de pasta.", "launch", "LAUNCH_EXCEPTION")
+            Log.e(tag, "SAF_PICKER_PROXY_LAUNCH_FAILED requestId=" + correlationId, exception)
+            publishSafPickerError(correlationId,
+                "Não foi possível abrir o seletor de pasta.", "launch", "PROXY_LAUNCH_EXCEPTION")
         }
     }
     override fun onWindowFocusChanged(hasFocus: Boolean) {

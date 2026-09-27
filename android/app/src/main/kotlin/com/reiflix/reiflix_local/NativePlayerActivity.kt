@@ -4,6 +4,9 @@ import android.app.AlertDialog
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
+import android.view.KeyEvent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.SharedPreferences
@@ -146,6 +149,8 @@ class NativePlayerActivity : ComponentActivity() {
         private set
     private var feedbackHideAt = 0L
     private var controlsRestoredFromState = false
+    private var isTelevision = false
+    private var cinemaMode = false
     private var contentMimeType: String? = null
     private var mediaDisplayName: String? = null
     private var mediaSizeBytes: Long? = null
@@ -327,6 +332,10 @@ class NativePlayerActivity : ComponentActivity() {
         longPressEnabled = intent.getBooleanExtra("setting_gestures_long_press",
             gesturePreferences.getBoolean(PREF_GESTURES_LONG_PRESS, false))
         immersiveSetting = intent.getStringExtra("setting_player_immersive") ?: "always"
+        val interactionProfile = DeviceInteractionProfile.detect(this)
+        isTelevision = interactionProfile.isTelevision
+        cinemaMode = isTelevision
+        logPlayer("DEVICE_INTERACTION isTelevision=" + isTelevision + " dpad=" + interactionProfile.hasDpad + " gamepad=" + interactionProfile.hasGamepad + " touch=" + interactionProfile.hasTouchscreen + " cinemaMode=" + cinemaMode)
         autoHideTimeoutMs = intent.getIntExtra("setting_player_auto_hide_seconds", 5)
             .coerceIn(0, 300) * 1000L
         pipEnabled = intent.getBooleanExtra("setting_player_pip", true)
@@ -1539,6 +1548,36 @@ class NativePlayerActivity : ComponentActivity() {
             max(dp(4), gestureSafeRight),
             0,
         )
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                    if (errorVisible) return super.dispatchKeyEvent(event)
+                    if (!controlsVisible) {
+                        setControlsVisible(true)
+                        playPauseButton.requestFocus()
+                    }
+                    togglePlayPause()
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_UP,
+                KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_LEFT,
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    if (isTelevision && !controlsVisible && !errorVisible) {
+                        setControlsVisible(true)
+                        playPauseButton.requestFocus()
+                        touchControls()
+                        return true
+                    }
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private fun togglePlayPause() {

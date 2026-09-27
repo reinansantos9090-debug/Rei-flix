@@ -12,11 +12,12 @@ import androidx.core.view.WindowInsetsControllerCompat
 /**
  * Single authority for the host Activity system-bar policy.
  *
- * Rei-Flix uses one application-wide edge-to-edge + immersive policy. Both the
- * Flet/MainActivity surface and the native Media3 player restore this policy
- * after lifecycle/configuration boundaries. Android-owned external surfaces
- * (permissions/settings/pickers) may reveal their own system UI while they are
- * in the foreground; the app reapplies its policy when focus returns.
+ * MainActivity uses an edge-to-edge application policy with system bars visible.
+ * NativePlayerActivity calls applyImmersive() while the player is active and
+ * restores applyNormal() before returning to the host. Android-owned external
+ * surfaces (permissions/settings/pickers) may reveal their own system UI while
+ * they are in the foreground; the foreground Activity reapplies its policy when
+ * focus returns.
  */
 class SystemUiController(private val window: Window) {
     private val controller: WindowInsetsControllerCompat
@@ -28,7 +29,13 @@ class SystemUiController(private val window: Window) {
      * Android system gestures remain available because transient bars may be
      * revealed by an edge swipe; hiding the bars does not disable system Back.
      */
+    /** Shared application/host policy: edge-to-edge with visible system bars. */
     fun applyApplicationPolicy(useContextAppearance: Boolean = true) {
+        applyNormal(useContextAppearance)
+    }
+
+    /** Player-only policy: edge-to-edge with system bars hidden. */
+    fun applyImmersive(useContextAppearance: Boolean = true) {
         applyEdgeToEdgeWindow()
         if (useContextAppearance) {
             applySystemBarAppearance()
@@ -40,10 +47,7 @@ class SystemUiController(private val window: Window) {
         }
     }
 
-    /** Player-specific alias kept for existing call sites and tests. */
-    fun applyImmersive() = applyApplicationPolicy()
-
-    /** Explicit non-immersive policy for an Activity that truly needs visible bars. */
+    /** Explicit normal policy for an Activity that needs visible bars. */
     fun applyNormal(useContextAppearance: Boolean = true) {
         applyEdgeToEdgeWindow()
         if (useContextAppearance) {

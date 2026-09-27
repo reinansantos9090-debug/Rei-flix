@@ -73,6 +73,33 @@ class HomeView:
         filter_options_loaded = [False]
         artwork_tasks: set[tuple] = set()
         artwork_bindings: dict[tuple, list] = {}
+        view_tasks = set()
+
+        def _track_view_task(task):
+            if task is None or not hasattr(task, "add_done_callback"):
+                return task
+            view_tasks.add(task)
+            try:
+                task.add_done_callback(view_tasks.discard)
+            except Exception:
+                logger.debug("Home task tracking callback unavailable", exc_info=True)
+            return task
+
+        def run_view_task(callback, *args):
+            return _track_view_task(page.run_task(callback, *args))
+
+        def dispose_view_tasks():
+            render_generation[0] += 1
+            search_generation[0] += 1
+            home_sections_generation[0] += 1
+            for task in tuple(view_tasks):
+                try:
+                    task.cancel()
+                except Exception:
+                    logger.debug("Home task cancellation failed", exc_info=True)
+            view_tasks.clear()
+            artwork_tasks.clear()
+            artwork_bindings.clear()
         artwork_concurrency = asyncio.Semaphore(4)
         artwork_ui_update_scheduled = [False]
 
@@ -163,7 +190,7 @@ class HomeView:
                 finally:
                     artwork_ui_update_scheduled[0] = False
 
-            page.run_task(flush)
+            run_view_task(flush)
 
         def artwork_holder(item, width, height, *, entity="anime", kind="poster", source=None):
             holder = ft.Container(
@@ -230,7 +257,7 @@ class HomeView:
                             )
                         finally:
                             artwork_tasks.discard(key)
-                    page.run_task(hydrate)
+                    run_view_task(hydrate)
             holder.content = ft.Icon(ft.Icons.MOVIE_OUTLINED, color=TEXT_MUTED, size=28)
             return holder
 
@@ -476,7 +503,7 @@ class HomeView:
         def request_continuation_details(item):
             async def task():
                 await open_continuation_details(item)
-            page.run_task(task)
+            run_view_task(task)
 
         def render_continue():
             continue_row.controls.clear()
@@ -579,7 +606,7 @@ class HomeView:
             await load_library_page(reset=True)
 
         def open_filters(_=None):
-            page.run_task(load_filter_options)
+            run_view_task(load_filter_options)
             page_width = float(page.width or 470)
             dialog_width = min(470.0, max(280.0, page_width - 32.0))
             field_width = min(220.0, max(128.0, (dialog_width - 20.0) / 2.0))
@@ -605,7 +632,7 @@ class HomeView:
                     artwork_filter,
                 ], tight=True, width=dialog_width),
                 actions=[
-                    ft.TextButton("Limpar", icon=ft.Icons.CLEAR_ALL, on_click=lambda _: page.run_task(clear_filters)),
+                    ft.TextButton("Limpar", icon=ft.Icons.CLEAR_ALL, on_click=lambda _: run_view_task(clear_filters)),
                     ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
                     ft.FilledButton("Aplicar", on_click=apply_filters),
                 ],
@@ -737,7 +764,7 @@ class HomeView:
             filter_options_loaded[0] = False
             await load_library_page(reset=True)
             home_sections_generation[0] = render_generation[0]
-            page.run_task(refresh_home_sections, render_generation[0])
+            run_view_task(refresh_home_sections, render_generation[0])
 
         async def retry_load_catalog(_event=None):
             await load_catalog()
@@ -770,7 +797,7 @@ class HomeView:
             status.visible = scan_active[0]
             page.update()
             await restore_scroll_position()
-            page.run_task(refresh_home_sections, render_generation[0])
+            run_view_task(refresh_home_sections, render_generation[0])
 
         search.on_change = on_search
         search.on_submit = on_search
@@ -824,11 +851,12 @@ class HomeView:
                 logger.debug("Home scroll restoration unavailable", exc_info=True)
 
         def schedule_refresh_from_catalog():
-            page.run_task(refresh_from_catalog)
+            run_view_task(refresh_from_catalog)
 
         view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
+        view_state['_dispose'] = dispose_view_tasks
         status.visible = True
-        page.run_task(load_catalog)
+        run_view_task(load_catalog)
         return ft.Container(
             content=layout, padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=16, bottom=8),
             bgcolor=BACKGROUND, expand=True,

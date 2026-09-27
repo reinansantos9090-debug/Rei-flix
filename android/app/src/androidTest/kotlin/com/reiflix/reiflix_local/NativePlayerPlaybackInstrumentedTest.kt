@@ -163,6 +163,56 @@ class NativePlayerPlaybackInstrumentedTest {
         )
     }
 
+    @Test
+    fun mainActivityPlay_duplicateSameUriIsSuppressed_butDifferentUriIsAccepted() {
+        launchMainActivityForPlayer()
+        val firstUri = "content://reiflix.test/player-first"
+        val secondUri = "content://reiflix.test/player-second"
+
+        sendPlayDeepLink("instrumented-duplicate-first", firstUri)
+        await("First play request must create the native player") {
+            currentPlayerRequestId() == "instrumented-duplicate-first"
+        }
+
+        sendPlayDeepLink("instrumented-duplicate-second", firstUri)
+        SystemClock.sleep(100L)
+        assertEquals(
+            "instrumented-duplicate-first",
+            currentPlayerRequestId(),
+        )
+
+        sendPlayDeepLink("instrumented-different-episode", secondUri)
+        await("A different episode must not be blocked by same-URI deduplication") {
+            currentPlayerRequestId() == "instrumented-different-episode"
+        }
+        assertEquals(secondUri, onMain { activity!!.intent.getStringExtra("uri") })
+    }
+
+    @Test
+    fun mainActivityPlay_reopenSameUriAfterClosingPlayerIsAccepted() {
+        launchMainActivityForPlayer()
+        val uri = "content://reiflix.test/reopen"
+
+        sendPlayDeepLink("instrumented-reopen-first", uri)
+        await("Initial reopen test player must launch") {
+            currentPlayerRequestId() == "instrumented-reopen-first"
+        }
+
+        activity?.finish()
+        await("Closing the native player must return to MainActivity") {
+            androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+                .getInstance()
+                .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                .any { it is MainActivity }
+        }
+
+        SystemClock.sleep(1_000L)
+        sendPlayDeepLink("instrumented-reopen-second", uri)
+        await("The same episode must be reopenable after player close") {
+            currentPlayerRequestId() == "instrumented-reopen-second"
+        }
+    }
+
     fun localMediaStoreFixture_reachesReadyAndPlays_inImmersivePlayer() {
         logStage("MEDIASTORE_FIXTURE_START")
         // Launch the player from a real Rei-Flix task so Back is tested as it
@@ -517,6 +567,41 @@ class NativePlayerPlaybackInstrumentedTest {
                 .findViewWithTag<View>("reiflix_controls_root"))
             controls.paddingRight >= safeRight
         }
+
+    private fun currentPlayerRequestId(): String? =
+        runOnMainBoundedValue {
+            androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+                .getInstance()
+                .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                .firstOrNull { it is NativePlayerActivity }
+                ?.let { (it as NativePlayerActivity).intent.getStringExtra("requestId") }
+        }
+
+    private fun sendPlayDeepLink(requestId: String, uri: String) {
+        val commandUri = android.net.Uri.Builder()
+            .scheme("reiflix")
+            .authority("native")
+            .appendQueryParameter("action", "play")
+            .appendQueryParameter("request_id", requestId)
+            .appendQueryParameter("protocol_version", "2")
+            .appendQueryParameter("created_at", System.currentTimeMillis().toString())
+            .appendQueryParameter("uri", uri)
+            .appendQueryParameter("title", requestId)
+            .appendQueryParameter("position_ms", "0")
+            .appendQueryParameter("can_next", "false")
+            .appendQueryParameter("can_previous", "false")
+            .appendQueryParameter("autoplay", "false")
+            .build()
+        InstrumentationRegistry.getInstrumentation().startActivitySync(
+            Intent(target, MainActivity::class.java)
+                .setData(commandUri)
+                .addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                ),
+        )
+    }
 
     private fun launchMainActivityForPlayer() {
         val intent = Intent(target, MainActivity::class.java)

@@ -396,10 +396,9 @@ class HomeView:
                 async def run_hydration_batch():
                     await hydrate_metadata_and_artwork(list(fresh_items), token)
                 run_tracked(run_hydration_batch, label="catalog_hydration")
-                run_tracked(
-                    lambda: hydrate_local_artwork_batch(list(fresh_items), token),
-                    label="artwork_batch",
-                )
+                async def run_artwork_batch():
+                    await hydrate_local_artwork_batch(list(fresh_items), token)
+                run_tracked(run_artwork_batch, label="artwork_batch")
 
         def schedule_background(coro_factory, *, label="background"):
             run_tracked(coro_factory, label=label)

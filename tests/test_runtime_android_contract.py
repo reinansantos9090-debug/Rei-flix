@@ -205,7 +205,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertIn("episodeChangePending", player)
         self.assertIn('android:launchMode="singleTop"', manifest)
         self.assertIn("FLAG_ACTIVITY_REORDER_TO_FRONT", main)
-        handoff_start = main.index("    private fun openPlayer(data: Uri?)")
+        handoff_start = main.index("    private fun openPlayer(data: Uri?, commandReceivedAtMs: Long = 0L)")
         handoff_end = main.index("    private fun clearPendingPlay()", handoff_start)
         handoff = main[handoff_start:handoff_end]
         self.assertNotIn("validatePlayerSource", handoff)

@@ -263,7 +263,9 @@ class ScanCoordinatorSourceContractTests(unittest.TestCase):
         start = source.index("private fun scheduleMediaStoreIncrementalRescan()")
         end = source.index("private val storageReceiver", start)
         block = source[start:end]
-        self.assertIn('scheduleMediaStoreScanRequest(', block)
+        scheduler = self.read("android/app/src/main/kotlin/com/reiflix/reiflix_local/MediaStoreRetryScheduler.kt")
+        self.assertIn("MediaStoreRetryScheduler.schedule(", block)
+        self.assertIn("MediaStoreRetryScheduler.schedule(", scheduler)
         self.assertIn('"content_observer_debounce"', block)
         self.assertIn("applicationContext", block)
         self.assertNotIn("scanMediaStore(null)", block)

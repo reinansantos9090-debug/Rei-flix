@@ -549,7 +549,7 @@ class MainActivity : FlutterFragmentActivity() {
         systemUiController = SystemUiController(window)
         // Flet owns the visual theme/system-overlay appearance; the native host
         // owns edge-to-edge + normal system-bar visibility.
-        systemUiController.applyNormal(useContextAppearance = false)
+        systemUiController.applyApplicationPolicy(useContextAppearance = false)
         // Permission-sensitive actions are queued until the Activity is resumed.
         handleNativeIntent(intent)
     }
@@ -781,7 +781,7 @@ class MainActivity : FlutterFragmentActivity() {
         if (::systemUiController.isInitialized) {
             // MainActivity is not the immersive surface. Keep status/navigation
             // bars available whenever the native player is not foreground.
-            systemUiController.applyNormal(useContextAppearance = false)
+            systemUiController.applyApplicationPolicy(useContextAppearance = false)
          publishInteractionProfileIfChanged(force = true)
             ViewCompat.requestApplyInsets(window.decorView)
         }

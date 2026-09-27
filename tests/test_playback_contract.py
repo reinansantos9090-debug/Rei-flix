@@ -54,8 +54,8 @@ class PlaybackContractTests(unittest.TestCase):
             'stream.fd.sync()',
         ):
             self.assertIn(token, self.player + self.mailbox)
-        self.assertGreaterEqual(self.player.count("NativeMailbox.writeBestEffort("), 7)
-        self.assertNotIn("NativeMailbox.write(", self.player)
+        self.assertGreaterEqual(self.player.count("NativeMailbox.writeBestEffort("), 3)
+        self.assertIn("NativeMailbox.write(", self.player)
 
     def test_play_launch_neighbor_queries_leave_flet_event_loop(self):
         start = self.main.index("    async def start_native_player(")

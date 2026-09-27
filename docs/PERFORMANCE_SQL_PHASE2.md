@@ -139,6 +139,14 @@ FTS5 não foi criado porque não há medição real do tempo de Search, nem tama
 
 Recomendação nesta fase: manter FTS5 como oportunidade futura e só implementar após benchmark real.
 
+## Redução estrutural da Home
+
+Na implementação auditada antes desta fase, uma execução cheia de Home fazia, por contagem estática do código, até 58 comandos de leitura: seis seções secundárias com COUNT + IDs + projeção de catálogo + consulta de histórico, três projeções independentes de consumo/histórico e sete enriquecimentos de gênero separados.
+
+Após esta fase, a mesma composição estrutural fica em 15 comandos de leitura no caminho sem catálogo pré-carregado: seis consultas de IDs, uma projeção compartilhada de catálogo, três consultas de consumo/histórico e um enriquecimento de gênero em lote.
+
+Esses 58 e 15 são contagens estruturais derivadas do código, não tempos ou contadores de produção. Os testes com set_trace_callback foram adicionados para validar a contagem no SQLite de teste quando a suíte for executada.
+
 ## Métricas e regressões adicionadas
 
 Foram adicionados testes que usam sqlite3.set_trace_callback() em um store de teste para contar comandos SQL:

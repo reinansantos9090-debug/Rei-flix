@@ -73,6 +73,7 @@ class NativePlayerRequestTest {
                 "setting_gestures_volume" to "true",
                 "setting_gestures_brightness" to "true",
                 "setting_gestures_double_tap" to "true",
+                "setting_gestures_horizontal_swipe_seek" to "true",
                 "setting_gestures_long_press" to "true",
                 "setting_player_max_video_resolution" to "1080p",
                 "setting_player_max_video_frame_rate" to "60",

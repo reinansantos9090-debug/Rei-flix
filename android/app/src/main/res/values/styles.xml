@@ -1,5 +1,5 @@
 <resources>
-  <!-- Rei-Flix keeps the host immersive; the native player reinforces it locally. -->
+  <!-- Rei-Flix keeps MainActivity edge-to-edge with visible bars; the native player is immersive. -->
   <style name="ReiFlixTheme" parent="android:style/Theme.Material.NoActionBar">
     <item name="android:fontFamily">sans</item>
     <item name="android:windowActionModeOverlay">true</item>

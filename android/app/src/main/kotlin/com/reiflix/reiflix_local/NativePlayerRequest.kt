@@ -13,6 +13,7 @@ import android.net.Uri
  */
 data class NativePlayerRequest(
     val requestId: String,
+    val commandCreatedAtMs: Long,
     val episodeUri: String,
     val episodeId: String,
     val title: String,
@@ -46,6 +47,7 @@ data class NativePlayerRequest(
     fun toIntent(context: Context, normalizedUri: Uri): Intent =
         Intent(context, NativePlayerActivity::class.java)
             .putExtra("requestId", requestId)
+            .putExtra("commandCreatedAtMs", commandCreatedAtMs)
             .putExtra("uri", normalizedUri.toString())
             .putExtra("mediaId", normalizedUri.toString())
             .putExtra("episodeId", episodeId)
@@ -88,6 +90,7 @@ data class NativePlayerRequest(
         fun fromQueryParameters(get: (String) -> String?): NativePlayerRequest =
             NativePlayerRequest(
                 requestId = get("request_id").orEmpty().trim(),
+                commandCreatedAtMs = get("created_at")?.toLongOrNull()?.takeIf { it > 0L } ?: 0L,
                 episodeUri = get("uri").orEmpty().trim(),
                 episodeId = get("episode_id").orEmpty(),
                 title = get("title") ?: "Episódio",

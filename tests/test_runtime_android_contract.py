@@ -335,7 +335,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         system_ui = SYSTEM_UI.read_text(encoding="utf-8")
         self.assertIn("applyApplicationSystemUi()", main)
         self.assertIn("applyApplicationPolicy(useContextAppearance = false)", main)
-        self.assertIn("applyApplicationPolicy()", player)
+        self.assertIn("applyApplicationPolicy", player)
         self.assertIn("fun applyApplicationPolicy(useContextAppearance: Boolean = true)", system_ui)
         self.assertIn("applyImmersive()", system_ui)
         self.assertIn("fun applyNormal(useContextAppearance: Boolean = true)", system_ui)

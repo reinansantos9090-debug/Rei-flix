@@ -107,6 +107,63 @@ class BackAndSettingsReturnInstrumentedTest {
     }
 
     @Test
+    fun mainActivityRequestMediaAccessDeepLink_isReceivedByNativeRequestState() {
+        val requestId = "instrumented-main-activity-media-access"
+        val commandUri = nativeCommandUri("request_media_access", requestId)
+        InstrumentationRegistry.getInstrumentation().startActivitySync(
+            Intent(target, MainActivity::class.java)
+                .setData(commandUri)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        )
+
+        val state = awaitNativeRequestState(requestId)
+        assertTrue(
+            "MainActivity must create a request snapshot before dispatching media permission access, state=$state",
+            state in setOf(
+                NativeRequestState.OperationState.RECEIVED,
+                NativeRequestState.OperationState.QUEUED,
+                NativeRequestState.OperationState.RUNNING,
+                NativeRequestState.OperationState.COMPLETED,
+                NativeRequestState.OperationState.CANCELLED,
+                NativeRequestState.OperationState.FAILED,
+                NativeRequestState.OperationState.TIMEOUT,
+            ),
+        )
+        if (device.currentPackageName != target.packageName) {
+            device.pressBack()
+            waitForForegroundPackage(target.packageName)
+        }
+    }
+
+    @Test
+    fun mainActivityBroadStorageDeepLink_isReceivedAndDispatched() {
+        val requestId = "instrumented-main-activity-broad-storage"
+        val commandUri = nativeCommandUri("open_broad_storage_settings", requestId)
+        InstrumentationRegistry.getInstrumentation().startActivitySync(
+            Intent(target, MainActivity::class.java)
+                .setData(commandUri)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        )
+
+        val state = awaitNativeRequestState(requestId)
+        assertTrue(
+            "MainActivity must create a request snapshot for broad-storage Settings, state=$state",
+            state in setOf(
+                NativeRequestState.OperationState.RECEIVED,
+                NativeRequestState.OperationState.QUEUED,
+                NativeRequestState.OperationState.RUNNING,
+                NativeRequestState.OperationState.COMPLETED,
+                NativeRequestState.OperationState.FAILED,
+            ),
+        )
+        if (device.currentPackageName != target.packageName) {
+            waitForForegroundPackage("com.android.settings")
+            device.pressBack()
+            waitForForegroundPackage(target.packageName)
+        }
+    }
+
+    @Test
     fun appSystemBackFromChildActivityReturnsToReiFlix() {
         val intent = Intent(target, NativePlayerActivity::class.java)
             .putExtra("requestId", "instrumented-system-back")
@@ -122,6 +179,37 @@ class BackAndSettingsReturnInstrumentedTest {
         )
         waitForForegroundPackage(target.packageName)
         assertMainActivityAlive()
+    }
+
+    private fun nativeCommandUri(action: String, requestId: String): android.net.Uri =
+        android.net.Uri.Builder()
+            .scheme("reiflix")
+            .authority("native")
+            .appendQueryParameter("action", action)
+            .appendQueryParameter("request_id", requestId)
+            .appendQueryParameter("protocol_version", "2")
+            .appendQueryParameter("created_at", System.currentTimeMillis().toString())
+            .build()
+
+    private fun awaitNativeRequestState(
+        requestId: String,
+        timeoutMs: Long = 5_000L,
+    ): NativeRequestState.OperationState {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        var state: NativeRequestState.OperationState? = null
+        while (SystemClock.uptimeMillis() < deadline) {
+            state = runOnMainBoundedValue {
+                val activity = currentResumedMainActivity()
+                val field = MainActivity::class.java.getDeclaredField("nativeRequestState")
+                    .apply { isAccessible = true }
+                val requestState = field.get(activity) as NativeRequestState
+                requestState.operationState(requestId)
+            }
+            if (state != null) return state!!
+            SystemClock.sleep(100L)
+        }
+        assertTrue("Native request $requestId was never accepted by MainActivity", false)
+        throw AssertionError("unreachable")
     }
 
     private fun launchMainActivity() {

@@ -105,6 +105,64 @@ class NativePlayerPlaybackInstrumentedTest {
         }
     }
 
+    @Test
+    fun mainActivityPlayDeepLink_opensNativePlayerAndReachesReady() {
+        logStage("MAIN_ACTIVITY_PLAY_HANDOFF_START")
+        launchMainActivityForPlayer()
+        val uri = insertFixtureIntoMediaStore()
+        fixtureUri = uri
+
+        val requestId = "instrumented-main-activity-play"
+        val commandUri = android.net.Uri.Builder()
+            .scheme("reiflix")
+            .authority("native")
+            .appendQueryParameter("action", "play")
+            .appendQueryParameter("request_id", requestId)
+            .appendQueryParameter("protocol_version", "2")
+            .appendQueryParameter("created_at", System.currentTimeMillis().toString())
+            .appendQueryParameter("uri", uri.toString())
+            .appendQueryParameter("title", "Fixture through MainActivity")
+            .appendQueryParameter("position_ms", "0")
+            .appendQueryParameter("can_next", "false")
+            .appendQueryParameter("can_previous", "false")
+            .appendQueryParameter("autoplay", "false")
+            .build()
+
+        InstrumentationRegistry.getInstrumentation().startActivitySync(
+            Intent(target, MainActivity::class.java)
+                .setData(commandUri)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        )
+
+        await("MainActivity must dispatch the native player Activity") {
+            val resumed = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+                .getInstance()
+                .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                .firstOrNull { it is NativePlayerActivity } as? NativePlayerActivity
+            if (resumed != null) {
+                activity = resumed
+                true
+            } else {
+                false
+            }
+        }
+
+        val playerView = awaitView<PlayerView>("reiflix_player_view")
+        val player = onMain {
+            requireNotNull(playerView.player) {
+                "MainActivity play handoff must attach the Media3 player to PlayerView"
+            }
+        }
+        assertEquals(requestId, onMain { activity!!.intent.getStringExtra("requestId") })
+        await("MainActivity handoff player must reach READY") {
+            player.playbackState == Player.STATE_READY
+        }
+        assertTrue(
+            "NativePlayerActivity must remain alive after a MainActivity deep-link handoff",
+            !activity!!.isFinishing && !activity!!.isDestroyed,
+        )
+    }
+
     fun localMediaStoreFixture_reachesReadyAndPlays_inImmersivePlayer() {
         logStage("MEDIASTORE_FIXTURE_START")
         // Launch the player from a real Rei-Flix task so Back is tested as it

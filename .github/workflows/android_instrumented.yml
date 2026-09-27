@@ -217,3 +217,81 @@ jobs:
           path: build/android-api${{ matrix.api }}
           if-no-files-found: warn
           retention-days: 7
+
+
+  instrumented-tv:
+    name: Android TV API 36
+    needs: prepare-android-test-project
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Download rendered Android test project
+        uses: actions/download-artifact@v4
+        with:
+          name: reiflix-android-test-project
+          path: build
+      - name: Extract rendered Android test project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s build/reiflix-android-test-project.tgz
+          mkdir -p build/flutter
+          tar -xzf build/reiflix-android-test-project.tgz -C build/flutter
+          test -x build/flutter/android/gradlew || chmod +x build/flutter/android/gradlew
+      - name: Run instrumented tests on Android TV API 36
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          system-image-api-level: 36
+          target: android-tv
+          arch: x86_64
+          force-avd-creation: true
+          emulator-boot-timeout: 600
+          disable-animations: true
+          emulator-options: "-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect"
+          script: |
+            bash -euo pipefail <<'REIFLIX_ANDROID_TV_SCRIPT'
+            mkdir -p "$GITHUB_WORKSPACE/build/android-tv-api36"
+            cd "$GITHUB_WORKSPACE/build/flutter/android"
+            chmod +x gradlew
+            log="$GITHUB_WORKSPACE/build/android-tv-api36/connectedDebugAndroidTest.log"
+            set +e
+            timeout --foreground --signal=TERM --kill-after=30s 15m ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee "$log"
+            status=${PIPESTATUS[0]}
+            set -e
+            if [ "$status" -ne 0 ]; then
+              echo "connectedDebugAndroidTest failed on Android TV with exit=$status"
+              exit "$status"
+            fi
+            echo "connectedDebugAndroidTest VALIDATED android-tv api=36"
+            REIFLIX_ANDROID_TV_SCRIPT
+      - name: Capture Android TV runtime diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          out="$GITHUB_WORKSPACE/build/android-tv-api36"
+          mkdir -p "$out"
+          adb devices -l >"$out/adb_devices.txt" 2>&1
+          adb shell getprop ro.build.version.sdk >"$out/sdk.txt" 2>&1
+          adb shell getprop ro.build.characteristics >"$out/characteristics.txt" 2>&1
+          adb shell dumpsys package com.reiflix.reiflix_local >"$out/package.txt" 2>&1
+          adb shell dumpsys activity top >"$out/activity_top.txt" 2>&1
+          adb shell dumpsys window >"$out/window.txt" 2>&1
+          adb logcat -d -v threadtime >"$out/logcat.txt" 2>&1
+          set -e
+      - name: Upload Android TV evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reiflix-android-tv-api36-evidence
+          path: build/android-tv-api36
+          if-no-files-found: warn
+          retention-days: 7

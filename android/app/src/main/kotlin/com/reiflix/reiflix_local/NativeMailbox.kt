@@ -86,7 +86,19 @@ object NativeMailbox {
     }
 
     @Synchronized
-    fun write(context: Context, event: JSONObject): Boolean {
+    fun write(context: Context, event: JSONObject): Boolean =
+        writeInternal(context, event, durable = true)
+
+    /**
+     * Player telemetry uses atomic mailbox publication without forcing a
+     * durable storage flush on the UI thread. Control-plane events keep the
+     * existing fsync-backed write() path.
+     */
+    @Synchronized
+    fun writeBestEffort(context: Context, event: JSONObject): Boolean =
+        writeInternal(context, event, durable = false)
+
+    private fun writeInternal(context: Context, event: JSONObject, durable: Boolean): Boolean {
         var temporary: File?=null
         try{
             val dataDirectory = File(context.filesDir, "data")
@@ -141,7 +153,9 @@ object NativeMailbox {
             if (operationState.isNotBlank()) payload.put("operationState", operationState)
             FileOutputStream(temp).use { stream ->
                 stream.write(payload.toString().toByteArray(Charsets.UTF_8))
-                stream.fd.sync()
+                if (durable) {
+                    stream.fd.sync()
+                }
             }
             try {
                 Files.move(
@@ -157,7 +171,7 @@ object NativeMailbox {
                     StandardCopyOption.REPLACE_EXISTING,
                 )
             }
-            Log.i(TAG,"EVENT_WRITTEN eventId=$id type=${event.optString("type")} eventType=${payload.optString("eventType")} operationState=${operationState.ifEmpty{"-"}} requestId=${requestId.ifEmpty{"-"}} createdAt=$now")
+            Log.i(TAG,"EVENT_WRITTEN eventId=$id type=${event.optString("type")} eventType=${payload.optString("eventType")} operationState=${operationState.ifEmpty{"-"}} requestId=${requestId.ifEmpty{"-"}} createdAt=$now durable=$durable")
         }catch(exception:Exception){
             temporary?.delete()
             Log.e(TAG,"Unable to queue native event",exception)

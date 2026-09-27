@@ -119,6 +119,10 @@ class NativePlayerActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastSavedPosition = -1L
     private var lastProgressPersistAt = 0L
+    private var latestProgressPositionMs = 0L
+    private var latestProgressDurationMs = 0L
+    private var latestProgressCapturedAt = 0L
+    private var progressPersistenceCount = 0L
     private var suppressExitEvent = false
     private var exitReported = false
     private var initialSeekApplied = false
@@ -199,9 +203,9 @@ class NativePlayerActivity : ComponentActivity() {
     private val progressReporter = object : Runnable {
         override fun run() {
             val now = System.currentTimeMillis()
+            captureLatestProgress()
             if (now - lastProgressPersistAt >= PROGRESS_PERSIST_INTERVAL_MS) {
                 saveProgress("player_progress")
-                lastProgressPersistAt = now
             }
             updateProgressUi()
             if (::player.isInitialized && player.playbackState != Player.STATE_ENDED) {
@@ -1524,7 +1528,16 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun startProgressReporting() {
         handler.removeCallbacks(progressReporter)
-        handler.post(progressReporter)
+        captureLatestProgress()
+        lastProgressPersistAt = System.currentTimeMillis()
+        handler.postDelayed(progressReporter, PROGRESS_INTERVAL_MS)
+    }
+
+    private fun captureLatestProgress() {
+        if (!::player.isInitialized) return
+        latestProgressPositionMs = player.currentPosition.coerceAtLeast(0L)
+        latestProgressDurationMs = player.duration.coerceAtLeast(0L)
+        latestProgressCapturedAt = System.currentTimeMillis()
     }
 
     private fun showSpeedSelection(button: TextView) {
@@ -2063,6 +2076,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         sessionState = SessionState.EXITING
         cancelFirstFrameDiagnostics("finish_player")
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
+        saveProgress("player_progress", force = true)
         handler.removeCallbacks(controlsHider)
         handler.removeCallbacks(lockAffordanceHider)
         handler.removeCallbacks(feedbackHider)
@@ -2116,14 +2130,18 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     private fun saveProgress(eventType: String, force: Boolean = false) {
         if (!::player.isInitialized) return
-        val position = player.currentPosition.coerceAtLeast(0L)
-        val duration = player.duration.coerceAtLeast(0L)
-        if (!force && lastSavedPosition >= 0L && abs(position - lastSavedPosition) < PROGRESS_INTERVAL_MS) return
+        captureLatestProgress()
+        val now = System.currentTimeMillis()
+        val position = latestProgressPositionMs
+        val duration = latestProgressDurationMs
+        if (!force && now - lastProgressPersistAt < PROGRESS_PERSIST_INTERVAL_MS) return
+        if (!force && lastSavedPosition >= 0L && position == lastSavedPosition) return
         if (force && position == lastSavedPosition &&
             eventType != "player_completed" && eventType != "player_exited") {
             return
         }
-        lastSavedPosition = position
+
+        val previousPersistAt = lastProgressPersistAt
         val ok = NativeMailbox.write(
             this,
             JSONObject().put("type", eventType)
@@ -2140,7 +2158,25 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                         .put("playbackSpeed", if (::player.isInitialized) player.playbackParameters.speed else 1f),
                 ),
         )
-        if (!ok) logPlayer("FAILED_TO_PUBLISH " + eventType + " requestId=" + requestId.ifEmpty { "-" })
+        if (!ok) {
+            logPlayer("FAILED_TO_PUBLISH " + eventType + " requestId=" + requestId.ifEmpty { "-" })
+            return
+        }
+
+        lastSavedPosition = position
+        lastProgressPersistAt = now
+        progressPersistenceCount += 1L
+        val gap = if (previousPersistAt > 0L) now - previousPersistAt else 0L
+        logPlayer(
+            "PLAYER_PROGRESS_PERSIST requestId=" + requestId.ifEmpty { "-" } +
+                " event=" + eventType +
+                " positionMs=" + position +
+                " durationMs=" + duration +
+                " captureAgeMs=" + (now - latestProgressCapturedAt).coerceAtLeast(0L) +
+                " intervalSincePreviousMs=" + gap +
+                " persistenceCount=" + progressPersistenceCount +
+                " forced=" + force,
+        )
     }
 
     override fun onStart() {
@@ -3338,7 +3374,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         private const val PREF_LOCK_MODE = "player_lock_mode"
         private const val TAG = "[REIFLIX][PLAYER]"
         private const val PROGRESS_INTERVAL_MS = 250L
-        private const val PROGRESS_PERSIST_INTERVAL_MS = 15_000L
+        private const val PROGRESS_PERSIST_INTERVAL_MS = 1_500L
         private const val CONTROL_TIMEOUT_MS = 3_500L
         private const val SEEK_PROGRESS_MAX = 1000
         private const val MIN_ZOOM = 1f

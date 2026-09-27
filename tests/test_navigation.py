@@ -55,6 +55,23 @@ class NavigationControllerTests(unittest.TestCase):
         self.assertEqual(self.navigation.back(), "previous")
         self.assertEqual(self.navigation.current, "home")
 
+    def test_all_current_settings_categories_return_to_settings_then_home(self):
+        categories = (
+            "Conta", "Geral", "Aparência", "Biblioteca", "Player", "Gestos",
+            "Áudio e Legendas", "Metadata", "Artwork", "Armazenamento",
+            "Dados e Cache", "Backup e Restauração", "Privacidade", "Varredura",
+            "Diagnóstico", "Sobre",
+        )
+        for label in categories:
+            navigation = NavigationController(clock=lambda: 100.0)
+            navigation.push("settings")
+            navigation.push_settings(label)
+            self.assertEqual(navigation.back(), "settings_inner", label)
+            self.assertEqual(navigation.current, "settings", label)
+            self.assertEqual(navigation.settings_path, (), label)
+            self.assertEqual(navigation.back(), "previous", label)
+            self.assertEqual(navigation.current, "home", label)
+
     def test_switching_top_level_screen_clears_nested_settings_path(self):
         self.navigation.push("settings")
         self.navigation.push_settings("Aparência")
@@ -125,6 +142,12 @@ class NavigationControllerTests(unittest.TestCase):
         self.assertIn("page.on_view_pop = handle_flet_view_pop", source)
         self.assertIn("NavigationController", source)
         self.assertNotIn("page.clean()", source)
+
+    def test_home_exit_uses_navigation_policy_instead_of_process_exit(self):
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        self.assertNotIn("exitProcess(", source)
+        self.assertIn('elif action == "exit":', source)
+        self.assertIn("page.window.close()", source)
 
     def test_main_does_not_route_android_back_through_native_mailbox(self):
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")

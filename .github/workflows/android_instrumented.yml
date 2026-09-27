@@ -181,13 +181,13 @@ jobs:
           disable-animations: true
           emulator-options: "-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect"
           script: |
-            set -euo pipefail
+            bash -euo pipefail <<'REIFLIX_ANDROID_INSTRUMENTED_SCRIPT'
             mkdir -p "$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}"
             cd "$GITHUB_WORKSPACE/build/flutter/android"
             chmod +x gradlew
             log="$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}/connectedDebugAndroidTest.log"
             set +e
-            timeout --foreground --signal=TERM --kill-after=30s 15m               ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee "$log"
+            timeout --foreground --signal=TERM --kill-after=30s 15m ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee "$log"
             status=${PIPESTATUS[0]}
             set -e
             if [ "$status" -ne 0 ]; then
@@ -195,6 +195,7 @@ jobs:
               exit "$status"
             fi
             echo "connectedDebugAndroidTest VALIDATED api=${{ matrix.api }}"
+            REIFLIX_ANDROID_INSTRUMENTED_SCRIPT
       - name: Capture Android runtime diagnostics
         if: always()
         shell: bash

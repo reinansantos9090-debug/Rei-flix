@@ -334,7 +334,7 @@ def static_requirement_evidence(root, requirement, apk):
         "NativePlayerActivity exists": ("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt", None, "The NativePlayerActivity source file exists at the certified production path."),
         "MainActivity uses singleTask launch semantics": ("android/app/src/main/AndroidManifest.xml", 'android:launchMode="singleTask"', 'Source manifest declares MainActivity with launchMode="singleTask".'),
         "MainActivity disables document duplication": ("android/app/src/main/AndroidManifest.xml", 'android:documentLaunchMode="never"', 'Source manifest declares documentLaunchMode="never" for MainActivity.'),
-        "Flet launch_url compatibility path is explicit": ("core/android_bridge.py", "await self.page.launch_url(url)", "AndroidBridge uses the Flet 0.86.5-compatible launch_url(url) call without an unsupported mode argument."),
+        "Flet 0.86.5 non-browser launcher path is explicit": ("core/android_bridge.py", "EXTERNAL_NON_BROWSER_APPLICATION", "AndroidBridge uses Flet 0.86.5 UrlLauncher with the explicit non-browser launch mode for the reiflix://native protocol."),
         "Media3 is the sole playback engine": ("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt", "ExoPlayer.Builder(this).build()", "NativePlayerActivity constructs playback through Media3/ExoPlayer."),
         "Player supports fit mode": ("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt", "AspectRatioFrameLayout.RESIZE_MODE_FIT", "Native player source explicitly uses Media3 FIT resize mode."),
     }

@@ -76,6 +76,37 @@ class BackAndSettingsReturnInstrumentedTest {
     }
 
     @Test
+    fun mainActivitySelectTreeDeepLink_opensDocumentsUi_andBackClearsPending() {
+        val requestId = "instrumented-main-activity-select-tree"
+        val commandUri = android.net.Uri.Builder()
+            .scheme("reiflix")
+            .authority("native")
+            .appendQueryParameter("action", "select_tree")
+            .appendQueryParameter("request_id", requestId)
+            .appendQueryParameter("protocol_version", "2")
+            .appendQueryParameter("created_at", System.currentTimeMillis().toString())
+            .build()
+
+        InstrumentationRegistry.getInstrumentation().startActivitySync(
+            Intent(target, MainActivity::class.java)
+                .setData(commandUri)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        )
+        waitForForegroundPackage(
+            "com.android.documentsui",
+            "com.google.android.documentsui",
+        )
+        pressBackAcrossApplicationBoundary()
+        waitForForegroundPackage(target.packageName)
+
+        val activity = runOnMainBoundedValue { currentResumedMainActivity() }
+        assertFalse("MainActivity must not be finishing after DocumentsUI Back", activity.isFinishing)
+        assertFalse("MainActivity must remain alive after DocumentsUI Back", activity.isDestroyed)
+        val pending = MainActivity::class.java.getDeclaredField("safPickerPending").apply { isAccessible = true }
+        assertFalse("MainActivity IPC deep-link must release SAF pending state after cancel", pending.getBoolean(activity))
+    }
+
+    @Test
     fun appSystemBackFromChildActivityReturnsToReiFlix() {
         val intent = Intent(target, NativePlayerActivity::class.java)
             .putExtra("requestId", "instrumented-system-back")

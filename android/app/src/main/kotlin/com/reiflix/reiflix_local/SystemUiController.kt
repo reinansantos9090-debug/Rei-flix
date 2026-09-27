@@ -26,8 +26,8 @@ class SystemUiController(private val window: Window) {
     /**
      * Reapply the application policy after resume/focus/configuration changes.
      *
-     * Android system gestures remain available because transient bars may be
-     * revealed by an edge swipe; hiding the bars does not disable system Back.
+     * MainActivity keeps the system bars visible; player-specific hiding is
+     * performed only through applyImmersive().
      */
     /** Shared application/host policy: edge-to-edge with visible system bars. */
     fun applyApplicationPolicy(useContextAppearance: Boolean = true) {

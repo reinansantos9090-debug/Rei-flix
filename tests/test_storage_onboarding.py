@@ -109,17 +109,16 @@ class StorageOnboardingTests(unittest.TestCase):
 
     def test_saf_picker_is_lifecycle_gated_and_single_shot(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
-        proxy = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SafPickerProxyActivity.kt").read_text(encoding="utf-8")
         picker = source.split("private fun openTreePicker(", 1)[1].split("override fun onWindowFocusChanged", 1)[0]
         self.assertIn('if (!activityResumed || !focused)', picker)
         self.assertIn('queueLifecycleAction("select_tree", correlationId)', picker)
         self.assertIn("safPickerPending", picker)
-        self.assertIn("treePicker.launch(proxyIntent)", picker)
-        self.assertIn("SafPickerProxyActivity.ERROR_EXTRA", source)
-        self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", proxy)
-        self.assertIn("FLAG_GRANT_PERSISTABLE_URI_PERMISSION", proxy)
-        self.assertIn("startActivityForResult", proxy)
-        self.assertIn("data.flags", proxy)
+        self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", picker)
+        self.assertIn("treePicker.launch(pickerIntent)", picker)
+        self.assertIn("FLAG_GRANT_PERSISTABLE_URI_PERMISSION", picker)
+        self.assertIn("FLAG_GRANT_PREFIX_URI_PERMISSION", picker)
+        self.assertNotIn("SafPickerProxyActivity", source)
+        self.assertNotIn("proxyIntent", picker)
         self.assertIn("safPickerPending = false", source)
 
     def test_permission_callback_uses_authoritative_access_level(self):

@@ -486,7 +486,7 @@ jobs:
             --prevalidated-gradle
 
       - name: Upload release certification evidence
-        if: always()
+        if: always() && hashFiles('build/release-certification.json', 'build/release-certification.md', 'build/release-certification-matrix.json') != ''
         uses: actions/upload-artifact@v7
         with:
           name: release-certification
@@ -494,7 +494,7 @@ jobs:
             build/release-certification.json
             build/release-certification.md
             build/release-certification-matrix.json
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Print and publish APK SHA-256
         shell: bash

@@ -536,22 +536,63 @@ jobs:
           test -s build/reiflix-release-metadata.txt
           test -s build/reiflix-build-identity.json
 
-      - name: Create standalone APK ZIP
+      - name: Create and cryptographically validate standalone APK ZIP
         shell: bash
         run: |
           python - <<'PY'
+          import hashlib
           from pathlib import Path
-          from zipfile import ZIP_DEFLATED, ZipFile
+          from zipfile import ZIP_STORED, ZipFile
 
           apk = Path("${{ steps.apk.outputs.path }}")
           archive = Path("build/ReiFlix-apk.zip")
           if not apk.is_file() or apk.stat().st_size == 0:
               raise SystemExit(f"APK not found or empty: {apk}")
-          with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
+
+          # An APK is already a ZIP container. Do not DEFLATE it again: store the
+          # APK byte-for-byte and validate the resulting package before upload.
+          with ZipFile(archive, "w", compression=ZIP_STORED) as bundle:
               bundle.write(apk, arcname="ReiFlix.apk")
+
           if not archive.is_file() or archive.stat().st_size == 0:
               raise SystemExit("APK ZIP was not created")
-          print(f"Created {archive} containing ReiFlix.apk")
+
+          expected_sha256 = hashlib.sha256()
+          with apk.open("rb") as source:
+              for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                  expected_sha256.update(chunk)
+
+          with ZipFile(archive, "r") as bundle:
+              names = bundle.namelist()
+              if names != ["ReiFlix.apk"]:
+                  raise SystemExit(f"Unexpected APK ZIP members: {names!r}")
+              bad_member = bundle.testzip()
+              if bad_member is not None:
+                  raise SystemExit(f"APK ZIP CRC validation failed: {bad_member}")
+              info = bundle.getinfo("ReiFlix.apk")
+              if info.compress_type != ZIP_STORED:
+                  raise SystemExit("ReiFlix.apk must be stored without DEFLATE compression")
+              if info.file_size != apk.stat().st_size:
+                  raise SystemExit(
+                      f"APK ZIP size mismatch: archive={info.file_size} source={apk.stat().st_size}"
+                  )
+
+              actual_sha256 = hashlib.sha256()
+              with bundle.open("ReiFlix.apk", "r") as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                      actual_sha256.update(chunk)
+
+          expected = expected_sha256.hexdigest()
+          actual = actual_sha256.hexdigest()
+          if actual != expected:
+              raise SystemExit(
+                  f"APK ZIP content hash mismatch: source={expected} extracted={actual}"
+              )
+
+          print(f"Validated {archive}")
+          print(f"  member: ReiFlix.apk")
+          print(f"  size: {apk.stat().st_size} bytes")
+          print(f"  SHA-256: {actual}")
           PY
       - name: Upload APK as direct artifact
         uses: actions/upload-artifact@v7

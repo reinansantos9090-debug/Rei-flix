@@ -571,8 +571,8 @@ jobs:
               if bad_member is not None:
                   raise SystemExit(f"APK ZIP CRC validation failed: {bad_member}")
               info = bundle.getinfo("ReiFlix.apk")
-              if info.compress_type != ZIP_STORED:
-                  raise SystemExit("ReiFlix.apk must be stored without DEFLATE compression")
+              if info.compress_type != ZIP_DEFLATED:
+                  raise SystemExit("ReiFlix.apk must use DEFLATE compression in the compact outer ZIP")
               if info.file_size != apk.stat().st_size:
                   raise SystemExit(
                       f"APK ZIP size mismatch: archive={info.file_size} source={apk.stat().st_size}"

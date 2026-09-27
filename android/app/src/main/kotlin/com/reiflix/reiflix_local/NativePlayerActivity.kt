@@ -254,7 +254,7 @@ class NativePlayerActivity : ComponentActivity() {
                     " orientation=" + resources.configuration.orientation +
                     " surfaceType=texture_view",
             )
-            val written = NativeMailbox.write(
+            val written = NativeMailbox.writeBestEffort(
                 this@NativePlayerActivity,
                 JSONObject()
                     .put("type", "player_diagnostic")
@@ -721,7 +721,7 @@ class NativePlayerActivity : ComponentActivity() {
                     // indicator until Media3 actually renders the first frame.
                     if (!openedReported) {
                         openedReported = true
-                        val opened = NativeMailbox.write(
+                        val opened = NativeMailbox.writeBestEffort(
                             this@NativePlayerActivity,
                             JSONObject().put("type", "player_opened")
                                 .put("requestId", requestId)
@@ -1344,7 +1344,7 @@ class NativePlayerActivity : ComponentActivity() {
         }, actionButton("Autoplay", 92) { button ->
             autoplayNext = !autoplayNext
             button.text = "Autoplay " + if (autoplayNext) "ON" else "OFF"
-            NativeMailbox.write(
+            NativeMailbox.writeBestEffort(
                 this@NativePlayerActivity,
                 JSONObject().put("type", "player_autoplay_changed")
                     .put("requestId", requestId)
@@ -2021,7 +2021,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     private fun publishPlayerError(message: String, payload: JSONObject = JSONObject()) {
         if (errorPublishedForGeneration) return
         errorPublishedForGeneration = true
-        val ok = NativeMailbox.write(
+        val ok = NativeMailbox.writeBestEffort(
             this,
             JSONObject()
                 .put("type", "player_error")
@@ -2048,7 +2048,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("completion", completionReported)
             .put("reason", reason)
             .put("timestamp", System.currentTimeMillis())
-        val ok = NativeMailbox.write(
+        val ok = NativeMailbox.writeBestEffort(
             this,
             JSONObject().put("type", "player_exited")
                 .put("requestId", requestId)
@@ -2086,7 +2086,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("requestId", requestId)
             .put("positionMs", player.currentPosition.coerceAtLeast(0L))
             .put("durationMs", player.duration.coerceAtLeast(0L))
-        NativeMailbox.write(
+        NativeMailbox.writeBestEffort(
             this,
             JSONObject().put("type", eventType)
                 .put("requestId", requestId)
@@ -2124,7 +2124,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             return
         }
         lastSavedPosition = position
-        val ok = NativeMailbox.write(
+        val ok = NativeMailbox.writeBestEffort(
             this,
             JSONObject().put("type", eventType)
                 .put("requestId", requestId)

@@ -77,6 +77,7 @@ class PlaybackContractTests(unittest.TestCase):
     def test_first_frame_timing_contract_is_correlated_and_non_destructive(self):
         for token in (
             "commandCreatedAtMs",
+            "commandReceivedAtMs",
             "handoffDispatchedAtMs",
             "activityStartedAtMs",
             "preflightStartedAtMs",
@@ -95,6 +96,8 @@ class PlaybackContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.player)
         self.assertIn('firstFrameDiagnosticTimeoutMs = 8_000L', self.player)
+        self.assertIn('putExtra("commandReceivedAtMs", commandReceivedAtMs)', self.main_activity)
+        self.assertIn('putExtra("handoffDispatchedAtMs", handoffDispatchedAtMs)', self.main_activity)
         timeout_start = self.player.index('FIRST_FRAME_TIMEOUT')
         timeout_block = self.player[timeout_start:self.player.index('private fun armFirstFrameDiagnostics', timeout_start)]
         self.assertNotIn('prepare()', timeout_block)
@@ -102,17 +105,25 @@ class PlaybackContractTests(unittest.TestCase):
 
     def test_critical_player_state_events_stay_on_durable_mailbox_path(self):
         source = self.player
-        for marker in (
-            '"type", "player_progress"',
-            '"type", "player_exited"',
-            '"type", "player_next_request"',
-            '"type", "player_previous_request"',
-            '"type", "player_autoplay_changed"',
-        ):
-            idx = source.index(marker)
-            window = source[max(0, idx - 240):idx]
-            self.assertIn("NativeMailbox.write(", window)
-            self.assertNotIn("NativeMailbox.writeBestEffort(", window)
+        save_start = source.index("    private fun saveProgress(")
+        save_end = source.index("    override fun onStart()", save_start)
+        save_block = source[save_start:save_end]
+        self.assertIn("val durable = force || eventType in setOf", save_block)
+        self.assertIn("NativeMailbox.write(this, event)", save_block)
+        self.assertIn("NativeMailbox.writeBestEffort(this, event)", save_block)
+        self.assertIn('"player_paused"', save_block)
+        self.assertIn('"player_completed"', save_block)
+        exit_idx = source.index('"type", "player_exited"')
+        exit_block = source[max(0, exit_idx - 280):exit_idx]
+        self.assertIn("NativeMailbox.write(", exit_block)
+        self.assertNotIn("NativeMailbox.writeBestEffort(", exit_block)
+        request_idx = source.index('JSONObject().put("type", eventType)', source.index("private fun requestEpisode"))
+        request_block = source[max(0, request_idx - 180):request_idx]
+        self.assertIn("NativeMailbox.write(", request_block)
+        autoplay_idx = source.index('"type", "player_autoplay_changed"')
+        autoplay_block = source[max(0, autoplay_idx - 240):autoplay_idx]
+        self.assertIn("NativeMailbox.write(", autoplay_block)
+        self.assertNotIn("NativeMailbox.writeBestEffort(", autoplay_block)
 
     def test_mailbox_best_effort_is_background_only_and_command_diagnostics_remain_durable(self):
         mailbox = self.mailbox

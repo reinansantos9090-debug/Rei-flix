@@ -1801,6 +1801,12 @@ async def main(page: ft.Page):
                                     source="native_player",
                                     result="updated" if updated else "ignored",
                                 )
+                                diagnostics.record(
+                                    "PLAYER_PROGRESS_SQLITE",
+                                    request_id=event_request_id,
+                                    source="native_player",
+                                    result="updated" if updated else "ignored",
+                                )
                         elif event_type == 'player_mark_watched':
                             path_ref = str(payload.get('uri') or '').strip()
                             updated = False

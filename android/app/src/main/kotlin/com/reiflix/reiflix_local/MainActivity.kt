@@ -57,6 +57,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingPlayCanNext = false
     private var pendingPlayCanPrevious = false
     private var pendingPlayAutoplay = true
+    private var pendingPlayCommandCreatedAtMs: Long = 0L
     private var pendingPlayRequestId: String? = null
     private var activePlayerRequestId: String? = null
     private var lastPlayerHandoffUri: String? = null
@@ -119,6 +120,7 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_PENDING_PLAY_CAN_NEXT = "reiflix.pendingPlayCanNext"
         private const val STATE_PENDING_PLAY_CAN_PREVIOUS = "reiflix.pendingPlayCanPrevious"
         private const val STATE_PENDING_PLAY_AUTOPLAY = "reiflix.pendingPlayAutoplay"
+        private const val STATE_PENDING_PLAY_COMMAND_CREATED_AT_MS = "reiflix.pendingPlayCommandCreatedAtMs"
         private const val STATE_PENDING_PLAY_REQUEST_ID = "reiflix.pendingPlayRequestId"
         private const val STATE_ACTIVE_PLAYER_REQUEST_ID = "reiflix.activePlayerRequestId"
         private const val STATE_SAF_PICKER_PENDING = "reiflix.safPickerPending"
@@ -512,6 +514,7 @@ class MainActivity : FlutterFragmentActivity() {
         pendingPlayCanNext = savedInstanceState?.getBoolean(STATE_PENDING_PLAY_CAN_NEXT) ?: false
         pendingPlayCanPrevious = savedInstanceState?.getBoolean(STATE_PENDING_PLAY_CAN_PREVIOUS) ?: false
         pendingPlayAutoplay = savedInstanceState?.getBoolean(STATE_PENDING_PLAY_AUTOPLAY) ?: true
+        pendingPlayCommandCreatedAtMs = savedInstanceState?.getLong(STATE_PENDING_PLAY_COMMAND_CREATED_AT_MS, 0L) ?: 0L
         pendingPlayRequestId = savedInstanceState?.getString(STATE_PENDING_PLAY_REQUEST_ID)
         activePlayerRequestId = savedInstanceState?.getString(STATE_ACTIVE_PLAYER_REQUEST_ID)?.trim()?.takeIf { it.isNotEmpty() }
         safPickerPending = savedInstanceState?.getBoolean(STATE_SAF_PICKER_PENDING) ?: false
@@ -554,7 +557,7 @@ class MainActivity : FlutterFragmentActivity() {
         super.onResume()
         activityResumed = true
         logLifecycle("onResume")
-        NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "ON_RESUME").put("lifecycle", "onResume")))
+        NativeMailbox.writeBestEffort(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "ON_RESUME").put("lifecycle", "onResume")))
         applyApplicationSystemUi()
         if (safPickerPending) scheduleSafPickerWatchdog(pendingSafRequestId)
 
@@ -599,9 +602,10 @@ class MainActivity : FlutterFragmentActivity() {
                             .appendQueryParameter("can_next", pendingPlayCanNext.toString())
                             .appendQueryParameter("can_previous", pendingPlayCanPrevious.toString())
                             .appendQueryParameter("autoplay", pendingPlayAutoplay.toString())
+                            .appendQueryParameter("created_at", pendingPlayCommandCreatedAtMs.toString())
                             .build()
                         clearPendingPlay()
-                        openPlayer(playData)
+                        openPlayer(playData, commandReceivedAtMs = System.currentTimeMillis())
                     } else {
                         clearPendingPlay()
                     }
@@ -693,6 +697,7 @@ class MainActivity : FlutterFragmentActivity() {
         outState.putBoolean(STATE_PENDING_PLAY_CAN_NEXT, pendingPlayCanNext)
         outState.putBoolean(STATE_PENDING_PLAY_CAN_PREVIOUS, pendingPlayCanPrevious)
         outState.putBoolean(STATE_PENDING_PLAY_AUTOPLAY, pendingPlayAutoplay)
+        outState.putLong(STATE_PENDING_PLAY_COMMAND_CREATED_AT_MS, pendingPlayCommandCreatedAtMs)
         outState.putString(STATE_PENDING_PLAY_REQUEST_ID, pendingPlayRequestId)
         outState.putString(STATE_ACTIVE_PLAYER_REQUEST_ID, activePlayerRequestId)
         outState.putBoolean(STATE_BROAD_SETTINGS_PENDING, broadStoragePermissionPending)
@@ -1026,6 +1031,7 @@ class MainActivity : FlutterFragmentActivity() {
                         pendingPlayCanNext = data.getQueryParameter("can_next")?.toBooleanStrictOrNull() ?: false
                         pendingPlayCanPrevious = data.getQueryParameter("can_previous")?.toBooleanStrictOrNull() ?: false
                         pendingPlayAutoplay = data.getQueryParameter("autoplay")?.toBooleanStrictOrNull() ?: true
+                        pendingPlayCommandCreatedAtMs = commandCreatedAt
                         pendingPlayRequestId = requestId
                         if (nativeRequestState.queueLifecycleAction("play", requestId)) {
                             publishNativeDiagnostic("COMMAND_QUEUED", requestId, action, NativeRequestState.OperationState.QUEUED.name)
@@ -1037,7 +1043,7 @@ class MainActivity : FlutterFragmentActivity() {
                     } else {
                         nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
                         publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
-                        openPlayer(data)
+                        openPlayer(data, commandReceivedAtMs = commandReceivedAtMs)
                     }
                 }
             }
@@ -1757,7 +1763,7 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", inspection.put("status", status)))
         }
     }
-    private fun openPlayer(data: Uri?) {
+    private fun openPlayer(data: Uri?, commandReceivedAtMs: Long = 0L) {
         val source = data ?: return
         val playerRequest = NativePlayerRequest.fromBridgeUri(source)
         val episodeUri = playerRequest.episodeUri
@@ -1845,6 +1851,7 @@ class MainActivity : FlutterFragmentActivity() {
         try {
             val handoffDispatchedAtMs = System.currentTimeMillis()
             val intent = playerRequest.toIntent(this, localUri)
+                .putExtra("commandReceivedAtMs", commandReceivedAtMs)
                 .putExtra("handoffDispatchedAtMs", handoffDispatchedAtMs)
 
             val resolvedActivity = intent.resolveActivity(packageManager)

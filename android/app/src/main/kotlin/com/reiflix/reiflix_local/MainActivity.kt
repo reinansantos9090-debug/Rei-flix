@@ -130,12 +130,6 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_LAST_OBSERVED_BROAD_ACCESS = "reiflix.lastObservedBroadAccess"
         private const val LOG_TAG = "[REIFLIX][ANDROID]"
         private val safInventoryInFlight = AtomicBoolean(false)
-        private val mediaStoreRetryHandler = Handler(Looper.getMainLooper())
-        private val mediaStoreRetryScheduled = AtomicBoolean(false)
-        private const val SAF_PICKER_LAUNCH_TIMEOUT_MS = 5000L
-        private const val SAF_PICKER_RETURN_GRACE_MS = 2500L
-        private const val SAF_PICKER_WATCHDOG_RETRY_MS = 250L
-
         private const val SAF_PICKER_LAUNCH_TIMEOUT_MS = 5000L
         private const val SAF_PICKER_RETURN_GRACE_MS = 2500L
         private const val SAF_PICKER_WATCHDOG_RETRY_MS = 250L

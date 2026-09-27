@@ -5,6 +5,7 @@ import asyncio
 import inspect
 import logging
 import math
+import time
 
 import flet as ft
 

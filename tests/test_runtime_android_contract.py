@@ -75,9 +75,10 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         required = (
             "URI_RECEIVED",
             "URI_NORMALIZED",
-            "PREFLIGHT_START",
-            "PREFLIGHT_OK",
-            "PREFLIGHT_FAILED",
+            "PREFLIGHT_ASYNC_START",
+            "PREFLIGHT_ASYNC_OK",
+            "PREFLIGHT_ASYNC_FAILED",
+            "PREFLIGHT_DEFERRED",
             "EXOPLAYER_CREATE",
             "MEDIA_ITEM",
             "PREPARE",

@@ -13,6 +13,7 @@ class NativePlayerRequestTest {
     fun parsesBridgeContractWithDefaultsAndValidation() {
         val values = mapOf(
             "request_id" to "req-123",
+            "created_at" to "1700000000123",
             "uri" to "content://media/video/1",
             "title" to "Episode 1",
             "position_ms" to "-40",
@@ -31,6 +32,7 @@ class NativePlayerRequestTest {
         val request = NativePlayerRequest.fromQueryParameters(values::get)
 
         assertEquals("req-123", request.requestId)
+        assertEquals(1700000000123L, request.commandCreatedAtMs)
         assertEquals("content://media/video/1", request.episodeUri)
         assertEquals("Episode 1", request.title)
         assertEquals(0L, request.positionMs)
@@ -52,6 +54,7 @@ class NativePlayerRequestTest {
         val request = NativePlayerRequest.fromQueryParameters(
             mapOf(
                 "request_id" to "req-456",
+                "created_at" to "1700000000456",
                 "uri" to "file:///storage/emulated/0/episode.mkv",
                 "can_next" to "true",
                 "can_previous" to "true",
@@ -82,6 +85,7 @@ class NativePlayerRequestTest {
         )
 
         assertEquals("req-456", request.requestId)
+        assertEquals(1700000000456L, request.commandCreatedAtMs)
         assertEquals("file:///storage/emulated/0/episode.mkv", request.episodeUri)
         assertTrue(request.canNext)
         assertTrue(request.canPrevious)
@@ -114,6 +118,7 @@ class NativePlayerRequestTest {
         val url = URI(
             "reiflix://native?action=play" +
                 "&request_id=req%2F789" +
+                "&created_at=1700000000789" +
                 "&uri=content%3A%2F%2Fmedia%2Fexternal%2Fvideo%2F7" +
                 "&title=Temp+07+Ep+06" +
                 "&position_ms=12345" +
@@ -156,6 +161,7 @@ class NativePlayerRequestTest {
         val request = NativePlayerRequest.fromQueryParameters(params::get)
 
         assertEquals("req/789", request.requestId)
+        assertEquals(1700000000789L, request.commandCreatedAtMs)
         assertEquals("content://media/external/video/7", request.episodeUri)
         assertEquals("Temp 07 Ep 06", request.title)
         assertEquals(12345L, request.positionMs)

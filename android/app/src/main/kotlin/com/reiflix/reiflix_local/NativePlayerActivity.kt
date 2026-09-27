@@ -1560,9 +1560,13 @@ class NativePlayerActivity : ComponentActivity() {
                     if (!controlsVisible) {
                         setControlsVisible(true)
                         playPauseButton.requestFocus()
+                        togglePlayPause()
+                        return true
                     }
-                    togglePlayPause()
-                    return true
+                    // Let the focused player action receive OK/Enter so Audio,
+                    // Subtitles, Speed, Aspect, episode navigation and other
+                    // existing controls keep their normal click semantics.
+                    return super.dispatchKeyEvent(event)
                 }
                 KeyEvent.KEYCODE_DPAD_UP,
                 KeyEvent.KEYCODE_DPAD_DOWN,

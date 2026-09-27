@@ -26,6 +26,8 @@ class PlaybackHardeningTests(unittest.TestCase):
         player = PLAYER.read_text(encoding="utf-8")
         policy = POLICY.read_text(encoding="utf-8")
         self.assertIn("playbackWorker", player)
+        self.assertIn("PREFLIGHT_ASYNC_START", player)
+        self.assertIn("PREFLIGHT_ASYNC_OK", player)
         self.assertIn("LocalSubtitleResolver.resolve(this@NativePlayerActivity, localUri)", player)
         self.assertIn("contentResolver.getType(localUri)", player)
         self.assertIn("PlayerMediaPolicy.resolveVideoMimeType", player)
@@ -80,6 +82,8 @@ class PlaybackHardeningTests(unittest.TestCase):
         for token in (
             "horizontal_seek",
             "horizontalSeekDelta",
+            "horizontalSeekEnabled",
+            "setting_gestures_horizontal_swipe_seek",
             "PlayerGesturePolicy",
             "systemUiController",
             "restoreSystemUiBeforeExit",

@@ -8,6 +8,8 @@ import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.UUID
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /** Crash-safe, atomic queue between the native Android host and embedded Python. */
 object NativeMailbox {
@@ -15,6 +17,9 @@ object NativeMailbox {
     private const val QUEUE = "reiflix-native-events"
     private const val PREFIX = "event-"
     private const val EVENT_VERSION = 2
+    private val bestEffortExecutor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "ReiFlix-MailboxTelemetry").apply { isDaemon = true }
+    }
 
     private fun operationState(event: JSONObject): String {
         val type = event.optString("type")
@@ -94,9 +99,23 @@ object NativeMailbox {
      * durable storage flush on the UI thread. Control-plane events keep the
      * existing fsync-backed write() path.
      */
-    @Synchronized
-    fun writeBestEffort(context: Context, event: JSONObject): Boolean =
-        writeInternal(context, event, durable = false)
+    /**
+     * Best-effort telemetry is queued on a dedicated daemon thread so small
+     * player diagnostics cannot perform filesystem I/O on Android's UI thread.
+     * The event still uses the same temporary-file + atomic-promotion protocol.
+     */
+    fun writeBestEffort(context: Context, event: JSONObject): Boolean {
+        val snapshot = JSONObject(event.toString())
+        return try {
+            bestEffortExecutor.execute {
+                writeInternal(context, snapshot, durable = false)
+            }
+            true
+        } catch (exception: RuntimeException) {
+            Log.w(TAG, "Unable to queue best-effort native event", exception)
+            false
+        }
+    }
 
     private fun writeInternal(context: Context, event: JSONObject, durable: Boolean): Boolean {
         var temporary: File?=null

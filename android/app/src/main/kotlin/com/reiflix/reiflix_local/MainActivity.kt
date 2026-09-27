@@ -65,6 +65,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var startupDiscoveryTriggered = false
     private var lastObservedMediaAccess: String? = null
     private var lastObservedBroadAccess: Boolean? = null
+    private var interactionProfileFingerprint: String? = null
     private val nativeRequestState = NativeRequestState()
 
     private val playerActivityLauncher =
@@ -492,6 +493,20 @@ class MainActivity : FlutterFragmentActivity() {
         )
     }
 
+    private fun publishInteractionProfileIfChanged(force: Boolean = false) {
+        val profile = DeviceInteractionProfile.detect(this)
+        val fingerprint = profile.fingerprint()
+        if (!force && fingerprint == interactionProfileFingerprint) return
+        interactionProfileFingerprint = fingerprint
+        NativeMailbox.writeBestEffort(
+            this,
+            JSONObject()
+                .put("type", "device_interaction_profile")
+                .put("payload", profile.toJson().put("fingerprint", fingerprint)),
+        )
+        Log.i(tag, "DEVICE_INTERACTION_PROFILE fingerprint=" + fingerprint + " profile=" + profile.toJson())
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         installSystemBackHandler()
@@ -767,6 +782,7 @@ class MainActivity : FlutterFragmentActivity() {
             // MainActivity is not the immersive surface. Keep status/navigation
             // bars available whenever the native player is not foreground.
             systemUiController.applyNormal(useContextAppearance = false)
+         publishInteractionProfileIfChanged(force = true)
             ViewCompat.requestApplyInsets(window.decorView)
         }
     }
@@ -2021,6 +2037,7 @@ class MainActivity : FlutterFragmentActivity() {
         logLifecycle("onWindowFocusChanged")
         if (hasFocus) {
             applyApplicationSystemUi()
+         publishInteractionProfileIfChanged()
             ViewCompat.requestApplyInsets(window.decorView)
             if (activityResumed && safPickerPending) {
                 if (safPickerFocusLost) safPickerFocusRegainedAtMs = System.currentTimeMillis()

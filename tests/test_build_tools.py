@@ -151,6 +151,10 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn('"flet==0.86.5"', project)
         self.assertIn('"certifi>=2024.8.30"', project)
         self.assertIn("min_sdk_version = 24", project)
+        self.assertIn('getByName("release")', android)
+        self.assertIn('abiFilters += "arm64-v8a"', android)
+        self.assertNotIn('abiFilters += "armeabi-v7a"', android)
+        self.assertNotIn('abiFilters += "x86_64"', android)
 
     def test_android_instrumented_diagnostic_is_not_part_of_fast_build(self):
         workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")

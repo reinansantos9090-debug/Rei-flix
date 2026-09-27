@@ -23,6 +23,16 @@ android {
 
 kotlin { jvmToolchain(17) }
 
+    // Personal-device release APK: target the Galaxy A15 arm64 ABI.
+    // Debug builds remain multi-ABI for x86_64/other CI emulators.
+    buildTypes {
+        getByName("release") {
+            ndk {
+                abiFilters += "arm64-v8a"
+            }
+        }
+    }
+
 dependencies {
     // These are merged into the Flet Flutter host by the custom Android template.
     implementation("androidx.activity:activity-ktx:1.13.0")

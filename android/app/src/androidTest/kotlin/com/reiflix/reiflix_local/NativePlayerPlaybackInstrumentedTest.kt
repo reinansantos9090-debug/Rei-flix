@@ -568,13 +568,14 @@ class NativePlayerPlaybackInstrumentedTest {
             controls.paddingRight >= safeRight
         }
 
-    private fun currentPlayerRequestId(): String? =
-        runOnMainBoundedValue {
+    private fun currentPlayerRequestId(): String =
+        onMain {
             androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
                 .getInstance()
                 .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
                 .firstOrNull { it is NativePlayerActivity }
                 ?.let { (it as NativePlayerActivity).intent.getStringExtra("requestId") }
+                .orEmpty()
         }
 
     private fun sendPlayDeepLink(requestId: String, uri: String) {

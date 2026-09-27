@@ -451,7 +451,7 @@ class HomeView:
                     render_generation[0],
                     render_generation[0],
                     page_loading[0],
-                    bool(artwork_tasks),
+                    len(tracked_tasks),
                     current_screen,
                 )
                 tap_started = time.perf_counter()
@@ -746,8 +746,8 @@ class HomeView:
                 return
             hydration_started = time.perf_counter()
             logger.info(
-                "HOME_HYDRATION_START count=%s generation=%s active_artwork_tasks=%s",
-                len(items), token, len(artwork_tasks),
+                "HOME_HYDRATION_START count=%s generation=%s active_tasks=%s",
+                len(items), token, len(tracked_tasks),
             )
             try:
                 results = await asyncio.to_thread(library.hydrate_catalog_metadata, items)

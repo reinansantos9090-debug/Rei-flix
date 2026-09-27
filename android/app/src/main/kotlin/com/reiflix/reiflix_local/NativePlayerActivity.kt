@@ -682,13 +682,6 @@ class NativePlayerActivity : ComponentActivity() {
                             " latencyFromPreflightMs=" + metricDelta(preflightCompletedAtMs, prepareDispatchedAtMs),
                     )
                     player.prepare()
-
-                        "MEDIA3_PREPARE_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
-                            " generation=" + generation +
-                            " mediaId=" + mediaItem.mediaId +
-                            " atMs=" + prepareDispatchedAtMs +
-                            " latencyFromPreflightMs=" + metricDelta(preflightCompletedAtMs, prepareDispatchedAtMs),
-                    )
                     updateTrackButtons()
                     updatePlayPauseButton()
                     updateProgressUi()

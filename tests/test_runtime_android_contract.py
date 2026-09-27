@@ -47,6 +47,28 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertIn("FLAG_ACTIVITY_REORDER_TO_FRONT", source)
         self.assertIn("registerForActivityResult(ActivityResultContracts.StartActivityForResult())", source)
         self.assertIn("playerActivityLauncher.launch(intent)", source)
+        self.assertIn("PLAY_HANDOFF_DISPATCHED", source)
+
+    def test_native_command_receipt_diagnostics_are_distinct_from_launcher_acceptance(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        bridge = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
+        for token in (
+            "COMMAND_RECEIVED",
+            "parameterNames",
+            "publishNativeDiagnostic(\"COMMAND_RECEIVED\"",
+            "COMMAND_DISPATCHED",
+        ):
+            self.assertIn(token, source)
+        for token in (
+            "COMMAND_CREATED",
+            "COMMAND_LAUNCH_REQUESTED",
+            "COMMAND_LAUNCH_ACCEPTED",
+            "COMMAND_DELIVERY_TIMEOUT",
+            "observe_native_event",
+            "EXTERNAL_NON_BROWSER_APPLICATION",
+        ):
+            self.assertIn(token, bridge)
+        self.assertNotIn("await self.page.launch_url(url)", bridge)
 
     def test_native_player_has_structured_lifecycle_and_playback_diagnostics(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")

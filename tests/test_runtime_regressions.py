@@ -79,6 +79,17 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("resolve_artwork_batch", home)
         self.assertIn("resolve_artwork_batch", organize)
 
+    def test_main_invalidating_cached_views_requests_real_task_cancellation(self):
+        main = self.read(MAIN)
+        self.assertIn("def _cancel_view_tasks", main)
+        self.assertIn("def _discard_cached_screen", main)
+        self.assertIn('_discard_cached_screen("home", "catalog_changed")', main)
+        self.assertIn('_discard_cached_screen("organize", "catalog_changed")', main)
+        self.assertIn('_cancel_view_tasks(home_state, "home", "disconnect")', main)
+        self.assertIn('_cancel_view_tasks(organize_state, "organize", "disconnect")', main)
+        self.assertIn('_cancel_view_tasks(home_state, "home", "logout")', main)
+        self.assertIn('_cancel_view_tasks(organize_state, "organize", "logout")', main)
+
     def test_home_initial_page_is_bounded(self):
         home = self.read(HOME)
         self.assertIn("home_page_size = min(page_size, 48)", home)

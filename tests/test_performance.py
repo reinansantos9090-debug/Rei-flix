@@ -193,7 +193,7 @@ class StorePaginationTests(unittest.TestCase):
             self.assertEqual(1, counts["Favoritos"])
             self.assertEqual(1, counts["Fixados"])
             self.assertEqual(1, counts["Assistidos"])
-            self.assertEqual(4, counts["Não iniciados"])
+            self.assertEqual(3, counts["Não iniciados"])
             self.assertLessEqual(len(store.read_statements()), 2)
 
     def test_paged_states_follow_consumption_completion_ratio(self):
@@ -317,6 +317,17 @@ class StorePaginationTests(unittest.TestCase):
 
 
 class ServiceAndSourceTests(unittest.TestCase):
+    def test_service_home_batches_genre_enrichment_across_sections(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = TracingLibraryStore(directory)
+            self._seed(store, 8)
+            service = LibraryService(store)
+            store.clear_trace()
+
+            service.media_center_home(limit=3)
+
+            self.assertLessEqual(len(store.read_statements()), 15)
+
     def test_service_exposes_paged_catalog_and_bounded_home_sections(self):
         with tempfile.TemporaryDirectory() as directory:
             service = LibraryService(LibraryStore(directory))

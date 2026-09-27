@@ -533,8 +533,8 @@ class MainActivity : FlutterFragmentActivity() {
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
         // Flet owns the visual theme/system-overlay appearance; the native host
-        // still owns edge-to-edge + immersive policy.
-        systemUiController.applyApplicationPolicy(useContextAppearance = false)
+        // owns edge-to-edge + normal system-bar visibility.
+        systemUiController.applyNormal(useContextAppearance = false)
         // Permission-sensitive actions are queued until the Activity is resumed.
         handleNativeIntent(intent)
     }
@@ -764,7 +764,10 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun applyApplicationSystemUi() {
         if (::systemUiController.isInitialized) {
-            systemUiController.applyApplicationPolicy(useContextAppearance = false)
+            // MainActivity is not the immersive surface. Keep status/navigation
+            // bars available whenever the native player is not foreground.
+            systemUiController.applyNormal(useContextAppearance = false)
+            ViewCompat.requestApplyInsets(window.decorView)
         }
     }
 

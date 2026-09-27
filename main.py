@@ -1203,6 +1203,11 @@ async def main(page: ft.Page):
                             payload = {}
                         if not isinstance(payload, dict):
                             continue
+                        # Resolve AndroidBridge command waiters only from the
+                        # existing NativeMailbox event emitted by MainActivity.
+                        # This makes launch acceptance distinct from real intent
+                        # delivery; no secondary IPC channel is introduced.
+                        bridge.observe_native_event(event)
                         event_request_id = event.get('requestId') or payload.get('requestId')
                         event_scan_id = payload.get('scanId') or event.get('scanId')
                         operation_state = str(

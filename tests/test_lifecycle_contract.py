@@ -241,6 +241,11 @@ class LifecycleContractTests(unittest.TestCase):
     def test_python_stale_screen_work_is_generation_guarded(self):
         home = HOME.read_text(encoding="utf-8")
         organize = ORGANIZE.read_text(encoding="utf-8")
+        for source in (home, organize):
+            self.assertIn("tracked_tasks: set[object] = set()", source)
+            self.assertIn("def _track_task", source)
+            self.assertIn("def cancel_view_tasks", source)
+            self.assertIn("view_state['_cancel_tasks'] = cancel_view_tasks", source)
         for token in (
             "render_generation = [0]",
             "search_generation = [0]",

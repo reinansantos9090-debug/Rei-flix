@@ -80,6 +80,27 @@ class FletLaunchCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             bridge._command_delivery_timeout_s = 0.01
             with self.assertRaisesRegex(RuntimeError, "não chegou à MainActivity"):
                 await bridge.select_tree()
+            self.assertEqual({}, bridge._command_delivery_waiters)
+
+    async def test_android_bridge_caller_cancellation_cleans_delivery_waiter(self):
+        class SilentLauncher:
+            async def launch_url(self, value, *, mode):
+                return None
+
+        class SilentPage:
+            platform = "android"
+            url_launcher = SilentLauncher()
+
+        with tempfile.TemporaryDirectory() as data_dir:
+            bridge = AndroidBridge(data_dir, SilentPage())
+            bridge._command_delivery_timeout_s = 30.0
+            task = asyncio.create_task(bridge.select_tree())
+            await asyncio.sleep(0)
+            self.assertEqual(1, len(bridge._command_delivery_waiters))
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertEqual({}, bridge._command_delivery_waiters)
 
     async def test_android_bridge_generates_distinct_request_ids_for_retries(self):
         class StrictLauncher:

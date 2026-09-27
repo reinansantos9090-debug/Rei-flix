@@ -98,16 +98,23 @@ class PlayerReconstructionTests(unittest.TestCase):
         self.assertNotIn("lastProgressPersistAt = now", reporter)
 
     def test_semantic_player_events_flush_the_latest_progress(self):
-        finish = self.player[self.player.index("private fun finishPlayer"):self.player.index("private fun requestEpisode")]
-        pause = self.player[self.player.index("override fun onPause"):self.player.index("override fun onStop")]
-        stop = self.player[self.player.index("override fun onStop"):self.player.index("override fun onWindowFocusChanged")]
-        request = self.player[self.player.index("private fun requestEpisode"):self.player.index("private fun seekToSavedPosition")]
-        for block in (finish, pause, stop, request):
-            self.assertIn("saveProgress(", block)
-        self.assertIn('saveProgress("player_progress", force = true)', finish)
-        self.assertIn('saveProgress("player_paused", force = true)', pause)
-        self.assertIn('saveProgress("player_progress", force = true)', stop)
-        self.assertIn('saveProgress("player_progress", force = true)', request)
+        self.assertIn('private fun finishPlayer(reason: String)', self.player)
+        self.assertIn('saveProgress("player_progress", force = true)', self.player[
+            self.player.index("private fun finishPlayer(reason: String)"):
+            self.player.index("private fun requestEpisode(eventType: String)")
+        ])
+        self.assertIn('saveProgress("player_progress", force = true)', self.player[
+            self.player.index("private fun requestEpisode(eventType: String)"):
+            self.player.index("private fun seekToSavedPosition")
+        ])
+        self.assertIn('saveProgress("player_paused", force = true)', self.player[
+            self.player.index("override fun onPause()"):
+            self.player.index("override fun onStop()")
+        ])
+        self.assertIn('saveProgress("player_progress", force = true)', self.player[
+            self.player.index("override fun onStop()"):
+            self.player.index("override fun onWindowFocusChanged")
+        ])
 
     def test_buffering_error_and_first_frame_are_separate_ui_states(self):
         self.assertIn("Player.STATE_BUFFERING", self.player)

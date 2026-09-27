@@ -71,10 +71,58 @@ class HomeView:
         scan_active = [False]
         home_sections_generation = [0]
         filter_options_loaded = [False]
-        artwork_tasks: set[tuple] = set()
         artwork_bindings: dict[tuple, list] = {}
-        artwork_concurrency = asyncio.Semaphore(4)
         artwork_ui_update_scheduled = [False]
+        tracked_tasks: set[object] = set()
+        task_metrics = {"created": 0, "cancelled": 0}
+
+        def _track_task(task):
+            if task is None or not hasattr(task, "add_done_callback"):
+                return task
+            tracked_tasks.add(task)
+            task_metrics["created"] += 1
+
+            def _done(completed):
+                tracked_tasks.discard(completed)
+                if completed.cancelled():
+                    task_metrics["cancelled"] += 1
+
+            task.add_done_callback(_done)
+            return task
+
+        def run_tracked(handler, *args, label=None):
+            task = _track_task(page.run_task(handler, *args))
+            if label:
+                logger.debug("HOME_TASK_CREATED label=%s active=%s", label, len(tracked_tasks))
+            return task
+
+        def cancel_view_tasks(reason="invalidate", *, exclude_current=False, bump_generation=True):
+            if bump_generation:
+                render_generation[0] += 1
+                search_generation[0] += 1
+            try:
+                current_task = asyncio.current_task()
+            except RuntimeError:
+                current_task = None
+            cancelled = 0
+            for task in tuple(tracked_tasks):
+                if exclude_current and task is current_task:
+                    continue
+                if not task.done():
+                    task.cancel()
+                    cancelled += 1
+            logger.info(
+                "HOME_TASKS_CANCEL reason=%s cancelled=%s active_before=%s "
+                "created_total=%s cancelled_total=%s",
+                reason,
+                cancelled,
+                len(tracked_tasks),
+                task_metrics["created"],
+                task_metrics["cancelled"] + cancelled,
+            )
+            artwork_bindings.clear()
+            home_sections_generation[0] = render_generation[0]
+
 
         def save_view_state():
             view_state.update(
@@ -163,7 +211,7 @@ class HomeView:
                 finally:
                     artwork_ui_update_scheduled[0] = False
 
-            page.run_task(flush)
+            run_tracked(flush, label="artwork_ui_update")
 
         def artwork_holder(item, width, height, *, entity="anime", kind="poster", source=None):
             holder = ft.Container(
@@ -187,7 +235,15 @@ class HomeView:
                         valid = False
                 if not valid:
                     return False
-                holder.content = ft.Image(src=path, width=width, height=height, fit=ft.BoxFit.COVER, border_radius=RADIUS)
+                holder.content = ft.Image(
+                    src=path,
+                    width=width,
+                    height=height,
+                    cache_width=max(1, int(width)),
+                    cache_height=max(1, int(height)),
+                    fit=ft.BoxFit.COVER,
+                    border_radius=RADIUS,
+                )
                 return True
 
             if not show_thumbnails:
@@ -201,36 +257,6 @@ class HomeView:
                 return holder
 
             item_id = item.get("anime_id") if item.get("anime_id") is not None and entity in {"anime", "movie"} else item.get("id")
-            if item_id is not None and library is not None:
-                key = (entity, int(item_id), kind, width, height)
-                if key not in artwork_tasks:
-                    artwork_tasks.add(key)
-                    request_generation = render_generation[0]
-                    async def hydrate():
-                        try:
-                            async with artwork_concurrency:
-                                resolved = await asyncio.to_thread(
-                                    library.resolve_artwork, entity, item_id, kind, allow_network=False
-                                )
-                            if request_generation != render_generation[0]:
-                                return
-                            path = (resolved or {}).get("local_path")
-                            if apply_source(path):
-                                meta = item.setdefault("meta", {})
-                                meta["cover_cache"] = path
-                                item["cover"] = path
-                                try:
-                                    schedule_artwork_ui_update()
-                                except Exception:
-                                    logger.debug("Home artwork UI scheduling skipped", exc_info=True)
-                        except Exception:
-                            logger.exception(
-                                "Artwork render hydration failed",
-                                extra={"screen":"home","requestId":"-","item_id":item_id},
-                            )
-                        finally:
-                            artwork_tasks.discard(key)
-                    page.run_task(hydrate)
             holder.content = ft.Icon(ft.Icons.MOVIE_OUTLINED, color=TEXT_MUTED, size=28)
             return holder
 

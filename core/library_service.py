@@ -1054,8 +1054,31 @@ class LibraryService:
         """
         if catalog is None:
             sections = self.store.home_sections(limit=limit)
-            for key in ("next_episode", "recently_added", "favorites", "pinned", "series", "movies", "specials"):
-                sections[key] = self.genre_registry.enrich_catalog(sections.get(key) or [])
+            enrich_keys = ("next_episode", "recently_added", "favorites", "pinned", "series", "movies", "specials")
+            representatives = {}
+            items_by_id = {}
+            for key in enrich_keys:
+                for item in sections.get(key) or []:
+                    item_id = item.get("id")
+                    if item_id is None:
+                        item_id = item.get("anime_id")
+                    try:
+                        normalized_id = int(item_id)
+                    except (TypeError, ValueError):
+                        continue
+                    representatives.setdefault(normalized_id, item)
+                    items_by_id.setdefault(normalized_id, []).append(item)
+            if representatives:
+                enriched = list(representatives.values())
+                self.genre_registry.enrich_catalog(enriched)
+                for normalized_id, items in items_by_id.items():
+                    source = representatives[normalized_id]
+                    for item in items:
+                        if item is source:
+                            continue
+                        item["genre_ids"] = list(source.get("genre_ids") or [])
+                        item["genres"] = list(source.get("genres") or [])
+                        item["genre_aliases"] = list(source.get("genre_aliases") or [])
             return sections
         catalog = catalog
         episodes = [e for anime in catalog for season in anime.get("seasons", [])

@@ -1344,7 +1344,7 @@ class NativePlayerActivity : ComponentActivity() {
         }, actionButton("Autoplay", 92) { button ->
             autoplayNext = !autoplayNext
             button.text = "Autoplay " + if (autoplayNext) "ON" else "OFF"
-            NativeMailbox.writeBestEffort(
+            NativeMailbox.write(
                 this@NativePlayerActivity,
                 JSONObject().put("type", "player_autoplay_changed")
                     .put("requestId", requestId)
@@ -2048,7 +2048,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("completion", completionReported)
             .put("reason", reason)
             .put("timestamp", System.currentTimeMillis())
-        val ok = NativeMailbox.writeBestEffort(
+        val ok = NativeMailbox.write(
             this,
             JSONObject().put("type", "player_exited")
                 .put("requestId", requestId)
@@ -2086,7 +2086,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("requestId", requestId)
             .put("positionMs", player.currentPosition.coerceAtLeast(0L))
             .put("durationMs", player.duration.coerceAtLeast(0L))
-        NativeMailbox.writeBestEffort(
+        NativeMailbox.write(
             this,
             JSONObject().put("type", eventType)
                 .put("requestId", requestId)

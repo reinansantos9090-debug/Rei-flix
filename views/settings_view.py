@@ -14,7 +14,7 @@ import flet as ft
 from core.storage_access import normalize_storage_snapshot
 from core.backup import BackupError
 from core.settings import SettingsStore, SettingsValidationError
-from core.ui import BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, activate_theme_for_page, section_title
+from core.ui import BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, activate_theme_for_page, section_title, focus_button_style
 
 logger = logging.getLogger("reiflix.settings")
 
@@ -249,12 +249,11 @@ class SettingsView:
 
         def build_category_tile(label):
             description, icon = category_meta.get(label, ("Configurações Rei-Flix", ft.Icons.SETTINGS_OUTLINED))
-            return ft.Container(
-                padding=14,
-                bgcolor=SURFACE,
-                border_radius=RADIUS,
-                ink=True,
+            return ft.OutlinedButton(
+                width=360,
+                height=70,
                 on_click=lambda _event, key=label: open_category(key),
+                style=focus_button_style(theme=theme, background=SURFACE),
                 content=ft.Row([
                     ft.Icon(icon, color=TEXT, size=24),
                     ft.Column([

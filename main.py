@@ -207,6 +207,7 @@ async def main(page: ft.Page):
     home_state = {}
     organize_state = {}
     settings_state = {}
+    device_interaction_profile = {}
     navigation = NavigationController()
     saf_selection = SafSelectionState()
     # One Python navigation stack, one persistent Flet host, and cached

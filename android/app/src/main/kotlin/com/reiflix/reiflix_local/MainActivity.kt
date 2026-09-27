@@ -77,7 +77,7 @@ class MainActivity : FlutterFragmentActivity() {
                     "resultCode=" + result.resultCode + " controlled=" + controlled +
                     " reason=" + reason.ifBlank { "-" },
             )
-            NativeMailbox.write(
+            NativeMailbox.writeBestEffort(
                 this,
                 JSONObject()
                     .put("type", "diagnostic")
@@ -827,7 +827,7 @@ class MainActivity : FlutterFragmentActivity() {
         if (protocolVersion != null) payload.put("protocolVersion", protocolVersion)
         if (commandCreatedAt != null) payload.put("commandCreatedAt", commandCreatedAt)
         if (parameterNames != null) payload.put("parameterNames", parameterNames)
-        NativeMailbox.write(
+        NativeMailbox.writeBestEffort(
             this,
             JSONObject().put("type", "diagnostic").put("requestId", requestId ?: "").put("payload", payload),
         )
@@ -1762,7 +1762,7 @@ class MainActivity : FlutterFragmentActivity() {
         val requestId = playerRequest.requestId
         if (episodeUri.isBlank()) {
             Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId + " reason=missing_uri")
-            NativeMailbox.write(this, JSONObject().put("type", "player_error")
+            NativeMailbox.writeBestEffort(this, JSONObject().put("type", "player_error")
                 .put("requestId", requestId)
                 .put("message", "Este episódio não possui uma referência local válida.")
                 .put("payload", JSONObject().put("stage", "handoff").put("reason", "missing_uri")))
@@ -1772,7 +1772,7 @@ class MainActivity : FlutterFragmentActivity() {
         val localUri = runCatching { Uri.parse(episodeUri) }.getOrNull()
         if (localUri == null || localUri.scheme?.lowercase() !in setOf("content", "file")) {
             Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId + " uri=" + episodeUri + " reason=unsupported_scheme")
-            NativeMailbox.write(this, JSONObject().put("type", "player_error")
+            NativeMailbox.writeBestEffort(this, JSONObject().put("type", "player_error")
                 .put("requestId", requestId)
                 .put("message", "O Rei-Flix aceita somente mídias locais autorizadas.")
                 .put("payload", JSONObject().put("uri", episodeUri).put("stage", "handoff").put("reason", "unsupported_scheme")))
@@ -1856,7 +1856,7 @@ class MainActivity : FlutterFragmentActivity() {
                     "PLAY_HANDOFF_FAILED requestId=" + requestId.ifEmpty { "-" } +
                         " reason=activity_not_resolvable component=" + intent.component,
                 )
-                NativeMailbox.write(
+                NativeMailbox.writeBestEffort(
                     this,
                     JSONObject()
                         .put("type", "player_error")
@@ -1879,7 +1879,7 @@ class MainActivity : FlutterFragmentActivity() {
                     " flags=0x" + intent.flags.toString(16) +
                     " reuse=" + reusingPlayerActivity,
             )
-            NativeMailbox.write(
+            NativeMailbox.writeBestEffort(
                 this,
                 JSONObject()
                     .put("type", "diagnostic")
@@ -1923,7 +1923,7 @@ class MainActivity : FlutterFragmentActivity() {
                 lastPlayerHandoffAtElapsedMs = 0L
             }
             Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId.ifEmpty { "-" } + " reason=start_activity", exception)
-            NativeMailbox.write(this, JSONObject().put("type", "player_error")
+            NativeMailbox.writeBestEffort(this, JSONObject().put("type", "player_error")
                 .put("requestId", requestId)
                 .put("message", "Não foi possível abrir o player local.")
                 .put("payload", JSONObject()

@@ -832,7 +832,7 @@ class MainActivity : FlutterFragmentActivity() {
         if (protocolVersion != null) payload.put("protocolVersion", protocolVersion)
         if (commandCreatedAt != null) payload.put("commandCreatedAt", commandCreatedAt)
         if (parameterNames != null) payload.put("parameterNames", parameterNames)
-        NativeMailbox.writeBestEffort(
+        NativeMailbox.write(
             this,
             JSONObject().put("type", "diagnostic").put("requestId", requestId ?: "").put("payload", payload),
         )

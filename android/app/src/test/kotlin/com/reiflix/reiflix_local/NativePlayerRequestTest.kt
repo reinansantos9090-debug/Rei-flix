@@ -101,6 +101,7 @@ class NativePlayerRequestTest {
         assertTrue(request.gesturesVolume)
         assertTrue(request.gesturesBrightness)
         assertTrue(request.gesturesDoubleTap)
+        assertTrue(request.gesturesHorizontalSwipeSeek)
         assertTrue(request.gesturesLongPress)
         assertEquals("1080p", request.maxVideoResolution)
         assertEquals(60, request.maxVideoFrameRate)

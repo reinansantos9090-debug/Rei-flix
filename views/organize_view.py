@@ -98,6 +98,30 @@ class OrganizeView:
         page_loading = [False]
         catalog_load_failed = [False]
         scan_active = [False]
+        view_tasks = set()
+
+        def _track_view_task(task):
+            if task is None or not hasattr(task, "add_done_callback"):
+                return task
+            view_tasks.add(task)
+            try:
+                task.add_done_callback(view_tasks.discard)
+            except Exception:
+                logger.debug("Organize task tracking callback unavailable", exc_info=True)
+            return task
+
+        def run_view_task(callback, *args):
+            return _track_view_task(page.run_task(callback, *args))
+
+        def dispose_view_tasks():
+            render_generation[0] += 1
+            search_generation[0] += 1
+            for task in tuple(view_tasks):
+                try:
+                    task.cancel()
+                except Exception:
+                    logger.debug("Organize task cancellation failed", exc_info=True)
+            view_tasks.clear()
 
         def save_view_state():
             view_state.update(
@@ -176,7 +200,7 @@ class OrganizeView:
                 except RuntimeError:
                     asyncio.run(invoke())
                 else:
-                    loop.create_task(invoke())
+                    _track_view_task(loop.create_task(invoke()))
                 return None
             return handle
 
@@ -608,7 +632,7 @@ class OrganizeView:
             except (TypeError, ValueError, AttributeError):
                 return
             if remaining < 800 and has_more[0] and not page_loading[0] and mode[0] == 'collection':
-                page.run_task(load_next_collection_page)
+                run_view_task(load_next_collection_page)
         def render_overview():
             try:
                 bounded_summary = getattr(library, "organize_summary_bounded", None)
@@ -806,13 +830,14 @@ class OrganizeView:
                 logger.debug('Organize scroll restoration unavailable', exc_info=True)
 
         def schedule_refresh_from_catalog():
-            page.run_task(refresh_from_catalog)
+            run_view_task(refresh_from_catalog)
 
         view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
+        view_state['_dispose'] = dispose_view_tasks
         save_view_state()
         render_generation[0] += 1
         render_overview()
-        page.run_task(load_catalog)
+        run_view_task(load_catalog)
         return ft.Container(
             content=content,
             padding=ft.Padding(

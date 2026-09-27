@@ -148,6 +148,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
 
     def test_android_build_declares_runtime_python_dependencies(self):
         project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        android = (ROOT / "android/app/build.gradle.kts").read_text(encoding="utf-8")
         self.assertIn('"flet==0.86.5"', project)
         self.assertIn('"certifi>=2024.8.30"', project)
         self.assertIn("min_sdk_version = 24", project)

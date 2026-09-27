@@ -297,6 +297,7 @@ jobs:
             --build-number "$GITHUB_RUN_NUMBER"
             --build-version "0.2.1"
             --python-version "3.12"
+            --arch "arm64-v8a"
             --yes
             -v
           )

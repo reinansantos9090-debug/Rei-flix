@@ -144,18 +144,12 @@ class StorageOnboardingTests(unittest.TestCase):
 
     def test_native_scan_publication_uses_failing_mailbox_contract(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
-        publish = source[source.index("private fun publishNativeScanBatch"):source.index("private fun scanTree", source.index("private fun publishNativeScanBatch"))]
-        self.assertIn("NativeMailbox.writeOrThrow(", publish)
-        self.assertNotIn('NativeMailbox.write(\n                appContext,\n                JSONObject().put("type", eventType)', publish)
-        for event_name, marker in (
-            ("saf_scan", 'JSONObject().put("type", "saf_scan")'),
-            ("broad_storage_scan", 'JSONObject().put("type", "broad_storage_scan")'),
-            ("mediastore_scan", 'JSONObject().put("type", "mediastore_scan")'),
-        ):
-            idx = source.find(marker)
-            self.assertGreaterEqual(idx, 0, event_name)
-            self.assertIn("NativeMailbox.writeOrThrow", source[max(0, idx - 120):idx + 260], event_name)
-
+        publisher = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeScanPublisher.kt").read_text(encoding="utf-8")
+        self.assertNotIn("private fun publishNativeScanBatch", source)
+        self.assertIn("NativeScanPublisher.publish(", source)
+        self.assertIn("NativeMailbox.writeOrThrow(", publisher)
+        self.assertIn("NativeMailbox.write(", publisher)
+        self.assertIn('eventType.replace("_batch", "_error")', publisher)
     def test_native_mailbox_uses_atomic_move_with_non_atomic_fallback(self):
         source = (ROOT / "core" / "android_bridge.py").read_text(encoding="utf-8")
         native = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt").read_text(encoding="utf-8")

@@ -129,6 +129,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var lastControlsInteraction = 0L
     private var requestId = ""
     private var commandCreatedAtMs = 0L
+    private var commandReceivedAtMs = 0L
     private var handoffDispatchedAtMs = 0L
     private var activityStartedAtMs = 0L
     private var preflightStartedAtMs = 0L
@@ -312,6 +313,7 @@ class NativePlayerActivity : ComponentActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         requestId = intent.getStringExtra("requestId")?.trim().orEmpty()
         commandCreatedAtMs = intent.getLongExtra("commandCreatedAtMs", 0L)
+        commandReceivedAtMs = intent.getLongExtra("commandReceivedAtMs", 0L)
         handoffDispatchedAtMs = intent.getLongExtra("handoffDispatchedAtMs", 0L)
         activityStartedAtMs = System.currentTimeMillis()
         sessionState = SessionState.ACTIVE
@@ -484,6 +486,7 @@ class NativePlayerActivity : ComponentActivity() {
         uri = normalized
         requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
         commandCreatedAtMs = newIntent.getLongExtra("commandCreatedAtMs", 0L)
+        commandReceivedAtMs = newIntent.getLongExtra("commandReceivedAtMs", 0L)
         handoffDispatchedAtMs = newIntent.getLongExtra("handoffDispatchedAtMs", 0L)
         activityStartedAtMs = System.currentTimeMillis()
         sessionState = SessionState.ACTIVE
@@ -670,9 +673,16 @@ class NativePlayerActivity : ComponentActivity() {
                         "PREPARE requestId=" + requestId.ifEmpty { "-" } +
                             " generation=$generation reason=" + reason,
                     )
-                    player.prepare()
                     prepareDispatchedAtMs = System.currentTimeMillis()
                     logPlayer(
+                        "MEDIA3_PREPARE_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
+                            " generation=" + generation +
+                            " mediaId=" + mediaItem.mediaId +
+                            " atMs=" + prepareDispatchedAtMs +
+                            " latencyFromPreflightMs=" + metricDelta(preflightCompletedAtMs, prepareDispatchedAtMs),
+                    )
+                    player.prepare()
+
                         "MEDIA3_PREPARE_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
                             " generation=" + generation +
                             " mediaId=" + mediaItem.mediaId +
@@ -1706,12 +1716,15 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun playbackTimingPayload(atMs: Long = System.currentTimeMillis()): JSONObject = JSONObject()
         .put("commandCreatedAtMs", commandCreatedAtMs)
+        .put("commandReceivedAtMs", commandReceivedAtMs)
         .put("handoffDispatchedAtMs", handoffDispatchedAtMs)
         .put("activityStartedAtMs", activityStartedAtMs)
         .put("preflightStartedAtMs", preflightStartedAtMs)
         .put("preflightCompletedAtMs", preflightCompletedAtMs)
         .put("prepareDispatchedAtMs", prepareDispatchedAtMs)
         .put("firstFrameRenderedAtMs", firstFrameRenderedAtMs)
+        .put("commandDeliveryLatencyMs", metricDelta(commandCreatedAtMs, commandReceivedAtMs))
+        .put("mainActivityHandoffLatencyMs", metricDelta(commandReceivedAtMs, handoffDispatchedAtMs))
         .put("handoffLatencyMs", metricDelta(commandCreatedAtMs, handoffDispatchedAtMs))
         .put("activityStartupLatencyMs", metricDelta(handoffDispatchedAtMs, activityStartedAtMs))
         .put("preflightLatencyMs", metricDelta(preflightStartedAtMs, preflightCompletedAtMs))

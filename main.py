@@ -93,6 +93,8 @@ async def main(page: ft.Page):
     def _handle_page_disconnect(_event=None):
         ui_alive[0] = False
         task = native_poll_task[0]
+        for route in tuple(screen_cache):
+            _dispose_cached_screen(route)
         if task is not None:
             try:
                 task.cancel()

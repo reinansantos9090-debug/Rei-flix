@@ -20,12 +20,15 @@ class TestSafProfessionalContract(unittest.TestCase):
         self.assertIn('publishScanRequest("PERMISSION_CHANGE"', source)
         self.assertNotIn("scanTree(uri.toString(), requestId)", source)
 
-    def test_picker_preflights_document_tree_handler_before_launch(self):
+    def test_picker_uses_isolated_native_proxy_and_no_resolve_activity_gate(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
-        self.assertIn("intent.resolveActivity(packageManager)", source)
-        self.assertIn("NO_DOCUMENT_TREE_HANDLER", source)
-        self.assertIn('"resolve_activity"', source)
-        self.assertIn("SAF_PICKER_LAUNCH", source)
+        proxy = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SafPickerProxyActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("SafPickerProxyActivity::class.java", source)
+        self.assertIn("treePicker.launch(proxyIntent)", source)
+        self.assertNotIn("intent.resolveActivity(packageManager)", source)
+        self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", proxy)
+        self.assertIn("startActivityForResult", proxy)
+        self.assertIn("SAF_PROXY_LAUNCH", proxy)
 
     def test_picker_has_focus_aware_watchdog_and_terminal_phases(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
@@ -61,10 +64,16 @@ class TestSafProfessionalContract(unittest.TestCase):
 
     def test_picker_uses_persistable_read_grant(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
-        self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", source)
-        self.assertIn("Intent.FLAG_GRANT_READ_URI_PERMISSION", source)
-        self.assertIn("Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION", source)
-        self.assertIn("Intent.FLAG_GRANT_PREFIX_URI_PERMISSION", source)
+        proxy = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SafPickerProxyActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("SafPickerProxyActivity::class.java", source)
+        for token in (
+            "Intent.ACTION_OPEN_DOCUMENT_TREE",
+            "Intent.FLAG_GRANT_READ_URI_PERMISSION",
+            "Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION",
+            "Intent.FLAG_GRANT_PREFIX_URI_PERMISSION",
+        ):
+            self.assertIn(token, proxy)
+        self.assertNotIn("Intent.FLAG_GRANT_WRITE_URI_PERMISSION", proxy)
 
     def test_tree_identity_is_authority_document_and_volume_scoped(self):
         source = SAF.read_text(encoding="utf-8")

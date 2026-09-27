@@ -17,6 +17,8 @@
   <!-- Permissão bruta para acessar pastas locais (igual o VLC usa) -->
   <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
   <uses-feature android:name="android.software.picture_in_picture" android:required="false" />
+  <uses-feature android:name="android.software.leanback" android:required="false" />
+  <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
   <application android:theme="@style/ReiFlixTheme" android:label="@string/app_name" android:allowBackup="false" android:supportsRtl="true" android:enableOnBackInvokedCallback="true">
     <activity android:name=".NativePlayerActivity" android:theme="@style/ReiFlixPlayerTheme" android:launchMode="singleTop" android:configChanges="orientation|screenSize|keyboardHidden" android:screenOrientation="fullSensor" android:supportsPictureInPicture="true" android:exported="false" />
@@ -24,6 +26,7 @@
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
+        <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
       </intent-filter>
       <intent-filter>
         <action android:name="android.intent.action.VIEW"/>

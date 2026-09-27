@@ -65,15 +65,19 @@ class RuntimeRegressionTests(unittest.TestCase):
         self.assertIn("on_select_anime(item)", home)
         self.assertNotIn('key=f"anime:{anime.get(\'id\', \'-\')}"', home)
 
-    def test_home_artwork_work_is_concurrency_limited(self):
+    def test_home_and_organize_tasks_are_tracked_and_cancelled(self):
         home = self.read(HOME)
-        self.assertIn("artwork_concurrency = asyncio.Semaphore(4)", home)
-        self.assertIn("async with artwork_concurrency:", home)
-        self.assertIn("artwork_ui_update_scheduled", home)
-        self.assertIn("schedule_artwork_ui_update()", home)
-        hydration_start = home.index("async def hydrate_metadata_and_artwork")
-        hydration_end = home.index("async def refresh_home_sections", hydration_start)
-        self.assertNotIn("holder.update()", home[hydration_start:hydration_end])
+        organize = self.read(ROOT / "views/organize_view.py")
+        for source in (home, organize):
+            self.assertIn("tracked_tasks", source)
+            self.assertIn("cancel_view_tasks", source)
+            self.assertIn("_cancel_tasks", source)
+            self.assertIn("task.cancel()", source)
+            self.assertIn("asyncio.current_task()", source)
+        self.assertNotIn("loop.create_task(invoke())", organize)
+        self.assertNotIn("page.run_task(load_next_collection_page)", organize)
+        self.assertIn("resolve_artwork_batch", home)
+        self.assertIn("resolve_artwork_batch", organize)
 
     def test_home_initial_page_is_bounded(self):
         home = self.read(HOME)

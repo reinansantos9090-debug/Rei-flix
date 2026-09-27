@@ -232,6 +232,8 @@ def media_artwork(
         src=source,
         width=width,
         height=height,
+        cache_width=max(1, int(width)) if width else None,
+        cache_height=max(1, int(height)),
         fit=ft.BoxFit.COVER,
         border_radius=RADIUS,
         error_content=fallback,

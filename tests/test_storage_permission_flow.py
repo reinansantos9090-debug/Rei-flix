@@ -53,9 +53,12 @@ class TestStoragePermissionFlow(unittest.TestCase):
         self.assertIn('android:launchMode="singleTask"', manifest)
         self.assertIn('android:documentLaunchMode="never"', manifest)
 
-    def test_permission_flow_does_not_use_flet_launch_mode_parameter(self):
+    def test_permission_flow_uses_flet_0865_non_browser_url_launcher(self):
         source = BRIDGE.read_text(encoding="utf-8")
-        self.assertIn("await self.page.launch_url(url)", source)
+        self.assertIn("launcher = getattr(self.page, \"url_launcher\", None)", source)
+        self.assertIn("EXTERNAL_NON_BROWSER_APPLICATION", source)
+        self.assertIn("await launcher.launch_url(url, mode=external_non_browser)", source)
+        self.assertNotIn("await self.page.launch_url(url)", source)
         self.assertNotIn("launch_url(url, mode=", source)
 
     def test_mediastore_partial_result_is_never_marked_reconcilable(self):

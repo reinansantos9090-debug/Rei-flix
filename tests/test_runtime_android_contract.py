@@ -342,7 +342,8 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", system_ui)
         application = system_ui[system_ui.index("fun applyApplicationPolicy("):system_ui.index("/** Player-specific alias")]
         normal = system_ui[system_ui.index("fun applyNormal("):system_ui.index("private fun applyEdgeToEdgeWindow")]
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", application)
+        self.assertIn("applyNormal(useContextAppearance)", application)
+        self.assertNotIn("hide(WindowInsetsCompat.Type.systemBars())", application)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", normal)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", system_ui)
         self.assertNotIn("systemUiController.applyNormal()", main)

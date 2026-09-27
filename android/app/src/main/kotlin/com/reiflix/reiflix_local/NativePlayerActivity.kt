@@ -128,6 +128,13 @@ class NativePlayerActivity : ComponentActivity() {
     private var moreVisible = false
     private var lastControlsInteraction = 0L
     private var requestId = ""
+    private var commandCreatedAtMs = 0L
+    private var handoffDispatchedAtMs = 0L
+    private var activityStartedAtMs = 0L
+    private var preflightStartedAtMs = 0L
+    private var preflightCompletedAtMs = 0L
+    private var prepareDispatchedAtMs = 0L
+    private var firstFrameRenderedAtMs = 0L
     private var errorVisible = false
     private var openedReported = false
     private var restoredPositionMs: Long? = null
@@ -229,6 +236,7 @@ class NativePlayerActivity : ComponentActivity() {
 
             val payload = diagnosticPayload()
                 .put("event", "FIRST_FRAME_TIMEOUT")
+                .put("stage", "first_frame_wait")
                 .put("generation", generation)
                 .put("playWhenReady", player.playWhenReady)
                 .put("videoWidth", player.videoSize.width)
@@ -303,6 +311,9 @@ class NativePlayerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         requestId = intent.getStringExtra("requestId")?.trim().orEmpty()
+        commandCreatedAtMs = intent.getLongExtra("commandCreatedAtMs", 0L)
+        handoffDispatchedAtMs = intent.getLongExtra("handoffDispatchedAtMs", 0L)
+        activityStartedAtMs = System.currentTimeMillis()
         sessionState = SessionState.ACTIVE
         gesturePreferences = getSharedPreferences("reiflix_player_preferences", Context.MODE_PRIVATE)
         volumeGesturesEnabled = intent.getBooleanExtra("setting_gestures_volume",
@@ -338,6 +349,9 @@ class NativePlayerActivity : ComponentActivity() {
         controlsRestoredFromState = savedInstanceState?.containsKey("controls_visible") == true
         logPlayer(
             "PLAYER_ACTIVITY_ON_CREATE requestId=" + requestId.ifEmpty { "-" } +
+                " commandCreatedAtMs=" + commandCreatedAtMs +
+                " handoffDispatchedAtMs=" + handoffDispatchedAtMs +
+                " activityStartedAtMs=" + activityStartedAtMs +
                 " task=" + taskId +
                 " intentAction=" + (intent.action ?: "-") +
                 " component=" + (intent.component?.flattenToShortString() ?: "-"),
@@ -469,6 +483,9 @@ class NativePlayerActivity : ComponentActivity() {
         }
         uri = normalized
         requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
+        commandCreatedAtMs = newIntent.getLongExtra("commandCreatedAtMs", 0L)
+        handoffDispatchedAtMs = newIntent.getLongExtra("handoffDispatchedAtMs", 0L)
+        activityStartedAtMs = System.currentTimeMillis()
         sessionState = SessionState.ACTIVE
         episodeChangePending = false
         lastSavedPosition = -1L
@@ -570,6 +587,10 @@ class NativePlayerActivity : ComponentActivity() {
         pendingPreparation?.cancel(true)
         cancelFirstFrameDiagnostics("prepare_start")
         if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
+        preflightStartedAtMs = 0L
+        preflightCompletedAtMs = 0L
+        prepareDispatchedAtMs = 0L
+        firstFrameRenderedAtMs = 0L
         logPlayer(
             "PREPARE_ASYNC_START generation=$generation requestId=" +
                 requestId.ifEmpty { "-" } + " reason=" + reason,
@@ -577,8 +598,10 @@ class NativePlayerActivity : ComponentActivity() {
 
         pendingPreparation = playbackWorker.submit {
             try {
+                preflightStartedAtMs = System.currentTimeMillis()
                 logPlayer("PREFLIGHT_ASYNC_START requestId=" + requestId.ifEmpty { "-" } +
-                    " generation=" + generation + " uri=" + localUri)
+                    " generation=" + generation + " uri=" + localUri +
+                    " atMs=" + preflightStartedAtMs)
                 val preflightError = validateLocalSource(localUri)
                 if (preflightError != null) {
                     handler.post {
@@ -589,8 +612,11 @@ class NativePlayerActivity : ComponentActivity() {
                     }
                     return@submit
                 }
+                preflightCompletedAtMs = System.currentTimeMillis()
                 logPlayer("PREFLIGHT_ASYNC_OK requestId=" + requestId.ifEmpty { "-" } +
-                    " generation=" + generation)
+                    " generation=" + generation +
+                    " atMs=" + preflightCompletedAtMs +
+                    " latencyMs=" + metricDelta(preflightStartedAtMs, preflightCompletedAtMs))
                 val displayName = displayNameForUri(localUri)
                 val providerMime = runCatching { contentResolver.getType(localUri) }.getOrNull()
                 val resolvedMime = PlayerMediaPolicy.resolveVideoMimeType(providerMime, displayName)
@@ -645,10 +671,13 @@ class NativePlayerActivity : ComponentActivity() {
                             " generation=$generation reason=" + reason,
                     )
                     player.prepare()
+                    prepareDispatchedAtMs = System.currentTimeMillis()
                     logPlayer(
                         "MEDIA3_PREPARE_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
                             " generation=" + generation +
-                            " mediaId=" + mediaItem.mediaId,
+                            " mediaId=" + mediaItem.mediaId +
+                            " atMs=" + prepareDispatchedAtMs +
+                            " latencyFromPreflightMs=" + metricDelta(preflightCompletedAtMs, prepareDispatchedAtMs),
                     )
                     updateTrackButtons()
                     updatePlayPauseButton()
@@ -684,14 +713,36 @@ class NativePlayerActivity : ComponentActivity() {
                 firstFrameRenderedForTesting = true
                 cancelFirstFrameDiagnostics("first_frame")
                 if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
+                firstFrameRenderedAtMs = System.currentTimeMillis()
+                val timing = playbackTimingPayload(firstFrameRenderedAtMs)
                 logPlayer(
                     "FIRST_FRAME_RENDERED requestId=" + requestId.ifEmpty { "-" } +
                         " generation=" + generation +
                         " positionMs=" + player.currentPosition +
                         " video=" + player.videoSize.width + "x" + player.videoSize.height +
                         " playerView=" + playerView.width + "x" + playerView.height +
-                        " orientation=" + resources.configuration.orientation,
+                        " orientation=" + resources.configuration.orientation +
+                        " handoffLatencyMs=" + timing.optString("handoffLatencyMs") +
+                        " activityStartupLatencyMs=" + timing.optString("activityStartupLatencyMs") +
+                        " preflightLatencyMs=" + timing.optString("preflightLatencyMs") +
+                        " prepareLatencyMs=" + timing.optString("prepareLatencyMs") +
+                        " firstFrameLatencyMs=" + timing.optString("firstFrameLatencyMs") +
+                        " totalOpenToFirstFrameMs=" + timing.optString("totalOpenToFirstFrameMs"),
                 )
+                val firstFrameEvent = JSONObject()
+                    .put("event", "FIRST_FRAME_RENDERED")
+                    .put("generation", generation)
+                    .put("timing", timing)
+                if (!NativeMailbox.writeBestEffort(
+                        this@NativePlayerActivity,
+                        JSONObject()
+                            .put("type", "player_diagnostic")
+                            .put("requestId", requestId)
+                            .put("payload", firstFrameEvent),
+                    )
+                ) {
+                    logPlayer("FAILED_TO_PUBLISH player_diagnostic requestId=" + requestId.ifEmpty { "-" } + " event=FIRST_FRAME_RENDERED")
+                }
             }
         }
 
@@ -1650,8 +1701,27 @@ class NativePlayerActivity : ComponentActivity() {
         }
     }
 
+    private fun metricDelta(startMs: Long, endMs: Long): Any =
+        if (startMs > 0L && endMs >= startMs) endMs - startMs else JSONObject.NULL
+
+    private fun playbackTimingPayload(atMs: Long = System.currentTimeMillis()): JSONObject = JSONObject()
+        .put("commandCreatedAtMs", commandCreatedAtMs)
+        .put("handoffDispatchedAtMs", handoffDispatchedAtMs)
+        .put("activityStartedAtMs", activityStartedAtMs)
+        .put("preflightStartedAtMs", preflightStartedAtMs)
+        .put("preflightCompletedAtMs", preflightCompletedAtMs)
+        .put("prepareDispatchedAtMs", prepareDispatchedAtMs)
+        .put("firstFrameRenderedAtMs", firstFrameRenderedAtMs)
+        .put("handoffLatencyMs", metricDelta(commandCreatedAtMs, handoffDispatchedAtMs))
+        .put("activityStartupLatencyMs", metricDelta(handoffDispatchedAtMs, activityStartedAtMs))
+        .put("preflightLatencyMs", metricDelta(preflightStartedAtMs, preflightCompletedAtMs))
+        .put("prepareLatencyMs", metricDelta(preflightCompletedAtMs, prepareDispatchedAtMs))
+        .put("firstFrameLatencyMs", metricDelta(prepareDispatchedAtMs, atMs))
+        .put("totalOpenToFirstFrameMs", metricDelta(commandCreatedAtMs, atMs))
+
     private fun diagnosticPayload(): JSONObject = JSONObject()
         .put("timestamp", System.currentTimeMillis())
+        .put("timing", playbackTimingPayload())
         .put("requestId", requestId)
         .put("mediaId", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("mediaId").orEmpty())
         .put("episodeId", intent.getStringExtra("episodeId").orEmpty())

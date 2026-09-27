@@ -4,6 +4,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PLAYER = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt"
+MAIN_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt"
+MAILBOX = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeMailbox.kt"
 MANIFEST = ROOT / "android/app/src/main/AndroidManifest.xml"
 MAIN = ROOT / "main.py"
 
@@ -12,6 +14,8 @@ class PlaybackContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.player = PLAYER.read_text(encoding="utf-8")
+        cls.main_activity = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        cls.mailbox = MAILBOX.read_text(encoding="utf-8")
         cls.manifest = MANIFEST.read_text(encoding="utf-8")
         cls.main = MAIN.read_text(encoding="utf-8")
 
@@ -42,6 +46,34 @@ class PlaybackContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.player)
 
+    def test_player_mailbox_events_avoid_ui_thread_durable_fsync(self):
+        for token in (
+            'NativeMailbox.writeBestEffort(',
+            'fun writeBestEffort(context: Context, event: JSONObject): Boolean',
+            'if (durable) {',
+            'stream.fd.sync()',
+        ):
+            self.assertIn(token, self.player + self.mailbox)
+        self.assertGreaterEqual(self.player.count("NativeMailbox.writeBestEffort("), 7)
+        self.assertNotIn("NativeMailbox.write(", self.player)
+
+    def test_play_launch_neighbor_queries_leave_flet_event_loop(self):
+        start = self.main.index("    async def start_native_player(")
+        end = self.main.index("    def play_episode(", start)
+        block = self.main[start:end]
+        self.assertIn("await asyncio.gather(", block)
+        self.assertIn("asyncio.to_thread(library.next_episode, path)", block)
+        self.assertIn("asyncio.to_thread(library.previous_episode, path)", block)
+        self.assertNotIn("can_next=library.next_episode(path)", block)
+        self.assertNotIn("can_previous=library.previous_episode(path)", block)
+
+    def test_native_player_handoff_suppresses_same_uri_double_tap_without_permanent_lock(self):
+        source = self.main_activity
+        self.assertIn("PLAYER_HANDOFF_DEDUPE_WINDOW_MS", source)
+        self.assertIn("lastPlayerHandoffUri", source)
+        self.assertIn('reason=same_uri', source)
+        self.assertIn("NativeRequestState.OperationState.COMPLETED", source)
+        self.assertIn('result = "ignored_same_uri"', source)
     def test_consumption_pipeline_has_no_parallel_player_state(self):
         for token in (
             'ConsumptionState.UNWATCHED',

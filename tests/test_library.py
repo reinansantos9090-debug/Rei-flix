@@ -1643,8 +1643,10 @@ class DetailsViewTests(unittest.TestCase):
                 yield from walk(content)
 
         picker = next(item for item in walk(view) if item.__class__.__name__ == 'Dropdown')
-        self.assertEqual([item.content.controls[1].value for item in view.content.controls[-1].controls
-                          if item.__class__.__name__ == 'Container'], ['Anime - S1E01'])
+        episode_controls = [item for item in view.content.controls[-1].controls
+                            if item.__class__.__name__ in {'Container', 'OutlinedButton'}]
+        self.assertEqual([item.content.controls[1].value if item.__class__.__name__ == 'Container'
+                           else item.content.content.controls[1].value for item in episode_controls], ['Anime - S1E01'])
         picker.value = '1'
         picker.on_select(type('Event', (), {'control': picker})())
         episode_column = view.content.controls[-1]

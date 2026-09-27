@@ -545,14 +545,27 @@ async def main(page: ft.Page):
         render_current()
         persist_navigation_state()
     async def start_native_player(path, title, position_ms=0):
-        # Sequence decisions stay in LibraryStore; Android receives only the
-        # selected local URI and the already-derived autoplay preference.
-        await bridge.play(
+        # Sequence decisions stay in LibraryStore. The two small SQLite reads
+        # must not execute on Flet's event-loop thread because player launch is
+        # a latency-critical UI path.
+        play_started_at = time.perf_counter()
+        can_next, can_previous = await asyncio.gather(
+            asyncio.to_thread(library.next_episode, path),
+            asyncio.to_thread(library.previous_episode, path),
+        )
+        neighbor_resolution_ms = int((time.perf_counter() - play_started_at) * 1000)
+        logger.info(
+            "[PLAYER] PLAY_PREPARED path=%s neighbor_resolution_ms=%s",
+            path,
+            neighbor_resolution_ms,
+        )
+
+        request_id = await bridge.play(
             path,
             title,
             position_ms,
-            can_next=library.next_episode(path) is not None,
-            can_previous=library.previous_episode(path) is not None,
+            can_next=can_next is not None,
+            can_previous=can_previous is not None,
             autoplay=settings.get("player.autoplay_next"),
             player_settings={
                 "player.default_speed": settings.get("player.default_speed"),
@@ -579,6 +592,12 @@ async def main(page: ft.Page):
                 "audio.subtitle_embedded_style": settings.get("audio.subtitle_embedded_style"),
             },
         )
+        logger.info(
+            "[PLAYER] PLAY_COMMAND_CONFIRMED request_id=%s total_python_handoff_ms=%s",
+            request_id,
+            int((time.perf_counter() - play_started_at) * 1000),
+        )
+        return request_id
 
     def play_episode(path, title, on_next=None, progress_seconds=0):
         if not settings.get("player.resume"):

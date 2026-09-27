@@ -290,7 +290,8 @@ class LifecycleContractTests(unittest.TestCase):
         organize = ORGANIZE.read_text(encoding="utf-8")
         main = MAIN_PY.read_text(encoding="utf-8")
         for source in (home, organize):
-            self.assertIn("tracked_tasks: set[object] = set()", source)
+
+          self.assertIn("tracked_tasks: set[object] = set()", source)
             self.assertIn("def _track_task", source)
             self.assertIn("def cancel_view_tasks", source)
             self.assertIn("view_state['_cancel_tasks'] = cancel_view_tasks", source)

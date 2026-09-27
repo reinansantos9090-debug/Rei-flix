@@ -247,12 +247,20 @@ class SettingsView:
             search.value = ""
             on_back()
 
+        async def reveal_category_focus(key):
+            try:
+                await sections_host.scroll_to(scroll_key=key, duration=120)
+            except Exception:
+                logger.debug("Settings focus scroll skipped key=%s", key, exc_info=True)
+
         def build_category_tile(label):
             description, icon = category_meta.get(label, ("Configurações Rei-Flix", ft.Icons.SETTINGS_OUTLINED))
+            key = f"settings-category-{label}"
             return ft.OutlinedButton(
-                width=360,
+                key=key,
                 height=70,
-                on_click=lambda _event, key=label: open_category(key),
+                on_focus=lambda _event, k=key: page.run_task(reveal_category_focus, k),
+                on_click=lambda _event, item=label: open_category(item),
                 style=focus_button_style(theme=theme, background=SURFACE),
                 content=ft.Row([
                     ft.Icon(icon, color=TEXT, size=24),

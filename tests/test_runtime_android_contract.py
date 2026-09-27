@@ -340,7 +340,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertIn("applyImmersive()", system_ui)
         self.assertIn("fun applyNormal(useContextAppearance: Boolean = true)", system_ui)
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", system_ui)
-        application = system_ui[system_ui.index("fun applyApplicationPolicy("):system_ui.index("/** Player-specific alias")]
+        application = system_ui[system_ui.index("fun applyApplicationPolicy("):system_ui.index("/** Player-only policy")]
         normal = system_ui[system_ui.index("fun applyNormal("):system_ui.index("private fun applyEdgeToEdgeWindow")]
         self.assertIn("applyNormal(useContextAppearance)", application)
         self.assertNotIn("hide(WindowInsetsCompat.Type.systemBars())", application)

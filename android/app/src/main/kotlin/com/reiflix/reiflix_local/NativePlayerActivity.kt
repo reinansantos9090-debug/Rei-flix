@@ -2464,7 +2464,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         runCatching {
             // The player is the only immersive surface. Restore the host's normal
             // system-bar policy before finishing so MainActivity can resume cleanly.
-            systemUiController.applyNormal(useContextAppearance = false)
+            systemUiController.applyApplicationPolicy()
+        systemUiController.applyNormal(useContextAppearance = false)
             ViewCompat.requestApplyInsets(window.decorView)
             logPlayer("PLAYER_SYSTEM_UI_RESTORED requestId=" + requestId.ifEmpty { "-" })
         }.onFailure { error ->

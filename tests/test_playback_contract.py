@@ -74,6 +74,55 @@ class PlaybackContractTests(unittest.TestCase):
         self.assertIn('reason=same_uri', source)
         self.assertIn("NativeRequestState.OperationState.COMPLETED", source)
         self.assertIn('result = "ignored_same_uri"', source)
+    def test_first_frame_timing_contract_is_correlated_and_non_destructive(self):
+        for token in (
+            "commandCreatedAtMs",
+            "handoffDispatchedAtMs",
+            "activityStartedAtMs",
+            "preflightStartedAtMs",
+            "preflightCompletedAtMs",
+            "prepareDispatchedAtMs",
+            "firstFrameRenderedAtMs",
+            '"handoffLatencyMs"',
+            '"activityStartupLatencyMs"',
+            '"preflightLatencyMs"',
+            '"prepareLatencyMs"',
+            '"firstFrameLatencyMs"',
+            '"totalOpenToFirstFrameMs"',
+            'FIRST_FRAME_RENDERED',
+            'FIRST_FRAME_TIMEOUT',
+            'player_diagnostic',
+        ):
+            self.assertIn(token, self.player)
+        self.assertIn('firstFrameDiagnosticTimeoutMs = 8_000L', self.player)
+        timeout_start = self.player.index('FIRST_FRAME_TIMEOUT')
+        timeout_block = self.player[timeout_start:self.player.index('private fun armFirstFrameDiagnostics', timeout_start)]
+        self.assertNotIn('prepare()', timeout_block)
+        self.assertNotIn('startActivity(', timeout_block)
+
+    def test_critical_player_state_events_stay_on_durable_mailbox_path(self):
+        source = self.player
+        for marker in (
+            '"type", "player_progress"',
+            '"type", "player_exited"',
+            '"type", "player_next_request"',
+            '"type", "player_previous_request"',
+            '"type", "player_autoplay_changed"',
+        ):
+            idx = source.index(marker)
+            window = source[max(0, idx - 240):idx]
+            self.assertIn("NativeMailbox.write(", window)
+            self.assertNotIn("NativeMailbox.writeBestEffort(", window)
+
+    def test_mailbox_best_effort_is_background_only_and_command_diagnostics_remain_durable(self):
+        mailbox = self.mailbox
+        main_activity = self.main_activity
+        self.assertIn("ReiFlix-MailboxTelemetry", mailbox)
+        self.assertIn("bestEffortExecutor.execute", mailbox)
+        diagnostic_start = main_activity.index("private fun publishNativeDiagnostic")
+        diagnostic_end = main_activity.index("private fun publishNativeCommandError", diagnostic_start)
+        diagnostic_block = main_activity[diagnostic_start:diagnostic_end]
+        self.assertIn("NativeMailbox.write(", diagnostic_block)
     def test_consumption_pipeline_has_no_parallel_player_state(self):
         for token in (
             'ConsumptionState.UNWATCHED',

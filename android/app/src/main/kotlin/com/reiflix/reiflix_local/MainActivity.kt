@@ -1031,7 +1031,7 @@ class MainActivity : FlutterFragmentActivity() {
                         pendingPlayCanNext = data.getQueryParameter("can_next")?.toBooleanStrictOrNull() ?: false
                         pendingPlayCanPrevious = data.getQueryParameter("can_previous")?.toBooleanStrictOrNull() ?: false
                         pendingPlayAutoplay = data.getQueryParameter("autoplay")?.toBooleanStrictOrNull() ?: true
-                        pendingPlayCommandCreatedAtMs = commandCreatedAt
+                        pendingPlayCommandCreatedAtMs = commandCreatedAt ?: 0L
                         pendingPlayRequestId = requestId
                         if (nativeRequestState.queueLifecycleAction("play", requestId)) {
                             publishNativeDiagnostic("COMMAND_QUEUED", requestId, action, NativeRequestState.OperationState.QUEUED.name)

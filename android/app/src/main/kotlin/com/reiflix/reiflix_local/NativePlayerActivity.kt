@@ -2124,7 +2124,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             return
         }
         lastSavedPosition = position
-        val ok = NativeMailbox.writeBestEffort(
+        val ok = NativeMailbox.write(
             this,
             JSONObject().put("type", eventType)
                 .put("requestId", requestId)

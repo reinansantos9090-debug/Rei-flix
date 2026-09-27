@@ -59,7 +59,7 @@ class TestStoragePermissionFlow(unittest.TestCase):
         self.assertIn("EXTERNAL_NON_BROWSER_APPLICATION", source)
         self.assertIn("await launcher.launch_url(url, mode=external_non_browser)", source)
         self.assertNotIn("await self.page.launch_url(url)", source)
-        self.assertNotIn("launch_url(url, mode=", source)
+        self.assertNotIn("self.page.launch_url(url, mode=", source)
 
     def test_mediastore_partial_result_is_never_marked_reconcilable(self):
         source = MEDIA_STORE.read_text(encoding="utf-8")

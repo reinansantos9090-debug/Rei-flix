@@ -173,6 +173,13 @@ class AndroidBridge:
             ) from exc
         finally:
             self._command_delivery_waiters.pop(request_id, None)
+        logger.info(
+            "[ANDROID_BRIDGE] COMMAND_SENT request_id=%s action=%s timestamp=%s "
+            "delivery=COMMAND_RECEIVED_CONFIRMED",
+            request_id,
+            action,
+            int(time.time() * 1000),
+        )
         return request_id
 
     async def select_tree(self): return await self._launch("select_tree")

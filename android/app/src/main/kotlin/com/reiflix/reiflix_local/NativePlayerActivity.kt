@@ -458,8 +458,18 @@ class NativePlayerActivity : ComponentActivity() {
             prepareCurrentMedia("initial", savedInstanceState?.takeIf { it.containsKey("play_when_ready") }?.getBoolean("play_when_ready"))
         } catch (exception: Exception) {
             if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
-            logPlayer("EXOPLAYER_INIT_FAILED requestId=" + requestId.ifEmpty { "-" }, exception)
-            showPlayerError("Não foi possível iniciar o player local.", "player_initialization")
+            logPlayer(
+                "PLAYER_ACTIVITY_FAILED requestId=" + requestId.ifEmpty { "-" } +
+                    " generation=" + playerGeneration +
+                    " stage=onCreate",
+                exception,
+            )
+            showPlayerError(
+                "Não foi possível iniciar o player local.",
+                "player_initialization",
+                JSONObject().put("stage", "player_activity_create")
+                    .put("error", exception.message ?: exception::class.java.simpleName),
+            )
         }
     }
 
@@ -681,7 +691,23 @@ class NativePlayerActivity : ComponentActivity() {
                             " atMs=" + prepareDispatchedAtMs +
                             " latencyFromPreflightMs=" + metricDelta(preflightCompletedAtMs, prepareDispatchedAtMs),
                     )
-                    player.prepare()
+                    try {
+                        player.prepare()
+                    } catch (error: Exception) {
+                        logPlayer(
+                            "MEDIA3_PREPARE_FAILED requestId=" + requestId.ifEmpty { "-" } +
+                                " generation=" + generation +
+                                " stage=prepare",
+                            error,
+                        )
+                        showPlayerError(
+                            "Não foi possível preparar este arquivo local.",
+                            "media3_prepare",
+                            JSONObject().put("stage", "media3_prepare")
+                                .put("error", error.message ?: error::class.java.simpleName),
+                        )
+                        return@post
+                    }
                     updateTrackButtons()
                     updatePlayPauseButton()
                     updateProgressUi()
@@ -2200,22 +2226,26 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             return
         }
         lastSavedPosition = position
-        val ok = NativeMailbox.write(
-            this,
-            JSONObject().put("type", eventType)
-                .put("requestId", requestId)
-                .put(
-                    "payload",
-                    JSONObject().put("uri", uri.toString())
-                        .put("mediaId", uri.toString())
-                        .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
-                        .put("positionMs", position)
-                        .put("durationMs", duration)
-                        .put("playerState", if (::player.isInitialized) player.playbackStateLabel() else "STATE_IDLE")
-                        .put("isPlaying", if (::player.isInitialized) player.isPlaying else false)
-                        .put("playbackSpeed", if (::player.isInitialized) player.playbackParameters.speed else 1f),
-                ),
-        )
+        val event = JSONObject()
+            .put("type", eventType)
+            .put("requestId", requestId)
+            .put(
+                "payload",
+                JSONObject().put("uri", uri.toString())
+                    .put("mediaId", uri.toString())
+                    .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
+                    .put("positionMs", position)
+                    .put("durationMs", duration)
+                    .put("playerState", if (::player.isInitialized) player.playbackStateLabel() else "STATE_IDLE")
+                    .put("isPlaying", if (::player.isInitialized) player.isPlaying else false)
+                    .put("playbackSpeed", if (::player.isInitialized) player.playbackParameters.speed else 1f),
+            )
+        val durable = force || eventType in setOf("player_paused", "player_completed", "player_exited")
+        val ok = if (durable) {
+            NativeMailbox.write(this, event)
+        } else {
+            NativeMailbox.writeBestEffort(this, event)
+        }
         if (!ok) logPlayer("FAILED_TO_PUBLISH " + eventType + " requestId=" + requestId.ifEmpty { "-" })
     }
 

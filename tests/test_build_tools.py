@@ -746,9 +746,12 @@ E: manifest
     def test_player_rejects_removed_or_invalid_saf_documents_without_starting_media3(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
-        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("playerActivityLauncher.launch(intent)", main)
+        handoff_start = main.index("    private fun openPlayer(data: Uri?)")
+        handoff_end = main.index("    private fun clearPendingPlay()", handoff_start)
+        handoff = main[handoff_start:handoff_end]
+        self.assertNotIn("SafScanner.isAuthorizedDocument(this, localUri)", handoff)
+        self.assertNotIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", handoff)
+        self.assertIn("playerActivityLauncher.launch(intent)", handoff)
         self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", player)

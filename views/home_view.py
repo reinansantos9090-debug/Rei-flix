@@ -394,7 +394,7 @@ class HomeView:
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
-                page.run_task(coro_factory)
+                run_view_task(coro_factory)
                 return
             loop.create_task(coro_factory())
 

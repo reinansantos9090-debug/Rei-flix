@@ -32,7 +32,7 @@ def test_manifest_keeps_tv_support_optional_for_phones():
 def test_home_cards_use_framework_focus_and_existing_pagination():
     home = read("views/home_view.py")
     assert "ft.OutlinedButton(" in home
-    assert "on_focus=" in home
+    assert "on_focus =" in home
     assert "load_library_page(reset=False)" in home
     assert "catalog_focus_targets" in home
     assert "tv_home" not in home

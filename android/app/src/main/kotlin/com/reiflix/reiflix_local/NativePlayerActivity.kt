@@ -1721,14 +1721,69 @@ class NativePlayerActivity : ComponentActivity() {
     private fun showTrackSelection(trackType: Int, label: String) {
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         if (!::player.isInitialized) return
-        if (!player.currentTracks.groups.any { it.type == trackType && it.isSupported }) {
+
+        data class TrackOption(
+            val title: String,
+            val group: androidx.media3.common.Tracks.Group?,
+            val trackIndex: Int,
+        )
+
+        val options = mutableListOf(TrackOption("Automático", null, -1))
+        player.currentTracks.groups
+            .filter { it.type == trackType && it.isSupported }
+            .forEachIndexed { groupIndex, group ->
+                for (trackIndex in 0 until group.length) {
+                    if (!group.isTrackSupported(trackIndex)) continue
+                    val format = group.getTrackFormat(trackIndex)
+                    val language = format.language?.takeIf { it.isNotBlank() }
+                    val labelText = format.label?.takeIf { it.isNotBlank() }
+                    val channels = format.channelCount.takeIf { it > 0 }?.let { " \\${it}ch" } ?: ""
+NaN
+                    val suffix = listOfNotNull(language, channels.takeIf { it.isNotBlank() }, codec.takeIf { it.isNotBlank() })
+                        .joinToString(" • ")
+                    val base = labelText ?: language ?: "Faixa \\${groupIndex + 1}.\\${trackIndex + 1}"
+                    options += TrackOption(
+                        title = if (suffix.isBlank() || base.contains(suffix, ignoreCase = true)) base else "$base • $suffix",
+                        group = group,
+                        trackIndex = trackIndex,
+                    )
+                }
+            }
+
+        if (options.size == 1) {
             showFeedback("Nenhuma faixa disponível")
             return
         }
-        TrackSelectionDialogBuilder(this, label, player, trackType)
-            .setAllowAdaptiveSelections(false)
-            .setAllowMultipleOverrides(false)
-            .build()
+
+        val labels = options.map { it.title }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(label)
+            .setSingleChoiceItems(labels, 0) { dialog, which ->
+                val option = options.getOrNull(which) ?: return@setSingleChoiceItems
+                runCatching {
+                    val builder = player.trackSelectionParameters.buildUpon()
+                        .clearOverridesOfType(trackType)
+                    if (option.group != null && option.trackIndex >= 0) {
+                        builder.setOverrideForType(
+                            TrackSelectionOverride(
+                                option.group.mediaTrackGroup,
+                                option.trackIndex,
+                            ),
+                        )
+                    }
+                    player.trackSelectionParameters = builder.build()
+                    updateTrackButtons()
+                    logPlayer(
+                        "TRACK_SELECTION_APPLIED type=$trackType index=" +
+                            option.trackIndex + " label=" + option.title,
+                    )
+                }.onFailure { error ->
+                    logPlayer("TRACK_SELECTION_FAILED type=$trackType", error)
+                    showFeedback("Não foi possível trocar a faixa")
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancelar", null)
             .show()
     }
 

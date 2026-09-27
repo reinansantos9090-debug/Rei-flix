@@ -2385,10 +2385,9 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     }
 
     /**
-     * System UI is an application-wide invariant. The legacy player preference
-     * is retained in the intent contract for compatibility, but it cannot make
-     * the application reveal status/navigation bars. Android-owned external
-     * surfaces manage their own system UI while they are in the foreground.
+     * The native player owns the immersive system-bar policy while it is active.
+     * The legacy preference remains in the intent contract for compatibility;
+     * MainActivity keeps the normal visible-bar policy outside the player.
      */
     private fun shouldUseImmersive(): Boolean = true
 
@@ -2420,7 +2419,9 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     private fun restoreSystemUiBeforeExit() {
         runCatching {
-            systemUiController.applyApplicationPolicy()
+            // The player is the only immersive surface. Restore the host's normal
+            // system-bar policy before finishing so MainActivity can resume cleanly.
+            systemUiController.applyNormal(useContextAppearance = false)
             ViewCompat.requestApplyInsets(window.decorView)
             logPlayer("PLAYER_SYSTEM_UI_RESTORED requestId=" + requestId.ifEmpty { "-" })
         }.onFailure { error ->

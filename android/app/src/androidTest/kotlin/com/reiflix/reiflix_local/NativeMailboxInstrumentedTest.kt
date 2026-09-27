@@ -42,10 +42,16 @@ class NativeMailboxInstrumentedTest {
     @Test
     fun mailbox_best_effort_writes_atomic_envelope() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        NativeMailbox.writeBestEffort(context, JSONObject().put("type", "player_progress"))
+        assertTrue(NativeMailbox.writeBestEffort(context, JSONObject().put("type", "player_progress")))
 
-        val events = queue.listFiles { _, name -> name.startsWith("event-") && name.endsWith(".json") }
-            ?: emptyArray()
+        val deadline = android.os.SystemClock.uptimeMillis() + 2_000L
+        var events = emptyArray<File>()
+        while (android.os.SystemClock.uptimeMillis() < deadline) {
+            events = queue.listFiles { _, name -> name.startsWith("event-") && name.endsWith(".json") }
+                ?: emptyArray()
+            if (events.size == 1) break
+            android.os.SystemClock.sleep(20L)
+        }
         assertEquals(1, events.size)
 
         val payload = JSONObject(events.single().readText())

@@ -20,16 +20,17 @@ class TestSafProfessionalContract(unittest.TestCase):
         self.assertIn('publishScanRequest("PERMISSION_CHANGE"', source)
         self.assertNotIn("scanTree(uri.toString(), requestId)", source)
 
-    def test_picker_uses_isolated_native_proxy_and_no_resolve_activity_gate(self):
+    def test_picker_uses_direct_documents_ui_without_proxy_or_resolve_gate(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
-        proxy = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SafPickerProxyActivity.kt").read_text(encoding="utf-8")
         picker = source[source.index("private fun openTreePicker"):source.index("override fun onWindowFocusChanged", source.index("private fun openTreePicker"))]
-        self.assertIn("SafPickerProxyActivity::class.java", picker)
-        self.assertIn("treePicker.launch(proxyIntent)", picker)
+        self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", picker)
+        self.assertIn("treePicker.launch(pickerIntent)", picker)
+        self.assertIn("Intent.FLAG_GRANT_READ_URI_PERMISSION", picker)
+        self.assertIn("Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION", picker)
+        self.assertIn("Intent.FLAG_GRANT_PREFIX_URI_PERMISSION", picker)
+        self.assertNotIn("SafPickerProxyActivity", picker)
+        self.assertNotIn("proxyIntent", picker)
         self.assertNotIn("intent.resolveActivity(packageManager)", picker)
-        self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", proxy)
-        self.assertIn("startActivityForResult", proxy)
-        self.assertIn("SAF_PROXY_LAUNCH", proxy)
 
     def test_picker_has_focus_aware_watchdog_and_terminal_phases(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")

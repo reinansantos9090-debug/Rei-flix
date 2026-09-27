@@ -7,6 +7,29 @@ from core.library_service import LibraryService
 from core.library_store import LibraryStore
 
 
+class TracingLibraryStore(LibraryStore):
+    """SQLite statement tracer used only by performance regression tests."""
+
+    def __init__(self, data_dir: str):
+        self.sql_trace = []
+        super().__init__(data_dir)
+
+    def _conn(self):
+        connection = super()._conn()
+        connection.set_trace_callback(self.sql_trace.append)
+        return connection
+
+    def clear_trace(self):
+        self.sql_trace.clear()
+
+    def read_statements(self):
+        return [
+            statement
+            for statement in self.sql_trace
+            if statement.lstrip().upper().startswith(("SELECT", "WITH"))
+        ]
+
+
 class StorePaginationTests(unittest.TestCase):
     def _seed(self, store, count=40):
         for index in range(count):
@@ -60,6 +83,118 @@ class StorePaginationTests(unittest.TestCase):
             self.assertEqual(result["total"], 1)
             self.assertEqual(len(result["items"]), 1)
             self.assertEqual(result["items"][0]["main_title"], "Title 002")
+
+    def test_catalog_page_id_only_mode_keeps_page_order_without_count_or_projection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = TracingLibraryStore(directory)
+            self._seed(store, 30)
+            baseline = store.catalog_page(page=1, page_size=7, sort="Nome A-Z")
+            store.clear_trace()
+
+            bounded = store.catalog_page(
+                page=1,
+                page_size=7,
+                sort="Nome A-Z",
+                include_total=False,
+                project_items=False,
+            )
+
+            self.assertEqual(
+                [item["id"] for item in baseline["items"]],
+                bounded["ids"],
+            )
+            self.assertIsNone(bounded["total"])
+            self.assertFalse(bounded["has_more"])
+            self.assertEqual(1, len(store.read_statements()))
+
+    def test_catalog_history_is_projected_without_a_second_grouped_query(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = TracingLibraryStore(directory)
+            self._seed(store, 2)
+            path = "/library/title-001-01.mkv"
+            store.save_progress(path, 12, 100, event_created_at=10)
+            store.clear_trace()
+
+            catalog = store.catalog(anime_ids=[2])
+
+            self.assertEqual(12, catalog[0]["seasons"][0]["episodes"][0]["progress"])
+            self.assertEqual(10.0, catalog[0]["last_played_at"])
+            statements = store.read_statements()
+            self.assertEqual(5, len(statements))
+            self.assertFalse(any("MAX(last_played_at)" in statement for statement in statements))
+
+    def test_home_sections_share_one_catalog_projection_and_keep_section_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = TracingLibraryStore(directory)
+            self._seed(store, 8)
+            favorite = 1
+            pinned = 2
+            movie = 3
+            special = 4
+            store.toggle_favorite(favorite)
+            store.toggle_pinned(pinned)
+            with store._conn() as con:
+                con.execute("UPDATE anime SET media_kind='movie' WHERE id=?", (movie,))
+                con.execute(
+                    "UPDATE episodes SET episode_type='special' WHERE anime_id=?",
+                    (special,),
+                )
+
+            expected = {
+                "recently_added": [
+                    item["id"]
+                    for item in store.catalog_page(page=0, page_size=3, sort="Mais recentes")["items"]
+                ],
+                "favorites": [
+                    item["id"]
+                    for item in store.catalog_page(page=0, page_size=3, state="Favoritos", sort="Mais recentes")["items"]
+                ],
+                "pinned": [
+                    item["id"]
+                    for item in store.catalog_page(page=0, page_size=3, state="Fixados", sort="Mais recentes")["items"]
+                ],
+                "series": [
+                    item["id"]
+                    for item in store.catalog_page(page=0, page_size=3, media_type="Série/Anime", sort="Mais recentes")["items"]
+                ],
+                "movies": [
+                    item["id"]
+                    for item in store.catalog_page(page=0, page_size=3, media_type="Filme", sort="Mais recentes")["items"]
+                ],
+                "specials": [
+                    item["id"]
+                    for item in store.catalog_page(page=0, page_size=3, media_type="Especial", sort="Mais recentes")["items"]
+                ],
+            }
+
+            store.clear_trace()
+            sections = store.home_sections(limit=3)
+
+            for name, ids in expected.items():
+                self.assertEqual(ids, [item["id"] for item in sections[name]])
+            self.assertLessEqual(len(store.read_statements()), 14)
+
+    def test_organize_summary_uses_one_episode_aggregate_query(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = TracingLibraryStore(directory)
+            self._seed(store, 6)
+            store.save_progress("/library/title-001-01.mkv", 50, 100)
+            store.save_progress("/library/title-002-01.mkv", 100, 100)
+            store.toggle_favorite(3)
+            store.toggle_pinned(4)
+            with store._conn() as con:
+                con.execute("UPDATE episodes SET missing=1 WHERE path=?", ("/library/title-005-01.mkv",))
+
+            store.clear_trace()
+            summary = store.organize_summary()
+
+            counts = {item["name"]: item["count"] for item in summary["collections"]}
+            self.assertEqual(6, counts["Todos"])
+            self.assertEqual(1, counts["Favoritos"])
+            self.assertEqual(1, counts["Fixados"])
+            self.assertEqual(1, counts["Assistidos"])
+            self.assertEqual(3, counts["Não iniciados"])
+            self.assertLessEqual(len(store.read_statements()), 2)
 
     def test_paged_states_follow_consumption_completion_ratio(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -182,6 +317,21 @@ class StorePaginationTests(unittest.TestCase):
 
 
 class ServiceAndSourceTests(unittest.TestCase):
+    def test_service_home_batches_genre_enrichment_across_sections(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = TracingLibraryStore(directory)
+            anime_id = store.upsert_anime("genre-home", {"title": "Genre Home", "genres": "[]"})
+            store.upsert_episode(anime_id, "/library/genre-home-01.mkv", "Genre Home 01", 1, 1)
+            service = LibraryService(store)
+            service.genre_registry.sync_anime(anime_id, ["Action"], source="local")
+            store.clear_trace()
+
+            home = service.media_center_home(limit=3)
+
+            self.assertLessEqual(len(store.read_statements()), 15)
+            self.assertIn("Action", home["recently_added"][0]["genres"])
+            self.assertIn("Action", home["next_episode"][0]["genres"])
+
     def test_service_exposes_paged_catalog_and_bounded_home_sections(self):
         with tempfile.TemporaryDirectory() as directory:
             service = LibraryService(LibraryStore(directory))

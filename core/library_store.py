@@ -1795,16 +1795,6 @@ class LibraryStore:
                 for row in artwork_rows
                 if row["local_path"] and str(row["entity_type"]) in {"anime", "movie"}
             }
-            history_sql = "SELECT anime_id, MAX(last_played_at) AS last_played_at FROM episodes WHERE last_played_at IS NOT NULL"
-            history_params = []
-            if normalized_ids:
-                placeholders = ",".join("?" for _ in normalized_ids)
-                history_sql += f" AND anime_id IN ({placeholders})"
-                history_params.extend(normalized_ids)
-            history_sql += " GROUP BY anime_id"
-            history_rows = c.execute(history_sql, tuple(history_params)).fetchall()
-            history = {int(row["anime_id"]): row["last_played_at"] for row in history_rows}
-
             def project(e):
                 return {
                     "id": e["id"], "title": e["file_name"], "file_name": e["file_name"],
@@ -1822,8 +1812,15 @@ class LibraryStore:
                 }
 
             by_anime = {}
+            history = {}
             for row in episode_rows:
+                anime_id = int(row["anime_id"])
                 by_anime.setdefault(row["anime_id"], []).append(project(row))
+                last_played_at = row["last_played_at"]
+                if last_played_at is not None and (
+                    anime_id not in history or float(last_played_at) > float(history[anime_id])
+                ):
+                    history[anime_id] = last_played_at
             special_types = {"special", "ova", "oad", "ona", "extra"}
             result = []
             for a in anime_rows:
@@ -1907,7 +1904,7 @@ class LibraryStore:
         self, *, page=0, page_size=36, query="", state="Todos", genre="Todos",
         sort="Mais recentes", tag="Todos", media_type="Todos", season=None,
         episode_type="Todos", source_kind="Todos", availability="Todos",
-        metadata="Todos", artwork="Todos",
+        metadata="Todos", artwork="Todos", include_total=True, project_items=True,
     ):
         """Return one bounded catalog page directly from SQLite."""
         try: page = max(0, int(page))
@@ -2028,14 +2025,31 @@ class LibraryStore:
         order_by = order_map.get(sort or "Mais recentes", order_map["Mais recentes"])
         where_sql = " AND ".join(where)
         with self._conn() as c:
-            total = int(c.execute(f"SELECT COUNT(*) FROM anime a WHERE {where_sql}", tuple(params)).fetchone()[0] or 0)
+            total = None
+            if include_total:
+                total = int(c.execute(f"SELECT COUNT(*) FROM anime a WHERE {where_sql}", tuple(params)).fetchone()[0] or 0)
             offset = page * page_size
             rows = c.execute(f"SELECT a.id FROM anime a WHERE {where_sql} ORDER BY {order_by} LIMIT ? OFFSET ?", tuple(params + [page_size, offset])).fetchall()
             ids = [int(row["id"]) for row in rows]
+        if not project_items:
+            return {
+                "items": [],
+                "ids": ids,
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "has_more": bool(include_total and offset + len(ids) < total),
+            }
         items = self.catalog(anime_ids=ids) if ids else []
         by_id = {int(item["id"]): item for item in items}
         ordered = [by_id[anime_id] for anime_id in ids if anime_id in by_id]
-        return {"items": ordered, "page": page, "page_size": page_size, "total": total, "has_more": offset + len(ordered) < total}
+        return {
+            "items": ordered,
+            "page": page,
+            "page_size": page_size,
+            "total": total if include_total else None,
+            "has_more": bool(include_total and offset + len(ordered) < total),
+        }
 
     def next_episode_items(self, limit=12):
         """Return the bounded Next Episode projection directly from SQLite."""
@@ -2188,43 +2202,88 @@ class LibraryStore:
         return {"genres": [], "tags": sorted(tags.values(), key=str.casefold), "seasons": seasons, "episode_types": episode_types, "source_kinds": source_kinds, "media_types": ["Série/Anime", "Filme", "Especial", "Episódio"], "availability": ["Disponível", "Com missing", "Sem missing"], "metadata": ["Disponível", "Ausente"], "artwork": ["Disponível", "Ausente"], "states": ["Todos", "Favoritos", "Fixados", "Assistidos", "Não assistidos", "Em andamento", "Concluídos", "Não iniciados", "Com nota", "Sem nota", "Sem metadata", "Sem capa"], "sorts": ["Mais recentes", "Assistidos recentemente", "Progresso", "Episódio", "Temporada + episódio", "Modificação", "Duração", "Tamanho", "Favoritos primeiro", "Fixados primeiro", "Nome A-Z", "Nome Z-A"]}
 
     def home_sections(self, limit=12):
-        """Build bounded Home sections without materializing the full catalog."""
+        """Build bounded Home sections while sharing one catalog projection."""
         page_limit = min(24, max(1, int(limit)))
-        def items(**filters):
-            return self.catalog_page(page=0, page_size=page_limit, **filters)["items"]
+        section_filters = (
+            ("recently_added", {"sort": "Mais recentes"}),
+            ("favorites", {"state": "Favoritos", "sort": "Mais recentes"}),
+            ("pinned", {"state": "Fixados", "sort": "Mais recentes"}),
+            ("series", {"media_type": "Série/Anime", "sort": "Mais recentes"}),
+            ("movies", {"media_type": "Filme", "sort": "Mais recentes"}),
+            ("specials", {"media_type": "Especial", "sort": "Mais recentes"}),
+        )
+        section_ids = {}
+        ordered_ids = []
+        seen_ids = set()
+        for section, filters in section_filters:
+            result = self.catalog_page(
+                page=0,
+                page_size=page_limit,
+                include_total=False,
+                project_items=False,
+                **filters,
+            )
+            ids = [int(anime_id) for anime_id in result.get("ids") or []]
+            section_ids[section] = ids
+            for anime_id in ids:
+                if anime_id in seen_ids:
+                    continue
+                seen_ids.add(anime_id)
+                ordered_ids.append(anime_id)
 
+        projected = self.catalog(anime_ids=ordered_ids) if ordered_ids else []
+        by_id = {int(item["id"]): item for item in projected}
+        sections = {
+            section: [by_id[anime_id] for anime_id in ids if anime_id in by_id]
+            for section, ids in section_ids.items()
+        }
         return {
             "continue_watching": self.continue_watching(limit=page_limit),
             "next_episode": self.next_episode_items(limit=page_limit),
-            "recently_added": items(sort="Mais recentes"),
+            "recently_added": sections["recently_added"],
             "recently_watched": self.playback_history(limit=page_limit),
-            "favorites": items(state="Favoritos", sort="Mais recentes"),
-            "pinned": items(state="Fixados", sort="Mais recentes"),
-            "series": items(media_type="Série/Anime", sort="Mais recentes"),
-            "movies": items(media_type="Filme", sort="Mais recentes"),
-            "specials": items(media_type="Especial", sort="Mais recentes"),
+            "favorites": sections["favorites"],
+            "pinned": sections["pinned"],
+            "series": sections["series"],
+            "movies": sections["movies"],
+            "specials": sections["specials"],
         }
     def organize_summary(self):
         """Return bounded Organize counters and genre summaries from SQLite."""
+        completed_sql = """(
+            e.watched=1 OR
+            (e.duration>0 AND
+             MIN(MAX(COALESCE(e.progress,0),0),e.duration) / e.duration >= 0.90)
+        )"""
         with self._conn() as c:
-            base = "EXISTS (SELECT 1 FROM episodes e0 WHERE e0.anime_id=a.id)"
-            completed_sql = "(e.watched=1 OR (e.duration>0 AND MIN(MAX(COALESCE(e.progress,0),0),e.duration)/e.duration >= 0.90))"
-            in_progress_sql = "(e.missing=0 AND COALESCE(e.progress,0)>0 AND NOT " + completed_sql + ")"
-            unwatched_sql = "(e.missing=0 AND COALESCE(e.progress,0)<=0 AND NOT " + completed_sql + ")"
-            states = {
-                "Todos": base,
-                "Favoritos": f"{base} AND a.favorite=1",
-                "Fixados": f"{base} AND a.is_pinned=1",
-                "Assistidos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {completed_sql})",
-                "Não assistidos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {unwatched_sql})",
-                "Em andamento": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND {in_progress_sql})",
-                "Concluídos": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND NOT {completed_sql})",
-                "Não iniciados": f"{base} AND EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0) AND NOT EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id AND e.missing=0 AND (e.watched=1 OR COALESCE(e.progress,0)>0))",
-            }
-            collections = []
-            for name, clause in states.items():
-                count = int(c.execute(f"SELECT COUNT(*) FROM anime a WHERE {clause}").fetchone()[0] or 0)
-                collections.append({"name": name, "count": count})
+            counts = c.execute(
+                f"""
+                WITH episode_flags AS (
+                    SELECT
+                        e.anime_id,
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN {completed_sql} THEN 1 ELSE 0 END) AS completed,
+                        SUM(CASE WHEN e.missing=0 THEN 1 ELSE 0 END) AS available,
+                        SUM(CASE WHEN e.missing=0 AND {completed_sql} THEN 1 ELSE 0 END) AS available_completed,
+                        SUM(CASE WHEN e.missing=0 AND COALESCE(e.progress,0)>0 AND NOT {completed_sql} THEN 1 ELSE 0 END) AS active,
+                        SUM(CASE WHEN e.missing=0 AND COALESCE(e.progress,0)<=0 AND NOT {completed_sql} THEN 1 ELSE 0 END) AS unwatched,
+                        SUM(CASE WHEN e.missing=0 AND (e.watched=1 OR COALESCE(e.progress,0)>0) THEN 1 ELSE 0 END) AS started
+                    FROM episodes e
+                    GROUP BY e.anime_id
+                )
+                SELECT
+                    SUM(CASE WHEN flags.total>0 THEN 1 ELSE 0 END) AS total_count,
+                    SUM(CASE WHEN flags.total>0 AND a.favorite=1 THEN 1 ELSE 0 END) AS favorite_count,
+                    SUM(CASE WHEN flags.total>0 AND a.is_pinned=1 THEN 1 ELSE 0 END) AS pinned_count,
+                    SUM(CASE WHEN flags.completed>0 THEN 1 ELSE 0 END) AS watched_count,
+                    SUM(CASE WHEN flags.unwatched>0 THEN 1 ELSE 0 END) AS unwatched_count,
+                    SUM(CASE WHEN flags.active>0 THEN 1 ELSE 0 END) AS active_count,
+                    SUM(CASE WHEN flags.available>0 AND flags.available_completed=flags.available THEN 1 ELSE 0 END) AS completed_count,
+                    SUM(CASE WHEN flags.available>0 AND flags.started=0 THEN 1 ELSE 0 END) AS not_started_count
+                FROM anime a
+                JOIN episode_flags flags ON flags.anime_id=a.id
+                """
+            ).fetchone()
             genre_rows = c.execute("""
                 SELECT g.id, g.canonical_name, COUNT(DISTINCT ag.anime_id) AS count,
                        MIN(CASE WHEN NULLIF(TRIM(a.cover_cache),'') IS NOT NULL THEN a.cover_cache
@@ -2236,6 +2295,19 @@ class LibraryStore:
                 GROUP BY g.id, g.canonical_name, g.normalized_name
                 ORDER BY g.normalized_name
             """).fetchall()
+        collections = [
+            {"name": name, "count": int(counts[key] or 0)}
+            for name, key in (
+                ("Todos", "total_count"),
+                ("Favoritos", "favorite_count"),
+                ("Fixados", "pinned_count"),
+                ("Assistidos", "watched_count"),
+                ("Não assistidos", "unwatched_count"),
+                ("Em andamento", "active_count"),
+                ("Concluídos", "completed_count"),
+                ("Não iniciados", "not_started_count"),
+            )
+        ]
         return {
             "collections": collections,
             "states": [item for item in collections if item["name"] in {"Todos","Favoritos","Em andamento","Concluídos"}],

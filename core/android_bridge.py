@@ -173,6 +173,8 @@ class AndroidBridge:
             ) from exc
         finally:
             self._command_delivery_waiters.pop(request_id, None)
+            if not delivery_waiter.done():
+                delivery_waiter.cancel()
         logger.info(
             "[ANDROID_BRIDGE] COMMAND_SENT request_id=%s action=%s timestamp=%s "
             "delivery=COMMAND_RECEIVED_CONFIRMED",

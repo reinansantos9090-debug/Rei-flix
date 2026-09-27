@@ -914,8 +914,8 @@ async def main(page: ft.Page):
         elif action == "exit":
             logger.info("[NAV] NAVIGATE_BACK exit source=%s", source)
             clear_persisted_navigation_state()
-    for route in tuple(screen_cache):
-        _dispose_cached_screen(route)
+            for route in tuple(screen_cache):
+                _dispose_cached_screen(route)
             page.window.close()
     page.on_view_pop = handle_flet_view_pop
     try:

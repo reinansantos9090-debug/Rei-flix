@@ -916,3 +916,24 @@ class Prompt1BuildIdentityContractTests(unittest.TestCase):
         self.assertIn("SERIOUS_PYTHON_SITE_PACKAGES", workflow)
         self.assertIn("assets/app.zip", workflow)
         self.assertNotIn("flet clear-cache", workflow)
+
+
+class NativeMainActivityDecompositionTests(unittest.TestCase):
+    def test_main_activity_delegates_scan_batch_publication(self):
+        main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        publisher = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeScanPublisher.kt").read_text(encoding="utf-8")
+        self.assertNotIn("private fun publishNativeScanBatch(", main)
+        self.assertNotIn("NativeIndex.prepareBatch(", main)
+        self.assertIn("NativeScanPublisher.publish(", main)
+        self.assertIn("NativeIndex.prepareBatch(", publisher)
+        self.assertIn("NativeMailbox.writeOrThrow(", publisher)
+
+    def test_main_activity_delegates_media_store_retry_scheduling(self):
+        main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        scheduler = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MediaStoreRetryScheduler.kt").read_text(encoding="utf-8")
+        self.assertNotIn("private fun scheduleMediaStoreScanRequest(", main)
+        self.assertNotIn("mediaStoreRetryScheduled", main)
+        self.assertIn("MediaStoreRetryScheduler.schedule(", main)
+        self.assertIn("AtomicBoolean(false)", scheduler)
+        self.assertIn("MediaStoreScanner.hasReadPermission(appContext)", scheduler)
+        self.assertIn("NativeMailbox.write(", scheduler)

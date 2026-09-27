@@ -23,7 +23,6 @@ from core.ui import (
     empty_state,
     media_artwork,
     section_title,
-    focus_button_style,
 )
 
 logger = logging.getLogger(__name__)
@@ -353,11 +352,13 @@ class OrganizeView:
                 save_view_state()
                 await render()
 
-            return ft.OutlinedButton(
+            return ft.Container(
                 width=155,
-                height=142,
+                padding=12,
+                bgcolor=SURFACE,
+                border_radius=RADIUS,
+                ink=True,
                 on_click=handle,
-                style=focus_button_style(theme=theme, background=SURFACE),
                 content=ft.Column(
                     [
                         ft.Icon(
@@ -395,11 +396,14 @@ class OrganizeView:
                 save_view_state()
                 await render()
 
-            return ft.OutlinedButton(
+            return ft.Container(
                 width=170,
                 height=142,
+                border_radius=RADIUS,
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                bgcolor=theme.surface_variant,
+                ink=True,
                 on_click=handle,
-                style=focus_button_style(theme=theme, background=theme.surface_variant),
                 content=ft.Stack(
                     [
                         ft.Container(artwork(cover, 142), height=142, opacity=0.55),

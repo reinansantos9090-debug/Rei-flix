@@ -100,7 +100,9 @@ class StorageOnboardingTests(unittest.TestCase):
 
     def test_add_folder_is_not_blocked_by_an_active_scan(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        block = source[source.index("    async def add_folder(_=None):"):source.index("    async def check_video_access", source.index("    async def add_folder(_=None):")]
+        start = source.index("    async def add_folder(_=None):")
+        end = source.index("    async def check_video_access", start)
+        block = source[start:end]
         self.assertNotIn("scan_coordinator.active or not saf_selection.begin()", block)
         self.assertIn("if scan_coordinator.exclusive or saf_selection.pending:", block)
         self.assertIn("await bridge.select_tree()", block)

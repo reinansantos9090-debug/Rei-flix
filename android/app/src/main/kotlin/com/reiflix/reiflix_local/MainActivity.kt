@@ -898,7 +898,9 @@ class MainActivity : FlutterFragmentActivity() {
             publishNativeDiagnostic("COMMAND_DUPLICATE", requestId, action, result = "ignored_duplicate")
             return
         }
+        val commandReceivedAtMs = System.currentTimeMillis()
         Log.i(tag, "COMMAND_RECEIVED action=" + action + " requestId=" + requestId +
+            " receivedAtMs=" + commandReceivedAtMs +
             " task=" + taskId + " resumed=" + activityResumed +
             " focus=" + (window?.decorView?.hasWindowFocus() == true) +
             " protocol=" + (protocolVersion ?: "legacy") +
@@ -1841,8 +1843,9 @@ class MainActivity : FlutterFragmentActivity() {
         )
 
         try {
+            val handoffDispatchedAtMs = System.currentTimeMillis()
             val intent = playerRequest.toIntent(this, localUri)
-                
+                .putExtra("handoffDispatchedAtMs", handoffDispatchedAtMs)
 
             val resolvedActivity = intent.resolveActivity(packageManager)
             if (resolvedActivity == null) {
@@ -1906,6 +1909,7 @@ class MainActivity : FlutterFragmentActivity() {
                 Log.i(
                     tag,
                     "PLAY_HANDOFF_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
+                        " atMs=" + handoffDispatchedAtMs +
                         " launcher=activity_direct reuse=true",
                 )
             } else {
@@ -1913,6 +1917,7 @@ class MainActivity : FlutterFragmentActivity() {
                 Log.i(
                     tag,
                     "PLAY_HANDOFF_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
+                        " atMs=" + handoffDispatchedAtMs +
                         " launcher=activity_result",
                 )
             }

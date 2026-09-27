@@ -9,6 +9,14 @@ GRADLE = ROOT / "android/app/build.gradle.kts"
 
 
 class PlaybackHardeningTests(unittest.TestCase):
+    def test_main_player_handoff_has_no_provider_io_on_ui_thread(self):
+        main = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        block = main[main.index("    private fun openPlayer"):main.index("    private fun clearPendingPlay", main.index("    private fun openPlayer"))]
+        self.assertNotIn("SafScanner.isAuthorizedDocument", block)
+        self.assertNotIn("MediaStoreScanner.isAuthorizedDocument", block)
+        self.assertNotIn("validatePlayerSource(", block)
+        self.assertIn("playerActivityLauncher.launch(intent)", block)
+
     def test_player_uses_local_media3_without_parallel_decoder_stack(self):
         player = PLAYER.read_text(encoding="utf-8")
         gradle = GRADLE.read_text(encoding="utf-8")

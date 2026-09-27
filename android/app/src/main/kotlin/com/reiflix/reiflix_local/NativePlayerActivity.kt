@@ -1556,7 +1556,7 @@ class NativePlayerActivity : ComponentActivity() {
                 KeyEvent.KEYCODE_DPAD_CENTER,
                 KeyEvent.KEYCODE_ENTER,
                 KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                    if (errorVisible) return super.dispatchKeyEvent(event)
+                    if (!::playPauseButton.isInitialized || errorVisible) return super.dispatchKeyEvent(event)
                     if (!controlsVisible) {
                         setControlsVisible(true)
                         playPauseButton.requestFocus()

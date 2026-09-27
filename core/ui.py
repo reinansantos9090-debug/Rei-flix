@@ -238,6 +238,24 @@ def media_artwork(
     )
 
 
+def focus_button_style(*, theme: ThemeTokens | None = None, background: str | None = None, radius: float = RADIUS):
+    """Shared focus treatment for remote/keyboard activation without a second focus system."""
+    palette = _resolve_theme(theme)
+    return ft.ButtonStyle(
+        bgcolor={
+            ft.ControlState.DEFAULT: background or palette.surface,
+            ft.ControlState.FOCUSED: palette.surface_raised,
+            ft.ControlState.PRESSED: palette.surface_variant,
+        },
+        side={
+            ft.ControlState.DEFAULT: ft.BorderSide(1, palette.border),
+            ft.ControlState.FOCUSED: ft.BorderSide(2, palette.primary),
+        },
+        shape=ft.RoundedRectangleBorder(radius=radius),
+        padding=0,
+    )
+
+
 def empty_state(icon, title: str, body: str, action=None, *, theme: ThemeTokens | None = None):
     palette = _resolve_theme(theme)
     controls = [

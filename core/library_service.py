@@ -1054,7 +1054,7 @@ class LibraryService:
         """
         if catalog is None:
             sections = self.store.home_sections(limit=limit)
-            enrich_keys = ("next_episode", "recently_added", "recently_watched", "favorites", "pinned", "series", "movies", "specials")
+            enrich_keys = ("next_episode", "recently_added", "favorites", "pinned", "series", "movies", "specials")
             by_id = {}
             for key in enrich_keys:
                 for item in sections.get(key) or []:

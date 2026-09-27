@@ -516,7 +516,9 @@ E: manifest
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", controller)
         self.assertNotIn("applyImmersiveSystemUi()", main)
         main_style = styles.split('<style name="ReiFlixPlayerTheme"', 1)[0]
+        player_style = styles.split('<style name="ReiFlixPlayerTheme"', 1)[1]
         self.assertNotIn('<item name="android:windowFullscreen">true</item>', main_style)
+        self.assertNotIn('<item name="android:windowFullscreen">true</item>', player_style)
 
     def test_disabled_player_gestures_are_silent(self):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
@@ -563,7 +565,7 @@ E: manifest
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("systemUiController = SystemUiController(window)", player)
         self.assertIn("systemUiController.applyImmersive()", player)
-        self.assertIn("systemUiController.applyApplicationPolicy()", player)
+        self.assertIn("systemUiController.applyNormal(useContextAppearance = false)", player)
         self.assertIn("ViewCompat.setOnApplyWindowInsetsListener(root)", player)
         self.assertNotIn("WindowInsetsControllerCompat(window, window.decorView)", player)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", controller)

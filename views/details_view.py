@@ -376,8 +376,17 @@ class DetailView:
 
         primary_button = ft.FilledButton(
             primary_label, icon=ft.Icons.PLAY_ARROW, disabled=not bool(primary_target),
+            autofocus=bool(primary_target),
             on_click=lambda _: play(primary_target),
-            style=ft.ButtonStyle(bgcolor=theme.primary, color=theme.text_on_overlay, shape=ft.RoundedRectangleBorder(radius=12)),
+            style=ft.ButtonStyle(
+                bgcolor=theme.primary,
+                color=theme.text_on_overlay,
+                side={
+                    ft.ControlState.DEFAULT: ft.BorderSide(0, theme.primary),
+                    ft.ControlState.FOCUSED: ft.BorderSide(2, theme.text_on_overlay),
+                },
+                shape=ft.RoundedRectangleBorder(radius=12),
+            ),
         )
 
         episode_column = ft.Column(spacing=8)
@@ -562,7 +571,6 @@ class DetailView:
                 content=content,
                 on_click=clickable,
                 style=focus_button_style(theme=theme, background=SURFACE),
-                padding=12,
             )
 
         def load_more_episodes(_event=None):

@@ -1737,7 +1737,7 @@ class NativePlayerActivity : ComponentActivity() {
                     val language = format.language?.takeIf { it.isNotBlank() }
                     val labelText = format.label?.takeIf { it.isNotBlank() }
                     val channels = format.channelCount.takeIf { it > 0 }?.let { " ${it}ch" } ?: ""
-NaN
+val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                     val suffix = listOfNotNull(language, channels.takeIf { it.isNotBlank() }, codec.takeIf { it.isNotBlank() })
                         .joinToString(" • ")
                     val base = labelText ?: language ?: "Faixa ${groupIndex + 1}.${trackIndex + 1}"

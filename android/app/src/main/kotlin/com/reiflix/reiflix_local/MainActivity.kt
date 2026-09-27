@@ -942,6 +942,7 @@ class MainActivity : FlutterFragmentActivity() {
         error: String? = null,
         protocolVersion: Int? = null,
         commandCreatedAt: Long? = null,
+        parameterNames: String? = null,
     ) {
         val payload = JSONObject()
             .put("event", event)
@@ -953,6 +954,7 @@ class MainActivity : FlutterFragmentActivity() {
         if (error != null) payload.put("error", error)
         if (protocolVersion != null) payload.put("protocolVersion", protocolVersion)
         if (commandCreatedAt != null) payload.put("commandCreatedAt", commandCreatedAt)
+        if (parameterNames != null) payload.put("parameterNames", parameterNames)
         NativeMailbox.write(
             this,
             JSONObject().put("type", "diagnostic").put("requestId", requestId ?: "").put("payload", payload),
@@ -992,6 +994,7 @@ class MainActivity : FlutterFragmentActivity() {
         val protocolRaw = data.getQueryParameter("protocol_version")?.trim()
         val protocolVersion = protocolRaw?.toIntOrNull()
         val commandCreatedAt = data.getQueryParameter("created_at")?.trim()?.toLongOrNull()
+        val parameterNames = data.queryParameterNames.toList().sorted().joinToString(",")
 
         if (action.isNullOrBlank()) {
             publishNativeCommandError(requestId, action, "command_validation", "MISSING_OPERATION",
@@ -1023,15 +1026,18 @@ class MainActivity : FlutterFragmentActivity() {
             publishNativeDiagnostic("COMMAND_DUPLICATE", requestId, action, result = "ignored_duplicate")
             return
         }
-        Log.i(tag, "INTENT_RECEIVED action=" + action + " requestId=" + requestId +
+        Log.i(tag, "COMMAND_RECEIVED action=" + action + " requestId=" + requestId +
             " task=" + taskId + " resumed=" + activityResumed +
             " focus=" + (window?.decorView?.hasWindowFocus() == true) +
             " protocol=" + (protocolVersion ?: "legacy") +
             " createdAt=" + (commandCreatedAt ?: "-") +
+            " parameterNames=" + parameterNames +
             " flags=0x" + intent.flags.toString(16))
         publishNativeDiagnostic("COMMAND_RECEIVED", requestId, action,
             NativeRequestState.OperationState.RECEIVED.name,
-            protocolVersion = protocolVersion ?: 1, commandCreatedAt = commandCreatedAt)
+            protocolVersion = protocolVersion ?: 1,
+            commandCreatedAt = commandCreatedAt,
+            parameterNames = parameterNames)
 
         try {
             when (action) {
@@ -2014,6 +2020,11 @@ class MainActivity : FlutterFragmentActivity() {
                         Intent.FLAG_ACTIVITY_SINGLE_TOP or
                             Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
                     ),
+                )
+                Log.i(
+                    tag,
+                    "PLAY_HANDOFF_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
+                        " launcher=activity_direct reuse=true",
                 )
             } else {
                 playerActivityLauncher.launch(intent)

@@ -306,10 +306,24 @@ class HomeView:
                 ], spacing=4),
             )
 
+        async def reveal_section_focus(row, key):
+            await reveal_focus(row, key)
+            try:
+                await layout.scroll_to(scroll_key=key, duration=120)
+            except Exception:
+                logger.debug("Home vertical focus scroll skipped key=%s", key, exc_info=True)
+
         def render_section(title, key, items, action=None, episode=False):
             row = section_rows.setdefault(key, ft.Row(scroll=ft.ScrollMode.AUTO, spacing=10))
             row.controls.clear()
-            row.controls.extend(home_card(item, action=action, episode=episode) for item in (items or [])[:8])
+            for index, item in enumerate((items or [])[:8]):
+                control = home_card(item, action=action, episode=episode)
+                focus_key = f"home-section-{key}-{index}"
+                control.key = focus_key
+                control.on_focus = lambda _event, container=row, k=focus_key: page.run_task(
+                    reveal_section_focus, container, k
+                )
+                row.controls.append(control)
             if key not in section_cards:
                 section_cards[key] = ft.Container(content=ft.Column([ft.Text(title, size=15, weight=ft.FontWeight.BOLD, color=TEXT), row], spacing=9))
             section_cards[key].visible = bool(items)

@@ -50,12 +50,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import androidx.media3.ui.TrackSelectionDialogBuilder
 import org.json.JSONObject
 import java.io.File
 import kotlin.math.abs
@@ -98,6 +98,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var volumeGesturesEnabled = false
     private var brightnessGesturesEnabled = false
     private var doubleTapEnabled = true
+    private var horizontalSeekEnabled = false
     private var longPressEnabled = false
     private var windowBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
     private var autoHideTimeoutMs = CONTROL_TIMEOUT_MS
@@ -166,6 +167,20 @@ class NativePlayerActivity : ComponentActivity() {
                 } else {
                     handler.postDelayed(this, CONTROL_TIMEOUT_MS - elapsed)
                 }
+            }
+        }
+    }
+
+    private val lockAffordanceHider = object : Runnable {
+        override fun run() {
+            if (locked && !errorVisible && !inPictureInPicture) {
+                controlsVisible = false
+                controls.visibility = View.INVISIBLE
+                topBar.visibility = View.GONE
+                centerControls.visibility = View.GONE
+                bottomBar.visibility = View.GONE
+                moreVisible = false
+                findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
             }
         }
     }
@@ -482,6 +497,7 @@ class NativePlayerActivity : ComponentActivity() {
         suppressExitEvent = false
         errorVisible = false
         doubleTapSeekMs = newIntent.getLongExtra("setting_player_double_tap_seek_seconds", doubleTapSeekMs / 1000L)
+        horizontalSeekEnabled = newIntent.getBooleanExtra("setting_gestures_horizontal_swipe_seek", horizontalSeekEnabled)
             .coerceIn(1L, 120L) * 1000L
         longPressSpeed = newIntent.getFloatExtra("setting_player_long_press_speed", longPressSpeed)
             .coerceIn(1f, 3f)
@@ -1753,13 +1769,19 @@ class NativePlayerActivity : ComponentActivity() {
             return
         }
         if (locked) {
-            controls.visibility = View.VISIBLE
-            topBar.visibility = View.VISIBLE
+            controls.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+            topBar.visibility = if (visible) View.VISIBLE else View.GONE
             bottomBar.visibility = View.GONE
             centerControls.visibility = View.GONE
             findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
             findViewByTag<View>("reiflix_back_button")?.visibility = View.GONE
             findViewByTag<View>("reiflix_more_button")?.visibility = View.GONE
+            if (visible) {
+                handler.removeCallbacks(lockAffordanceHider)
+                handler.postDelayed(lockAffordanceHider, LOCK_AFFORDANCE_TIMEOUT_MS)
+            } else {
+                handler.removeCallbacks(lockAffordanceHider)
+            }
             return
         }
 
@@ -1781,6 +1803,8 @@ class NativePlayerActivity : ComponentActivity() {
         if (locked) {
             handler.removeCallbacks(controlsHider)
             setControlsVisible(true)
+            handler.removeCallbacks(lockAffordanceHider)
+            handler.postDelayed(lockAffordanceHider, LOCK_AFFORDANCE_TIMEOUT_MS)
             return
         }
         controlsVisible = true
@@ -1818,6 +1842,9 @@ class NativePlayerActivity : ComponentActivity() {
             centerControls.visibility = View.GONE
             bottomBar.visibility = View.GONE
             if (::feedback.isInitialized) feedback.visibility = View.GONE
+            handler.removeCallbacks(lockAffordanceHider)
+            handler.postDelayed(lockAffordanceHider, LOCK_AFFORDANCE_TIMEOUT_MS)
+            controlsVisible = true
         } else {
             findViewByTag<View>("reiflix_back_button")?.visibility = View.VISIBLE
             findViewByTag<View>("reiflix_more_button")?.visibility = View.VISIBLE
@@ -1985,6 +2012,7 @@ class NativePlayerActivity : ComponentActivity() {
         cancelFirstFrameDiagnostics("finish_player")
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         handler.removeCallbacks(controlsHider)
+        handler.removeCallbacks(lockAffordanceHider)
         handler.removeCallbacks(feedbackHider)
         restoreSystemUiBeforeExit()
         reportPlayerExit(reason)
@@ -2523,9 +2551,12 @@ class NativePlayerActivity : ComponentActivity() {
                 override fun onDown(event: MotionEvent): Boolean = true
 
                 override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
-                    if (!gestureInteractionAllowed() || gestureConsumed || systemGestureEdge) {
+                    if (systemGestureEdge || gestureConsumed) return true
+                    if (locked) {
+                        touchControls()
                         return true
                     }
+                    if (!gestureInteractionAllowed()) return true
                     handleTap()
                     return true
                 }
@@ -2642,7 +2673,12 @@ class NativePlayerActivity : ComponentActivity() {
                     systemGestureEdge = isSystemGestureEdge(event.x, event.y)
                     lastVerticalY = null
                     gestureMode = GestureMode.IDLE
-                    if (systemGestureEdge || !gestureInteractionAllowed()) {
+                    if (systemGestureEdge) {
+                        gestureConsumed = true
+                        cancelGestureDetector(event)
+                    } else if (locked) {
+                        gestureDetector.onTouchEvent(event)
+                    } else if (!gestureInteractionAllowed()) {
                         gestureConsumed = true
                         cancelGestureDetector(event)
                     } else {
@@ -2652,6 +2688,7 @@ class NativePlayerActivity : ComponentActivity() {
 
                 MotionEvent.ACTION_MOVE -> {
                     if (gestureConsumed || systemGestureEdge) return true
+                    if (locked) return true
 
                     val dx = event.x - downX
                     val dy = event.y - downY
@@ -2717,14 +2754,22 @@ class NativePlayerActivity : ComponentActivity() {
                         PlayerGesturePolicy.Direction.HORIZONTAL -> {
                             if (gestureMode == GestureMode.IDLE) {
                                 gestureConsumed = true
-                                gestureMode = GestureMode.HORIZONTAL_SEEK
                                 cancelGestureDetector(event)
                                 restoreLongPressSpeed()
-                                horizontalSeekStartPosition = player.currentPosition.coerceAtLeast(0L)
-                                logPlayer(
-                                    "GESTURE_START type=horizontal_seek requestId=" +
-                                        requestId.ifEmpty { "-" },
-                                )
+                                if (horizontalSeekEnabled) {
+                                    gestureMode = GestureMode.HORIZONTAL_SEEK
+                                    horizontalSeekStartPosition = player.currentPosition.coerceAtLeast(0L)
+                                    logPlayer(
+                                        "GESTURE_START type=horizontal_seek requestId=" +
+                                            requestId.ifEmpty { "-" },
+                                    )
+                                } else {
+                                    gestureMode = GestureMode.IDLE
+                                    logPlayer(
+                                        "GESTURE_HORIZONTAL_SEEK_DISABLED requestId=" +
+                                            requestId.ifEmpty { "-" },
+                                    )
+                                }
                             }
                         }
 
@@ -2787,7 +2832,7 @@ class NativePlayerActivity : ComponentActivity() {
                         else -> Unit
                     }
 
-                    if (!gestureConsumed && gestureInteractionAllowed() && !systemGestureEdge) {
+                    if (!gestureConsumed && !systemGestureEdge && (locked || gestureInteractionAllowed())) {
                         gestureDetector.onTouchEvent(event)
                     }
                     resetTransientState()
@@ -3098,6 +3143,7 @@ class NativePlayerActivity : ComponentActivity() {
 
         private fun resetTransientState() {
             gestureMode = GestureMode.IDLE
+            horizontalSeekStartPosition = null
             lastPanX = null
             lastPanY = null
             lastVerticalY = null
@@ -3247,5 +3293,6 @@ class NativePlayerActivity : ComponentActivity() {
         private const val MAX_ZOOM = 3f
         private const val ZOOM_SNAP_THRESHOLD = 1.07f
         private const val MAX_RETRY_ATTEMPTS = 2
+        private const val LOCK_AFFORDANCE_TIMEOUT_MS = 2_200L
     }
 }

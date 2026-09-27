@@ -213,6 +213,15 @@ async def main(page: ft.Page):
     # top-level screens. Returning to a screen must not destroy its scroll,
     # search, filter or focus state.
     screen_cache = {}
+    screen_disposers = {}
+
+    def _dispose_cached_screen(route):
+        disposer = screen_disposers.pop(route, None)
+        if callable(disposer):
+            try:
+                disposer()
+            except Exception:
+                logger.exception("[UI] cached screen disposal failed route=%s", route)
     # Settings nested levels are part of NavigationController, so Android Back
     # never consults a second Settings-specific navigation authority.
     # Flet's page.views is the navigation surface consumed by the Android/system
@@ -452,6 +461,10 @@ async def main(page: ft.Page):
             raise RuntimeError(f"Unknown navigation route: {route}")
         if cache_key is not None:
             screen_cache[cache_key] = control
+            if route in {"home", "organize"}:
+                candidate_disposer = (home_state if route == "home" else organize_state).get("_dispose")
+                if callable(candidate_disposer):
+                    screen_disposers[route] = candidate_disposer
         return control
 
     def _settings_view_paths():
@@ -655,6 +668,7 @@ async def main(page: ft.Page):
             if callable(refresh):
                 refresh()
                 return
+        _dispose_cached_screen(navigation.current)
         screen_cache.pop(navigation.current, None)
         render_current()
 
@@ -665,11 +679,15 @@ async def main(page: ft.Page):
             # query/filter state, scroll snapshots and all domain/storage/player
             # state remain owned by their existing controllers.
             apply_page_theme(page, settings.get("appearance.theme"))
+            for route in tuple(screen_cache):
+                _dispose_cached_screen(route)
             screen_cache.clear()
             render_current(force=True)
             return
         library.configure_settings(settings)
         if setting_key.startswith(("appearance.", "library.")):
+            _dispose_cached_screen("home")
+            _dispose_cached_screen("organize")
             screen_cache.pop("home", None)
             screen_cache.pop("organize", None)
             current_route = navigation.current
@@ -680,6 +698,8 @@ async def main(page: ft.Page):
         if settings.get("appearance.theme") != "system":
             return
         apply_page_theme(page, "system")
+        for route in tuple(screen_cache):
+            _dispose_cached_screen(route)
         screen_cache.clear()
         render_current(force=True)
     async def remove_folder(reference):
@@ -892,6 +912,8 @@ async def main(page: ft.Page):
         elif action == "exit":
             logger.info("[NAV] NAVIGATE_BACK exit source=%s", source)
             clear_persisted_navigation_state()
+    for route in tuple(screen_cache):
+        _dispose_cached_screen(route)
             page.window.close()
     page.on_view_pop = handle_flet_view_pop
     try:

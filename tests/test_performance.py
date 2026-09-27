@@ -229,8 +229,8 @@ class ServiceAndSourceTests(unittest.TestCase):
     def test_home_defers_secondary_projections_and_filter_options(self):
         source = Path("views/home_view.py").read_text(encoding="utf-8")
         self.assertIn("await load_library_page(reset=True)", source)
-        self.assertIn("page.run_task(refresh_home_sections, render_generation[0])", source)
-        self.assertIn("page.run_task(load_filter_options)", source)
+        self.assertIn("run_view_task(refresh_home_sections, render_generation[0])", source)
+        self.assertIn("run_view_task(load_filter_options)", source)
         startup = source[source.index("async def load_catalog():"):source.index("search.on_change = on_search")]
         self.assertNotIn("library.media_center_home", startup)
         self.assertNotIn("library.search_options", startup)

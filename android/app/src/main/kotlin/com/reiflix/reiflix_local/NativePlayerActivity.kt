@@ -394,17 +394,8 @@ class NativePlayerActivity : ComponentActivity() {
         }
         uri = resolvedUri
 
-        val source = sourceFor(uri)
-        logPlayer("PREFLIGHT_START requestId=" + requestId.ifEmpty { "-" } +
-            " source=" + source + " scheme=" + uri.scheme + " authority=" + (uri.authority ?: "-"))
-        val preflightError = validateLocalSource(uri)
-        if (preflightError != null) {
-            logPlayer("PREFLIGHT_FAILED requestId=" + requestId.ifEmpty { "-" } +
-                " source=" + source + " error=" + preflightError)
-            showPlayerError(preflightError, "unauthorized_or_unreadable")
-            return
-        }
-        logPlayer("PREFLIGHT_OK requestId=" + requestId.ifEmpty { "-" } + " source=" + source)
+        logPlayer("PREFLIGHT_DEFERRED requestId=" + requestId.ifEmpty { "-" } +
+            " source=" + sourceFor(uri) + " reason=background_io")
 
         try {
             logPlayer("EXOPLAYER_CREATE requestId=" + requestId.ifEmpty { "-" })
@@ -476,13 +467,6 @@ class NativePlayerActivity : ComponentActivity() {
             showPlayerError("Referência local inválida.", "invalid_uri_on_reuse")
             return
         }
-        val preflightError = validateLocalSource(normalized)
-        if (preflightError != null) {
-            episodeChangePending = false
-            showPlayerError(preflightError, "preflight_on_reuse")
-            return
-        }
-
         uri = normalized
         requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
         sessionState = SessionState.ACTIVE
@@ -594,6 +578,20 @@ class NativePlayerActivity : ComponentActivity() {
 
         pendingPreparation = playbackWorker.submit {
             try {
+                logPlayer("PREFLIGHT_ASYNC_START requestId=" + requestId.ifEmpty { "-" } +
+                    " generation=" + generation + " uri=" + localUri)
+                val preflightError = validateLocalSource(localUri)
+                if (preflightError != null) {
+                    handler.post {
+                        if (!isCurrentPreparation(generation, localUri)) return@post
+                        logPlayer("PREFLIGHT_ASYNC_FAILED requestId=" + requestId.ifEmpty { "-" } +
+                            " generation=" + generation + " error=" + preflightError)
+                        showPlayerError(preflightError, "unauthorized_or_unreadable")
+                    }
+                    return@submit
+                }
+                logPlayer("PREFLIGHT_ASYNC_OK requestId=" + requestId.ifEmpty { "-" } +
+                    " generation=" + generation)
                 val displayName = displayNameForUri(localUri)
                 val providerMime = runCatching { contentResolver.getType(localUri) }.getOrNull()
                 val resolvedMime = PlayerMediaPolicy.resolveVideoMimeType(providerMime, displayName)

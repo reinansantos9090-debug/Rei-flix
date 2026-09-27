@@ -76,7 +76,45 @@ class PlayerReconstructionTests(unittest.TestCase):
         self.assertNotIn("TrackSelectionDialogBuilder", self.player)
         self.assertIn("SEEK_PROGRESS_MAX", self.player)
         self.assertIn("PROGRESS_INTERVAL_MS = 250L", self.player)
-        self.assertIn("PROGRESS_PERSIST_INTERVAL_MS = 15_000L", self.player)
+        self.assertIn("PROGRESS_PERSIST_INTERVAL_MS = 1_500L", self.player)
+
+    def test_progress_is_coalesced_in_memory_and_persisted_periodically(self):
+        for token in (
+            "latestProgressPositionMs",
+            "latestProgressDurationMs",
+            "latestProgressCapturedAt",
+            "captureLatestProgress()",
+            "now - lastProgressPersistAt >= PROGRESS_PERSIST_INTERVAL_MS",
+            "PROGRESS_PERSIST_INTERVAL_MS = 1_500L",
+            "PLAYER_PROGRESS_PERSIST",
+        ):
+            self.assertIn(token, self.player)
+
+        progress_start = self.player.index("private val progressReporter")
+        progress_end = self.player.index("private val firstFrameDiagnostic", progress_start)
+        reporter = self.player[progress_start:progress_end]
+        self.assertIn("captureLatestProgress()", reporter)
+        self.assertIn("saveProgress(\"player_progress\")", reporter)
+        self.assertNotIn("lastProgressPersistAt = now", reporter)
+
+    def test_semantic_player_events_flush_the_latest_progress(self):
+        self.assertIn('private fun finishPlayer(reason: String)', self.player)
+        self.assertIn('saveProgress("player_progress", force = true)', self.player[
+            self.player.index("private fun finishPlayer(reason: String)"):
+            self.player.index("private fun requestEpisode(eventType: String)")
+        ])
+        self.assertIn('saveProgress("player_progress", force = true)', self.player[
+            self.player.index("private fun requestEpisode(eventType: String)"):
+            self.player.index("private fun seekToSavedPosition")
+        ])
+        self.assertIn('saveProgress("player_paused", force = true)', self.player[
+            self.player.index("override fun onPause()"):
+            self.player.index("override fun onStop()")
+        ])
+        self.assertIn('saveProgress("player_progress", force = true)', self.player[
+            self.player.index("override fun onStop()"):
+            self.player.index("override fun onWindowFocusChanged")
+        ])
 
     def test_buffering_error_and_first_frame_are_separate_ui_states(self):
         self.assertIn("Player.STATE_BUFFERING", self.player)

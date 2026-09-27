@@ -73,8 +73,8 @@ class SearchDetailsOrganizeTests(unittest.TestCase):
     def test_details_mutations_invalidate_only_cached_library_projections(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("def _invalidate_catalog_views()", source)
-        self.assertIn('screen_cache.pop("home", None)', source)
-        self.assertIn('screen_cache.pop("organize", None)', source)
+        self.assertIn('_discard_cached_screen("home", "catalog_changed")', source)
+        self.assertIn('_discard_cached_screen("organize", "catalog_changed")', source)
         for callback in (
             "_toggle_favorite_from_details",
             "_toggle_pin_from_details",

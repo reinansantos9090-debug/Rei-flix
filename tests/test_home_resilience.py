@@ -26,7 +26,11 @@ class HomeResilienceContractTests(unittest.TestCase):
         source = (ROOT / 'views' / 'home_view.py').read_text(encoding='utf-8')
         self.assertIn('await load_library_page(reset=True)', source)
         self.assertIn('hydrate_metadata_and_artwork(list(fresh_items), token)', source)
-        self.assertIn('schedule_background(run_hydration_batch)', source)
+        self.assertIn('run_tracked(run_hydration_batch, label="catalog_hydration")', source)
+        self.assertIn('hydrate_local_artwork_batch', source)
+        self.assertIn('resolve_artwork_batch', source)
+        self.assertIn('run_tracked', source)
+        self.assertIn("view_state['_cancel_tasks']", source)
 
     def test_home_diagnostic_log_keeps_failure_context_without_exposing_traceback(self):
         source = (ROOT / 'views' / 'home_view.py').read_text(encoding='utf-8')

@@ -177,12 +177,17 @@ class OrganizeHandlerContractTests(unittest.TestCase):
         self.assertNotIn("lambda _, value=label: open_collection", source)
         self.assertNotIn("lambda _, value=label: page.run_task", source)
 
-    def test_card_clicks_do_not_return_an_unawaited_coroutine(self):
+    def test_card_clicks_are_tracked_and_do_not_return_an_unawaited_coroutine(self):
         source = ORGANIZE.read_text(encoding="utf-8")
         self.assertIn("def make_anime_click_handler(anime):", source)
-        self.assertIn("def make_anime_click_handler(anime):", source)
-        self.assertIn("loop.create_task(invoke())", source)
+        self.assertIn('run_tracked(invoke, label="select_anime")', source)
         self.assertIn("return None", source)
+        self.assertNotIn("loop.create_task(invoke())", source)
+
+    def test_collection_artwork_is_resolved_in_batches(self):
+        source = ORGANIZE.read_text(encoding="utf-8")
+        self.assertIn("library.resolve_artwork_batch", source)
+        self.assertIn("ORGANIZE_ARTWORK_BATCH", source)
 
     def test_collection_render_has_generation_guard_for_rapid_filter_changes(self):
         source = ORGANIZE.read_text(encoding="utf-8")

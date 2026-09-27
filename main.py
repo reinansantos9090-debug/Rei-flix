@@ -91,6 +91,8 @@ async def main(page: ft.Page):
     native_poll_task = [None]
 
     def _handle_page_disconnect(_event=None):
+        _cancel_view_tasks(home_state, "home", "disconnect")
+        _cancel_view_tasks(organize_state, "organize", "disconnect")
         ui_alive[0] = False
         task = native_poll_task[0]
         for route in tuple(screen_cache):
@@ -364,11 +366,30 @@ async def main(page: ft.Page):
             "settings": "/settings",
         }.get(screen, "/" + str(screen))
 
+    def _cancel_view_tasks(state, route, reason):
+        cancel = state.get("_cancel_tasks") if isinstance(state, dict) else None
+        if callable(cancel):
+            try:
+                cancel(f"{route}:{reason}")
+            except Exception:
+                logger.exception(
+                    "VIEW_TASK_CANCEL_FAILED route=%s reason=%s",
+                    route,
+                    reason,
+                )
+
+    def _discard_cached_screen(route, reason):
+        if route == "home":
+            _cancel_view_tasks(home_state, route, reason)
+        elif route == "organize":
+            _cancel_view_tasks(organize_state, route, reason)
+        screen_cache.pop(route, None)
+
     def _invalidate_catalog_views():
         # Details mutations are durable Store changes. Invalidate only the
         # cached projections that can display those fields when we return.
-        screen_cache.pop("home", None)
-        screen_cache.pop("organize", None)
+        _discard_cached_screen("home", "catalog_changed")
+        _discard_cached_screen("organize", "catalog_changed")
 
     def _toggle_favorite_from_details(anime_id):
         value = store.toggle_favorite(anime_id)
@@ -398,7 +419,10 @@ async def main(page: ft.Page):
     def _build_screen(route, *, force=False, settings_path_override=None):
         cache_key = route if settings_path_override is None else None
         if force and cache_key is not None:
-            screen_cache.pop(cache_key, None)
+            if route in {"home", "organize"}:
+                _discard_cached_screen(route, "force_render")
+            else:
+                screen_cache.pop(cache_key, None)
         control = screen_cache.get(cache_key) if cache_key is not None else None
         if control is not None:
             return control
@@ -670,8 +694,7 @@ async def main(page: ft.Page):
             if callable(refresh):
                 refresh()
                 return
-        _dispose_cached_screen(navigation.current)
-        screen_cache.pop(navigation.current, None)
+        _discard_cached_screen(navigation.current, "catalog_refresh")
         render_current()
 
     def apply_settings_runtime(key, _value):
@@ -681,17 +704,15 @@ async def main(page: ft.Page):
             # query/filter state, scroll snapshots and all domain/storage/player
             # state remain owned by their existing controllers.
             apply_page_theme(page, settings.get("appearance.theme"))
-            for route in tuple(screen_cache):
-                _dispose_cached_screen(route)
+            _discard_cached_screen("home", "theme_change")
+            _discard_cached_screen("organize", "theme_change")
             screen_cache.clear()
             render_current(force=True)
             return
         library.configure_settings(settings)
         if setting_key.startswith(("appearance.", "library.")):
-            _dispose_cached_screen("home")
-            _dispose_cached_screen("organize")
-            screen_cache.pop("home", None)
-            screen_cache.pop("organize", None)
+            _discard_cached_screen("home", f"setting:{setting_key}")
+            _discard_cached_screen("organize", f"setting:{setting_key}")
             current_route = navigation.current
             if current_route in {"home", "organize"}:
                 render_current()
@@ -700,8 +721,8 @@ async def main(page: ft.Page):
         if settings.get("appearance.theme") != "system":
             return
         apply_page_theme(page, "system")
-        for route in tuple(screen_cache):
-            _dispose_cached_screen(route)
+        _discard_cached_screen("home", "platform_brightness")
+        _discard_cached_screen("organize", "platform_brightness")
         screen_cache.clear()
         render_current(force=True)
     async def remove_folder(reference):
@@ -834,7 +855,7 @@ async def main(page: ft.Page):
             return False
         home_state["search_visible"] = False
         home_state["query"] = ""
-        screen_cache.pop("home", None)
+        _discard_cached_screen("home", "close_search")
         logger.info("[NAV] SEARCH_BACK consumed on Home")
         render_current()
         persist_navigation_state()
@@ -1130,6 +1151,8 @@ async def main(page: ft.Page):
         provider=OAuthProvider(client_id=GOOGLE_CLIENT_ID,client_secret='',authorization_endpoint='https://accounts.google.com/o/oauth2/v2/auth',token_endpoint='https://oauth2.googleapis.com/token',redirect_url=GOOGLE_REDIRECT_URL,scopes=['openid','email','profile'],user_endpoint='https://openidconnect.googleapis.com/v1/userinfo',user_id_fn=lambda u:u.get('sub'),authorization_params={'access_type':'offline','prompt':'select_account'})
         await page.login(provider,fetch_user=True)
     def logout(_=None):
+        _cancel_view_tasks(home_state, "home", "logout")
+        _cancel_view_tasks(organize_state, "organize", "logout")
         account_state[0] = 'disconnecting'; navigate_settings()
         try:
             store.clear_account(); page.logout()
@@ -1791,6 +1814,12 @@ async def main(page: ft.Page):
                                 # every 15 seconds and losing scroll position.
                                 diagnostics.record(
                                     str(event_type).upper(),
+                                    request_id=event_request_id,
+                                    source="native_player",
+                                    result="updated" if updated else "ignored",
+                                )
+                                diagnostics.record(
+                                    "PLAYER_PROGRESS_SQLITE",
                                     request_id=event_request_id,
                                     source="native_player",
                                     result="updated" if updated else "ignored",

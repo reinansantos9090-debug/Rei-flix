@@ -5,6 +5,7 @@ import asyncio
 import inspect
 import logging
 import math
+import time
 
 import flet as ft
 
@@ -98,30 +99,54 @@ class OrganizeView:
         page_loading = [False]
         catalog_load_failed = [False]
         scan_active = [False]
-        view_tasks = set()
+        tracked_tasks: set[object] = set()
+        task_metrics = {"created": 0, "cancelled": 0}
 
-        def _track_view_task(task):
+        def _track_task(task):
             if task is None or not hasattr(task, "add_done_callback"):
                 return task
-            view_tasks.add(task)
-            try:
-                task.add_done_callback(view_tasks.discard)
-            except Exception:
-                logger.debug("Organize task tracking callback unavailable", exc_info=True)
+            tracked_tasks.add(task)
+            task_metrics["created"] += 1
+
+            def _done(completed):
+                tracked_tasks.discard(completed)
+                if completed.cancelled():
+                    task_metrics["cancelled"] += 1
+
+            task.add_done_callback(_done)
             return task
 
-        def run_view_task(callback, *args):
-            return _track_view_task(page.run_task(callback, *args))
+        def run_tracked(handler, *args, label=None):
+            task = _track_task(page.run_task(handler, *args))
+            if label:
+                logger.debug("ORGANIZE_TASK_CREATED label=%s active=%s", label, len(tracked_tasks))
+            return task
 
-        def dispose_view_tasks():
-            render_generation[0] += 1
-            search_generation[0] += 1
-            for task in tuple(view_tasks):
-                try:
+        def cancel_view_tasks(reason="invalidate", *, exclude_current=False, bump_generation=True):
+            if bump_generation:
+                render_generation[0] += 1
+                search_generation[0] += 1
+            try:
+                current_task = asyncio.current_task()
+            except RuntimeError:
+                current_task = None
+            cancelled = 0
+            for task in tuple(tracked_tasks):
+                if exclude_current and task is current_task:
+                    continue
+                if not task.done():
                     task.cancel()
-                except Exception:
-                    logger.debug("Organize task cancellation failed", exc_info=True)
-            view_tasks.clear()
+                    cancelled += 1
+            logger.info(
+                "ORGANIZE_TASKS_CANCEL reason=%s cancelled=%s active_before=%s "
+                "created_total=%s cancelled_total=%s",
+                reason,
+                cancelled,
+                len(tracked_tasks),
+                task_metrics["created"],
+                task_metrics["cancelled"] + cancelled,
+            )
+
 
         def save_view_state():
             view_state.update(
@@ -200,7 +225,7 @@ class OrganizeView:
                 except RuntimeError:
                     asyncio.run(invoke())
                 else:
-                    _track_view_task(loop.create_task(invoke()))
+                    run_tracked(invoke, label="select_anime")
                 return None
             return handle
 
@@ -579,6 +604,7 @@ class OrganizeView:
             if page_loading[0] or (not reset and not has_more[0]):
                 return
             if reset:
+                cancel_view_tasks("render_reset", exclude_current=True, bump_generation=False)
                 render_generation[0] += 1
                 current_page[0] = 0
                 has_more[0] = True
@@ -607,6 +633,45 @@ class OrganizeView:
                 page_loading[0] = False
                 return
             items = result.get('items') or []
+            artwork_started = time.perf_counter()
+            try:
+                grouped_ids = {"anime": set(), "movie": set()}
+                for item in items:
+                    item_id = item.get("id")
+                    if item_id is None:
+                        continue
+                    entity = "movie" if item.get("media_kind") == "movie" else "anime"
+                    grouped_ids[entity].add(int(item_id))
+                for entity, entity_ids in grouped_ids.items():
+                    if not entity_ids:
+                        continue
+                    resolved = await asyncio.to_thread(
+                        library.resolve_artwork_batch,
+                        entity,
+                        sorted(entity_ids),
+                        ("poster",),
+                    )
+                    for item in items:
+                        item_id = item.get("id")
+                        if item_id is None:
+                            continue
+                        current_entity = "movie" if item.get("media_kind") == "movie" else "anime"
+                        if current_entity != entity:
+                            continue
+                        row = resolved.get(str(int(item_id))) if isinstance(resolved, dict) else None
+                        path = (row or {}).get("local_path") if isinstance(row, dict) else None
+                        if path:
+                            item.setdefault("meta", {})["cover_cache"] = path
+                logger.info(
+                    "ORGANIZE_ARTWORK_BATCH duration_ms=%s items=%s",
+                    int((time.perf_counter() - artwork_started) * 1000),
+                    len(items),
+                )
+            except asyncio.CancelledError:
+                logger.info("ORGANIZE_ARTWORK_BATCH_CANCELLED items=%s", len(items))
+                raise
+            except Exception:
+                logger.exception("Organize artwork batch resolution failed", extra={"screen": "organize", "items": len(items)})
             catalog.clear()
             catalog.extend(items)
             fresh = list(items)
@@ -632,7 +697,7 @@ class OrganizeView:
             except (TypeError, ValueError, AttributeError):
                 return
             if remaining < 800 and has_more[0] and not page_loading[0] and mode[0] == 'collection':
-                run_view_task(load_next_collection_page)
+                run_tracked(load_next_collection_page, label="load_next_collection_page")
         def render_overview():
             try:
                 bounded_summary = getattr(library, "organize_summary_bounded", None)
@@ -830,14 +895,14 @@ class OrganizeView:
                 logger.debug('Organize scroll restoration unavailable', exc_info=True)
 
         def schedule_refresh_from_catalog():
-            run_view_task(refresh_from_catalog)
+            run_tracked(refresh_from_catalog, label="catalog_refresh")
 
         view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
-        view_state['_dispose'] = dispose_view_tasks
+        view_state['_cancel_tasks'] = cancel_view_tasks
         save_view_state()
         render_generation[0] += 1
         render_overview()
-        run_view_task(load_catalog)
+        run_tracked(load_catalog, label="initial_load")
         return ft.Container(
             content=content,
             padding=ft.Padding(

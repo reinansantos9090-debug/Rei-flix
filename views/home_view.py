@@ -71,37 +71,58 @@ class HomeView:
         scan_active = [False]
         home_sections_generation = [0]
         filter_options_loaded = [False]
-        artwork_tasks: set[tuple] = set()
         artwork_bindings: dict[tuple, list] = {}
-        view_tasks = set()
+        artwork_ui_update_scheduled = [False]
+        tracked_tasks: set[object] = set()
+        task_metrics = {"created": 0, "cancelled": 0}
 
-        def _track_view_task(task):
+        def _track_task(task):
             if task is None or not hasattr(task, "add_done_callback"):
                 return task
-            view_tasks.add(task)
-            try:
-                task.add_done_callback(view_tasks.discard)
-            except Exception:
-                logger.debug("Home task tracking callback unavailable", exc_info=True)
+            tracked_tasks.add(task)
+            task_metrics["created"] += 1
+
+            def _done(completed):
+                tracked_tasks.discard(completed)
+                if completed.cancelled():
+                    task_metrics["cancelled"] += 1
+
+            task.add_done_callback(_done)
             return task
 
-        def run_view_task(callback, *args):
-            return _track_view_task(page.run_task(callback, *args))
+        def run_tracked(handler, *args, label=None):
+            task = _track_task(page.run_task(handler, *args))
+            if label:
+                logger.debug("HOME_TASK_CREATED label=%s active=%s", label, len(tracked_tasks))
+            return task
 
-        def dispose_view_tasks():
-            render_generation[0] += 1
-            search_generation[0] += 1
-            home_sections_generation[0] += 1
-            for task in tuple(view_tasks):
-                try:
+        def cancel_view_tasks(reason="invalidate", *, exclude_current=False, bump_generation=True):
+            if bump_generation:
+                render_generation[0] += 1
+                search_generation[0] += 1
+            try:
+                current_task = asyncio.current_task()
+            except RuntimeError:
+                current_task = None
+            cancelled = 0
+            for task in tuple(tracked_tasks):
+                if exclude_current and task is current_task:
+                    continue
+                if not task.done():
                     task.cancel()
-                except Exception:
-                    logger.debug("Home task cancellation failed", exc_info=True)
-            view_tasks.clear()
-            artwork_tasks.clear()
+                    cancelled += 1
+            logger.info(
+                "HOME_TASKS_CANCEL reason=%s cancelled=%s active_before=%s "
+                "created_total=%s cancelled_total=%s",
+                reason,
+                cancelled,
+                len(tracked_tasks),
+                task_metrics["created"],
+                task_metrics["cancelled"] + cancelled,
+            )
             artwork_bindings.clear()
-        artwork_concurrency = asyncio.Semaphore(4)
-        artwork_ui_update_scheduled = [False]
+            home_sections_generation[0] = render_generation[0]
+
 
         def save_view_state():
             view_state.update(
@@ -190,7 +211,7 @@ class HomeView:
                 finally:
                     artwork_ui_update_scheduled[0] = False
 
-            run_view_task(flush)
+            run_tracked(flush, label="artwork_ui_update")
 
         def artwork_holder(item, width, height, *, entity="anime", kind="poster", source=None):
             holder = ft.Container(
@@ -214,7 +235,15 @@ class HomeView:
                         valid = False
                 if not valid:
                     return False
-                holder.content = ft.Image(src=path, width=width, height=height, fit=ft.BoxFit.COVER, border_radius=RADIUS)
+                holder.content = ft.Image(
+                    src=path,
+                    width=width,
+                    height=height,
+                    cache_width=max(1, int(width)),
+                    cache_height=max(1, int(height)),
+                    fit=ft.BoxFit.COVER,
+                    border_radius=RADIUS,
+                )
                 return True
 
             if not show_thumbnails:
@@ -228,36 +257,6 @@ class HomeView:
                 return holder
 
             item_id = item.get("anime_id") if item.get("anime_id") is not None and entity in {"anime", "movie"} else item.get("id")
-            if item_id is not None and library is not None:
-                key = (entity, int(item_id), kind, width, height)
-                if key not in artwork_tasks:
-                    artwork_tasks.add(key)
-                    request_generation = render_generation[0]
-                    async def hydrate():
-                        try:
-                            async with artwork_concurrency:
-                                resolved = await asyncio.to_thread(
-                                    library.resolve_artwork, entity, item_id, kind, allow_network=False
-                                )
-                            if request_generation != render_generation[0]:
-                                return
-                            path = (resolved or {}).get("local_path")
-                            if apply_source(path):
-                                meta = item.setdefault("meta", {})
-                                meta["cover_cache"] = path
-                                item["cover"] = path
-                                try:
-                                    schedule_artwork_ui_update()
-                                except Exception:
-                                    logger.debug("Home artwork UI scheduling skipped", exc_info=True)
-                        except Exception:
-                            logger.exception(
-                                "Artwork render hydration failed",
-                                extra={"screen":"home","requestId":"-","item_id":item_id},
-                            )
-                        finally:
-                            artwork_tasks.discard(key)
-                    run_view_task(hydrate)
             holder.content = ft.Icon(ft.Icons.MOVIE_OUTLINED, color=TEXT_MUTED, size=28)
             return holder
 
@@ -326,6 +325,7 @@ class HomeView:
             if page_loading[0] or (not reset and not has_more[0]):
                 return
             if reset:
+                cancel_view_tasks("render_reset", exclude_current=True, bump_generation=False)
                 render_generation[0] += 1
                 current_page[0] = 0
                 has_more[0] = True
@@ -384,19 +384,24 @@ class HomeView:
             status.visible = scan_active[0]
             page_loading[0] = False
             page.update()
+            logger.info(
+                "HOME_INITIAL_RENDER cards=%s total_matches=%s page=%s reset=%s",
+                len(fresh_items),
+                total_matches[0],
+                current_page[0],
+                reset,
+            )
             await restore_scroll_position()
             if fresh_items:
                 async def run_hydration_batch():
                     await hydrate_metadata_and_artwork(list(fresh_items), token)
-                schedule_background(run_hydration_batch)
+                run_tracked(run_hydration_batch, label="catalog_hydration")
+                async def run_artwork_batch():
+                    await hydrate_local_artwork_batch(list(fresh_items), token)
+                run_tracked(run_artwork_batch, label="artwork_batch")
 
-        def schedule_background(coro_factory):
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                run_view_task(coro_factory)
-                return
-            loop.create_task(coro_factory())
+        def schedule_background(coro_factory, *, label="background"):
+            run_tracked(coro_factory, label=label)
 
         async def load_next_page():
             await load_library_page(reset=False)
@@ -408,7 +413,7 @@ class HomeView:
             except (TypeError, ValueError, AttributeError):
                 return
             if remaining < 800 and has_more[0] and not page_loading[0]:
-                schedule_background(load_next_page)
+                schedule_background(load_next_page, label="load_next_page")
         def card(anime):
             available_count = int(anime.get("available_count") or 0)
             completed = int(anime.get("watched_count") or 0)
@@ -445,7 +450,7 @@ class HomeView:
                     render_generation[0],
                     render_generation[0],
                     page_loading[0],
-                    bool(artwork_tasks),
+                    len(tracked_tasks),
                     current_screen,
                 )
                 tap_started = time.perf_counter()
@@ -503,7 +508,7 @@ class HomeView:
         def request_continuation_details(item):
             async def task():
                 await open_continuation_details(item)
-            run_view_task(task)
+            run_tracked(task, label="continuation_details")
 
         def render_continue():
             continue_row.controls.clear()
@@ -606,7 +611,7 @@ class HomeView:
             await load_library_page(reset=True)
 
         def open_filters(_=None):
-            run_view_task(load_filter_options)
+            run_tracked(load_filter_options, label="filter_options")
             page_width = float(page.width or 470)
             dialog_width = min(470.0, max(280.0, page_width - 32.0))
             field_width = min(220.0, max(128.0, (dialog_width - 20.0) / 2.0))
@@ -632,7 +637,7 @@ class HomeView:
                     artwork_filter,
                 ], tight=True, width=dialog_width),
                 actions=[
-                    ft.TextButton("Limpar", icon=ft.Icons.CLEAR_ALL, on_click=lambda _: run_view_task(clear_filters)),
+                    ft.TextButton("Limpar", icon=ft.Icons.CLEAR_ALL, on_click=lambda _: run_tracked(clear_filters, label="clear_filters")),
                     ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
                     ft.FilledButton("Aplicar", on_click=apply_filters),
                 ],
@@ -664,13 +669,84 @@ class HomeView:
             save_view_state()
             await load_library_page(reset=True)
 
+        async def hydrate_local_artwork_batch(items, token):
+            if not items or token != render_generation[0]:
+                return
+            batch_started = time.perf_counter()
+            grouped_ids = {"anime": set(), "movie": set()}
+            for item in items:
+                item_id = item.get("id")
+                if item_id is None:
+                    continue
+                entity = "movie" if item.get("media_kind") == "movie" else "anime"
+                grouped_ids[entity].add(int(item_id))
+            updated = 0
+            try:
+                for entity, entity_ids in grouped_ids.items():
+                    if not entity_ids:
+                        continue
+                    resolved = await asyncio.to_thread(
+                        library.resolve_artwork_batch,
+                        entity,
+                        sorted(entity_ids),
+                        ("poster",),
+                    )
+                    if token != render_generation[0]:
+                        return
+                    for item in items:
+                        item_id = item.get("id")
+                        if item_id is None:
+                            continue
+                        current_entity = "movie" if item.get("media_kind") == "movie" else "anime"
+                        if current_entity != entity:
+                            continue
+                        row = resolved.get(str(int(item_id))) if isinstance(resolved, dict) else None
+                        path = (row or {}).get("local_path") if isinstance(row, dict) else None
+                        if not path:
+                            continue
+                        item["cover"] = path
+                        item.setdefault("meta", {})["cover_cache"] = path
+                        for holder, width, height in artwork_bindings.get((entity, int(item_id), "poster"), []):
+                            holder.content = ft.Image(
+                                src=path,
+                                width=width,
+                                height=height,
+                                cache_width=max(1, int(width)),
+                                cache_height=max(1, int(height)),
+                                fit=ft.BoxFit.COVER,
+                                border_radius=RADIUS,
+                            )
+                            updated += 1
+                if updated:
+                    schedule_artwork_ui_update()
+            except asyncio.CancelledError:
+                logger.info(
+                    "HOME_ARTWORK_BATCH_CANCELLED count=%s generation=%s",
+                    len(items),
+                    token,
+                )
+                raise
+            except Exception:
+                logger.exception(
+                    "Home local artwork batch hydration failed",
+                    extra={"screen": "home", "items": len(items)},
+                )
+            finally:
+                logger.info(
+                    "HOME_ARTWORK_BATCH duration_ms=%s count=%s updated=%s generation=%s",
+                    int((time.perf_counter() - batch_started) * 1000),
+                    len(items),
+                    updated,
+                    token,
+                )
+
         async def hydrate_metadata_and_artwork(items, token):
             if not items or token != render_generation[0]:
                 return
             hydration_started = time.perf_counter()
             logger.info(
-                "HOME_HYDRATION_START count=%s generation=%s active_artwork_tasks=%s",
-                len(items), token, len(artwork_tasks),
+                "HOME_HYDRATION_START count=%s generation=%s active_tasks=%s",
+                len(items), token, len(tracked_tasks),
             )
             try:
                 results = await asyncio.to_thread(library.hydrate_catalog_metadata, items)
@@ -698,14 +774,20 @@ class HomeView:
                 if updated:
                     logger.info('HOME_ARTWORK_BATCH_UPDATED count=%s', updated)
                     schedule_artwork_ui_update()
+            except asyncio.CancelledError:
+                logger.info(
+                    "HOME_HYDRATION_CANCELLED count=%s generation=%s",
+                    len(items),
+                    token,
+                )
+                raise
             except Exception:
                 logger.exception('Home metadata/artwork hydration failed', extra={'screen':'home','requestId':'-','library_items':len(items)})
             finally:
                 logger.info(
-                    "HOME_HYDRATION_END duration_ms=%s generation=%s active_artwork_tasks=%s",
+                    "HOME_HYDRATION_END duration_ms=%s generation=%s",
                     int((time.perf_counter() - hydration_started) * 1000),
                     token,
-                    len(artwork_tasks),
                 )
 
         async def refresh_home_sections(token):
@@ -764,7 +846,7 @@ class HomeView:
             filter_options_loaded[0] = False
             await load_library_page(reset=True)
             home_sections_generation[0] = render_generation[0]
-            run_view_task(refresh_home_sections, render_generation[0])
+            run_tracked(refresh_home_sections, render_generation[0], label="home_sections")
 
         async def retry_load_catalog(_event=None):
             await load_catalog()
@@ -797,7 +879,7 @@ class HomeView:
             status.visible = scan_active[0]
             page.update()
             await restore_scroll_position()
-            run_view_task(refresh_home_sections, render_generation[0])
+            run_tracked(refresh_home_sections, render_generation[0], label="home_sections")
 
         search.on_change = on_search
         search.on_submit = on_search
@@ -851,12 +933,12 @@ class HomeView:
                 logger.debug("Home scroll restoration unavailable", exc_info=True)
 
         def schedule_refresh_from_catalog():
-            run_view_task(refresh_from_catalog)
+            run_tracked(refresh_from_catalog, label="catalog_refresh")
 
         view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
-        view_state['_dispose'] = dispose_view_tasks
+        view_state['_cancel_tasks'] = cancel_view_tasks
         status.visible = True
-        run_view_task(load_catalog)
+        run_tracked(load_catalog, label="initial_load")
         return ft.Container(
             content=layout, padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=16, bottom=8),
             bgcolor=BACKGROUND, expand=True,

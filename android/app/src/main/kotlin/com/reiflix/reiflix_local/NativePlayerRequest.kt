@@ -34,6 +34,7 @@ data class NativePlayerRequest(
     val gesturesVolume: Boolean,
     val gesturesBrightness: Boolean,
     val gesturesDoubleTap: Boolean,
+    val gesturesHorizontalSwipeSeek: Boolean,
     val gesturesLongPress: Boolean,
     val audioPreferredLanguage: String,
     val audioPreferredSubtitleLanguage: String,
@@ -67,6 +68,7 @@ data class NativePlayerRequest(
             .putExtra("setting_gestures_volume", gesturesVolume)
             .putExtra("setting_gestures_brightness", gesturesBrightness)
             .putExtra("setting_gestures_double_tap", gesturesDoubleTap)
+            .putExtra("setting_gestures_horizontal_swipe_seek", gesturesHorizontalSwipeSeek)
             .putExtra("setting_gestures_long_press", gesturesLongPress)
             .putExtra("setting_audio_preferred_language", audioPreferredLanguage)
             .putExtra("setting_audio_preferred_subtitle_language", audioPreferredSubtitleLanguage)
@@ -107,6 +109,7 @@ data class NativePlayerRequest(
                 gesturesVolume = get("setting_gestures_volume")?.toBooleanStrictOrNull() ?: false,
                 gesturesBrightness = get("setting_gestures_brightness")?.toBooleanStrictOrNull() ?: false,
                 gesturesDoubleTap = get("setting_gestures_double_tap")?.toBooleanStrictOrNull() ?: false,
+                gesturesHorizontalSwipeSeek = get("setting_gestures_horizontal_swipe_seek")?.toBooleanStrictOrNull() ?: false,
                 gesturesLongPress = get("setting_gestures_long_press")?.toBooleanStrictOrNull() ?: false,
                 audioPreferredLanguage = get("setting_audio_preferred_language").orEmpty(),
                 audioPreferredSubtitleLanguage = get("setting_audio_preferred_subtitle_language").orEmpty(),

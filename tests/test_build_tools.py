@@ -478,10 +478,16 @@ E: manifest
 
     def test_saf_picker_requests_only_persisted_read_access(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
-        self.assertIn("Intent.FLAG_GRANT_READ_URI_PERMISSION", main)
-        self.assertIn("Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION", main)
-        self.assertIn("Intent.FLAG_GRANT_PREFIX_URI_PERMISSION", main)
-        self.assertNotIn("Intent.FLAG_GRANT_WRITE_URI_PERMISSION", main)
+        proxy = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafPickerProxyActivity.kt").read_text(encoding="utf-8")
+        self.assertNotIn("Intent.FLAG_GRANT_WRITE_URI_PERMISSION", proxy)
+        for token in (
+            "Intent.ACTION_OPEN_DOCUMENT_TREE",
+            "Intent.FLAG_GRANT_READ_URI_PERMISSION",
+            "Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION",
+            "Intent.FLAG_GRANT_PREFIX_URI_PERMISSION",
+        ):
+            self.assertIn(token, proxy)
+        self.assertIn("treePicker.launch(proxyIntent)", main)
 
     def test_startup_uses_activity_saf_inventory_instead_of_self_deep_link(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
@@ -635,7 +641,7 @@ E: manifest
     def test_native_player_entry_requires_a_persisted_saf_document(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         scanner = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "SafScanner.kt").read_text(encoding="utf-8")
-        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
+        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8"))
         self.assertIn("DocumentsContract.getDocumentId(documentUri)", scanner)
         self.assertIn("treeIdentity(p.uri)", scanner)
 
@@ -740,9 +746,12 @@ E: manifest
     def test_player_rejects_removed_or_invalid_saf_documents_without_starting_media3(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
-        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("playerActivityLauncher.launch(intent)", main)
+        handoff_start = main.index("    private fun openPlayer(data: Uri?)")
+        handoff_end = main.index("    private fun clearPendingPlay()", handoff_start)
+        handoff = main[handoff_start:handoff_end]
+        self.assertNotIn("SafScanner.isAuthorizedDocument(this, localUri)", handoff)
+        self.assertNotIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", handoff)
+        self.assertIn("playerActivityLauncher.launch(intent)", handoff)
         self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", player)
@@ -754,11 +763,13 @@ E: manifest
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         bridge = (ROOT / "core" / "android_bridge.py").read_text(encoding="utf-8")
         request = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerRequest.kt").read_text(encoding="utf-8")
-        self.assertIn('localUri.scheme?.lowercase() !in setOf("content", "file")', main)
-        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", main)
-        self.assertIn("validatePlayerSource(localUri)", main)
+        handoff = main[main.index("    private fun openPlayer"):main.index("    private fun clearPendingPlay", main.index("    private fun openPlayer"))]
+        self.assertIn('localUri.scheme?.lowercase() !in setOf("content", "file")', handoff)
+        self.assertNotIn("SafScanner.isAuthorizedDocument(this, localUri)", handoff)
+        self.assertNotIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", handoff)
+        self.assertNotIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", handoff)
+        self.assertNotIn("validatePlayerSource(localUri)", handoff)
+        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("NativePlayerRequest.fromBridgeUri(source)", main)
         self.assertIn("playerRequest.toIntent(this, localUri)", main)
         self.assertIn('.putExtra("uri", normalizedUri.toString())', request)

@@ -75,9 +75,10 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         required = (
             "URI_RECEIVED",
             "URI_NORMALIZED",
-            "PREFLIGHT_START",
-            "PREFLIGHT_OK",
-            "PREFLIGHT_FAILED",
+            "PREFLIGHT_ASYNC_START",
+            "PREFLIGHT_ASYNC_OK",
+            "PREFLIGHT_ASYNC_FAILED",
+            "PREFLIGHT_DEFERRED",
             "EXOPLAYER_CREATE",
             "MEDIA_ITEM",
             "PREPARE",
@@ -204,8 +205,11 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertIn("episodeChangePending", player)
         self.assertIn('android:launchMode="singleTop"', manifest)
         self.assertIn("FLAG_ACTIVITY_REORDER_TO_FRONT", main)
-        self.assertIn("validatePlayerSource", main)
-        self.assertIn("openFileDescriptor(uri, \"r\")", main)
+        handoff_start = main.index("    private fun openPlayer(data: Uri?)")
+        handoff_end = main.index("    private fun clearPendingPlay()", handoff_start)
+        handoff = main[handoff_start:handoff_end]
+        self.assertNotIn("validatePlayerSource", handoff)
+        self.assertNotIn("openFileDescriptor(uri, \"r\")", handoff)
 
     def test_native_player_exit_contract_contains_playback_context(self):
         player = PLAYER_ACTIVITY.read_text(encoding="utf-8")

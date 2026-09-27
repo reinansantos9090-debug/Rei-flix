@@ -66,7 +66,8 @@ class PlaybackContractTests(unittest.TestCase):
 
     def test_audio_subtitle_speed_and_seek_stay_on_one_media3_player(self):
         for token in (
-            'TrackSelectionDialogBuilder(this, label, player, trackType)',
+            'TrackSelectionOverride(',
+            'clearOverridesOfType(trackType)',
             'player.setPlaybackSpeed',
             'player.playbackParameters.speed',
             'PlayerGesturePolicy.seekTarget',
@@ -77,6 +78,18 @@ class PlaybackContractTests(unittest.TestCase):
             self.assertIn(token, self.player)
         self.assertEqual(1, self.player.count("ExoPlayer.Builder(this).build()"))
         self.assertNotIn("ExoPlayer.Builder(this).build()", self.player[self.player.index("private fun showTrackSelection"):])
+
+    def test_player_gestures_and_lock_affordance_are_explicit(self):
+        for token in (
+            'setting_gestures_horizontal_swipe_seek',
+            'horizontalSeekEnabled',
+            'GESTURE_HORIZONTAL_SEEK_DISABLED',
+            'LOCK_AFFORDANCE_TIMEOUT_MS',
+            'lockAffordanceHider',
+            'if (locked) {',
+        ):
+            self.assertIn(token, self.player)
+        self.assertNotIn("TrackSelectionDialogBuilder", self.player)
 
     def test_lifecycle_rotation_pip_and_exit_are_single_activity_contracts(self):
         for token in (

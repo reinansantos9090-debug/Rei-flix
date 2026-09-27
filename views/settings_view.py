@@ -772,7 +772,8 @@ class SettingsView:
             items.append(section("Gestos", ft.Icons.TOUCH_APP_OUTLINED, [
                 row("gestures.volume", "Gestos de volume", "Swipe vertical no lado direito ajusta o volume quando ativado."),
                 row("gestures.brightness", "Gestos de brilho", "Swipe vertical no lado esquerdo ajusta o brilho quando ativado."),
-                row("gestures.double_tap", "Double tap para seek", "Controla o double tap existente; swipe horizontal continua desativado."),
+                row("gestures.double_tap", "Double tap para seek", "Controla o double tap existente."),
+                row("gestures.horizontal_swipe_seek", "Swipe horizontal para seek", "Quando ativado, arrastar para esquerda/direita no vídeo avança ou retrocede; desativado por padrão."),
                 row("gestures.long_press", "Pressão longa", "Controla a ação de long press existente."),
             ], ("gestos","volume","brilho","double tap","long press","swipe")))
 

@@ -98,13 +98,28 @@ class StorageOnboardingTests(unittest.TestCase):
         self.assertLess(request_block.index('put("type", "mediastore_permission")'), request_block.index('publishScanRequest("PERMISSION_CHANGE"'))
         self.assertIn("publishScanRequest", request_block)
 
+    def test_add_folder_is_not_blocked_by_an_active_scan(self):
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        start = source.index("    async def add_folder(_=None):")
+        end = source.index("    async def check_video_access", start)
+        block = source[start:end]
+        self.assertNotIn("scan_coordinator.active or not saf_selection.begin()", block)
+        self.assertIn("if scan_coordinator.exclusive or saf_selection.pending:", block)
+        self.assertIn("await bridge.select_tree()", block)
+
     def test_saf_picker_is_lifecycle_gated_and_single_shot(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        proxy = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SafPickerProxyActivity.kt").read_text(encoding="utf-8")
         picker = source.split("private fun openTreePicker(", 1)[1].split("override fun onWindowFocusChanged", 1)[0]
         self.assertIn('if (!activityResumed || !focused)', picker)
         self.assertIn('queueLifecycleAction("select_tree", correlationId)', picker)
         self.assertIn("safPickerPending", picker)
-        self.assertIn("treePicker.launch(", picker)
+        self.assertIn("treePicker.launch(proxyIntent)", picker)
+        self.assertIn("SafPickerProxyActivity.ERROR_EXTRA", source)
+        self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", proxy)
+        self.assertIn("FLAG_GRANT_PERSISTABLE_URI_PERMISSION", proxy)
+        self.assertIn("startActivityForResult", proxy)
+        self.assertIn("data.flags", proxy)
         self.assertIn("safPickerPending = false", source)
 
     def test_permission_callback_uses_authoritative_access_level(self):

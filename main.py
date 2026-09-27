@@ -569,6 +569,7 @@ async def main(page: ft.Page):
                 "gestures.volume": settings.get("gestures.volume"),
                 "gestures.brightness": settings.get("gestures.brightness"),
                 "gestures.double_tap": settings.get("gestures.double_tap"),
+                "gestures.horizontal_swipe_seek": settings.get("gestures.horizontal_swipe_seek"),
                 "gestures.long_press": settings.get("gestures.long_press"),
                 "audio.preferred_language": settings.get("audio.preferred_language"),
                 "audio.preferred_subtitle_language": settings.get("audio.preferred_subtitle_language"),
@@ -901,7 +902,11 @@ async def main(page: ft.Page):
         if navigation.current == "settings":
             render_current(force=True)
     async def add_folder(_=None):
-        if scan_coordinator.active or not saf_selection.begin():
+        # A scan already running must not block the user from choosing another
+        # folder. ScanCoordinator already queues/coalesces the follow-up rescan.
+        if scan_coordinator.exclusive or saf_selection.pending:
+            return False
+        if not saf_selection.begin():
             return False
         try:
             await bridge.select_tree()

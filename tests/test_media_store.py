@@ -64,11 +64,13 @@ class TestMediaStoreAndroidHost(unittest.TestCase):
     def test_player_accepts_saf_or_media_store_without_path_conversion(self):
         main = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "MainActivity.kt").read_text(encoding="utf-8")
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
-        self.assertIn('localUri.scheme?.lowercase() !in setOf("content", "file")', main)
-        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", main)
-        self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", main)
-        self.assertIn("validatePlayerSource(localUri)", main)
+        handoff = main[main.index("    private fun openPlayer"):main.index("    private fun clearPendingPlay", main.index("    private fun openPlayer"))]
+        self.assertIn('localUri.scheme?.lowercase() !in setOf("content", "file")', handoff)
+        self.assertNotIn("SafScanner.isAuthorizedDocument(this, localUri)", handoff)
+        self.assertNotIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", handoff)
+        self.assertNotIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", handoff)
+        self.assertNotIn("validatePlayerSource(localUri)", handoff)
+        self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("BroadStorageScanner.isAuthorizedFile(this, localUri)", player)
         self.assertIn(".setUri(mediaUri)", player)

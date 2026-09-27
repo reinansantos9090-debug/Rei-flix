@@ -50,12 +50,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import androidx.media3.ui.TrackSelectionDialogBuilder
 import org.json.JSONObject
 import java.io.File
 import kotlin.math.abs
@@ -98,6 +98,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var volumeGesturesEnabled = false
     private var brightnessGesturesEnabled = false
     private var doubleTapEnabled = true
+    private var horizontalSeekEnabled = false
     private var longPressEnabled = false
     private var windowBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
     private var autoHideTimeoutMs = CONTROL_TIMEOUT_MS
@@ -166,6 +167,20 @@ class NativePlayerActivity : ComponentActivity() {
                 } else {
                     handler.postDelayed(this, CONTROL_TIMEOUT_MS - elapsed)
                 }
+            }
+        }
+    }
+
+    private val lockAffordanceHider = object : Runnable {
+        override fun run() {
+            if (locked && !errorVisible && !inPictureInPicture) {
+                controlsVisible = false
+                controls.visibility = View.INVISIBLE
+                topBar.visibility = View.GONE
+                centerControls.visibility = View.GONE
+                bottomBar.visibility = View.GONE
+                moreVisible = false
+                findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
             }
         }
     }
@@ -379,17 +394,8 @@ class NativePlayerActivity : ComponentActivity() {
         }
         uri = resolvedUri
 
-        val source = sourceFor(uri)
-        logPlayer("PREFLIGHT_START requestId=" + requestId.ifEmpty { "-" } +
-            " source=" + source + " scheme=" + uri.scheme + " authority=" + (uri.authority ?: "-"))
-        val preflightError = validateLocalSource(uri)
-        if (preflightError != null) {
-            logPlayer("PREFLIGHT_FAILED requestId=" + requestId.ifEmpty { "-" } +
-                " source=" + source + " error=" + preflightError)
-            showPlayerError(preflightError, "unauthorized_or_unreadable")
-            return
-        }
-        logPlayer("PREFLIGHT_OK requestId=" + requestId.ifEmpty { "-" } + " source=" + source)
+        logPlayer("PREFLIGHT_DEFERRED requestId=" + requestId.ifEmpty { "-" } +
+            " source=" + sourceFor(uri) + " reason=background_io")
 
         try {
             logPlayer("EXOPLAYER_CREATE requestId=" + requestId.ifEmpty { "-" })
@@ -461,13 +467,6 @@ class NativePlayerActivity : ComponentActivity() {
             showPlayerError("Referência local inválida.", "invalid_uri_on_reuse")
             return
         }
-        val preflightError = validateLocalSource(normalized)
-        if (preflightError != null) {
-            episodeChangePending = false
-            showPlayerError(preflightError, "preflight_on_reuse")
-            return
-        }
-
         uri = normalized
         requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
         sessionState = SessionState.ACTIVE
@@ -482,7 +481,7 @@ class NativePlayerActivity : ComponentActivity() {
         suppressExitEvent = false
         errorVisible = false
         doubleTapSeekMs = newIntent.getLongExtra("setting_player_double_tap_seek_seconds", doubleTapSeekMs / 1000L)
-            .coerceIn(1L, 120L) * 1000L
+        horizontalSeekEnabled = newIntent.getBooleanExtra("setting_gestures_horizontal_swipe_seek", horizontalSeekEnabled)
         longPressSpeed = newIntent.getFloatExtra("setting_player_long_press_speed", longPressSpeed)
             .coerceIn(1f, 3f)
         maxVideoResolution = newIntent.getStringExtra("setting_player_max_video_resolution") ?: maxVideoResolution
@@ -578,6 +577,20 @@ class NativePlayerActivity : ComponentActivity() {
 
         pendingPreparation = playbackWorker.submit {
             try {
+                logPlayer("PREFLIGHT_ASYNC_START requestId=" + requestId.ifEmpty { "-" } +
+                    " generation=" + generation + " uri=" + localUri)
+                val preflightError = validateLocalSource(localUri)
+                if (preflightError != null) {
+                    handler.post {
+                        if (!isCurrentPreparation(generation, localUri)) return@post
+                        logPlayer("PREFLIGHT_ASYNC_FAILED requestId=" + requestId.ifEmpty { "-" } +
+                            " generation=" + generation + " error=" + preflightError)
+                        showPlayerError(preflightError, "unauthorized_or_unreadable")
+                    }
+                    return@submit
+                }
+                logPlayer("PREFLIGHT_ASYNC_OK requestId=" + requestId.ifEmpty { "-" } +
+                    " generation=" + generation)
                 val displayName = displayNameForUri(localUri)
                 val providerMime = runCatching { contentResolver.getType(localUri) }.getOrNull()
                 val resolvedMime = PlayerMediaPolicy.resolveVideoMimeType(providerMime, displayName)
@@ -1707,14 +1720,69 @@ class NativePlayerActivity : ComponentActivity() {
     private fun showTrackSelection(trackType: Int, label: String) {
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         if (!::player.isInitialized) return
-        if (!player.currentTracks.groups.any { it.type == trackType && it.isSupported }) {
+
+        data class TrackOption(
+            val title: String,
+            val group: androidx.media3.common.Tracks.Group?,
+            val trackIndex: Int,
+        )
+
+        val options = mutableListOf(TrackOption("Automático", null, -1))
+        player.currentTracks.groups
+            .filter { it.type == trackType && it.isSupported }
+            .forEachIndexed { groupIndex, group ->
+                for (trackIndex in 0 until group.length) {
+                    if (!group.isTrackSupported(trackIndex)) continue
+                    val format = group.getTrackFormat(trackIndex)
+                    val language = format.language?.takeIf { it.isNotBlank() }
+                    val labelText = format.label?.takeIf { it.isNotBlank() }
+                    val channels = format.channelCount.takeIf { it > 0 }?.let { " ${it}ch" } ?: ""
+val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
+                    val suffix = listOfNotNull(language, channels.takeIf { it.isNotBlank() }, codec.takeIf { it.isNotBlank() })
+                        .joinToString(" • ")
+                    val base = labelText ?: language ?: "Faixa ${groupIndex + 1}.${trackIndex + 1}"
+                    options += TrackOption(
+                        title = if (suffix.isBlank() || base.contains(suffix, ignoreCase = true)) base else "$base • $suffix",
+                        group = group,
+                        trackIndex = trackIndex,
+                    )
+                }
+            }
+
+        if (options.size == 1) {
             showFeedback("Nenhuma faixa disponível")
             return
         }
-        TrackSelectionDialogBuilder(this, label, player, trackType)
-            .setAllowAdaptiveSelections(false)
-            .setAllowMultipleOverrides(false)
-            .build()
+
+        val labels = options.map { it.title }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(label)
+            .setSingleChoiceItems(labels, 0) { dialog, which ->
+                val option = options.getOrNull(which) ?: return@setSingleChoiceItems
+                runCatching {
+                    val builder = player.trackSelectionParameters.buildUpon()
+                        .clearOverridesOfType(trackType)
+                    if (option.group != null && option.trackIndex >= 0) {
+                        builder.setOverrideForType(
+                            TrackSelectionOverride(
+                                option.group.mediaTrackGroup,
+                                option.trackIndex,
+                            ),
+                        )
+                    }
+                    player.trackSelectionParameters = builder.build()
+                    updateTrackButtons()
+                    logPlayer(
+                        "TRACK_SELECTION_APPLIED type=$trackType index=" +
+                            option.trackIndex + " label=" + option.title,
+                    )
+                }.onFailure { error ->
+                    logPlayer("TRACK_SELECTION_FAILED type=$trackType", error)
+                    showFeedback("Não foi possível trocar a faixa")
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancelar", null)
             .show()
     }
 
@@ -1753,13 +1821,19 @@ class NativePlayerActivity : ComponentActivity() {
             return
         }
         if (locked) {
-            controls.visibility = View.VISIBLE
-            topBar.visibility = View.VISIBLE
+            controls.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+            topBar.visibility = if (visible) View.VISIBLE else View.GONE
             bottomBar.visibility = View.GONE
             centerControls.visibility = View.GONE
             findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
             findViewByTag<View>("reiflix_back_button")?.visibility = View.GONE
             findViewByTag<View>("reiflix_more_button")?.visibility = View.GONE
+            if (visible) {
+                handler.removeCallbacks(lockAffordanceHider)
+                handler.postDelayed(lockAffordanceHider, LOCK_AFFORDANCE_TIMEOUT_MS)
+            } else {
+                handler.removeCallbacks(lockAffordanceHider)
+            }
             return
         }
 
@@ -1781,6 +1855,8 @@ class NativePlayerActivity : ComponentActivity() {
         if (locked) {
             handler.removeCallbacks(controlsHider)
             setControlsVisible(true)
+            handler.removeCallbacks(lockAffordanceHider)
+            handler.postDelayed(lockAffordanceHider, LOCK_AFFORDANCE_TIMEOUT_MS)
             return
         }
         controlsVisible = true
@@ -1818,6 +1894,9 @@ class NativePlayerActivity : ComponentActivity() {
             centerControls.visibility = View.GONE
             bottomBar.visibility = View.GONE
             if (::feedback.isInitialized) feedback.visibility = View.GONE
+            handler.removeCallbacks(lockAffordanceHider)
+            handler.postDelayed(lockAffordanceHider, LOCK_AFFORDANCE_TIMEOUT_MS)
+            controlsVisible = true
         } else {
             findViewByTag<View>("reiflix_back_button")?.visibility = View.VISIBLE
             findViewByTag<View>("reiflix_more_button")?.visibility = View.VISIBLE
@@ -1985,6 +2064,7 @@ class NativePlayerActivity : ComponentActivity() {
         cancelFirstFrameDiagnostics("finish_player")
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         handler.removeCallbacks(controlsHider)
+        handler.removeCallbacks(lockAffordanceHider)
         handler.removeCallbacks(feedbackHider)
         restoreSystemUiBeforeExit()
         reportPlayerExit(reason)
@@ -2523,9 +2603,12 @@ class NativePlayerActivity : ComponentActivity() {
                 override fun onDown(event: MotionEvent): Boolean = true
 
                 override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
-                    if (!gestureInteractionAllowed() || gestureConsumed || systemGestureEdge) {
+                    if (systemGestureEdge || gestureConsumed) return true
+                    if (locked) {
+                        touchControls()
                         return true
                     }
+                    if (!gestureInteractionAllowed()) return true
                     handleTap()
                     return true
                 }
@@ -2642,7 +2725,12 @@ class NativePlayerActivity : ComponentActivity() {
                     systemGestureEdge = isSystemGestureEdge(event.x, event.y)
                     lastVerticalY = null
                     gestureMode = GestureMode.IDLE
-                    if (systemGestureEdge || !gestureInteractionAllowed()) {
+                    if (systemGestureEdge) {
+                        gestureConsumed = true
+                        cancelGestureDetector(event)
+                    } else if (locked) {
+                        gestureDetector.onTouchEvent(event)
+                    } else if (!gestureInteractionAllowed()) {
                         gestureConsumed = true
                         cancelGestureDetector(event)
                     } else {
@@ -2652,6 +2740,7 @@ class NativePlayerActivity : ComponentActivity() {
 
                 MotionEvent.ACTION_MOVE -> {
                     if (gestureConsumed || systemGestureEdge) return true
+                    if (locked) return true
 
                     val dx = event.x - downX
                     val dy = event.y - downY
@@ -2717,14 +2806,22 @@ class NativePlayerActivity : ComponentActivity() {
                         PlayerGesturePolicy.Direction.HORIZONTAL -> {
                             if (gestureMode == GestureMode.IDLE) {
                                 gestureConsumed = true
-                                gestureMode = GestureMode.HORIZONTAL_SEEK
                                 cancelGestureDetector(event)
                                 restoreLongPressSpeed()
-                                horizontalSeekStartPosition = player.currentPosition.coerceAtLeast(0L)
-                                logPlayer(
-                                    "GESTURE_START type=horizontal_seek requestId=" +
-                                        requestId.ifEmpty { "-" },
-                                )
+                                if (horizontalSeekEnabled) {
+                                    gestureMode = GestureMode.HORIZONTAL_SEEK
+                                    horizontalSeekStartPosition = player.currentPosition.coerceAtLeast(0L)
+                                    logPlayer(
+                                        "GESTURE_START type=horizontal_seek requestId=" +
+                                            requestId.ifEmpty { "-" },
+                                    )
+                                } else {
+                                    gestureMode = GestureMode.IDLE
+                                    logPlayer(
+                                        "GESTURE_HORIZONTAL_SEEK_DISABLED requestId=" +
+                                            requestId.ifEmpty { "-" },
+                                    )
+                                }
                             }
                         }
 
@@ -2787,7 +2884,7 @@ class NativePlayerActivity : ComponentActivity() {
                         else -> Unit
                     }
 
-                    if (!gestureConsumed && gestureInteractionAllowed() && !systemGestureEdge) {
+                    if (!gestureConsumed && !systemGestureEdge && (locked || gestureInteractionAllowed())) {
                         gestureDetector.onTouchEvent(event)
                     }
                     resetTransientState()
@@ -3098,6 +3195,7 @@ class NativePlayerActivity : ComponentActivity() {
 
         private fun resetTransientState() {
             gestureMode = GestureMode.IDLE
+            horizontalSeekStartPosition = null
             lastPanX = null
             lastPanY = null
             lastVerticalY = null
@@ -3247,5 +3345,6 @@ class NativePlayerActivity : ComponentActivity() {
         private const val MAX_ZOOM = 3f
         private const val ZOOM_SNAP_THRESHOLD = 1.07f
         private const val MAX_RETRY_ATTEMPTS = 2
+        private const val LOCK_AFFORDANCE_TIMEOUT_MS = 2_200L
     }
 }

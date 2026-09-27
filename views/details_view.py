@@ -15,7 +15,7 @@ import re
 import flet as ft
 from core.consumption import consumption_state, is_completed, is_in_progress, playback_action, progress_ratio
 from core.dialogs import dismiss_dialog
-from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, activate_theme_for_page, media_artwork, section_title
+from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, activate_theme_for_page, media_artwork, section_title, focus_button_style
 
 
 class DetailView:
@@ -553,10 +553,16 @@ class DetailView:
             clickable = None if is_missing else lambda _, item=episode: play(item)
             content = (ft.Row([thumb, details], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                        if thumb else details)
-            return ft.Container(
-                content=content, padding=12, border_radius=RADIUS, bgcolor=SURFACE,
-                opacity=.58 if is_missing else 1.0, ink=not is_missing,
+            if is_missing:
+                return ft.Container(
+                    content=content, padding=12, border_radius=RADIUS, bgcolor=SURFACE,
+                    opacity=.58,
+                )
+            return ft.OutlinedButton(
+                content=content,
                 on_click=clickable,
+                style=focus_button_style(theme=theme, background=SURFACE),
+                padding=12,
             )
 
         def load_more_episodes(_event=None):

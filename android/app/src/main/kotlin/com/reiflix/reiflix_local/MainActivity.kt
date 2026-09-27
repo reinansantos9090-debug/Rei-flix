@@ -1,5 +1,6 @@
 package com.reiflix.reiflix_local
 
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent

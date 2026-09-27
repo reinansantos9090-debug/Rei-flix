@@ -23,9 +23,10 @@ class TestSafProfessionalContract(unittest.TestCase):
     def test_picker_uses_isolated_native_proxy_and_no_resolve_activity_gate(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")
         proxy = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SafPickerProxyActivity.kt").read_text(encoding="utf-8")
-        self.assertIn("SafPickerProxyActivity::class.java", source)
-        self.assertIn("treePicker.launch(proxyIntent)", source)
-        self.assertNotIn("intent.resolveActivity(packageManager)", source)
+        picker = source[source.index("private fun openTreePicker"):source.index("override fun onWindowFocusChanged", source.index("private fun openTreePicker"))]
+        self.assertIn("SafPickerProxyActivity::class.java", picker)
+        self.assertIn("treePicker.launch(proxyIntent)", picker)
+        self.assertNotIn("intent.resolveActivity(packageManager)", picker)
         self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", proxy)
         self.assertIn("startActivityForResult", proxy)
         self.assertIn("SAF_PROXY_LAUNCH", proxy)

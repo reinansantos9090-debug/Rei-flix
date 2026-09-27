@@ -543,10 +543,21 @@ class DetailView:
                     thumb = media_artwork(thumb_path, 72, width=112, icon_size=20)
 
             duration = duration_label(episode)
+            edit_button = (
+                ft.IconButton(
+                    icon=ft.Icons.EDIT_OUTLINED,
+                    icon_size=16,
+                    tooltip="Corrigir identificação",
+                    visible=on_set_episode_identification is not None and not is_movie,
+                    on_click=lambda _, item=episode: edit_identification(item),
+                )
+                if on_set_episode_identification is not None and not is_movie
+                else None
+            )
             details = ft.Column([
                 ft.Row([
                     ft.Text(number_label, size=10, weight=ft.FontWeight.BOLD, color=theme.text_muted),
-                    ft.Row([ft.Icon(icon, size=17, color=color), ft.IconButton(icon=ft.Icons.EDIT_OUTLINED, icon_size=16, tooltip="Corrigir identificação", visible=on_set_episode_identification is not None and not is_movie, on_click=lambda _, item=episode: edit_identification(item))], tight=True),
+                    ft.Row([ft.Icon(icon, size=17, color=color)], tight=True),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Text(episode.get("episode_title") or episode.get("title") or episode.get("file_name") or "Mídia local", size=13, color=theme.text, weight=ft.FontWeight.BOLD,
                         max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
@@ -563,15 +574,19 @@ class DetailView:
             content = (ft.Row([thumb, details], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                        if thumb else details)
             if is_missing:
-                return ft.Container(
+                episode_button = ft.Container(
                     content=content, padding=12, border_radius=RADIUS, bgcolor=SURFACE,
                     opacity=.58,
                 )
-            return ft.OutlinedButton(
-                content=content,
-                on_click=clickable,
-                style=focus_button_style(theme=theme, background=SURFACE),
-            )
+            else:
+                episode_button = ft.OutlinedButton(
+                    content=content,
+                    on_click=clickable,
+                    style=focus_button_style(theme=theme, background=SURFACE),
+                )
+            if edit_button is not None:
+                return ft.Row([episode_button, edit_button], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            return episode_button
 
         def load_more_episodes(_event=None):
             visible_episode_count[0] += 48

@@ -1785,36 +1785,10 @@ class MainActivity : FlutterFragmentActivity() {
         }
 
         val authority = localUri.authority.orEmpty()
-        val authorized = when {
-            localUri.scheme.equals("content", true) -> {
-                SafScanner.isAuthorizedDocument(this, localUri) ||
-                    MediaStoreScanner.isAuthorizedDocument(this, localUri)
-            }
-            localUri.scheme.equals("file", true) -> BroadStorageScanner.isAuthorizedFile(this, localUri)
-            else -> false
-        }
-        if (!authorized) {
-            Log.e(tag, "PLAY_HANDOFF_FAILED requestId=$requestId uri=$episodeUri reason=unauthorized")
-            NativeMailbox.write(this, JSONObject().put("type", "player_error")
-                .put("requestId", requestId)
-                .put("message", "Este arquivo local não está mais autorizado.")
-                .put("payload", JSONObject().put("uri", episodeUri).put("stage", "handoff").put("reason", "unauthorized")))
-            return
-        }
 
-        val preflightError = validatePlayerSource(localUri)
-        if (preflightError != null) {
-            Log.e(tag, "PLAY_HANDOFF_FAILED requestId=$requestId reason=preflight error=$preflightError")
-            NativeMailbox.write(this, JSONObject().put("type", "player_error")
-                .put("requestId", requestId)
-                .put("message", "O arquivo local não está disponível para reprodução.")
-                .put("payload", JSONObject()
-                    .put("uri", episodeUri)
-                    .put("stage", "preflight")
-                    .put("reason", preflightError)))
-            return
-        }
-
+        // MainActivity is only the handoff coordinator. Provider authorization and
+        // file-open preflight belong to NativePlayerActivity, where they execute
+        // off the UI thread before Media3 preparation.
         val mediaSource = when {
             localUri.scheme.equals("content", true) && authority == MediaStore.AUTHORITY -> "mediastore"
             localUri.scheme.equals("content", true) -> "saf_or_local_provider"
@@ -1921,39 +1895,6 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("uri", localUri.toString())
                     .put("stage", "start_activity")
                     .put("error", exception.message ?: exception::class.java.simpleName)))
-        }
-    }
-
-    private fun validatePlayerSource(uri: Uri): String? {
-        return try {
-            when {
-                uri.scheme.equals("file", true) -> {
-                    val file = java.io.File(uri.path.orEmpty())
-                    when {
-                        !file.isFile -> "file_not_found"
-                        !file.canRead() -> "file_not_readable"
-                        file.length() <= 0L -> "file_empty"
-                        else -> null
-                    }
-                }
-                uri.scheme.equals("content", true) -> {
-                    val mime = contentResolver.getType(uri)
-                    if (!mime.isNullOrBlank() && !mime.startsWith("video/", ignoreCase = true) &&
-                        mime != "application/octet-stream"
-                    ) {
-                        return "mime_not_video"
-                    }
-                    contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
-                        val statSize = descriptor.statSize
-                        if (statSize == 0L) "file_empty" else null
-                    } ?: "file_open_failed"
-                }
-                else -> "unsupported_scheme"
-            }
-        } catch (exception: SecurityException) {
-            "permission_denied"
-        } catch (exception: Exception) {
-            "preflight_exception"
         }
     }
 

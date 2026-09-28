@@ -47,13 +47,13 @@ class AndroidHostVerificationTests(unittest.TestCase):
         result = subprocess.run([sys.executable, str(VERIFY), str(self._apk(DESCRIPTORS))],
                                 cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Verified native ReiFlix host", result.stdout)
+        self.assertIn("Verified native ReiAnix host", result.stdout)
 
     def test_rejects_stock_apk_without_native_host_classes(self):
         result = subprocess.run([sys.executable, str(VERIFY), str(self._apk(DESCRIPTORS[:1]))],
                                 cwd=ROOT, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Native ReiFlix host was not packaged", result.stderr)
+        self.assertIn("Native ReiAnix host was not packaged", result.stderr)
 
     def test_video_thumbnail_extractor_is_local_bounded_and_deduplicated(self):
         source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/VideoThumbnailExtractor.kt").read_text(encoding="utf-8")
@@ -107,10 +107,10 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("Verify effective APK AndroidManifest", workflow)
         self.assertIn("Print and publish APK SHA-256", workflow)
         self.assertIn("Final Git integrity check", workflow)
-        self.assertIn('published="build/ReiFlix.apk"', workflow)
+        self.assertIn('published="build/ReiAnix.apk"', workflow)
         self.assertIn("Upload APK as direct artifact", workflow)
         self.assertIn("Create and cryptographically validate standalone APK ZIP", workflow)
-        self.assertIn("build/ReiFlix-apk.zip", workflow)
+        self.assertIn("build/ReiAnix-apk.zip", workflow)
         self.assertIn("Upload APK ZIP as direct artifact", workflow)
         self.assertIn("ZIP_DEFLATED", workflow)
         self.assertIn("compresslevel=9", workflow)
@@ -136,7 +136,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
 
     def test_android_certification_runs_real_emulators(self):
         workflow = (ROOT / ".github/workflows/android_instrumented.yml").read_text(encoding="utf-8")
-        self.assertIn("ReiFlix Android Instrumented Runtime Matrix", workflow)
+        self.assertIn("ReiAnix Android Instrumented Runtime Matrix", workflow)
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("push:", workflow)
         self.assertIn("matrix:", workflow)
@@ -144,7 +144,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("reactivecircus/android-emulator-runner@v2", workflow)
         self.assertIn("connectedDebugAndroidTest", workflow)
         self.assertIn("flet build apk", workflow)
-        self.assertNotIn("ReiFlix Android No-Emulator Contract Checks", workflow)
+        self.assertNotIn("ReiAnix Android No-Emulator Contract Checks", workflow)
 
     def test_android_build_declares_runtime_python_dependencies(self):
         project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
@@ -671,7 +671,7 @@ E: manifest
         self.assertIn("SafScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn("MediaStoreScanner.isAuthorizedDocument(this, localUri)", player)
         self.assertIn('contentResolver.openFileDescriptor(localUri, "r")', player)
-        self.assertIn("Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix.", player)
+        self.assertIn("Este arquivo não pertence a uma pasta autorizada pelo ReiAnix.", player)
 
     def test_android_bridge_accepts_only_local_media_references(self):
         from core.android_bridge import AndroidBridge

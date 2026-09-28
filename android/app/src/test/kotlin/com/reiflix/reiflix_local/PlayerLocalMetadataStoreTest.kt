@@ -2,7 +2,6 @@ package com.reiflix.reiflix_local
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -28,6 +27,6 @@ class PlayerLocalMetadataStoreTest {
             .put("endingEndMs", JSONObject.NULL)
         assertEquals(60_000L, json.getLong("openingStartMs"))
         assertTrue(json.isNull("endingStartMs"))
-        assertNull(null)
+        assertTrue(json.isNull("endingEndMs"))
     }
 }

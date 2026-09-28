@@ -18,8 +18,12 @@ import tempfile
 import time
 import zipfile
 from typing import Any
+import threading
 
 from core.settings import SettingsDefaults, SettingsStore, SettingsValidationError
+
+BACKUP_RECOVERY_LOCK = threading.RLock()
+
 
 class BackupError(RuntimeError):
     """Stable, user-facing backup/restore failure."""
@@ -245,10 +249,12 @@ class BackupService:
         from core.library_store import LibraryStore
         return int(LibraryStore.SCHEMA_VERSION)
 
-    def _validate_integrity(self, archive: zipfile.ZipFile, manifest: dict[str, Any], infos: list[zipfile.ZipInfo]) -> None:
+    def _validate_integrity(self, archive: zipfile.ZipFile, manifest: dict[str, Any], infos: list[zipfile.ZipInfo]) -> set[str]:
         integrity = manifest["integrity"]
         stored_entries = integrity.get("entries") or {}
+        optional_entries = {self._safe_member_name(name) for name in (integrity.get("optional_entries") or [])}
         actual_entries: dict[str, dict[str, Any]] = {}
+        invalid_optional: set[str] = set()
         by_name = {self._safe_member_name(info.filename): info for info in infos}
         by_name.pop("manifest.json", None)
         for name, info in by_name.items():
@@ -259,16 +265,22 @@ class BackupService:
             if expected is None:
                 raise BackupValidationError("BACKUP_CHECKSUM_MISMATCH", f"Checksum ausente para {name}.")
             if int(expected.get("size", -1)) != size or str(expected.get("sha256", "")).lower() != digest:
+                if name in optional_entries:
+                    invalid_optional.add(name)
+                    continue
                 raise BackupValidationError(
                     "BACKUP_CHECKSUM_MISMATCH",
                     f"Checksum/integridade inválida para {name}.",
                     details={"member": name},
                 )
-        if set(stored_entries) != set(actual_entries):
+        missing_entries = set(stored_entries) - set(actual_entries)
+        missing_required = missing_entries - optional_entries
+        if missing_required:
             raise BackupValidationError("BACKUP_CHECKSUM_MISMATCH", "Manifesto de integridade não corresponde ao container.")
         expected_payload = str(integrity.get("payload_sha256") or "")
         actual_payload = hashlib.sha256(self._canonical(actual_entries)).hexdigest()
-        if expected_payload != actual_payload:
+        optional_missing_or_invalid = (missing_entries & optional_entries) | invalid_optional
+        if expected_payload != actual_payload and not optional_missing_or_invalid:
             raise BackupValidationError("BACKUP_CHECKSUM_MISMATCH", "Checksum do payload inválido.")
         core = dict(manifest)
         core.pop("integrity", None)
@@ -276,6 +288,7 @@ class BackupService:
         actual_core = hashlib.sha256(self._canonical(core)).hexdigest()
         if expected_core != actual_core:
             raise BackupValidationError("BACKUP_CHECKSUM_MISMATCH", "Checksum do manifest inválido.")
+        return invalid_optional | (missing_entries & optional_entries)
 
     def _validate_snapshot_semantics(self, db_path: str, *, sanitize_unknown: bool = False) -> None:
         """Validate logical values that SQLite constraints cannot express."""
@@ -465,12 +478,32 @@ class BackupService:
             raise
 
     def create_backup_file(self, destination: str | os.PathLike[str] | None = None) -> str:
+        with BACKUP_RECOVERY_LOCK:
+            return self._create_backup_file_locked(destination)
+
+    def _create_backup_file_locked(self, destination: str | os.PathLike[str] | None = None) -> str:
         destination = self._choose_destination(destination)
         parent = str(Path(destination).resolve().parent)
         os.makedirs(parent, exist_ok=True)
         snapshot, artwork_entries = self._prepare_snapshot()
         temp_zip = f"{destination}.tmp"
         try:
+            required_space = max(
+                16 * 1024 * 1024,
+                os.path.getsize(snapshot)
+                + sum(int(item.get("size") or 0) for item in artwork_entries if item.get("portable"))
+                + 4 * 1024 * 1024,
+            )
+            try:
+                free_space = shutil.disk_usage(parent).free
+            except OSError:
+                free_space = None
+            if free_space is not None and free_space < required_space:
+                raise BackupError(
+                    "BACKUP_INSUFFICIENT_SPACE",
+                    f"Espaço insuficiente para criar o backup. Necessário aproximadamente {required_space} bytes; disponível {free_space} bytes.",
+                    details={"required_bytes": required_space, "available_bytes": free_space},
+                )
             archive_entries: dict[str, dict[str, Any]] = {}
             with zipfile.ZipFile(temp_zip, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
                 archive.write(snapshot, "library.sqlite3")
@@ -566,7 +599,7 @@ class BackupService:
                 with zipfile.ZipFile(path, "r") as archive:
                     infos = self._validate_archive_members(archive)
                     manifest = self._read_manifest(archive)
-                    self._validate_integrity(archive, manifest, infos)
+                    integrity_warnings = self._validate_integrity(archive, manifest, infos)
                     extracted = os.path.join(root, "library.sqlite3")
                     with archive.open("library.sqlite3", "r") as source, open(extracted, "wb") as target:
                         shutil.copyfileobj(source, target)
@@ -584,6 +617,7 @@ class BackupService:
                 "counts": counts,
                 "artwork": manifest.get("artwork") or [],
                 "integrity": "SHA-256 válido",
+                "integrity_warnings": sorted(integrity_warnings),
                 "videos_included": False,
                 "authentication_included": False,
             }
@@ -597,7 +631,7 @@ class BackupService:
         with zipfile.ZipFile(path, "r") as archive:
             infos = self._validate_archive_members(archive)
             manifest = self._read_manifest(archive)
-            self._validate_integrity(archive, manifest, infos)
+            invalid_optional = self._validate_integrity(archive, manifest, infos)
             with archive.open("library.sqlite3", "r") as source, open(extracted, "wb") as target:
                 shutil.copyfileobj(source, target)
             self.store._validate_backup_database(extracted)
@@ -607,6 +641,8 @@ class BackupService:
                 if not item.get("portable") or not item.get("member"):
                     continue
                 member = self._safe_member_name(item["member"])
+                if member in invalid_optional:
+                    continue
                 target_temp = os.path.join(root, "assets", os.path.basename(member))
                 os.makedirs(os.path.dirname(target_temp), exist_ok=True)
                 with archive.open(member, "r") as source, open(target_temp, "wb") as target:
@@ -627,6 +663,10 @@ class BackupService:
         return extracted, mappings, created_assets, tempdir
 
     def restore_file(self, backup_path: str | os.PathLike[str]) -> dict[str, Any]:
+        with BACKUP_RECOVERY_LOCK:
+            return self._restore_file_locked(backup_path)
+
+    def _restore_file_locked(self, backup_path: str | os.PathLike[str]) -> dict[str, Any]:
         backup_path = os.path.abspath(os.path.expanduser(str(backup_path)))
         preview = self.inspect_file(backup_path)
         safety_name = self._choose_destination(

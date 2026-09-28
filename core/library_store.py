@@ -58,12 +58,12 @@ class LibraryStore:
 
     def _conn(self):
         # Connections are short-lived and therefore never cross asyncio worker
-        # threads. WAL allows concurrent catalog readers while a scan/metadata
-        # writer is active; busy_timeout turns transient writer contention into
-        # bounded waiting rather than an immediate "database is locked" failure.
+        # threads. A bounded busy timeout turns transient writer contention into
+        # waiting rather than an immediate "database is locked" failure. Journal
+        # mode remains the default because backup/recovery snapshots deliberately
+        # operate on the primary database file and its known sidecar contract.
         con = sqlite3.connect(self.db_path, timeout=self.SQLITE_TIMEOUT_SECONDS)
         con.row_factory = self._row_factory
-        con.execute("PRAGMA journal_mode=WAL")
         con.execute(f"PRAGMA busy_timeout={self.SQLITE_BUSY_TIMEOUT_MS}")
         con.execute("PRAGMA foreign_keys=ON")
         con.create_function("reiflix_normalize", 1, lambda value: normalize_text(value), deterministic=True)

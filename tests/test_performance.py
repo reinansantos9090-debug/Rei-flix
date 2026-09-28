@@ -294,11 +294,10 @@ class MetadataAndViewLifecycleCoalescingTests(unittest.TestCase):
 
 
 class SQLiteConnectionConcurrencyTests(unittest.TestCase):
-    def test_store_connections_enable_wal_foreign_keys_and_bounded_busy_wait(self):
+    def test_store_connections_enable_foreign_keys_and_bounded_busy_wait(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)
             with store._conn() as connection:
-                self.assertEqual("wal", str(connection.execute("PRAGMA journal_mode").fetchone()[0]).casefold())
                 self.assertEqual(1, connection.execute("PRAGMA foreign_keys").fetchone()[0])
                 self.assertEqual(store.SQLITE_BUSY_TIMEOUT_MS, connection.execute("PRAGMA busy_timeout").fetchone()[0])
 

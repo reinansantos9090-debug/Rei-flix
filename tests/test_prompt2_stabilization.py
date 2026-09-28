@@ -121,7 +121,7 @@ class Prompt2StabilizationTests(unittest.TestCase):
 
     def test_anilist_translation_does_not_hold_the_rate_limit_lock(self):
         start = ANILIST.index("def localize_description_to_pt_br")
-        end = ANILIST.index("def search", start) if "def search" in ANILIST[start:] else len(ANILIST)
+        end = ANILIST.index("    @staticmethod\n    def _header", start)
         block = ANILIST[start:end]
         self.assertIn("with self._translation_lock:", block)
         self.assertNotIn("with self._rate_lock:", block)
@@ -130,7 +130,8 @@ class Prompt2StabilizationTests(unittest.TestCase):
     def test_google_sign_in_job_is_cancelled_with_main_activity(self):
         self.assertIn("googleSignInJob?.cancel()", MAIN_ACTIVITY)
         self.assertIn("googleSignInJob = null", MAIN_ACTIVITY)
-        self.assertIn("googleSignInJob = CoroutineScope(Dispatchers.Main).launch", MAIN_ACTIVITY)
+        self.assertIn("val job = CoroutineScope(Dispatchers.Main).launch", MAIN_ACTIVITY)
+        self.assertIn("googleSignInJob = job", MAIN_ACTIVITY)
 
     def test_navigation_controller_behavioral_back_flow(self):
         from core.navigation import NavigationController
@@ -140,6 +141,7 @@ class Prompt2StabilizationTests(unittest.TestCase):
         nav.push("settings")
         nav.push_settings("player")
         self.assertEqual("settings_inner", nav.back())
+        self.assertEqual("previous", nav.back())
         self.assertEqual("previous", nav.back())
         self.assertEqual("prompt_exit", nav.back())
 

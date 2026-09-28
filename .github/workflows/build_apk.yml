@@ -1,4 +1,4 @@
-name: Build ReiFlix Android APK
+name: Build ReiAnix Android APK
 
 on:
   push:
@@ -375,7 +375,7 @@ jobs:
           apk="$(find build -type f -name '*.apk' -print -quit)"
           test -n "$apk"
           test -s "$apk"
-          published="build/ReiFlix.apk"
+          published="build/ReiAnix.apk"
           cp "$apk" "$published"
           test -s "$published"
           echo "path=$published" >> "$GITHUB_OUTPUT"
@@ -383,7 +383,7 @@ jobs:
       - name: Verify packaged Python identity and Back symbols
         shell: bash
         run: |
-          apk="build/ReiFlix.apk"
+          apk="build/ReiAnix.apk"
           test -s build/reiflix-build-identity.json
           python scripts/verify_python_bundle.py "$apk" --identity build/reiflix-build-identity.json
 
@@ -546,7 +546,7 @@ jobs:
           from zipfile import ZIP_DEFLATED, ZipFile
 
           apk = Path("${{ steps.apk.outputs.path }}")
-          archive = Path("build/ReiFlix-apk.zip")
+          archive = Path("build/ReiAnix-apk.zip")
           if not apk.is_file() or apk.stat().st_size == 0:
               raise SystemExit(f"APK not found or empty: {apk}")
 
@@ -554,7 +554,7 @@ jobs:
           # recoverable because the outer ZIP is validated by CRC and SHA-256
           # after writing it.
           with ZipFile(archive, "w", compression=ZIP_DEFLATED, compresslevel=9) as bundle:
-              bundle.write(apk, arcname="ReiFlix.apk")
+              bundle.write(apk, arcname="ReiAnix.apk")
 
           if not archive.is_file() or archive.stat().st_size == 0:
               raise SystemExit("APK ZIP was not created")
@@ -566,21 +566,21 @@ jobs:
 
           with ZipFile(archive, "r") as bundle:
               names = bundle.namelist()
-              if names != ["ReiFlix.apk"]:
+              if names != ["ReiAnix.apk"]:
                   raise SystemExit(f"Unexpected APK ZIP members: {names!r}")
               bad_member = bundle.testzip()
               if bad_member is not None:
                   raise SystemExit(f"APK ZIP CRC validation failed: {bad_member}")
-              info = bundle.getinfo("ReiFlix.apk")
+              info = bundle.getinfo("ReiAnix.apk")
               if info.compress_type != ZIP_DEFLATED:
-                  raise SystemExit("ReiFlix.apk must use DEFLATE compression in the compact outer ZIP")
+                  raise SystemExit("ReiAnix.apk must use DEFLATE compression in the compact outer ZIP")
               if info.file_size != apk.stat().st_size:
                   raise SystemExit(
                       f"APK ZIP size mismatch: archive={info.file_size} source={apk.stat().st_size}"
                   )
 
               actual_sha256 = hashlib.sha256()
-              with bundle.open("ReiFlix.apk", "r") as source:
+              with bundle.open("ReiAnix.apk", "r") as source:
                   for chunk in iter(lambda: source.read(1024 * 1024), b""):
                       actual_sha256.update(chunk)
 
@@ -592,7 +592,7 @@ jobs:
               )
 
           print(f"Validated {archive}")
-          print(f"  member: ReiFlix.apk")
+          print(f"  member: ReiAnix.apk")
           print(f"  size: {apk.stat().st_size} bytes")
           print(f"  SHA-256: {actual}")
           print(f"  compressed ZIP size: {archive.stat().st_size} bytes")
@@ -607,7 +607,7 @@ jobs:
       - name: Upload APK ZIP as direct artifact
         uses: actions/upload-artifact@v7
         with:
-          path: build/ReiFlix-apk.zip
+          path: build/ReiAnix-apk.zip
           archive: false
           if-no-files-found: error
       - name: Upload APK metadata

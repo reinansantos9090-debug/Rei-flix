@@ -146,6 +146,15 @@ class NativePlayerActivity : ComponentActivity() {
     private var localMetadata = PlayerLocalMetadataStore.Metadata.empty()
     private var aspectModeLabel = "Ajustar"
     private var episodeChangePending = false
+    private var episodeChangeTimeoutRequestId = ""
+    private var episodeChangeTimeoutUri = ""
+    private val episodeChangeTimeout = Runnable {
+        if (!episodeChangePending) return@Runnable
+        if (episodeChangeTimeoutRequestId != requestId || episodeChangeTimeoutUri != uri.toString()) return@Runnable
+        episodeChangePending = false
+        showFeedback("Não foi possível mudar de episódio.", 1800L)
+        logPlayer("EPISODE_CHANGE_TIMEOUT requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri)
+    }
     private var retryCount = 0
     internal var firstFrameRenderedForTesting = false
         private set
@@ -527,6 +536,9 @@ class NativePlayerActivity : ComponentActivity() {
         exitReported = false
         suppressExitEvent = false
         errorVisible = false
+        handler.removeCallbacks(episodeChangeTimeout)
+        episodeChangeTimeoutRequestId = ""
+        episodeChangeTimeoutUri = ""
         doubleTapSeekMs = newIntent.getLongExtra("setting_player_double_tap_seek_seconds", doubleTapSeekMs / 1000L)
         longPressSpeed = newIntent.getFloatExtra("setting_player_long_press_speed", longPressSpeed)
             .coerceIn(1f, 3f)
@@ -539,6 +551,7 @@ class NativePlayerActivity : ComponentActivity() {
         preferredAudioLanguage = newIntent.getStringExtra("setting_audio_preferred_language")?.trim().orEmpty()
         preferredSubtitleLanguage = newIntent.getStringExtra("setting_audio_preferred_subtitle_language")?.trim().orEmpty()
         subtitleMode = newIntent.getStringExtra("setting_audio_subtitles") ?: subtitleMode
+        applyImmersiveAfterLayout()
         applyGlobalTrackPreferences()
         applyAdvancedTrackConstraints()
         applySubtitlePreferences()
@@ -2276,6 +2289,9 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         if (!::player.isInitialized || episodeChangePending || errorVisible) return
         if (!completionReported) saveProgress("player_progress", force = true)
         episodeChangePending = true
+        episodeChangeTimeoutRequestId = requestId
+        episodeChangeTimeoutUri = uri.toString()
+        handler.removeCallbacks(episodeChangeTimeout)
         val payload = JSONObject()
             .put("uri", uri.toString())
             .put("requestId", requestId)
@@ -2287,6 +2303,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 .put("requestId", requestId)
                 .put("payload", payload)
         )
+        handler.postDelayed(episodeChangeTimeout, 5_000L)
         logPlayer(eventType + " requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri + " keepActivity=true")
     }
 
@@ -2345,13 +2362,13 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     override fun onStart() {
         super.onStart()
         logPlayer("onStart requestId=" + requestId.ifEmpty { "-" })
-        if (!inPictureInPicture && shouldUseImmersive()) enterImmersiveMode()
+        if (!inPictureInPicture) applyImmersiveAfterLayout()
     }
 
     override fun onResume() {
         super.onResume()
         logPlayer("onResume requestId=" + requestId.ifEmpty { "-" })
-        if (!inPictureInPicture && shouldUseImmersive()) enterImmersiveMode()
+        if (!inPictureInPicture) applyImmersiveAfterLayout()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.refreshZoomForLayout()
         if (::player.isInitialized && !errorVisible) {
             updateProgressUi()
@@ -2381,8 +2398,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         super.onWindowFocusChanged(hasFocus)
         logPlayer("onWindowFocusChanged hasFocus=" + hasFocus +
             " finishing=" + isFinishing + " resumed=" + !isFinishing)
-        if (hasFocus && !inPictureInPicture && shouldUseImmersive()) {
-            window.decorView.post { enterImmersiveMode() }
+        if (hasFocus && !inPictureInPicture) {
+            window.decorView.post { applyImmersiveAfterLayout() }
         }
     }
 
@@ -2486,7 +2503,11 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
      * The legacy preference remains in the intent contract for compatibility;
      * MainActivity keeps the normal visible-bar policy outside the player.
      */
-    private fun shouldUseImmersive(): Boolean = true
+    private fun shouldUseImmersive(): Boolean =
+        resolveImmersivePolicy(
+            intent.getStringExtra("setting_player_immersive"),
+            resources.configuration.orientation,
+        )
 
     private fun applyConfiguredRotation() {
         requestedOrientation = when (intent.getStringExtra("setting_player_rotation") ?: "auto") {
@@ -3617,6 +3638,13 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     private enum class SessionState { ACTIVE, EXITING, DESTROYED }
 
     companion object {
+        internal fun resolveImmersivePolicy(setting: String?, orientation: Int): Boolean =
+            when (setting?.trim()?.lowercase()) {
+                "never" -> false
+                "landscape" -> orientation == Configuration.ORIENTATION_LANDSCAPE
+                else -> true
+            }
+
         private const val PREF_GESTURES_VOLUME = "gesture_volume"
         private const val PREF_GESTURES_BRIGHTNESS = "gesture_brightness"
         private const val PREF_GESTURES_DOUBLE_TAP = "gesture_double_tap"

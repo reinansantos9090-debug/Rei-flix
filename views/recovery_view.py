@@ -115,6 +115,15 @@ class RecoveryView:
                             page.update()
                         except Exception:
                             logger.debug("recovery UI update skipped", exc_info=True)
+                def cancel_restore(_event):
+                    page.pop_dialog()
+                    operation_busy["value"] = False
+                    notice("Restore cancelado.")
+                    try:
+                        page.update()
+                    except Exception:
+                        logger.debug("recovery UI update skipped", exc_info=True)
+
                 page.show_dialog(ft.AlertDialog(
                     modal=True,
                     title=ft.Text("Restaurar backup em Recovery Mode?"),
@@ -128,7 +137,7 @@ class RecoveryView:
                         size=11,
                     ),
                     actions=[
-                        ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
+                        ft.TextButton("Cancelar", on_click=cancel_restore),
                         ft.FilledButton("Restaurar", on_click=confirm),
                     ],
                 ))

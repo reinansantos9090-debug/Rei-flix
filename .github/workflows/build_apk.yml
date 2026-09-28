@@ -478,7 +478,7 @@ jobs:
           import time
           from pathlib import Path
 
-          wrapper = Path("./gradlew")
+          wrapper = Path("./gradlew").resolve()
           tasks = subprocess.run(
               [str(wrapper), "tasks", "--all"],
               text=True,

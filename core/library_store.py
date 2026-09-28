@@ -10,6 +10,7 @@ import sqlite3
 import tempfile
 import time
 import zipfile
+from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from core.consumption import consumption_state, is_completed, is_in_progress, is_regular_episode

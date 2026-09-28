@@ -264,6 +264,8 @@ class DetailView:
                         if on_set_personal_note
                         else field.value
                     )
+                    if callable(is_active) and not is_active():
+                        return
                     note_text[0] = value or ""
                     anime_group["personal_note"] = note_text[0]
                     render_note()
@@ -313,6 +315,8 @@ class DetailView:
                     if on_set_user_tags
                     else tags
                 )
+                if callable(is_active) and not is_active():
+                    return
                 anime_group["user_tags"] = personal_tags
                 render_tags()
                 page.snack_bar = ft.SnackBar(ft.Text("Etiqueta salva."))
@@ -486,6 +490,8 @@ class DetailView:
                         episode_type=kind.value,
                         title=title_field.value,
                     )
+                    if callable(is_active) and not is_active():
+                        return
                     dismiss_dialog(page, dialog)
                     if on_identification_saved:
                         result = on_identification_saved()

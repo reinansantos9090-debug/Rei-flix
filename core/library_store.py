@@ -18,7 +18,7 @@ from core.search_engine import normalize_text
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 29
+    SCHEMA_VERSION = 30
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -1132,6 +1132,10 @@ class LibraryStore:
         with self._conn() as c:
             row = c.execute("SELECT * FROM anime WHERE lookup_title=?", (lookup,)).fetchone()
             if row:
+                if source != "anilist" and "description_original" not in metadata:
+                    values["description_original"] = row["description_original"]
+                elif source == "anilist" and not values.get("description_original"):
+                    values["description_original"] = row["description_original"]
                 try:
                     manual_fields = set(json.loads(row["metadata_manual_fields"] or "[]"))
                 except (TypeError, json.JSONDecodeError):

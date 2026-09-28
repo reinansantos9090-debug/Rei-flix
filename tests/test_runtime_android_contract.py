@@ -248,7 +248,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         ):
             self.assertIn(token, main)
         self.assertIn("applyApplicationSystemUi()", main)
-        self.assertIn("systemUiController.applyNormal(useContextAppearance = false)", main)
+        self.assertIn("systemUiController.applyApplicationImmersivePolicy(useContextAppearance = false)", main)
         exit_start = player.index("private fun restoreSystemUiBeforeExit")
         exit_end = player.index("private fun applyImmersiveAfterLayout", exit_start)
         self.assertIn("systemUiController.applyNormal(useContextAppearance = false)", player[exit_start:exit_end])

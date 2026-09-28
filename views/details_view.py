@@ -121,13 +121,17 @@ class DetailView:
         poster = media_artwork(cover, 198, width=132, icon_size=38)
 
         backdrop = None
+        backdrop_path = str(metadata.get("banner_url") or "").strip() or None
         if resolve_artwork:
             resolved_backdrop = resolve_artwork(artwork_entity, anime_group["id"], "backdrop", allow_network=False)
             if resolved_backdrop:
-                backdrop_path = resolved_backdrop.get("local_path") or resolved_backdrop.get("external_url")
-                if backdrop_path:
-                    backdrop = ft.Container(content=media_artwork(backdrop_path, 150, width=None, icon_size=30),
-                                            height=150, border_radius=RADIUS)
+                backdrop_path = resolved_backdrop.get("local_path") or resolved_backdrop.get("external_url") or backdrop_path
+        if backdrop_path:
+            backdrop = ft.Container(
+                content=media_artwork(backdrop_path, 150, width=None, icon_size=30),
+                height=150,
+                border_radius=RADIUS,
+            )
 
         contextual_accent = [theme.primary]
         contextual_on_accent = [theme.text_on_accent]

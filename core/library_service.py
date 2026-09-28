@@ -19,6 +19,7 @@ from core.search_engine import LibrarySearchEngine, normalize_text
 from core.genre_classifier import GenreClassifier
 from core.genre_registry import GenreRegistry
 from core.library_discovery import duration_anomalies, format_duration, marathon_plan, timeline_groups
+from core.collector_journey import build_collector_journey, set_active_title
 
 logger = logging.getLogger(__name__)
 
@@ -1047,6 +1048,37 @@ class LibraryService:
 
     def restore_backup(self, backup_path=None): return self.store.restore_backup(backup_path)
 
+
+    def collector_journey(self):
+        """Rebuild the local Collector Journey from canonical SQLite state."""
+        active_title = self.store.get_preference("collector.active_title")
+        journey = build_collector_journey(
+            self.store.collector_snapshot(),
+            active_title=active_title,
+        )
+        if active_title != journey.get("active_title"):
+            if journey.get("active_title"):
+                self.store.set_preference("collector.active_title", journey["active_title"])
+            else:
+                self.store.remove_preference("collector.active_title")
+        return journey
+
+    def set_collector_active_title(self, title_id):
+        """Persist only the user's selected unlocked title in the existing preferences table."""
+        journey = self.collector_journey()
+        normalized = set_active_title(journey, str(title_id or ""))
+        if normalized is None:
+            raise ValueError("Título do colecionador indisponível.")
+        self.store.set_preference("collector.active_title", normalized)
+        journey["active_title"] = normalized
+        journey["active_title_label"] = next(
+            item["title"] for item in journey["titles"] if item["id"] == normalized
+        )
+        return journey
+
+    def clear_collector_active_title(self):
+        self.store.remove_preference("collector.active_title")
+        return self.collector_journey()
 
     def gacha_pick(self, *, filters=None, exclude_id=None, episode=False):
         """Draw from the existing local catalog; never changes consumption state."""

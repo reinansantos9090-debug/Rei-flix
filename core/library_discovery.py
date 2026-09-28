@@ -150,7 +150,8 @@ def duration_anomalies(rows: Iterable[Mapping]) -> dict:
             relative_delta = abs(value - med) / med if med > 0 else 0.0
             outside_fence = value < lower or value > upper
             fallback_outlier = iqr == 0 and relative_delta >= 0.50
-            if (outside_fence or fallback_outlier) and relative_delta >= minimum_relative_delta:
+            robust_relative_outlier = relative_delta >= 0.50
+            if (outside_fence or fallback_outlier or robust_relative_outlier) and relative_delta >= minimum_relative_delta:
                 anomalies.append({
                     **item,
                     "relative_delta": relative_delta,

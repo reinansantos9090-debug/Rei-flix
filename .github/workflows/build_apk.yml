@@ -460,7 +460,7 @@ jobs:
           rm -f .reiflix-build-identity.json build/flet-version.txt
           test "$(git status --porcelain -- core/build_identity.py .reiflix-build-identity.json build-flet-version.txt)" = ""
 
-      - name: Run Android unit tests on rendered project
+      - name: Run Android unit tests and lint on rendered project
         shell: bash
         run: |
           test -f build/flutter/android/gradlew
@@ -468,10 +468,83 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
           export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
           test -d "$SERIOUS_PYTHON_SITE_PACKAGES"
-          (
-            cd build/flutter/android
-            ./gradlew :app:testDebugUnitTest
+          cd build/flutter/android
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import time
+          from pathlib import Path
+
+          wrapper = Path("./gradlew")
+          tasks = subprocess.run(
+              [str(wrapper), "tasks", "--all"],
+              text=True,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.STDOUT,
+              check=False,
           )
+          output = tasks.stdout or ""
+          if tasks.returncode != 0:
+              print(output, end="")
+              raise SystemExit(tasks.returncode)
+
+          task_names = {
+              ":" + value
+              for value in re.findall(
+                  r"^:?((?:app):[A-Za-z0-9_]*lint[A-Za-z0-9_]*)s+-",
+                  output,
+                  flags=re.MULTILINE,
+              )
+          }
+          preferred = (
+              ":app:lintReportDebug",
+              ":app:lintReportRelease",
+              ":app:lintVitalReportRelease",
+              ":app:lintFixDebug",
+              ":app:lintAnalyzeRelease",
+          )
+          lint_task = next((name for name in preferred if name in task_names), None)
+          if lint_task is None:
+              lint_task = next(
+                  (name for name in sorted(task_names) if name.lower().startswith(":app:lint")),
+                  None,
+              )
+          if lint_task is None:
+              print(output, end="")
+              raise SystemExit("No app lint task discovered from the available Gradle tasks.")
+
+          command = [str(wrapper), ":app:testDebugUnitTest", lint_task]
+          started = time.monotonic()
+          process = subprocess.run(
+              command,
+              text=True,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.STDOUT,
+              check=False,
+          )
+          combined_output = process.stdout or ""
+          print(combined_output, end="")
+          evidence = {
+              "status": "PASS" if process.returncode == 0 else "FAIL",
+              "exit_code": process.returncode,
+              "duration_s": time.monotonic() - started,
+              "command": " ".join(command),
+              "stdout": combined_output,
+              "stderr": "",
+              "commit_sha": os.environ["GITHUB_SHA"],
+              "lint_task": lint_task,
+              "lint_discovery_stdout": output,
+          }
+          Path("$GITHUB_WORKSPACE/build/gradle-validation.json").write_text(
+              json.dumps(evidence, indent=2, ensure_ascii=False),
+              encoding="utf-8",
+          )
+          if process.returncode != 0:
+              raise SystemExit(process.returncode)
+          PY
 
       - name: Locate APK
         id: apk
@@ -595,7 +668,8 @@ jobs:
             --matrix build/release-certification-matrix.json \
             --prevalidated-compileall \
             --prevalidated-gradle \
-            --prevalidated-python-evidence build/python-test-evidence.json
+            --prevalidated-python-evidence build/python-test-evidence.json \
+            --prevalidated-gradle-lint-evidence build/gradle-validation.json
 
       - name: Upload release certification evidence
         if: always() && hashFiles('build/release-certification.json', 'build/release-certification.md', 'build/release-certification-matrix.json') != ''

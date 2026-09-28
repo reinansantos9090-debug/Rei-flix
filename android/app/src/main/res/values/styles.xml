@@ -1,6 +1,6 @@
 <resources>
   <!-- ReiAnix application surfaces are edge-to-edge and immersive; SystemUiController reapplies the policy after lifecycle/focus boundaries. -->
-  <style name="ReiFlixTheme" parent="android:style/Theme.Material.NoActionBar">
+  <style name="ReiAnixTheme" parent="android:style/Theme.Material.NoActionBar">
     <item name="android:fontFamily">sans</item>
     <item name="android:windowActionModeOverlay">true</item>
     <item name="android:windowNoTitle">true</item>
@@ -12,7 +12,7 @@
   </style>
 
   <!-- Native Media3 player system bars are controlled exclusively by SystemUiController. -->
-  <style name="ReiFlixPlayerTheme" parent="android:style/Theme.Material.NoActionBar">
+  <style name="ReiAnixPlayerTheme" parent="android:style/Theme.Material.NoActionBar">
     <item name="android:fontFamily">sans</item>
     <item name="android:windowActionModeOverlay">true</item>
     <item name="android:windowNoTitle">true</item>

@@ -1,7 +1,6 @@
 """Contextual artwork palette extraction for local, cached presentation only."""
 from __future__ import annotations
 
-import math
 from colorsys import hls_to_rgb, rgb_to_hls
 from pathlib import Path
 
@@ -36,11 +35,12 @@ def _rgb(color) -> tuple[int, int, int]:
     return tuple(max(0, min(255, int(value))) for value in color[:3])
 
 
-def _candidate_colors(image: Image.Image) -> list[tuple[tuple[int, int, int], int]]:
+def _candidate_colors(image: Image.Image, mode: str) -> list[tuple[tuple[int, int, int], int]]:
     image = ImageOps.exif_transpose(image)
     if image.mode in {"RGBA", "LA"} or "transparency" in image.info:
         rgba = image.convert("RGBA")
-        background = Image.new("RGBA", rgba.size, (24, 24, 30, 255))
+        base = (247, 247, 250, 255) if mode == "light" else (24, 24, 30, 255)
+        background = Image.new("RGBA", rgba.size, base)
         image = Image.alpha_composite(background, rgba).convert("RGB")
     else:
         image = image.convert("RGB")
@@ -100,7 +100,7 @@ def extract_palette(path: str | Path, mode: str = "dark") -> dict | None:
     mode = "light" if str(mode).casefold() == "light" else "dark"
     try:
         with Image.open(path) as image:
-            colors = _candidate_colors(image)
+            colors = _candidate_colors(image, mode)
     except Exception:
         return None
     if not colors:

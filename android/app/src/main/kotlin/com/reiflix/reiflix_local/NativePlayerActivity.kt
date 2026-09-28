@@ -535,6 +535,7 @@ class NativePlayerActivity : ComponentActivity() {
         exitReported = false
         suppressExitEvent = false
         errorVisible = false
+        autoplayNext = newIntent.getBooleanExtra("autoplay", autoplayNext)
         handler.removeCallbacks(episodeChangeTimeout)
         episodeChangeTimeoutRequestId = ""
         episodeChangeTimeoutUri = ""

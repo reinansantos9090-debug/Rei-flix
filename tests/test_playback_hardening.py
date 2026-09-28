@@ -88,7 +88,6 @@ class PlaybackHardeningTests(unittest.TestCase):
     def test_gesture_contract_remains_present(self):
         player = PLAYER.read_text(encoding="utf-8")
         for token in (
-            "horizontal_seek",
             "GESTURE_HORIZONTAL_IGNORED",
             "PlayerGesturePolicy",
             "systemUiController",

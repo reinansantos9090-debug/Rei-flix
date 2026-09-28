@@ -179,15 +179,24 @@ class LibraryService:
     def _ensure_cached_description_pt_br(self, lookup_title, cached):
         if not cached:
             return cached
-        description = str(cached.get("description") or "").strip()
-        if not description:
+        # Only AniList-owned descriptions are eligible for automatic localization.
+        # Manual/local descriptions must remain exactly as the user supplied them.
+        if str(cached.get("metadata_source") or "").casefold() != "anilist":
             return cached
-        localized = self.anilist.localize_description_to_pt_br(description)
-        if localized == description:
+        description = str(cached.get("description") or "").strip()
+        original = str(cached.get("description_original") or "").strip()
+        source_text = original or description
+        if not source_text:
+            return cached
+        localized = self.anilist.localize_description_to_pt_br(source_text)
+        if localized == description and original:
             return cached
         self.store.upsert_anime(
             lookup_title,
-            {"description": localized},
+            {
+                "description": localized,
+                "description_original": source_text,
+            },
             source="anilist",
             confidence=cached.get("metadata_confidence") or "medium",
             status=cached.get("metadata_status") or "available",

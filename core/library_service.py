@@ -176,11 +176,31 @@ class LibraryService:
             stale = True
         return "stale" if stale else "available"
 
+    def _ensure_cached_description_pt_br(self, lookup_title, cached):
+        if not cached:
+            return cached
+        description = str(cached.get("description") or "").strip()
+        if not description:
+            return cached
+        localized = self.anilist.localize_description_to_pt_br(description)
+        if localized == description:
+            return cached
+        self.store.upsert_anime(
+            lookup_title,
+            {"description": localized},
+            source="anilist",
+            confidence=cached.get("metadata_confidence") or "medium",
+            status=cached.get("metadata_status") or "available",
+        )
+        return self.store.anime_metadata(lookup_title) or cached
+
     def refresh_metadata(self, lookup_title, display_title, *, force=False, bypass_request_dedupe=False, match_context=None):
         """Resolve AniList metadata explicitly, conservatively and offline-safe."""
         with self._metadata_lock:
             anilist_enabled = bool(self._setting("metadata.anilist_enabled", True))
             cached = self.store.anime_metadata(lookup_title)
+            if cached and anilist_enabled:
+                cached = self._ensure_cached_description_pt_br(lookup_title, cached)
             if not anilist_enabled:
                 return cached or {
                     "title": display_title,
@@ -206,7 +226,7 @@ class LibraryService:
                 if refresh_id:
                     media = self.anilist.by_id(refresh_id)
                     if media:
-                        refreshed = self.anilist.metadata_from_media(display_title, media)
+                        refreshed = self.anilist.metadata_from_media(display_title, media, localize_description=True)
                         refreshed["anilist_id"] = refresh_id
                         self.store.upsert_anime(lookup_title, refreshed, source="anilist", confidence="high", status="available", fetched_at=time.time())
                         row = self.store.anime_metadata(lookup_title)
@@ -258,7 +278,7 @@ class LibraryService:
                     score = float(selected.get("match_score") or 0.0)
                     second = float(ranked[1].get("match_score") or 0.0) if len(ranked) > 1 else 0.0
                     margin = round(score - second, 3)
-                    refreshed = self.anilist.metadata_from_media(display_title, selected)
+                    refreshed = self.anilist.metadata_from_media(display_title, selected, localize_description=True)
                     refreshed["anilist_id"] = selected["id"]
                     confidence = "high" if score >= 0.9 else "medium"
                     self.store.upsert_anime(
@@ -366,6 +386,8 @@ class LibraryService:
             if not lookup_title or not display_title: continue
 
             cached = self.store.anime_metadata(lookup_title) or metadata
+            if cached and anilist_id:
+                cached = self._ensure_cached_description_pt_br(lookup_title, cached)
             status = str(cached.get('metadata_status') or 'unresolved').casefold()
             anilist_id = self.store.association(lookup_title) or cached.get('anilist_id')
             if status == 'manual' and not anilist_id:
@@ -1008,7 +1030,7 @@ class LibraryService:
         media = self.anilist.by_id(anilist_id)
         if not media or media.get("id") != anilist_id:
             raise ValueError("O anime escolhido não está disponível no AniList.")
-        metadata = self.anilist.metadata_from_media(display_title, media)
+        metadata = self.anilist.metadata_from_media(display_title, media, localize_description=True)
         metadata["anilist_id"] = anilist_id
         self.store.upsert_anime(
             lookup_title,

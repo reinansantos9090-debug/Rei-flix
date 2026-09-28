@@ -1839,9 +1839,9 @@ class NativePlayerActivity : ComponentActivity() {
         .put("prepareLatencyMs", metricDelta(preflightCompletedAtMs, prepareDispatchedAtMs))
         .put("firstFrameLatencyMs", metricDelta(prepareDispatchedAtMs, atMs))
         .put("totalOpenToFirstFrameMs", metricDelta(commandCreatedAtMs, atMs))
-        .put("assist_to_activity_ms", metricDelta(commandReceivedAtMs, activityStartedAtMs))
+        .put("assist_to_activity_ms", metricDelta(commandCreatedAtMs, activityStartedAtMs))
         .put("activity_to_player_ms", metricDelta(activityStartedAtMs, prepareDispatchedAtMs))
-        .put("player_prepare_ms", metricDelta(prepareDispatchedAtMs, atMs))
+        .put("player_prepare_ms", metricDelta(preflightCompletedAtMs, prepareDispatchedAtMs))
         .put("first_frame_ms", metricDelta(prepareDispatchedAtMs, atMs))
 
     private fun diagnosticPayload(): JSONObject = JSONObject()

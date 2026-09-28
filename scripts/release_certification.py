@@ -423,7 +423,7 @@ def make_row(root,item,results,apk,collection):
     return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":py.command+" ; "+un.command,"Execution status":"YES" if py.status==PASS and un.status in (PASS,FAIL) else "NO","Result":PARTIAL,"Evidence":"Shared regression suite evidence only; no requirement-specific assertion was registered for this row. "+json.dumps(evidence,ensure_ascii=False),"Limitation":"A requirement-specific test/static contract is required before this row can be PASS."}
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/release-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/release-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/release-certification-matrix.json")); ap.add_argument("--gradle-root",type=Path); ap.add_argument("--apk",type=Path); ap.add_argument("--aapt2",type=Path); ap.add_argument("--skip-gradle",action="store_true"); ap.add_argument("--prevalidated-compileall",action="store_true"); ap.add_argument("--prevalidated-gradle",action="store_true"); ap.add_argument("--prevalidated-python-evidence",type=Path); a=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/release-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/release-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/release-certification-matrix.json")); ap.add_argument("--gradle-root",type=Path); ap.add_argument("--apk",type=Path); ap.add_argument("--aapt2",type=Path); ap.add_argument("--skip-gradle",action="store_true"); ap.add_argument("--prevalidated-compileall",action="store_true"); ap.add_argument("--prevalidated-gradle",action="store_true"); ap.add_argument("--prevalidated-python-evidence",type=Path); ap.add_argument("--prevalidated-gradle-lint-evidence",type=Path); a=ap.parse_args()
     root=a.root.resolve(); a.output.parent.mkdir(parents=True,exist_ok=True); a.report.parent.mkdir(parents=True,exist_ok=True); a.matrix.parent.mkdir(parents=True,exist_ok=True)
     py=sys.executable; r={}
     r["compileall"]=Result("Python","compileall",PASS,"Exact `python -m compileall .` completed successfully in the preceding blocking workflow step.",command="python -m compileall .") if a.prevalidated_compileall else run_command("Python","compileall",[py,"-m","compileall","."],cwd=root,timeout=900)
@@ -446,8 +446,13 @@ def main():
             r["gradle_env"]=configure_rendered_gradle_environment(root)
             r["gradle_unit"]=Result("Android","Gradle unit tests",PASS,"Rendered-project Gradle unit tests completed successfully in the preceding blocking workflow step.",command=str(gw)+" :app:testDebugUnitTest --no-daemon") if a.prevalidated_gradle else run_command("Android","Gradle unit tests",[str(gw),":app:testDebugUnitTest","--no-daemon"],cwd=gr,timeout=1800)
             if r["gradle_env"].status==PASS:
-                r["lint_discovery"],lint_task=discover_lint_task(gw,gr)
-                r["lint"]=run_lint_task(gw,gr,lint_task) if lint_task else Result("Android","Gradle lint",r["lint_discovery"].status,r["lint_discovery"].evidence,command=r["lint_discovery"].command)
+                if a.prevalidated_gradle_lint_evidence:
+                    lint_path=a.prevalidated_gradle_lint_evidence.resolve()
+                    r["lint_discovery"]=load_prevalidated_result(lint_path, "Android", "Gradle lint discovery")
+                    r["lint"]=load_prevalidated_result(lint_path, "Android", "Gradle lint")
+                else:
+                    r["lint_discovery"],lint_task=discover_lint_task(gw,gr)
+                    r["lint"]=run_lint_task(gw,gr,lint_task) if lint_task else Result("Android","Gradle lint",r["lint_discovery"].status,r["lint_discovery"].evidence,command=r["lint_discovery"].command)
             else:
                 r["lint_discovery"]=r["gradle_env"]
                 r["lint"]=r["gradle_env"]

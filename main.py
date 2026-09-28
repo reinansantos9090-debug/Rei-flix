@@ -27,6 +27,7 @@ from views.home_view import HomeView
 from views.details_view import DetailView
 from views.organize_view import OrganizeView
 from views.settings_view import SettingsView
+from views.collector_view import CollectorView
 
 logger = logging.getLogger("reiflix")
 
@@ -353,6 +354,7 @@ async def main(page: ft.Page):
             "home": "/",
             "organize": "/organize",
             "details": "/details",
+            "collector": "/collector",
             "settings": "/settings",
         }.get(screen, "/" + str(screen))
 
@@ -388,7 +390,7 @@ async def main(page: ft.Page):
         return result
 
     def _build_screen(route, *, force=False, settings_path_override=None):
-        cache_key = route if settings_path_override is None else None
+        cache_key = None if route == "collector" else (route if settings_path_override is None else None)
         if force and cache_key is not None:
             screen_cache.pop(cache_key, None)
         control = screen_cache.get(cache_key) if cache_key is not None else None
@@ -419,6 +421,10 @@ async def main(page: ft.Page):
                 _set_episode_identification_from_details, refresh_current_details,
                 refresh_current_metadata, library.resolve_artwork, library.resolve_artwork_batch,
                 on_open_marathon=open_marathon,
+            )
+        elif route == "collector":
+            control = CollectorView.build(
+                page, library, lambda: navigate_back("visual:collector"),
             )
         elif route == "settings":
             fixed_settings_path = (
@@ -546,6 +552,10 @@ async def main(page: ft.Page):
 
     def navigate_organize():
         navigation.push("organize")
+        render_current()
+        persist_navigation_state()
+    def navigate_collector():
+        navigation.push("collector")
         render_current()
         persist_navigation_state()
     async def start_native_player(path, title, position_ms=0):

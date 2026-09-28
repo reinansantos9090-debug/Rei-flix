@@ -99,6 +99,34 @@ class CertificationRunnerTests(unittest.TestCase):
             self.assertEqual(row["Result"],"PASS")
             self.assertIn("singleTask",row["Evidence"])
 
+    def test_prevalidated_result_requires_real_evidence_file_and_preserves_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence = root / "pytest.json"
+            evidence.write_text(json.dumps({
+                "status": "PASS",
+                "exit_code": 0,
+                "duration_s": 12.5,
+                "command": "python -m pytest -q",
+                "stdout": "1013 passed in 12.50s\\n",
+                "stderr": "",
+            }), encoding="utf-8")
+            result = runner.load_prevalidated_result(evidence, "Python", "pytest")
+            self.assertEqual(result.status, "PASS")
+            self.assertEqual(result.exit_code, 0)
+            self.assertEqual(result.duration_s, 12.5)
+            self.assertIn("1013 passed", result.stdout)
+
+    def test_prevalidated_result_missing_or_invalid_evidence_is_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            missing = runner.load_prevalidated_result(root / "missing.json", "Python", "pytest")
+            self.assertEqual(missing.status, "FAIL")
+            invalid = root / "invalid.json"
+            invalid.write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
+            loaded = runner.load_prevalidated_result(invalid, "Python", "pytest")
+            self.assertEqual(loaded.status, "PASS")
+
     def test_unittest_discovery_command_targets_tests_directory(self):
         source=SCRIPT.read_text(encoding="utf-8")
         self.assertIn('"unittest","discover","-s","tests","-v"',source)

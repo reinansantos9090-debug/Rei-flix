@@ -386,10 +386,10 @@ class LibraryService:
             if not lookup_title or not display_title: continue
 
             cached = self.store.anime_metadata(lookup_title) or metadata
+            anilist_id = self.store.association(lookup_title) or cached.get('anilist_id')
             if cached and anilist_id:
                 cached = self._ensure_cached_description_pt_br(lookup_title, cached)
             status = str(cached.get('metadata_status') or 'unresolved').casefold()
-            anilist_id = self.store.association(lookup_title) or cached.get('anilist_id')
             if status == 'manual' and not anilist_id:
                 continue
             cover_cache = str(cached.get('cover_cache') or '').strip()

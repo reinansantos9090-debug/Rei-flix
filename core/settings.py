@@ -1,4 +1,4 @@
-"""Single-source settings facade for Rei-Flix.
+"""Single-source settings facade for ReiAnix.
 
 Preferences are persisted by the existing LibraryStore.preferences table.  This
 module adds schema/default/validation semantics without introducing another

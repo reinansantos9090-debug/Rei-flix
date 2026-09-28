@@ -93,7 +93,7 @@ class RuntimeRegressionTests(unittest.TestCase):
     def test_native_host_keeps_edge_to_edge_without_forcing_mainactivity_bar_colors(self):
         activity = self.read(MAIN_ACTIVITY)
         styles = self.read(STYLES)
-        self.assertIn("systemUiController.applyNormal(useContextAppearance = false)", activity)
+        self.assertIn("systemUiController.applyApplicationImmersivePolicy(useContextAppearance = false)", activity)
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", self.read(ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SystemUiController.kt"))
         self.assertIn('<item name="android:windowBackground">#16151F</item>', styles)
 

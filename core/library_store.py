@@ -2187,6 +2187,100 @@ class LibraryStore:
                 if text_value: tags[text_value.casefold()] = text_value
         return {"genres": [], "tags": sorted(tags.values(), key=str.casefold), "seasons": seasons, "episode_types": episode_types, "source_kinds": source_kinds, "media_types": ["Série/Anime", "Filme", "Especial", "Episódio"], "availability": ["Disponível", "Com missing", "Sem missing"], "metadata": ["Disponível", "Ausente"], "artwork": ["Disponível", "Ausente"], "states": ["Todos", "Favoritos", "Fixados", "Assistidos", "Não assistidos", "Em andamento", "Concluídos", "Não iniciados", "Com nota", "Sem nota", "Sem metadata", "Sem capa"], "sorts": ["Mais recentes", "Assistidos recentemente", "Progresso", "Episódio", "Temporada + episódio", "Modificação", "Duração", "Tamanho", "Favoritos primeiro", "Fixados primeiro", "Nome A-Z", "Nome Z-A"]}
 
+    def random_catalog_item(self, *, exclude_id=None, **filters):
+        """Select one existing library item without materializing the whole catalog."""
+        import random
+
+        page = self.catalog_page(page=0, page_size=1, **filters)
+        total = int(page.get("total") or 0)
+        if total <= 0:
+            return None
+
+        attempts = 4 if total > 1 else 1
+        for _ in range(attempts):
+            offset = random.SystemRandom().randrange(total)
+            candidate = self.catalog_page(page=offset, page_size=1, **filters)
+            item = (candidate.get("items") or [None])[0]
+            if not item:
+                continue
+            if exclude_id is None or int(item.get("id") or -1) != int(exclude_id):
+                return item
+
+        if exclude_id is not None and total > 1:
+            # Deterministic fallback avoids an immediate repeat even if a random
+            # offset lands on the excluded item several times.
+            first = self.catalog_page(page=0, page_size=min(2, total), **filters).get("items") or []
+            for item in first:
+                if int(item.get("id") or -1) != int(exclude_id):
+                    return item
+        return (page.get("items") or [None])[0]
+
+    def timeline_items(self):
+        """Return the minimal local metadata needed to build a release timeline."""
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT a.id, a.title, a.year, a.season, a.status, a.media_kind,
+                       a.cover_cache, a.cover_url, a.added_at
+                FROM anime a
+                WHERE EXISTS (SELECT 1 FROM episodes e WHERE e.anime_id=a.id)
+                ORDER BY
+                    CASE WHEN a.year IS NULL THEN 1 ELSE 0 END,
+                    a.year DESC,
+                    a.title COLLATE NOCASE ASC,
+                    a.id ASC
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def duration_observations(self, *, anime_id=None):
+        """Return only persisted episode duration fields required by the anomaly detector."""
+        where = [
+            "e.missing=0",
+            "LOWER(COALESCE(e.episode_type,'regular')) NOT IN ('special','ova','oad','ona','extra','movie')",
+        ]
+        params = []
+        if anime_id is not None:
+            where.append("e.anime_id=?")
+            params.append(int(anime_id))
+        where_sql = " AND ".join(where)
+        with self._conn() as c:
+            rows = c.execute(
+                f"""
+                SELECT e.id, e.anime_id, e.season, e.number, e.absolute_number,
+                       e.file_name, e.episode_title, e.duration,
+                       a.title AS anime_title
+                FROM episodes e
+                JOIN anime a ON a.id=e.anime_id
+                WHERE {where_sql}
+                ORDER BY e.anime_id, e.season, e.number, e.absolute_number, e.id
+                """,
+                tuple(params),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def marathon_episodes(self, anime_id):
+        """Return the existing regular local episodes for one anime only."""
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT id, anime_id, path, file_name, season, number,
+                       absolute_number, duration, progress, watched,
+                       missing, episode_type, episode_title
+                FROM episodes
+                WHERE anime_id=? AND missing=0
+                  AND LOWER(COALESCE(episode_type,'regular')) NOT IN
+                      ('special','ova','oad','ona','extra','movie')
+                ORDER BY
+                    COALESCE(season,1000000),
+                    COALESCE(number,1000000),
+                    COALESCE(absolute_number,1000000),
+                    id
+                """,
+                (int(anime_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def home_sections(self, limit=12):
         """Build bounded Home sections without materializing the full catalog."""
         page_limit = min(24, max(1, int(limit)))

@@ -1066,6 +1066,7 @@ async def main(page: ft.Page):
     thumbnail_requests = set()
     thumbnail_request_started_at = {}
     thumbnail_latest_key_by_uri = {}
+    thumbnail_latest_at = {}
 
     def _prune_thumbnail_requests():
         now = time.monotonic()
@@ -1076,6 +1077,12 @@ async def main(page: ft.Page):
                 uri = key[0]
                 if thumbnail_latest_key_by_uri.get(uri) == key:
                     thumbnail_latest_key_by_uri.pop(uri, None)
+                    thumbnail_latest_at.pop(uri, None)
+        if len(thumbnail_latest_at) > 1024:
+            oldest = sorted(thumbnail_latest_at.items(), key=lambda item: item[1])[:256]
+            for uri, _ in oldest:
+                thumbnail_latest_at.pop(uri, None)
+                thumbnail_latest_key_by_uri.pop(uri, None)
 
     def request_missing_thumbnail(item):
         if not bridge.available or not isinstance(item, dict):
@@ -1088,7 +1095,12 @@ async def main(page: ft.Page):
         key = (path_ref, int(episode.get("file_size") or 0), int(episode.get("modified_at") or 0))
         if key in thumbnail_requests:
             return
+        existing_latest = thumbnail_latest_key_by_uri.get(path_ref)
+        if existing_latest is not None and existing_latest in thumbnail_requests and existing_latest != key:
+            # A newer generation is already in flight for this URI.
+            return
         thumbnail_latest_key_by_uri[path_ref] = key
+        thumbnail_latest_at[path_ref] = time.monotonic()
         try:
             resolved = library.resolve_artwork("episode", episode.get("id"), "episode_thumbnail", allow_network=False)
         except Exception:
@@ -1107,6 +1119,7 @@ async def main(page: ft.Page):
                 thumbnail_request_started_at.pop(key, None)
                 if thumbnail_latest_key_by_uri.get(path_ref) == key:
                     thumbnail_latest_key_by_uri.pop(path_ref, None)
+                    thumbnail_latest_at.pop(path_ref, None)
                 logger.debug("[ARTWORK] native thumbnail request failed: %s", exc)
         page.run_task(run)
 
@@ -1866,6 +1879,7 @@ async def main(page: ft.Page):
                                 )
                                 thumbnail_requests.discard(thumbnail_key)
                                 thumbnail_request_started_at.pop(thumbnail_key, None)
+                                thumbnail_latest_at[uri] = time.monotonic()
                                 if registered:
                                     if navigation.current in {'home', 'organize'}:
                                         on_catalog_changed()
@@ -1892,6 +1906,7 @@ async def main(page: ft.Page):
                             thumbnail_request_started_at.pop(thumbnail_key, None)
                             if latest_key == thumbnail_key:
                                 thumbnail_latest_key_by_uri.pop(uri, None)
+                                thumbnail_latest_at.pop(uri, None)
                             diagnostics.record(
                                 "THUMBNAIL_ERROR",
                                 request_id=request_id,

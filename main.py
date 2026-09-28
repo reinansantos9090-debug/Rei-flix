@@ -1100,9 +1100,13 @@ async def main(page: ft.Page):
         if key in thumbnail_requests:
             return
         existing_latest = thumbnail_latest_key_by_uri.get(path_ref)
-        if existing_latest is not None and existing_latest in thumbnail_requests and existing_latest != key:
-            # A newer generation is already in flight for this URI.
-            return
+        if existing_latest is not None and existing_latest != key:
+            # A newer media generation supersedes the previous request immediately.
+            # The older native request may still finish later, but its callback will
+            # be rejected by the latest-generation check. Do not block the newer
+            # request merely because the older generation is still in flight.
+            thumbnail_requests.discard(existing_latest)
+            thumbnail_request_started_at.pop(existing_latest, None)
         thumbnail_latest_key_by_uri[path_ref] = key
         thumbnail_latest_at[path_ref] = time.monotonic()
         try:

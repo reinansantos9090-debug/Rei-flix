@@ -551,6 +551,7 @@ class NativePlayerActivity : ComponentActivity() {
         preferredAudioLanguage = newIntent.getStringExtra("setting_audio_preferred_language")?.trim().orEmpty()
         preferredSubtitleLanguage = newIntent.getStringExtra("setting_audio_preferred_subtitle_language")?.trim().orEmpty()
         subtitleMode = newIntent.getStringExtra("setting_audio_subtitles") ?: subtitleMode
+        immersiveSetting = newIntent.getStringExtra("setting_player_immersive") ?: immersiveSetting
         applyImmersiveAfterLayout()
         applyGlobalTrackPreferences()
         applyAdvancedTrackConstraints()
@@ -2505,7 +2506,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
      */
     private fun shouldUseImmersive(): Boolean =
         resolveImmersivePolicy(
-            intent.getStringExtra("setting_player_immersive"),
+            immersiveSetting,
             resources.configuration.orientation,
         )
 

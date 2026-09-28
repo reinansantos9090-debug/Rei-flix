@@ -462,6 +462,12 @@ class LibraryService:
             entity_type, entity_id, artwork_type, allow_network=effective_allow_network,
         )
 
+    def resolve_artwork_palette(self, entity_type, entity_id, artwork_type="poster", *, mode="dark"):
+        """Resolve contextual artwork colors from the shared cached ArtworkEngine."""
+        return self.artwork.resolve_palette(
+            entity_type, entity_id, artwork_type, mode=mode,
+        )
+
     def set_manual_artwork(self, entity_type, entity_id, artwork_type, *, path=None, external_url=None):
         return self.artwork.set_manual(entity_type, entity_id, artwork_type, path=path, external_url=external_url)
 

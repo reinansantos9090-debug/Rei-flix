@@ -270,7 +270,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
             rendered_manifest = rendered / "src" / "main" / "AndroidManifest.xml"
             manifest_text = rendered_manifest.read_text(encoding="utf-8")
             self.assertIn("NativePlayerActivity", manifest_text)
-            self.assertIn("@style/ReiFlixTheme", manifest_text)
+            self.assertIn("@style/ReiAnixTheme", manifest_text)
             self.assertIn("enableOnBackInvokedCallback", manifest_text)
             tree = ET.parse(rendered_manifest)
             android_ns = "http://schemas.android.com/apk/res/android"
@@ -515,8 +515,8 @@ E: manifest
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", controller)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", controller)
         self.assertNotIn("applyImmersiveSystemUi()", main)
-        main_style = styles.split('<style name="ReiFlixPlayerTheme"', 1)[0]
-        player_style = styles.split('<style name="ReiFlixPlayerTheme"', 1)[1]
+        main_style = styles.split('<style name="ReiAnixPlayerTheme"', 1)[0]
+        player_style = styles.split('<style name="ReiAnixPlayerTheme"', 1)[1]
         self.assertNotIn('<item name="android:windowFullscreen">true</item>', main_style)
         self.assertNotIn('<item name="android:windowFullscreen">true</item>', player_style)
 

@@ -73,8 +73,8 @@ class SearchDetailsOrganizeTests(unittest.TestCase):
     def test_details_mutations_invalidate_only_cached_library_projections(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("def _invalidate_catalog_views()", source)
-        self.assertIn('screen_cache.pop("home", None)', source)
-        self.assertIn('screen_cache.pop("organize", None)', source)
+        self.assertIn('_invalidate_cached_view(home_state, "home")', source)
+        self.assertIn('_invalidate_cached_view(organize_state, "organize")', source)
         for callback in (
             "_toggle_favorite_from_details",
             "_toggle_pin_from_details",
@@ -99,7 +99,7 @@ class SearchDetailsOrganizeTests(unittest.TestCase):
         navigation = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("search_generation[0] += 1", home)
         self.assertIn("await asyncio.sleep(0.18)", home)
-        self.assertIn("autofocus=search_visible[0]", home)
+        self.assertNotIn("autofocus", home)
         self.assertIn('def close_home_search():', navigation)
         self.assertIn('"[NAV] SEARCH_BACK consumed on Home"', navigation)
         self.assertNotIn('navigation.push("search")', navigation)

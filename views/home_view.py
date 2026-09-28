@@ -105,7 +105,7 @@ class HomeView:
             value=view_state.get("query", ""), visible=search_visible[0],
             hint_text="Buscar na sua biblioteca", prefix_icon=ft.Icons.SEARCH,
             border_radius=RADIUS, border_width=0, bgcolor=SURFACE, color=TEXT,
-            content_padding=12, text_size=14, autofocus=search_visible[0],
+            content_padding=12, text_size=14,
         )
         sort = ft.Dropdown(
             value=selected_sort[0], width=175, dense=True, text_size=12, color=TEXT,
@@ -299,7 +299,6 @@ class HomeView:
             return ft.OutlinedButton(
                 width=card_width,
                 height=card_height + 48,
-                autofocus=False,
                 on_click=(lambda _, value=item: action(value)) if action else None,
                 style=focus_button_style(theme=theme, background=SURFACE),
                 content=ft.Column([holder,
@@ -397,8 +396,6 @@ class HomeView:
                     control = card(item)
                     control.key = key
                     control.on_focus = lambda _event, i=index, k=key: page.run_task(reveal_catalog_focus, i, k)
-                    if index == 0:
-                        control.autofocus = True
                     catalog_focus_targets[key] = control
                     grid.controls.append(control)
             elif scan_active[0]:
@@ -496,7 +493,6 @@ class HomeView:
             return ft.OutlinedButton(
                 width=card_width,
                 height=card_height + 48,
-                autofocus=False,
                 on_click=lambda _: on_card_tap(),
                 style=focus_button_style(theme=theme, background=SURFACE),
                 content=ft.Column([
@@ -838,7 +834,6 @@ class HomeView:
         async def toggle_search(_):
             search_visible[0] = not search_visible[0]
             search.visible = search_visible[0]
-            search.autofocus = False
             if not search_visible[0]:
                 search.value = ""
             save_view_state()
@@ -952,6 +947,62 @@ class HomeView:
             refresh_filter_options(loaded_options or {})
             filter_options_loaded[0] = True
             page.update()
+
+        def update_thumbnail_in_place(uri, thumbnail_path):
+            """Apply a completed thumbnail to already-mounted Home artwork only.
+
+            Thumbnail persistence has already completed in the native callback.  This
+            intentionally avoids catalog queries and reset=True, which would replace
+            the grid and lose its viewport/focus state for a single image change.
+            """
+            uri = str(uri or "").strip()
+            thumbnail_path = str(thumbnail_path or "").strip()
+            if not show_thumbnails or not uri or not thumbnail_path:
+                return False
+
+            affected_ids = set()
+
+            def collect_ids(value, inherited_anime_id=None):
+                if isinstance(value, dict):
+                    anime_id = value.get("anime_id", inherited_anime_id)
+                    if anime_id is None and any(key in value for key in ("seasons", "current_episode", "available_count")):
+                        anime_id = value.get("id")
+                    if str(value.get("path") or "").strip() == uri and anime_id is not None:
+                        try:
+                            affected_ids.add(int(anime_id))
+                        except (TypeError, ValueError):
+                            pass
+                    for child in value.values():
+                        collect_ids(child, anime_id)
+                elif isinstance(value, (list, tuple)):
+                    for child in value:
+                        collect_ids(child, inherited_anime_id)
+
+            collect_ids(catalog)
+            collect_ids(home_data)
+            if not affected_ids:
+                return False
+
+            updated = 0
+            for anime in catalog:
+                try:
+                    anime_id = int(anime.get("id"))
+                except (TypeError, ValueError):
+                    continue
+                if anime_id in affected_ids:
+                    anime.setdefault("meta", {})["cover_cache"] = thumbnail_path
+            for anime_id in affected_ids:
+                entity = "movie" if any(
+                    str(item.get("media_kind") or "").casefold() == "movie" and item.get("id") == anime_id
+                    for item in catalog
+                ) else "anime"
+                for holder, width, height in artwork_bindings.get((entity, anime_id, "poster"), []):
+                    holder.content = ft.Image(src=thumbnail_path, width=width, height=height, fit=ft.BoxFit.COVER, border_radius=RADIUS)
+                    updated += 1
+            if updated:
+                logger.info("THUMBNAIL_UI_UPDATE affected_anime=%s controls=%s", len(affected_ids), updated)
+                schedule_artwork_ui_update()
+            return bool(updated)
 
         async def refresh_from_catalog():
             save_view_state()
@@ -1070,7 +1121,16 @@ class HomeView:
 
             page.run_task(run_catalog_refreshes)
 
+        def invalidate_view_tasks():
+            # Cached Home controls can be discarded by settings/details changes.
+            # Existing async work cannot safely mutate that retired control tree.
+            render_generation[0] += 1
+            home_sections_generation[0] = render_generation[0]
+            catalog_refresh_dirty[0] = False
+
         view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
+        view_state['_update_thumbnail'] = update_thumbnail_in_place
+        view_state['_invalidate_view_tasks'] = invalidate_view_tasks
         status.visible = True
         page.run_task(load_catalog)
         return ft.Container(

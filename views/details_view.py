@@ -441,7 +441,7 @@ class DetailView:
                 color=theme.text_on_overlay,
                 side={
                     ft.ControlState.DEFAULT: ft.BorderSide(0, theme.primary),
-                    ft.ControlState.FOCUSED: ft.BorderSide(2, theme.text_on_overlay),
+                    ft.ControlState.FOCUSED: ft.BorderSide(0, theme.primary),
                 },
                 shape=ft.RoundedRectangleBorder(radius=12),
             ),
@@ -873,7 +873,7 @@ class DetailView:
                 color=contextual_on_accent[0],
                 side={
                     ft.ControlState.DEFAULT: ft.BorderSide(0, accent),
-                    ft.ControlState.FOCUSED: ft.BorderSide(2, contextual_on_accent[0]),
+                    ft.ControlState.FOCUSED: ft.BorderSide(0, accent),
                 },
                 shape=ft.RoundedRectangleBorder(radius=12),
             )

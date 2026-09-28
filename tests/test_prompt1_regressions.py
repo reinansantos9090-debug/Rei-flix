@@ -18,7 +18,7 @@ class Prompt1RegressionTests(unittest.TestCase):
     def test_details_primary_action_does_not_autofocus_or_rebuild_for_thumbnails(self):
         self.assertNotIn("autofocus=bool(primary_target)", DETAILS)
         self.assertIn("palette_changed = (", DETAILS)
-        self.assertIn("on_catalog_changed(refresh_details=False)", MAIN)
+        self.assertIn("home_state.get('_update_thumbnail')", MAIN)
         self.assertIn("if navigation.current == \"details\" and not refresh_details:", MAIN)
 
     def test_next_accepts_file_uri_for_absolute_path_episode(self):
@@ -51,7 +51,7 @@ class Prompt1RegressionTests(unittest.TestCase):
         thumb_block_start = MAIN.find("elif event_type == 'thumbnail_ready':")
         thumb_block_end = MAIN.find("elif event_type == 'thumbnail_error':", thumb_block_start)
         thumb_block = MAIN[thumb_block_start:thumb_block_end]
-        self.assertIn("on_catalog_changed(refresh_details=False)", thumb_block)
+        self.assertIn("update_thumbnail(uri, thumbnail_path)", thumb_block)
         self.assertNotIn("screen_cache.pop('details'", thumb_block)
 
     def test_next_without_next_episode_is_supported(self):

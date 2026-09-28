@@ -19,6 +19,8 @@ from core.search_engine import normalize_text
 
 class LibraryStore:
     SCHEMA_VERSION = 29
+    SQLITE_TIMEOUT_SECONDS = 10.0
+    SQLITE_BUSY_TIMEOUT_MS = 10_000
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")
@@ -55,8 +57,14 @@ class LibraryStore:
         return sqlite3.Row(cursor, row)
 
     def _conn(self):
-        con = sqlite3.connect(self.db_path)
+        # Connections are short-lived and therefore never cross asyncio worker
+        # threads. A bounded busy timeout turns transient writer contention into
+        # waiting rather than an immediate "database is locked" failure. Journal
+        # mode remains the default because backup/recovery snapshots deliberately
+        # operate on the primary database file and its known sidecar contract.
+        con = sqlite3.connect(self.db_path, timeout=self.SQLITE_TIMEOUT_SECONDS)
         con.row_factory = self._row_factory
+        con.execute(f"PRAGMA busy_timeout={self.SQLITE_BUSY_TIMEOUT_MS}")
         con.execute("PRAGMA foreign_keys=ON")
         con.create_function("reiflix_normalize", 1, lambda value: normalize_text(value), deterministic=True)
         return con

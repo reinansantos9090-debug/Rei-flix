@@ -127,3 +127,12 @@ class PlayerReconstructionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+def test_invalid_reuse_intent_clears_previous_episode_timeout_before_validation():
+    source = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
+    start = source.index("override fun onNewIntent")
+    validation = source.index('val rawUri = newIntent.getStringExtra("uri")', start)
+    preflight = source[start:validation]
+    assert "handler.removeCallbacks(episodeChangeTimeout)" in preflight
+    assert 'episodeChangeTimeoutRequestId = ""' in preflight
+    assert 'episodeChangeTimeoutUri = ""' in preflight

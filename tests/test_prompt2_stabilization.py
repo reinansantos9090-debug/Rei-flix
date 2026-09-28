@@ -32,7 +32,7 @@ class Prompt2StabilizationTests(unittest.TestCase):
     def test_prompt1_details_guards_remain(self):
         self.assertNotIn("autofocus=bool(primary_target)", DETAILS)
         self.assertIn("palette_changed = (", DETAILS)
-        self.assertIn("on_catalog_changed(refresh_details=False)", MAIN)
+        self.assertIn("home_state.get('_update_thumbnail')", MAIN)
         self.assertIn("player_transition_inflight", MAIN)
         self.assertIn("episodeChangeTimeout", PLAYER)
         self.assertIn("resolveImmersivePolicy", PLAYER)

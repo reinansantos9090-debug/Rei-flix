@@ -148,7 +148,7 @@ host_attr = "{" + ANDROID + "}host"
 
 # Use the ReiAnix immersive system-bar host policy. The native player reinforces it
 # with its own immersive theme below.
-application.set(theme_attr, "@style/ReiFlixTheme")
+application.set(theme_attr, "@style/ReiAnixTheme")
 application.set("{" + ANDROID + "}enableOnBackInvokedCallback", "true")
 activities = application.findall("activity")
 main = next((activity for activity in activities if activity.get(name) in [".MainActivity", "com.reiflix.reiflix_local.MainActivity"]), None)
@@ -182,7 +182,7 @@ player = next((activity for activity in application.findall("activity") if activ
 if player is None:
     player = ET.SubElement(application, "activity", {
         name: player_name,
-        theme_attr: "@style/ReiFlixPlayerTheme",
+        theme_attr: "@style/ReiAnixPlayerTheme",
         launch_attr: "singleTop",
         config_attr: "orientation|screenSize|keyboardHidden",
         screen_attr: "fullSensor",
@@ -192,7 +192,7 @@ if player is None:
 else:
     # A template may already declare the player. Keep it non-exported and
     # PiP-capable rather than silently retaining stale manifest attributes.
-    player.set(theme_attr, "@style/ReiFlixPlayerTheme")
+    player.set(theme_attr, "@style/ReiAnixPlayerTheme")
     player.set(launch_attr, "singleTop")
     player.set(config_attr, "orientation|screenSize|keyboardHidden")
     player.set(screen_attr, "fullSensor")

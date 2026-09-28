@@ -1,5 +1,5 @@
 <resources>
-  <!-- Rei-Flix application surfaces are edge-to-edge and immersive; SystemUiController reapplies the policy after lifecycle/focus boundaries. -->
+  <!-- ReiAnix application surfaces are edge-to-edge and immersive; SystemUiController reapplies the policy after lifecycle/focus boundaries. -->
   <style name="ReiFlixTheme" parent="android:style/Theme.Material.NoActionBar">
     <item name="android:fontFamily">sans</item>
     <item name="android:windowActionModeOverlay">true</item>

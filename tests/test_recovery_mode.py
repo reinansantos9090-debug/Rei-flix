@@ -2,6 +2,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from pathlib import Path
 
 from core.library_store import LibraryStore
 from core.recovery import RecoveryError, RecoveryService

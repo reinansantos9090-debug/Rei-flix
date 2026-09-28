@@ -200,6 +200,36 @@ class Prompt2StabilizationTests(unittest.TestCase):
             self.assertEqual(result["description"], "Keep this exact text")
 
 
+    def test_translation_cache_is_bounded(self):
+        self.assertIn("MAX_TRANSLATION_CACHE_ENTRIES = 4096", ANILIST)
+
+    def test_playback_event_dedupe_cache_is_bounded(self):
+        self.assertIn("if len(self._last_playback_event_at) > 8192", STORE)
+        self.assertIn("if len(processed_native_operations) > 1024", MAIN)
+
+    def test_description_original_is_not_cleared_by_local_metadata_updates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            store.upsert_anime(
+                "merge",
+                {
+                    "title": "Merge",
+                    "description": "Translated description.",
+                    "description_original": "Original description.",
+                    "genres": "[]",
+                },
+                source="anilist",
+            )
+            store.upsert_anime(
+                "merge",
+                {"description": "Local override"},
+                source="local",
+            )
+            self.assertEqual(
+                store.anime_metadata("merge")["description_original"],
+                "Original description.",
+            )
+
     def test_anilist_translation_does_not_hold_the_rate_limit_lock(self):
         start = ANILIST.index("def localize_description_to_pt_br")
         end = ANILIST.index("    @staticmethod\n    def _header", start)

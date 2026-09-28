@@ -60,6 +60,36 @@ class LibraryStore:
         con.create_function("reiflix_normalize", 1, lambda value: normalize_text(value), deterministic=True)
         return con
 
+    @staticmethod
+    def _episode_path_candidates(path):
+        raw = str(path or "").strip()
+        if not raw:
+            return []
+        candidates = [raw]
+        if raw.casefold().startswith("file://"):
+            try:
+                decoded = unquote(urlparse(raw).path)
+            except ValueError:
+                decoded = ""
+            if decoded and decoded not in candidates:
+                candidates.append(decoded)
+        elif os.path.isabs(raw):
+            try:
+                file_uri = Path(raw).resolve().as_uri()
+            except (OSError, ValueError):
+                file_uri = ""
+            if file_uri and file_uri not in candidates:
+                candidates.append(file_uri)
+        return candidates
+
+    @classmethod
+    def _find_episode_row(cls, con, path):
+        for candidate in cls._episode_path_candidates(path):
+            row = con.execute("SELECT * FROM episodes WHERE path=?", (candidate,)).fetchone()
+            if row:
+                return row
+        return None
+
     def _init(self):
         with self._conn() as c:
             c.executescript('''

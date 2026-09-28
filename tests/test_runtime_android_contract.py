@@ -317,8 +317,8 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "event_type == 'player_autoplay_changed'",
             'settings.set("player.autoplay_next", enabled)',
             "event_type in {'player_next_request', 'player_previous_request'}",
-            "library.next_episode(current_path)",
-            "library.previous_episode(current_path)",
+            "asyncio.to_thread(library.next_episode, current_path)",
+            "asyncio.to_thread(library.previous_episode, current_path)",
             "await start_native_player(",
             "event_type == 'player_exited'",
             "event_created_at=event.get('createdAt') or event.get('timestamp')",
@@ -340,24 +340,26 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         player = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         system_ui = SYSTEM_UI.read_text(encoding="utf-8")
         self.assertIn("applyApplicationSystemUi()", main)
-        self.assertIn("applyApplicationPolicy(useContextAppearance = false)", main)
-        self.assertIn("applyApplicationPolicy", player)
-        self.assertIn("fun applyApplicationPolicy(useContextAppearance: Boolean = true)", system_ui)
+        self.assertIn("applyApplicationImmersivePolicy(useContextAppearance = false)", main)
+        self.assertIn("fun applyApplicationImmersivePolicy(useContextAppearance: Boolean = true)", system_ui)
         self.assertIn("applyImmersive()", system_ui)
+        self.assertIn("fun applyApplicationPolicy(useContextAppearance: Boolean = true)", system_ui)
         self.assertIn("fun applyNormal(useContextAppearance: Boolean = true)", system_ui)
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", system_ui)
-        application = system_ui[system_ui.index("fun applyApplicationPolicy("):system_ui.index("/** Player-only policy")]
+        immersive = system_ui[system_ui.index("fun applyApplicationImmersivePolicy("):system_ui.index("    /** Backward-compatible normal policy")]
         normal = system_ui[system_ui.index("fun applyNormal("):system_ui.index("private fun applyEdgeToEdgeWindow")]
-        self.assertIn("applyNormal(useContextAppearance)", application)
-        self.assertNotIn("hide(WindowInsetsCompat.Type.systemBars())", application)
+        self.assertIn("applyImmersive(useContextAppearance)", immersive)
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", immersive)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", normal)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", system_ui)
-        self.assertNotIn("systemUiController.applyNormal()", main)
-        self.assertNotIn("systemUiController.applyNormal()", player)
+        self.assertNotIn("systemUiController.applyNormal(useContextAppearance = false)", main)
+        self.assertNotIn("systemUiController.applyApplicationPolicy()", main)
 
     def test_player_immersive_policy_is_global_and_first_frame_timeout_is_diagnostic_only(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
-        self.assertIn("private fun shouldUseImmersive(): Boolean = true", source)
+        self.assertIn("private fun shouldUseImmersive(): Boolean =", source)
+        self.assertIn("resolveImmersivePolicy(", source)
+        self.assertIn("immersiveSetting", source)
         self.assertIn("setKeepContentOnPlayerReset(true)", source)
         self.assertIn("firstFrameDiagnosticTimeoutMs", source)
         self.assertIn("FIRST_FRAME_WATCH_ARMED", source)

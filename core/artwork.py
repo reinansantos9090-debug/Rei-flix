@@ -18,6 +18,8 @@ import urllib.request
 from concurrent.futures import Future
 from pathlib import Path
 
+from core.artwork_palette import extract_palette
+
 logger = logging.getLogger("reiflix.artwork")
 
 ARTWORK_TYPES = {"poster", "backdrop", "thumbnail", "season_poster", "episode_thumbnail"}
@@ -77,6 +79,9 @@ class ArtworkEngine:
         self.store = store
         self.cache_dir = Path(store.cache_dir) / "artwork"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        # Derived presentation data stays owned by the same ArtworkEngine/cache.
+        # It is never a second AniList metadata cache or a source of truth.
+        self.palette_cache_pattern = ".reiflix-palette-*.json"
         self.max_workers = max(1, int(max_workers or self.MAX_WORKERS))
         self.cache_limit_bytes = int(cache_limit_bytes or self.DEFAULT_CACHE_LIMIT_BYTES)
         self.max_download_bytes = int(max_download_bytes or self.MAX_DOWNLOAD_BYTES)
@@ -730,6 +735,80 @@ class ArtworkEngine:
             return result
         return None
 
+    @staticmethod
+    def _palette_fingerprint(row):
+        if row.get("checksum"):
+            return f"checksum:{row['checksum']}"
+        path = str(row.get("local_path") or "")
+        try:
+            stat = Path(path).stat()
+            return f"stat:{stat.st_size}:{stat.st_mtime_ns}"
+        except OSError:
+            return None
+
+    def _palette_cache_path(self, artwork_row_id):
+        return self.cache_dir / f".reiflix-palette-{int(artwork_row_id)}.json"
+
+    def _clear_palette_cache(self, artwork_row_id=None):
+        if artwork_row_id is not None:
+            paths = [self._palette_cache_path(artwork_row_id)]
+        else:
+            paths = list(self.cache_dir.glob(self.palette_cache_pattern))
+        removed = 0
+        for path in paths:
+            try:
+                path.unlink(missing_ok=True)
+                removed += 1
+            except OSError:
+                logger.warning("Could not remove palette cache %s", path)
+        return removed
+
+    def resolve_palette(self, entity_type, entity_id, artwork_type="poster", *, mode="dark"):
+        """Return a cached/local contextual palette without requiring the network."""
+        entity_type = self._entity(entity_type, entity_id)
+        artwork_type = self._type(artwork_type)
+        row = self.get(entity_type, entity_id, artwork_type, allow_network=False)
+        if not row or not row.get("local_path"):
+            return None
+        path = row.get("local_path")
+        if not self._is_valid_image_file(path):
+            return None
+        fingerprint = self._palette_fingerprint(row)
+        if not fingerprint:
+            return None
+        cache_path = self._palette_cache_path(row["id"])
+        requested_mode = "light" if str(mode).casefold() == "light" else "dark"
+        try:
+            import json
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if (
+                isinstance(cached, dict)
+                and cached.get("fingerprint") == fingerprint
+                and cached.get("mode") == requested_mode
+                and cached.get("accent")
+                and cached.get("on_accent")
+            ):
+                return cached
+        except (OSError, ValueError, TypeError):
+            pass
+        palette = extract_palette(path, requested_mode)
+        if not palette:
+            return None
+        payload = dict(palette, fingerprint=fingerprint, artwork_id=int(row["id"]))
+        temporary = cache_path.with_suffix(".tmp")
+        try:
+            import json
+            temporary.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+            os.replace(temporary, cache_path)
+        except OSError:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+        # Keep exactly one palette record per artwork row; a cover replacement
+        # therefore invalidates the previous derived palette automatically.
+        return payload
+
     def _touch(self, row_id):
         with self.store._conn() as con:
             con.execute("UPDATE artwork SET last_access=? WHERE id=?", (time.time(), int(row_id)))
@@ -1033,12 +1112,20 @@ class ArtworkEngine:
         artwork_type = self._type(artwork_type)
         with self.store._conn() as con:
             if source_ref:
+                rows = con.execute("SELECT id FROM artwork WHERE entity_type=? AND entity_id=? AND artwork_type=? AND source_ref=?",
+                    (entity_type, str(entity_id), artwork_type, source_ref)).fetchall()
+                for palette_row in rows:
+                    self._clear_palette_cache(palette_row["id"])
                 con.execute(
                     """UPDATE artwork SET status=?,local_path=NULL,next_retry_at=NULL,updated_at=?
                        WHERE entity_type=? AND entity_id=? AND artwork_type=? AND source_ref=?""",
                     (STATUS_INVALID, time.time(), entity_type, str(entity_id), artwork_type, source_ref),
                 )
             else:
+                rows = con.execute("SELECT id FROM artwork WHERE entity_type=? AND entity_id=? AND artwork_type=?",
+                    (entity_type, str(entity_id), artwork_type)).fetchall()
+                for palette_row in rows:
+                    self._clear_palette_cache(palette_row["id"])
                 con.execute(
                     """UPDATE artwork SET status=?,local_path=NULL,next_retry_at=NULL,updated_at=?
                        WHERE entity_type=? AND entity_id=? AND artwork_type=?""",
@@ -1082,6 +1169,7 @@ class ArtworkEngine:
                     (STATUS_NOT_REQUESTED, int(row["id"])),
                 )
             total -= size
+            self._clear_palette_cache(row["id"])
             self._log("evict", path=path, bytes=size)
 
     def cleanup_orphans(self):
@@ -1096,7 +1184,23 @@ class ArtworkEngine:
                         pass
         removed = 0
         for path in self.cache_dir.iterdir():
-            if not path.is_file() or path.name.endswith(".tmp") or path.name.startswith("."):
+            if not path.is_file() or path.name.endswith(".tmp"):
+                continue
+            if path.name.startswith(".reiflix-palette-"):
+                try:
+                    row_id = int(path.stem.rsplit("-", 1)[-1])
+                except ValueError:
+                    row_id = None
+                if row_id is not None:
+                    with self.store._conn() as con:
+                        live = con.execute("SELECT 1 FROM artwork WHERE id=?", (row_id,)).fetchone()
+                    if live:
+                        continue
+                try:
+                    path.unlink()
+                    removed += 1
+                except OSError:
+                    pass
                 continue
             if str(path.resolve()) not in referenced:
                 try:
@@ -1131,7 +1235,8 @@ class ArtworkEngine:
                 cover = row["cover_cache"]
                 if cover and self._path_under(cover, self.cache_dir):
                     con.execute("UPDATE anime SET cover_cache='' WHERE id=?", (row["id"],))
-        removed = self.cleanup_orphans()
+        removed += self._clear_palette_cache()
+        removed += self.cleanup_orphans()
         self._log("evict", reason="clear", removed=removed)
         return removed
 

@@ -26,7 +26,8 @@ class DetailView:
     def build(page: ft.Page, anime_group: dict, on_play_episode, on_back,
               on_toggle_favorite, get_playback_target=None, on_set_user_tags=None,
               on_toggle_pinned=None, on_set_personal_note=None, on_set_episode_identification=None,
-              on_identification_saved=None, on_refresh_metadata=None, resolve_artwork=None, resolve_artwork_batch=None):
+               on_identification_saved=None, on_refresh_metadata=None, resolve_artwork=None, resolve_artwork_batch=None,
+               on_open_marathon=None):
         theme = activate_theme_for_page(page)
         BACKGROUND = theme.background
         SURFACE = theme.surface

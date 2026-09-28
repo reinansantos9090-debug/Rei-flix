@@ -233,8 +233,9 @@ class LifecycleContractTests(unittest.TestCase):
         end = source.index("elif event_type == 'player_opened':", start)
         block = source[start:end]
         self.assertIn("thumbnail_key = (uri, size, modified_at)", block)
-        self.assertIn("pending_same_uri = any(key[0] == uri for key in thumbnail_requests)", block)
-        self.assertIn("if pending_same_uri and thumbnail_key not in thumbnail_requests:", block)
+        self.assertIn("thumbnail_latest_key_by_uri", block)
+        self.assertIn("latest_key = thumbnail_latest_key_by_uri.get(uri)", block)
+        self.assertIn("thumbnail_key != latest_key", block)
         self.assertIn("thumbnail_requests.discard(thumbnail_key)", block)
         self.assertNotIn("for key in thumbnail_requests if key[0] == uri", block)
 

@@ -566,6 +566,7 @@ class MainActivity : FlutterFragmentActivity() {
         registerStorageReceiver()
         MediaStoreScanner.startChangeObserver(this) { scheduleMediaStoreIncrementalRescan() }
         logLifecycle("onStart")
+        applyApplicationSystemUi()
     }
 
     override fun onResume() {
@@ -779,10 +780,11 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun applyApplicationSystemUi() {
         if (::systemUiController.isInitialized) {
-            // MainActivity is not the immersive surface. Keep status/navigation
-            // bars available whenever the native player is not foreground.
-            systemUiController.applyNormal(useContextAppearance = false)
-         publishInteractionProfileIfChanged(force = true)
+            // MainActivity owns the immersive application surface. External Android
+            // Activities may temporarily reveal their own system UI; focus/resume
+            // re-applies this single host policy when Rei-flix returns foreground.
+            systemUiController.applyApplicationImmersivePolicy(useContextAppearance = false)
+            publishInteractionProfileIfChanged(force = true)
             ViewCompat.requestApplyInsets(window.decorView)
         }
     }

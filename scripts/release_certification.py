@@ -127,6 +127,10 @@ def load_prevalidated_result(path, area, test):
     exit_code = data.get("exit_code")
     duration_s = data.get("duration_s")
     command = str(data.get("command", "evidence:" + str(path)))
+    expected_sha = os.environ.get("GITHUB_SHA", "").strip()
+    actual_sha = str(data.get("commit_sha", "")).strip()
+    if expected_sha and actual_sha != expected_sha:
+        return Result(area, test, FAIL, "Prevalidated evidence SHA mismatch: expected %s, got %s" % (expected_sha, actual_sha or "<missing>"), command=command, exit_code=1)
     evidence = "Prevalidated by the blocking CI test step. Evidence source: %s\\nexit=%s\\nstdout:\\n%s\\nstderr:\\n%s" % (path, exit_code, stdout[-20000:], stderr[-6000:])
     return Result(area, test, status, evidence, duration_s, command, exit_code, stdout[-20000:], stderr[-6000:])
 

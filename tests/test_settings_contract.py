@@ -111,6 +111,7 @@ class SettingsContractTests(unittest.TestCase):
         self.assertIn("playerRequest.toIntent(this, localUri)", main_activity)
         self.assertIn("settings.get(\"library.page_size\")", home)
         self.assertNotIn('"privacy.external_sync"', settings)
+        self.assertNotIn("gestures.horizontal_swipe_seek", settings + view + main + player_request)
         self.assertNotIn('"artwork.offline_cache"', settings)
         self.assertNotIn('"metadata.keep_local"', settings)
 

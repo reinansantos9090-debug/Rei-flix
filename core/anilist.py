@@ -21,6 +21,7 @@ class AniListClient:
         self._transport_backoff_until = 0.0
         self._transport_failures = 0
         self._last_request_status = "idle"
+        self._translation_lock = threading.RLock()
         self._translation_cache_path = os.path.join(self.cache_dir, "anilist_description_ptbr.json")
         self._translation_cache: dict[str, dict] | None = None
 
@@ -65,13 +66,14 @@ class AniListClient:
     @staticmethod
     def _looks_portuguese_description(text: str) -> bool:
         value = str(text or "").casefold()
-        if any(char in value for char in "ãõáàâéêíóôúç"):
-            return True
         words = {
             token.strip(".,!?;:\"'()[]{}")
             for token in value.split()
         }
-        return len(words & {"que", "uma", "um", "não", "com", "quando", "através", "está", "são", "dos", "das"}) >= 2
+        return len(words & {
+            "que", "uma", "um", "não", "com", "quando", "através",
+            "está", "são", "dos", "das", "para", "por", "como",
+        }) >= 2
 
     @staticmethod
     def _translation_chunks(text: str, max_bytes: int = 480) -> list[str]:
@@ -116,7 +118,7 @@ class AniListClient:
         if not original or self._looks_portuguese_description(original) or not self._looks_english_description(original):
             return original
         key = hashlib.sha256(("en|pt-BR|" + original).encode("utf-8")).hexdigest()
-        with self._rate_lock:
+        with self._translation_lock:
             cache = self._load_translation_cache()
             entry = cache.get(key)
             if isinstance(entry, dict):

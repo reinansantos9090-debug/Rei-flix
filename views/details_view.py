@@ -15,7 +15,7 @@ import re
 import flet as ft
 from core.consumption import consumption_state, is_completed, is_in_progress, playback_action, progress_ratio
 from core.dialogs import dismiss_dialog
-from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, activate_theme_for_page, media_artwork, section_title, focus_button_style
+from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, activate_theme_for_page, media_artwork, spoiler_artwork, section_title, focus_button_style
 
 
 class DetailView:
@@ -373,6 +373,19 @@ class DetailView:
         status_labels = {"available": "Metadata disponível", "manual": "Metadata manual", "stale": "Metadata desatualizada", "ambiguous": "Metadata ambígua", "unresolved": "Metadata não encontrada", "refreshing": "Atualizando metadata…"}
         metadata_state = status_labels.get(metadata_status, "Metadata parcial")
         refresh_button = ft.OutlinedButton("Atualizar metadata", icon=ft.Icons.REFRESH, on_click=on_refresh_metadata) if on_refresh_metadata else None
+
+        marathon_button = (
+            ft.OutlinedButton(
+                "Maratona",
+                icon=ft.Icons.TIMER_OUTLINED,
+                disabled=not bool(regular_episodes or movie_episodes),
+                on_click=lambda _: on_open_marathon(
+                    anime_group["id"],
+                    (primary_target or {}).get("path"),
+                ),
+            )
+            if on_open_marathon is not None else None
+        )
 
         primary_button = ft.FilledButton(
             primary_label, icon=ft.Icons.PLAY_ARROW, disabled=not bool(primary_target),

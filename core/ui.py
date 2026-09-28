@@ -238,6 +238,75 @@ def media_artwork(
     )
 
 
+def spoiler_artwork(
+    page,
+    source,
+    height,
+    *,
+    width=None,
+    icon_size=32,
+    label="Imagem protegida",
+    theme: ThemeTokens | None = None,
+):
+    """Contextual anti-spoiler layer for artwork without mutating cached files.
+
+    The source image is rendered normally underneath a transient visual shield.
+    A long press reveals it only for the current press; releasing restores the
+    protection. No new image file is generated.
+    """
+    palette = _resolve_theme(theme)
+    artwork = media_artwork(
+        source,
+        height,
+        width=width,
+        icon_size=icon_size,
+        label=label,
+        theme=palette,
+    )
+    hint = ft.Text(
+        "Pressione e segure para revelar",
+        color=palette.text_on_overlay,
+        size=10,
+        text_align=ft.TextAlign.CENTER,
+    )
+    shield = ft.Container(
+        width=width,
+        height=height,
+        border_radius=RADIUS,
+        bgcolor=palette.overlay,
+        blur=14,
+        alignment=ft.Alignment(0, 0),
+        content=hint,
+    )
+
+    def restore(_event=None):
+        shield.visible = True
+        try:
+            page.update()
+        except Exception:
+            shield.update()
+
+    def reveal(_event=None):
+        shield.visible = False
+        try:
+            page.update()
+        except Exception:
+            shield.update()
+
+    gesture = ft.GestureDetector(
+        content=ft.Stack(
+            controls=[artwork, shield],
+            width=width,
+            height=height,
+        ),
+        on_long_press_start=reveal,
+        on_long_press_end=restore,
+        on_long_press_cancel=restore,
+        on_long_press_up=restore,
+    )
+    return gesture
+
+
 def focus_button_style(*, theme: ThemeTokens | None = None, background: str | None = None, radius: float = RADIUS):
     """Shared focus treatment for remote/keyboard activation without a second focus system."""
     palette = _resolve_theme(theme)

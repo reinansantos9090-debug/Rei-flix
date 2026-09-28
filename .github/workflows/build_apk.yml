@@ -59,6 +59,7 @@ jobs:
 
           evidence = {}
           commands = [
+              ("pytest_collect", [sys.executable, "-m", "pytest", "--collect-only", "-q"]),
               ("pytest", [sys.executable, "-m", "pytest", "-q"]),
               ("pytest_second", [sys.executable, "-m", "pytest", "-q"]),
           ]
@@ -98,10 +99,12 @@ jobs:
               json.dumps(evidence, indent=2, ensure_ascii=False),
               encoding="utf-8",
           )
+          (evidence_dir / "pytest_collect.json").write_text(json.dumps(evidence["pytest_collect"], indent=2, ensure_ascii=False), encoding="utf-8")
           (evidence_dir / "pytest.json").write_text(json.dumps(evidence["pytest"], indent=2, ensure_ascii=False), encoding="utf-8")
           (evidence_dir / "pytest_second.json").write_text(json.dumps(evidence["pytest_second"], indent=2, ensure_ascii=False), encoding="utf-8")
           PY
           test -s build/python-test-evidence.json
+          test -s build/pytest_collect.json
           test -s build/pytest.json
           test -s build/pytest_second.json
 
@@ -122,6 +125,7 @@ jobs:
           name: python-test-evidence
           path: |
             build/python-test-evidence.json
+            build/pytest_collect.json
             build/pytest.json
             build/pytest_second.json
           if-no-files-found: error

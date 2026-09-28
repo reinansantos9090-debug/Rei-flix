@@ -110,8 +110,17 @@ class CertificationRunnerTests(unittest.TestCase):
                 "command": "python -m pytest -q",
                 "stdout": "1013 passed in 12.50s\\n",
                 "stderr": "",
+                "commit_sha": "fixture-sha",
             }), encoding="utf-8")
-            result = runner.load_prevalidated_result(evidence, "Python", "pytest")
+            old = os.environ.get("GITHUB_SHA")
+            os.environ["GITHUB_SHA"] = "fixture-sha"
+            try:
+                result = runner.load_prevalidated_result(evidence, "Python", "pytest")
+            finally:
+                if old is None:
+                    os.environ.pop("GITHUB_SHA", None)
+                else:
+                    os.environ["GITHUB_SHA"] = old
             self.assertEqual(result.status, "PASS")
             self.assertEqual(result.exit_code, 0)
             self.assertEqual(result.duration_s, 12.5)
@@ -146,8 +155,16 @@ class CertificationRunnerTests(unittest.TestCase):
             missing = runner.load_prevalidated_result(root / "missing.json", "Python", "pytest")
             self.assertEqual(missing.status, "FAIL")
             invalid = root / "invalid.json"
-            invalid.write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
-            loaded = runner.load_prevalidated_result(invalid, "Python", "pytest")
+            invalid.write_text(json.dumps({"status": "PASS", "commit_sha": "fixture-sha"}), encoding="utf-8")
+            old = os.environ.get("GITHUB_SHA")
+            os.environ["GITHUB_SHA"] = "fixture-sha"
+            try:
+                loaded = runner.load_prevalidated_result(invalid, "Python", "pytest")
+            finally:
+                if old is None:
+                    os.environ.pop("GITHUB_SHA", None)
+                else:
+                    os.environ["GITHUB_SHA"] = old
             self.assertEqual(loaded.status, "PASS")
 
     def test_unittest_discovery_command_targets_tests_directory(self):

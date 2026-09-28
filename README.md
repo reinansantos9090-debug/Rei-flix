@@ -1,6 +1,6 @@
-# ReiFlix Local
+# ReiAnix Local
 
-ReiFlix é uma biblioteca para vídeos de anime que o usuário já possui no
+ReiAnix é uma biblioteca para vídeos de anime que o usuário já possui no
 Android. Os arquivos não são enviados para servidor algum; AniList é usado
 somente para metadados/capas.
 
@@ -123,7 +123,7 @@ O Android usa três mecanismos complementares para a biblioteca local:
 - SAF (ACTION_OPEN_DOCUMENT_TREE) para uma pasta específica escolhida pelo
   usuário.
 
-A tela de Configurações do Rei-flix explica e solicita esses acessos em contexto.
+A tela de Configurações do ReiAnix explica e solicita esses acessos em contexto.
 O app não solicita permissões de notificações, contatos, SMS, telefone,
 localização, câmera, microfone, Gmail ou Drive.
 

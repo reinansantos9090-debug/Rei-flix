@@ -865,7 +865,9 @@ class DetailView:
 
         layout = ft.Column(layout_controls, scroll=ft.ScrollMode.AUTO, expand=True, spacing=14)
         render_episodes()
-        page.run_task(load_contextual_palette)
+        run_task = getattr(page, "run_task", None)
+        if callable(run_task):
+            run_task(load_contextual_palette)
         return ft.Container(
             content=layout,
             padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=14, bottom=18),

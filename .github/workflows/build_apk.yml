@@ -37,14 +37,9 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools build-tools;36.0.0 platforms;android-36 cmdline-tools;latest'
-
-      - name: Accept Android SDK Licenses
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-
-      - name: Install Android platform
-        run: sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          packages: 'platform-tools build-tools;36.0.0 platforms;android-36'
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: false
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -73,7 +68,6 @@ jobs:
       - name: Clean Flet build cache and generate immutable build identity
         shell: bash
         run: |
-          flet clean
           mkdir -p build
           python scripts/generate_build_identity.py \
             --root . \
@@ -123,7 +117,6 @@ jobs:
         shell: bash
         run: |
           python -m pytest -q
-          python -m unittest discover -s tests -p 'test*.py' -t .
 
       - name: Validate Python application
         run: |
@@ -186,12 +179,25 @@ jobs:
           find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache \) -prune -exec rm -rf {} +
           find . -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '.coverage' \) -delete
 
+      - name: Cache Flet build template
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/reiflix/flet-build-template-v0.86.5.zip
+          key: reianix-flet-template-v0.86.5-${{ runner.os }}
+
       - name: Prepare Flet build template with Android host
+        shell: bash
         run: |
-          mkdir -p build
-          curl -sSL -o build/flet-build-template.zip https://github.com/flet-dev/flet/releases/download/v0.86.5/flet-build-template.zip
+          mkdir -p build "$HOME/.cache/reiflix"
+          template_zip="$HOME/.cache/reiflix/flet-build-template-v0.86.5.zip"
+          if [ ! -s "$template_zip" ]; then
+            echo "Flet build template cache miss; downloading v0.86.5."
+            curl -fsSL --retry 3 --retry-delay 2 -o "$template_zip" https://github.com/flet-dev/flet/releases/download/v0.86.5/flet-build-template.zip
+          else
+            echo "Using cached Flet build template: $template_zip"
+          fi
           mkdir -p build/temp_tmpl
-          unzip -q build/flet-build-template.zip -d build/temp_tmpl
+          unzip -q "$template_zip" -d build/temp_tmpl
           mkdir -p build/flet-build-template
           cp -a build/temp_tmpl/build/. build/flet-build-template/
           rm -rf build/temp_tmpl build/flet-build-template.zip

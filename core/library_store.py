@@ -710,7 +710,7 @@ class LibraryStore:
         from core.backup import BackupService
         chosen = backup_path or self.latest_backup()
         if not chosen:
-            raise FileNotFoundError("Nenhum backup local Rei-flix foi encontrado.")
+            raise FileNotFoundError("Nenhum backup local ReiAnix foi encontrado.")
         return BackupService(self).restore_file(chosen)
     
     def clear_anilist_metadata_cache(self):

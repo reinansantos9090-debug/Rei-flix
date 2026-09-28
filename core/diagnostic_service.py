@@ -1,4 +1,4 @@
-"""Privacy-first technical diagnostics for Rei-Flix.
+"""Privacy-first technical diagnostics for ReiAnix.
 
 This service observes the existing LibraryStore and runtime timeline. It does
 not become a second catalog, settings backend or telemetry pipeline.
@@ -329,7 +329,7 @@ class DiagnosticsService:
         return {
             "format": "rei-flix-diagnostic-report-v1",
             "report_version": 1,
-            "app": "Rei-flix",
+            "app": "ReiAnix",
             "app_version": self.app_version,
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "overall": "OK" if overall_ok else "ATTENTION_REQUIRED",
@@ -364,7 +364,7 @@ class DiagnosticsService:
         artwork = report.get("artwork") or {}
         anilist = report.get("anilist") or {}
         return "\n".join([
-            "REI-FLIX DIAGNOSTIC REPORT",
+            "ReiAnix DIAGNOSTIC REPORT",
             f"Overall: {report.get('overall')}",
             f"App: {report.get('app')} {report.get('app_version')}",
             f"Generated: {report.get('generated_at')}",

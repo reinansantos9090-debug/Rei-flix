@@ -117,6 +117,29 @@ class CertificationRunnerTests(unittest.TestCase):
             self.assertEqual(result.duration_s, 12.5)
             self.assertIn("1013 passed", result.stdout)
 
+    def test_prevalidated_result_rejects_mismatched_workflow_sha(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pytest.json"
+            path.write_text(json.dumps({
+                "status": "PASS",
+                "exit_code": 0,
+                "duration_s": 1.0,
+                "command": "python -m pytest -q",
+                "stdout": "ok",
+                "commit_sha": "wrong-sha",
+            }), encoding="utf-8")
+            old = os.environ.get("GITHUB_SHA")
+            os.environ["GITHUB_SHA"] = "expected-sha"
+            try:
+                result = runner.load_prevalidated_result(path, "Python", "pytest")
+            finally:
+                if old is None:
+                    os.environ.pop("GITHUB_SHA", None)
+                else:
+                    os.environ["GITHUB_SHA"] = old
+            self.assertEqual(result.status, "FAIL")
+            self.assertIn("SHA mismatch", result.evidence)
+
     def test_prevalidated_result_missing_or_invalid_evidence_is_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

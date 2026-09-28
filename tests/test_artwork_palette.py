@@ -50,6 +50,16 @@ class ArtworkPaletteTests(unittest.TestCase):
             on_accent = parse_hex(palette["on_accent"])
             self.assertGreaterEqual(contrast_ratio(accent, on_accent), 4.5)
 
+    def test_monochrome_artwork_keeps_a_neutral_accent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mono.png"
+            self._image(path, (120, 120, 120))
+            palette = extract_palette(path, "dark")
+            self.assertIsNotNone(palette)
+            accent = palette["accent"].lstrip("#")
+            rgb = tuple(int(accent[index:index + 2], 16) for index in (0, 2, 4))
+            self.assertLessEqual(max(rgb) - min(rgb), 8)
+
     def test_transparent_and_corrupt_artwork_fall_back_safely(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

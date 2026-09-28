@@ -2503,16 +2503,19 @@ class LibraryStore:
         return is_in_progress(episode)
 
     def set_watched(self, path, watched):
-        """Set the existing episode completion state without a second player state."""
+        """Set an episode completion state using canonical local-media identity."""
         with self._conn() as c:
-            row = c.execute("SELECT duration FROM episodes WHERE path=?", (path,)).fetchone()
+            row = self._find_episode_row(c, path)
             if not row:
                 return False
+            canonical_path = str(row["path"])
             duration = float(row["duration"] or 0)
             progress = duration if watched and duration > 0 else (0 if not watched else 0)
-            c.execute("UPDATE episodes SET watched=?,progress=?,last_played_at=? WHERE path=?", (int(bool(watched)), progress, time.time(), path))
+            c.execute(
+                "UPDATE episodes SET watched=?,progress=?,last_played_at=? WHERE path=?",
+                (int(bool(watched)), progress, time.time(), canonical_path),
+            )
         return True
-
     @staticmethod
     def _episode_order_key(episode):
         def numeric(value, default=10**6):
@@ -2550,31 +2553,11 @@ class LibraryStore:
         return None
 
     def adjacent_episode(self, path, direction=1):
-        """Return the adjacent playable local episode in catalog order.
-
-        NativePlayerActivity publishes a normalized ``file://`` URI while older
-        filesystem imports may have persisted the same media as an absolute
-        path. Both representations identify the same local episode.
-        """
+        """Return the adjacent playable local episode in catalog order."""
         if direction not in (-1, 1):
             raise ValueError("direction must be -1 or 1")
-        lookup_paths = [str(path or "")]
-        value = lookup_paths[0]
-        if value.casefold().startswith("file://"):
-            try:
-                decoded = unquote(urlparse(value).path)
-            except ValueError:
-                decoded = ""
-            if decoded and decoded not in lookup_paths:
-                lookup_paths.append(decoded)
         with self._conn() as c:
-            current = None
-            for candidate in lookup_paths:
-                if not candidate:
-                    continue
-                current = c.execute("SELECT * FROM episodes WHERE path=?", (candidate,)).fetchone()
-                if current:
-                    break
+            current = self._find_episode_row(c, path)
             if not current:
                 return None
             if not is_regular_episode(dict(current)):

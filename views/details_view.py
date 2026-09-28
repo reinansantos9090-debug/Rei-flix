@@ -158,7 +158,7 @@ class DetailView:
                 "TV": "TV", "TV_SHORT": "TV curta", "MOVIE": "Filme", "OVA": "OVA",
                 "ONA": "ONA", "SPECIAL": "Special", "MUSIC": "Music",
             }
-            facts.append(meta_chip(format_labels.get(str(metadata["format"]).upper(), str(metadata["format"])), ft.Icons.ONDemand_VIDEO))
+            facts.append(meta_chip(format_labels.get(str(metadata["format"]).upper(), str(metadata["format"])), ft.Icons.VIDEO_LIBRARY_OUTLINED))
         if metadata.get("duration"):
             duration_source = "AniList" if metadata.get("anilist_id") else "Metadata"
             facts.append(meta_chip(f"{duration_source}: {metadata['duration']} min/ep", ft.Icons.SCHEDULE_OUTLINED))

@@ -173,7 +173,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var currentErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN
     private var pendingPreparation: Future<*>? = null
     private val playbackWorker: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "ReiFlix-PlayerIO").apply { isDaemon = true }
+        Thread(runnable, "ReiAnix-PlayerIO").apply { isDaemon = true }
     }
     private var activeAnalyticsListener: AnalyticsListener? = null
     private var firstFrameWatchGeneration = -1L
@@ -1314,7 +1314,7 @@ class NativePlayerActivity : ComponentActivity() {
             topMargin = dp(14)
         })
 
-        val errorBack = actionButton("Voltar ao Rei-Flix", 170) {
+        val errorBack = actionButton("Voltar ao ReiAnix", 170) {
             finishPlayer("player_error_back")
         }
         errorBack.tag = "reiflix_error_back"
@@ -2831,7 +2831,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 when {
                     !file.exists() -> "Arquivo local removido ou indisponível."
                     !file.isFile -> "A referência local não aponta para um arquivo."
-                    !authorized -> "Este arquivo não pertence a uma pasta autorizada pelo Rei-Flix."
+                    !authorized -> "Este arquivo não pertence a uma pasta autorizada pelo ReiAnix."
                     !file.canRead() -> "O arquivo local não pode ser lido neste momento."
                     else -> null
                 }

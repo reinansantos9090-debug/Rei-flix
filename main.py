@@ -422,6 +422,7 @@ async def main(page: ft.Page):
                 _set_episode_identification_from_details, refresh_current_details,
                 refresh_current_metadata, library.resolve_artwork, library.resolve_artwork_batch,
                 on_open_marathon=open_marathon,
+                resolve_artwork_palette=library.resolve_artwork_palette,
             )
         elif route == "collector":
             control = CollectorView.build(

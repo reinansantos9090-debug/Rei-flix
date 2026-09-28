@@ -47,6 +47,11 @@ class Prompt2StabilizationTests(unittest.TestCase):
         self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", SYSTEM_UI)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", SYSTEM_UI)
 
+    def test_player_startup_applies_final_system_ui_policy_without_normal_flash(self):
+        bootstrap = PLAYER[PLAYER.index("override fun onCreate"):PLAYER.index("override fun onNewIntent")]
+        self.assertNotIn("systemUiController.applyApplicationPolicy()", bootstrap)
+        self.assertIn('if (shouldUseImmersive()) enterImmersiveMode() else restoreSystemUiBeforeExit()', bootstrap)
+
     def test_native_player_transition_write_failure_clears_pending_state(self):
         start = PLAYER.index("private fun requestEpisode")
         end = PLAYER.index("private fun seekToSavedPosition", start)

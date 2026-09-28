@@ -1,4 +1,4 @@
-"""Versioned, offline-first backup/restore service for Rei-Flix.
+"""Versioned, offline-first backup/restore service for ReiAnix.
 
 The service owns the transport/container protocol while LibraryStore remains the
 single persistence authority. Backups contain logical application state only;
@@ -75,7 +75,7 @@ class BackupMigrationRegistry:
 class BackupService:
     FORMAT = "rei-flix-backup-v1"
     FORMAT_VERSION = 1
-    APP_NAME = "Rei-flix"
+    APP_NAME = "ReiAnix"
     DEFAULT_APP_VERSION = "0.2.1"
     REQUIRED_MEMBERS = frozenset({"manifest.json", "library.sqlite3"})
     MANUAL_ARTWORK_PREFIX = "artwork/manual/"
@@ -204,7 +204,7 @@ class BackupService:
         if not isinstance(manifest, dict):
             raise BackupValidationError("BACKUP_INVALID", "Manifest inválido.")
         if manifest.get("app") != cls.APP_NAME:
-            raise BackupValidationError("BACKUP_INVALID", "Este arquivo não é um backup do Rei-Flix.")
+            raise BackupValidationError("BACKUP_INVALID", "Este arquivo não é um backup do ReiAnix.")
         if manifest.get("format") != cls.FORMAT:
             raise BackupValidationError("BACKUP_UNSUPPORTED_VERSION", "Formato de backup incompatível.")
         try:

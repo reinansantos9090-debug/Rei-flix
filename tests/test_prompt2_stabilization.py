@@ -134,6 +134,16 @@ class Prompt2StabilizationTests(unittest.TestCase):
         self.assertIn("callable(is_active) and not is_active()", tags)
         self.assertIn("callable(is_active) and not is_active()", identification)
 
+    def test_newer_thumbnail_generation_supersedes_inflight_older_request(self):
+        request_start = MAIN.index("def request_missing_thumbnail")
+        request_end = MAIN.index("def storage_state", request_start)
+        block = MAIN[request_start:request_end]
+        self.assertIn("existing_latest = thumbnail_latest_key_by_uri.get(path_ref)", block)
+        self.assertIn("thumbnail_requests.discard(existing_latest)", block)
+        self.assertIn("thumbnail_request_started_at.pop(existing_latest, None)", block)
+        self.assertIn("thumbnail_latest_key_by_uri[path_ref] = key", block)
+        self.assertIn("Only the latest requested media version may publish.", MAIN)
+
     def test_thumbnail_ready_only_accepts_latest_generation(self):
         start = MAIN.index("elif event_type == 'thumbnail_ready':")
         end = MAIN.index("elif event_type == 'thumbnail_error':", start)

@@ -2449,12 +2449,7 @@ class LibraryStore:
             return True
 
     def save_progress(self, path, position, duration, *, event_created_at=None):
-        """Persist one normalized playback event through the central consumption policy.
-
-        Native events may be duplicated or arrive late.  A newer event is allowed
-        to seek backwards (a real user seek), while an older event is ignored so
-        a delayed callback cannot regress durable state.
-        """
+        """Persist one normalized playback event with canonical local-media identity."""
         try:
             position, duration = float(position), float(duration)
             event_time = None if event_created_at is None else float(event_created_at)
@@ -2469,45 +2464,32 @@ class LibraryStore:
         if duration > 0:
             position = min(position, duration)
         now = time.time()
-        if event_time is not None:
-            event_time = event_time / 1000.0 if event_time > 10_000_000_000 else event_time
-            last_seen = self._last_playback_event_at.get(path, 0.0)
-            if event_time <= last_seen:
-                return False
-            with self._conn() as c:
-                row = c.execute("SELECT last_played_at, watched FROM episodes WHERE path=?", (path,)).fetchone()
-                if not row:
-                    return False
-                durable_time = float(row["last_played_at"] or 0.0)
-                # last_played_at is also the durable playback-event clock. Older
-                # events must never overwrite a newer event, including after a
-                # Python process restart. This avoids using wall-clock processing
-                # time, which could be later than the event that was just queued.
-                if durable_time and event_time < durable_time - 0.001:
-                    return False
-                updated = c.execute(
-                    "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
-                    (
-                        position,
-                        duration,
-                        int(is_completed({"progress": position, "duration": duration, "watched": bool(row["watched"])})),
-                        event_time,
-                        path,
-                    ),
-                ).rowcount
-            self._last_playback_event_at[path] = event_time
-            return bool(updated)
         with self._conn() as c:
-            row = c.execute("SELECT watched FROM episodes WHERE path=?", (path,)).fetchone()
+            row = self._find_episode_row(c, path)
             if not row:
                 return False
+            canonical_path = str(row["path"])
             watched = int(is_completed({"progress": position, "duration": duration, "watched": bool(row["watched"])}))
+            if event_time is not None:
+                event_time = event_time / 1000.0 if event_time > 10_000_000_000 else event_time
+                last_seen = self._last_playback_event_at.get(canonical_path, 0.0)
+                if event_time <= last_seen:
+                    return False
+                updated = c.execute(
+                    """UPDATE episodes
+                       SET progress=?, duration=?, watched=?, last_played_at=?
+                       WHERE path=?
+                         AND (last_played_at IS NULL OR last_played_at < ?)""",
+                    (position, duration, watched, event_time, canonical_path, event_time),
+                ).rowcount
+                if updated:
+                    self._last_playback_event_at[canonical_path] = event_time
+                return bool(updated)
             updated = c.execute(
                 "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
-                (position, duration, watched, now, path),
+                (position, duration, watched, now, canonical_path),
             ).rowcount
         return bool(updated)
-
     @staticmethod
     def consumption_state(episode):
         return consumption_state(episode).value

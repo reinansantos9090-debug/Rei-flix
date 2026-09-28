@@ -205,7 +205,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("ActivityLifecycleMonitorRegistry", source)
         self.assertIn("Stage.RESUMED", source)
         self.assertIn("safPickerPending", source)
-        self.assertIn("appSystemBackFromChildActivityReturnsToReiFlix", source)
+        self.assertIn("appSystemBackFromChildActivityReturnsToReiAnix", source)
         self.assertIn("runOnMainBounded", source)
         self.assertNotIn("runOnMainSync", source)
         self.assertNotIn("executeShellCommand", source)
@@ -213,7 +213,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
     def test_player_system_back_requires_reiflix_foreground_return(self):
         source = (ROOT / "android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/NativePlayerPlaybackInstrumentedTest.kt").read_text(encoding="utf-8")
         self.assertIn("UiDevice.pressBack()", source)
-        self.assertIn("waitForReiFlixMainActivityForeground()", source)
+        self.assertIn("waitForReiAnixMainActivityForeground()", source)
         self.assertIn("Stage.RESUMED", source)
         self.assertIn("MainActivity", source)
     def test_workflow_generated_json_validation_uses_safe_heredoc(self):

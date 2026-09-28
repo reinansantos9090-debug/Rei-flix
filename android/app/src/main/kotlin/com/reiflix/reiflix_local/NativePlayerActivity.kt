@@ -13,6 +13,7 @@ import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Matrix
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.media.AudioManager
 import android.net.Uri
@@ -87,6 +88,7 @@ class NativePlayerActivity : ComponentActivity() {
     private lateinit var lockButton: TextView
     private lateinit var gesturePreferences: SharedPreferences
     private lateinit var systemUiController: SystemUiController
+    private lateinit var localMetadataStore: PlayerLocalMetadataStore
 
     private var locked = false
     private var inPictureInPicture = false
@@ -101,7 +103,6 @@ class NativePlayerActivity : ComponentActivity() {
     private var volumeGesturesEnabled = false
     private var brightnessGesturesEnabled = false
     private var doubleTapEnabled = true
-    private var horizontalSeekEnabled = false
     private var longPressEnabled = false
     private var windowBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
     private var autoHideTimeoutMs = CONTROL_TIMEOUT_MS
@@ -142,6 +143,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var errorVisible = false
     private var openedReported = false
     private var restoredPositionMs: Long? = null
+    private var localMetadata = PlayerLocalMetadataStore.Metadata.empty()
     private var aspectModeLabel = "Ajustar"
     private var episodeChangePending = false
     private var retryCount = 0
@@ -316,13 +318,15 @@ class NativePlayerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
-        requestId = intent.getStringExtra("requestId")?.trim().orEmpty()
+        requestId = savedInstanceState?.getString("session_request_id")?.trim()
+            ?: intent.getStringExtra("requestId")?.trim().orEmpty()
         commandCreatedAtMs = intent.getLongExtra("commandCreatedAtMs", 0L)
         commandReceivedAtMs = intent.getLongExtra("commandReceivedAtMs", 0L)
         handoffDispatchedAtMs = intent.getLongExtra("handoffDispatchedAtMs", 0L)
         activityStartedAtMs = System.currentTimeMillis()
         sessionState = SessionState.ACTIVE
         gesturePreferences = getSharedPreferences("reiflix_player_preferences", Context.MODE_PRIVATE)
+        localMetadataStore = PlayerLocalMetadataStore(this)
         volumeGesturesEnabled = intent.getBooleanExtra("setting_gestures_volume",
             gesturePreferences.getBoolean(PREF_GESTURES_VOLUME, false))
         brightnessGesturesEnabled = intent.getBooleanExtra("setting_gestures_brightness",
@@ -401,7 +405,8 @@ class NativePlayerActivity : ComponentActivity() {
         ViewCompat.requestApplyInsets(root)
         ViewCompat.getRootWindowInsets(window.decorView)?.let { applyRootInsets(it) }
 
-        val rawUri = intent.getStringExtra("uri")
+        val rawUri = intent.getStringExtra("uri")?.takeIf { it.isNotBlank() }
+            ?: savedInstanceState?.getString("session_uri")?.takeIf { it.isNotBlank() }
         logPlayer("URI_RECEIVED requestId=" + requestId.ifEmpty { "-" } +
             " uriOriginal=" + rawUri.orEmpty())
         if (rawUri.isNullOrBlank()) {
@@ -419,6 +424,7 @@ class NativePlayerActivity : ComponentActivity() {
             return
         }
         uri = resolvedUri
+        loadLocalMetadata()
 
         logPlayer("PREFLIGHT_DEFERRED requestId=" + requestId.ifEmpty { "-" } +
             " source=" + sourceFor(uri) + " reason=background_io")
@@ -504,6 +510,7 @@ class NativePlayerActivity : ComponentActivity() {
             return
         }
         uri = normalized
+        loadLocalMetadata()
         requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
         commandCreatedAtMs = newIntent.getLongExtra("commandCreatedAtMs", 0L)
         commandReceivedAtMs = newIntent.getLongExtra("commandReceivedAtMs", 0L)
@@ -521,7 +528,6 @@ class NativePlayerActivity : ComponentActivity() {
         suppressExitEvent = false
         errorVisible = false
         doubleTapSeekMs = newIntent.getLongExtra("setting_player_double_tap_seek_seconds", doubleTapSeekMs / 1000L)
-        horizontalSeekEnabled = newIntent.getBooleanExtra("setting_gestures_horizontal_swipe_seek", horizontalSeekEnabled)
         longPressSpeed = newIntent.getFloatExtra("setting_player_long_press_speed", longPressSpeed)
             .coerceIn(1f, 3f)
         maxVideoResolution = newIntent.getStringExtra("setting_player_max_video_resolution") ?: maxVideoResolution
@@ -878,6 +884,7 @@ class NativePlayerActivity : ComponentActivity() {
             if (!isCurrent()) return
             logPlayer("IS_PLAYING_CHANGED=" + isPlaying)
             updatePlayPauseButton()
+            updatePictureInPictureParams()
             if (!errorVisible) {
                 scheduleControlsHide()
             }
@@ -1095,12 +1102,19 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     private fun configurePictureInPicture() {
+        updatePictureInPictureParams()
+    }
+
+    private fun updatePictureInPictureParams() {
         if (!canEnterPictureInPicture()) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val builder = PictureInPictureParams.Builder()
-                .setAutoEnterEnabled(true)
-            setPictureInPictureParams(builder.build())
+        val builder = PictureInPictureParams.Builder()
+        if (::playerView.isInitialized && playerView.width > 0 && playerView.height > 0) {
+            builder.setSourceRectHint(Rect(playerView.left, playerView.top, playerView.right, playerView.bottom))
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setAutoEnterEnabled(::player.isInitialized && player.playWhenReady && player.isPlaying)
+        }
+        setPictureInPictureParams(builder.build())
     }
 
     private fun installBasePlayerView() {
@@ -1380,6 +1394,29 @@ class NativePlayerActivity : ComponentActivity() {
         seekRow.addView(durationLabel, LinearLayout.LayoutParams(dp(48), dp(40)))
         bottomBar.addView(seekRow)
 
+        val markerRow = LinearLayout(this).apply {
+            tag = "reiflix_marker_row"
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val skipOpening = actionButton("Pular abertura", 132) {
+            localMetadata.opening?.let { seekToMarker(it.endMs, "Abertura pulada") }
+        }.apply {
+            tag = "reiflix_skip_opening"
+            visibility = View.GONE
+            contentDescription = "Pular abertura"
+        }
+        val skipEnding = actionButton("Pular encerramento", 150) {
+            localMetadata.ending?.let { seekToMarker(it.endMs, "Encerramento pulado") }
+        }.apply {
+            tag = "reiflix_skip_ending"
+            visibility = View.GONE
+            contentDescription = "Pular encerramento"
+        }
+        markerRow.addView(skipOpening, weightParams(132))
+        markerRow.addView(skipEnding, weightParams(150))
+        bottomBar.addView(markerRow)
+
         val morePanel = LinearLayout(this).apply {
             tag = "reiflix_more_panel"
             orientation = LinearLayout.VERTICAL
@@ -1422,9 +1459,16 @@ class NativePlayerActivity : ComponentActivity() {
             text = aspectModeLabel
             tag = "reiflix_aspect_button"
         }
+        val markers = actionButton("Marcadores", 92) {
+            showLocalMetadataEditor()
+        }.apply {
+            tag = "reiflix_markers_button"
+            contentDescription = "Marcadores e notas locais"
+        }
         addMoreRow(previousEpisode, nextEpisode)
         addMoreRow(audio, subtitle)
         addMoreRow(speed, aspect)
+        addMoreRow(markers)
         addMoreRow(actionButton("Reiniciar", 92) {
             if (::player.isInitialized) {
                 player.seekTo(0L)
@@ -1644,6 +1688,7 @@ class NativePlayerActivity : ComponentActivity() {
         }
         positionLabel.text = formatTime(position)
         durationLabel.text = formatTime(duration.coerceAtLeast(0L))
+        updateMetadataControls(position)
     }
 
     private fun startProgressReporting() {
@@ -1794,6 +1839,10 @@ class NativePlayerActivity : ComponentActivity() {
         .put("prepareLatencyMs", metricDelta(preflightCompletedAtMs, prepareDispatchedAtMs))
         .put("firstFrameLatencyMs", metricDelta(prepareDispatchedAtMs, atMs))
         .put("totalOpenToFirstFrameMs", metricDelta(commandCreatedAtMs, atMs))
+        .put("assist_to_activity_ms", metricDelta(commandReceivedAtMs, activityStartedAtMs))
+        .put("activity_to_player_ms", metricDelta(activityStartedAtMs, prepareDispatchedAtMs))
+        .put("player_prepare_ms", metricDelta(prepareDispatchedAtMs, atMs))
+        .put("first_frame_ms", metricDelta(prepareDispatchedAtMs, atMs))
 
     private fun diagnosticPayload(): JSONObject = JSONObject()
         .put("timestamp", System.currentTimeMillis())
@@ -2307,6 +2356,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         if (::player.isInitialized && !errorVisible) {
             updateProgressUi()
             updatePlayPauseButton()
+            updatePictureInPictureParams()
             if (player.playbackState == Player.STATE_READY && !firstFrameRenderedForTesting) {
                 armFirstFrameDiagnostics(playerGeneration)
             }
@@ -2340,6 +2390,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         logPlayer("PLAYER_PIP inPip=" + isInPictureInPictureMode + " requestId=" + requestId.ifEmpty { "-" })
         inPictureInPicture = isInPictureInPictureMode
+        updatePictureInPictureParams()
         if (isInPictureInPictureMode) {
             handler.removeCallbacks(controlsHider)
             findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
@@ -2376,6 +2427,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putLong("player_generation", playerGeneration)
+        outState.putString("session_request_id", requestId)
+        if (::uri.isInitialized) outState.putString("session_uri", uri.toString())
         if (::player.isInitialized) {
             outState.putString("session_request_id", requestId)
             outState.putString("session_uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
@@ -2463,10 +2516,9 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     private fun restoreSystemUiBeforeExit() {
         runCatching {
-            // The player is the only immersive surface. Restore the host's normal
-            // system-bar policy before finishing so MainActivity can resume cleanly.
-            systemUiController.applyApplicationPolicy()
-        systemUiController.applyNormal(useContextAppearance = false)
+            // The player is the only immersive surface. Restore one explicit
+            // normal system-bar policy before returning to the Flet host.
+            systemUiController.applyNormal(useContextAppearance = false)
             ViewCompat.requestApplyInsets(window.decorView)
             logPlayer("PLAYER_SYSTEM_UI_RESTORED requestId=" + requestId.ifEmpty { "-" })
         }.onFailure { error ->
@@ -2488,6 +2540,159 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                         " lifecycle=post_layout")
                 }
             }
+        }
+    }
+
+    private fun loadLocalMetadata() {
+        if (!::localMetadataStore.isInitialized || !::uri.isInitialized) return
+        localMetadata = localMetadataStore.get(uri.toString())
+        updateMetadataControls(if (::player.isInitialized) player.currentPosition else 0L)
+    }
+
+    private fun updateMetadataControls(positionMs: Long) {
+        if (!::root.isInitialized) return
+        val position = positionMs.coerceAtLeast(0L)
+        val opening = localMetadata.opening
+        val ending = localMetadata.ending
+        findViewByTag<TextView>("reiflix_skip_opening")?.visibility =
+            if (opening != null && position >= opening.startMs && position < opening.endMs) View.VISIBLE else View.GONE
+        findViewByTag<TextView>("reiflix_skip_ending")?.visibility =
+            if (ending != null && position >= ending.startMs && position < ending.endMs) View.VISIBLE else View.GONE
+    }
+
+    private fun seekToMarker(targetMs: Long, feedbackText: String) {
+        if (!::player.isInitialized || player.duration <= 0L) return
+        val safeTarget = targetMs.coerceIn(0L, player.duration)
+        player.seekTo(safeTarget)
+        saveProgress("player_progress", force = true)
+        showFeedback(feedbackText)
+        touchControls()
+    }
+
+    private fun showLocalMetadataEditor() {
+        if (!::localMetadataStore.isInitialized || !::uri.isInitialized) return
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+        }
+
+        fun field(label: String, valueMs: Long?): android.widget.EditText =
+            android.widget.EditText(this).apply {
+                hint = label + " (MM:SS)"
+                setSingleLine(true)
+                inputType = android.text.InputType.TYPE_CLASS_DATETIME or android.text.InputType.TYPE_DATETIME_VARIATION_TIME
+                setText(valueMs?.let { formatTime(it) }.orEmpty())
+            }
+
+        val openingStart = field("Abertura início", localMetadata.opening?.startMs)
+        val openingEnd = field("Abertura fim", localMetadata.opening?.endMs)
+        val endingStart = field("Encerramento início", localMetadata.ending?.startMs)
+        val endingEnd = field("Encerramento fim", localMetadata.ending?.endMs)
+
+        container.addView(android.widget.TextView(this).apply {
+            text = "Marcadores locais (timestamps informados pelo usuário)"
+            setTextColor(Color.WHITE)
+            textSize = 13f
+        })
+        container.addView(openingStart)
+        container.addView(openingEnd)
+        container.addView(endingStart)
+        container.addView(endingEnd)
+
+        if (localMetadata.notes.isNotEmpty()) {
+            container.addView(android.widget.TextView(this).apply {
+                text = "Notas deste episódio"
+                setTextColor(0xFFE0DCE8.toInt())
+                setPadding(0, dp(10), 0, dp(4))
+            })
+            localMetadata.notes.sortedBy { it.timestampMs }.forEach { note ->
+                val item = actionButton(formatTime(note.timestampMs) + " • " + note.text, 260) {
+                    seekToMarker(note.timestampMs, formatTime(note.timestampMs))
+                }
+                item.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                item.setOnLongClickListener {
+                    localMetadata = localMetadataStore.deleteNote(uri.toString(), note.id)
+                    showFeedback("Nota removida")
+                    showLocalMetadataEditor()
+                    true
+                }
+                container.addView(item, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(44),
+                ).apply { topMargin = dp(4) })
+            }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Marcadores e notas locais")
+            .setView(container)
+            .setNeutralButton("Nota no tempo atual") { _, _ ->
+                handler.post { showAddLocalNoteDialog() }
+            }
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Salvar marcadores") { _, _ ->
+                localMetadata = localMetadataStore.setSegments(
+                    uri.toString(),
+                    parseTimestampMs(openingStart.text?.toString()),
+                    parseTimestampMs(openingEnd.text?.toString()),
+                    parseTimestampMs(endingStart.text?.toString()),
+                    parseTimestampMs(endingEnd.text?.toString()),
+                )
+                updateMetadataControls(if (::player.isInitialized) player.currentPosition else 0L)
+                showFeedback("Marcadores salvos")
+            }
+            .show()
+    }
+
+    private fun showAddLocalNoteDialog() {
+        if (!::localMetadataStore.isInitialized || !::uri.isInitialized) return
+        val input = android.widget.EditText(this).apply {
+            hint = "Nota neste ponto do episódio"
+            setSingleLine(false)
+            maxLines = 5
+            setTextColor(Color.WHITE)
+            setTextSize(14f)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Nota em " + formatTime(if (::player.isInitialized) player.currentPosition else 0L))
+            .setView(input)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Salvar") { _, _ ->
+                localMetadata = localMetadataStore.addNote(
+                    uri.toString(),
+                    if (::player.isInitialized) player.currentPosition.coerceAtLeast(0L) else 0L,
+                    input.text?.toString().orEmpty(),
+                )
+                updateMetadataControls(if (::player.isInitialized) player.currentPosition else 0L)
+                showFeedback("Nota salva")
+            }
+            .show()
+    }
+
+    private fun parseTimestampMs(raw: String?): Long? {
+        val value = raw?.trim().orEmpty()
+        if (value.isBlank()) return null
+        val parts = value.split(":")
+        return try {
+            when (parts.size) {
+                1 -> (parts[0].toDouble() * 1000.0).toLong().coerceAtLeast(0L)
+                2 -> {
+                    val minutes = parts[0].toLong().coerceAtLeast(0L)
+                    val seconds = parts[1].toDouble().coerceIn(0.0, 59.999)
+                    (minutes * 60_000L + (seconds * 1000.0).toLong()).coerceAtLeast(0L)
+                }
+                3 -> {
+                    val hours = parts[0].toLong().coerceAtLeast(0L)
+                    val minutes = parts[1].toLong().coerceIn(0L, 59L)
+                    val seconds = parts[2].toDouble().coerceIn(0.0, 59.999)
+                    (hours * 3_600_000L + minutes * 60_000L + (seconds * 1000.0).toLong()).coerceAtLeast(0L)
+                }
+                else -> null
+            }
+        } catch (_: NumberFormatException) {
+            null
         }
     }
 
@@ -2667,7 +2872,6 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         DOUBLE_TAP,
         PINCH,
         PAN,
-        HORIZONTAL_SEEK,
         VERTICAL,
     }
 
@@ -2810,7 +3014,6 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         private var systemGestureEdge = false
         private var pinchActive = false
         private var lastVerticalY: Float? = null
-        private var horizontalSeekStartPosition: Long? = null
         private var lastPanX: Float? = null
         private var lastPanY: Float? = null
         private var zoomScale = 1f
@@ -2922,16 +3125,6 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                         return true
                     }
 
-                    if (gestureMode == GestureMode.HORIZONTAL_SEEK) {
-                        val previewDeltaMs = PlayerGesturePolicy.horizontalSeekDelta(
-                            distancePx = dx,
-                            viewportWidthPx = width,
-                            durationMs = player.duration,
-                        )
-                        showFeedback(formatSeekDelta(previewDeltaMs), 350L)
-                        return true
-                    }
-
                     when (PlayerGesturePolicy.direction(dx, dy, touchSlop)) {
                         PlayerGesturePolicy.Direction.VERTICAL -> {
                             if (gestureMode == GestureMode.IDLE) {
@@ -2956,25 +3149,14 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                         }
 
                         PlayerGesturePolicy.Direction.HORIZONTAL -> {
-                            if (gestureMode == GestureMode.IDLE) {
-                                gestureConsumed = true
-                                cancelGestureDetector(event)
-                                restoreLongPressSpeed()
-                                if (horizontalSeekEnabled) {
-                                    gestureMode = GestureMode.HORIZONTAL_SEEK
-                                    horizontalSeekStartPosition = player.currentPosition.coerceAtLeast(0L)
-                                    logPlayer(
-                                        "GESTURE_START type=horizontal_seek requestId=" +
-                                            requestId.ifEmpty { "-" },
-                                    )
-                                } else {
-                                    gestureMode = GestureMode.IDLE
-                                    logPlayer(
-                                        "GESTURE_HORIZONTAL_SEEK_DISABLED requestId=" +
-                                            requestId.ifEmpty { "-" },
-                                    )
-                                }
-                            }
+                            gestureConsumed = true
+                            gestureMode = GestureMode.IDLE
+                            cancelGestureDetector(event)
+                            restoreLongPressSpeed()
+                            logPlayer(
+                                "GESTURE_HORIZONTAL_IGNORED requestId=" +
+                                    requestId.ifEmpty { "-" },
+                            )
                         }
 
                         PlayerGesturePolicy.Direction.NONE -> Unit
@@ -2987,33 +3169,6 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                             logPlayer(
                                 "GESTURE_END type=vertical_ignored_or_applied requestId=" +
                                     requestId.ifEmpty { "-" },
-                            )
-                            touchControls()
-                            resetTransientState()
-                            return true
-                        }
-
-                        GestureMode.HORIZONTAL_SEEK -> {
-                            val startPosition = horizontalSeekStartPosition ?: player.currentPosition
-                            val deltaMs = PlayerGesturePolicy.horizontalSeekDelta(
-                                distancePx = event.x - downX,
-                                viewportWidthPx = width,
-                                durationMs = player.duration,
-                            )
-                            val target = PlayerGesturePolicy.seekTarget(
-                                currentPositionMs = startPosition,
-                                deltaMs = deltaMs,
-                                durationMs = player.duration,
-                            )
-                            if (player.duration > 0L && target != player.currentPosition) {
-                                player.seekTo(target)
-                                saveProgress("player_progress", force = true)
-                                showFeedback(formatSeekDelta(target - startPosition))
-                            }
-                            logPlayer(
-                                "GESTURE_END type=horizontal_seek deltaMs=" +
-                                    deltaMs + " targetMs=" + target +
-                                    " requestId=" + requestId.ifEmpty { "-" },
                             )
                             touchControls()
                             resetTransientState()
@@ -3064,13 +3219,6 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 x > width - gestureSafeRight ||
                 y < gestureSafeTop ||
                 y > height - gestureSafeBottom
-
-        private fun formatSeekDelta(deltaMs: Long): String {
-            val seconds = kotlin.math.abs(deltaMs) / 1000L
-            if (seconds == 0L) return "0s"
-            val sign = if (deltaMs >= 0L) "+" else "−"
-            return sign + seconds + "s"
-        }
 
         private fun handleVerticalGestureDelta(startX: Float, deltaY: Float) {
             if (height <= 0) return
@@ -3154,7 +3302,6 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             gestureConsumed = true
             gestureMode = GestureMode.IDLE
             lastVerticalY = null
-            horizontalSeekStartPosition = null
             systemGestureEdge = false
             restoreLongPressSpeed()
             cancelGestureDetector()
@@ -3347,7 +3494,6 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
         private fun resetTransientState() {
             gestureMode = GestureMode.IDLE
-            horizontalSeekStartPosition = null
             lastPanX = null
             lastPanY = null
             lastVerticalY = null
@@ -3459,18 +3605,6 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             } else {
                 (currentPositionMs + deltaMs).coerceIn(0L, durationMs)
             }
-
-        fun horizontalSeekDelta(
-            distancePx: Float,
-            viewportWidthPx: Int,
-            durationMs: Long,
-            maxPerGestureMs: Long = 120_000L,
-        ): Long {
-            if (viewportWidthPx <= 0 || durationMs <= 0L || maxPerGestureMs <= 0L) return 0L
-            val normalizedDistance = (distancePx / viewportWidthPx.toFloat()).coerceIn(-1f, 1f)
-            val seekWindow = minOf(durationMs / 4L, maxPerGestureMs).coerceAtLeast(1L)
-            return (normalizedDistance * seekWindow.toFloat()).toLong()
-        }
 
         fun verticalDeltaFraction(deltaY: Float, viewportHeight: Int): Float =
             if (viewportHeight <= 0) {

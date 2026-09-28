@@ -77,6 +77,8 @@ class HomeView:
         catalog_focus_targets: dict[str, object] = {}
         artwork_concurrency = asyncio.Semaphore(4)
         artwork_ui_update_scheduled = [False]
+        catalog_refresh_scheduled = [False]
+        catalog_refresh_dirty = [False]
 
         def save_view_state():
             view_state.update(
@@ -1051,7 +1053,22 @@ class HomeView:
                 logger.debug("Home scroll restoration unavailable", exc_info=True)
 
         def schedule_refresh_from_catalog():
-            page.run_task(refresh_from_catalog)
+            catalog_refresh_dirty[0] = True
+            if catalog_refresh_scheduled[0]:
+                return
+            catalog_refresh_scheduled[0] = True
+
+            async def run_catalog_refreshes():
+                try:
+                    while catalog_refresh_dirty[0]:
+                        catalog_refresh_dirty[0] = False
+                        await refresh_from_catalog()
+                finally:
+                    catalog_refresh_scheduled[0] = False
+                    if catalog_refresh_dirty[0]:
+                        schedule_refresh_from_catalog()
+
+            page.run_task(run_catalog_refreshes)
 
         view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
         status.visible = True

@@ -583,7 +583,6 @@ async def main(page: ft.Page):
                 "gestures.volume": settings.get("gestures.volume"),
                 "gestures.brightness": settings.get("gestures.brightness"),
                 "gestures.double_tap": settings.get("gestures.double_tap"),
-                "gestures.horizontal_swipe_seek": settings.get("gestures.horizontal_swipe_seek"),
                 "gestures.long_press": settings.get("gestures.long_press"),
                 "audio.preferred_language": settings.get("audio.preferred_language"),
                 "audio.preferred_subtitle_language": settings.get("audio.preferred_subtitle_language"),

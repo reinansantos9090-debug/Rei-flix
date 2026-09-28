@@ -1050,7 +1050,7 @@ class HomeView:
         header = ft.Row([
             ft.Row([
                 ft.Container(content=ft.Icon(ft.Icons.PLAY_CIRCLE_FILLED, color=ACCENT, size=29), bgcolor=SURFACE, border_radius=12, padding=5),
-                ft.Text("ReiFlix", size=22, weight=ft.FontWeight.BOLD, color=TEXT),
+                ft.Text("ReiAnix", size=22, weight=ft.FontWeight.BOLD, color=TEXT),
             ], spacing=8),
             ft.Row([
                 ft.IconButton(icon=ft.Icons.SEARCH, icon_color=TEXT, tooltip="Pesquisar", on_click=toggle_search),

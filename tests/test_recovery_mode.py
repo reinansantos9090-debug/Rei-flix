@@ -55,7 +55,44 @@ class RecoveryModeTests(unittest.TestCase):
             restored = LibraryStore(target_root)
             self.assertEqual("keep@example.invalid", restored.account().get("email"))
 
-    def test_recovery_refuses_restore_if_authentication_cannot_be_read(self):
+    def test_recovery_restores_catalog_when_account_table_cannot_be_read(self):
+        with tempfile.TemporaryDirectory() as source_root, tempfile.TemporaryDirectory() as root:
+            source = LibraryStore(source_root)
+            backup = source.create_backup()
+            store = LibraryStore(root)
+            with sqlite3.connect(store.db_path) as con:
+                con.execute("DROP TABLE account")
+                con.commit()
+            result = RecoveryService(store).restore_backup(open(backup, "rb").read())
+            self.assertFalse(result["authentication_preserved"])
+            self.assertTrue(result["reauthentication_required"])
+            reopened = LibraryStore(root)
+            with sqlite3.connect(reopened.db_path) as con:
+                self.assertEqual("ok", str(con.execute("PRAGMA integrity_check").fetchone()[0]).casefold())
+
+    def test_recovery_safety_snapshot_restores_database_and_wal_shm_sidecars(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = LibraryStore(root)
+            service = RecoveryService(store)
+            safety = service.create_safety_snapshot()
+            with sqlite3.connect(store.db_path) as con:
+                con.execute("CREATE TABLE rollback_probe(id INTEGER)")
+                con.execute("INSERT INTO rollback_probe VALUES (42)")
+                con.commit()
+            Path(store.db_path + "-wal").write_bytes(b"live-wal")
+            Path(store.db_path + "-shm").write_bytes(b"live-shm")
+
+            service._restore_safety_snapshot(safety)
+
+            with sqlite3.connect(store.db_path) as con:
+                row = con.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='rollback_probe'"
+                ).fetchone()
+            self.assertIsNone(row)
+            self.assertFalse(os.path.exists(store.db_path + "-wal"))
+            self.assertFalse(os.path.exists(store.db_path + "-shm"))
+
+    def test_recovery_accepts_explicitly_corrupt_database_only_when_raw_safety_snapshot_can_be_created(self):
         with tempfile.TemporaryDirectory() as source_root, tempfile.TemporaryDirectory() as root:
             source = LibraryStore(source_root)
             raw = open(source.create_backup(), "rb").read()
@@ -63,6 +100,8 @@ class RecoveryModeTests(unittest.TestCase):
             with open(store.db_path, "r+b") as handle:
                 handle.seek(0)
                 handle.write(b"not-a-sqlite-database")
-            with self.assertRaises(RecoveryError) as ctx:
-                RecoveryService(store).restore_backup(raw)
-            self.assertEqual("RECOVERY_AUTH_PRESERVATION_FAILED", ctx.exception.code)
+            # The corrupt database cannot safely preserve the current account,
+            # but RecoveryService still keeps the byte-for-byte safety snapshot.
+            result = RecoveryService(store).restore_backup(raw)
+            self.assertTrue(result["reauthentication_required"])
+            self.assertTrue(os.path.isfile(result["safety_snapshot"]))

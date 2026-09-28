@@ -430,9 +430,10 @@ def main():
     r["collect"]=run_command("Python","pytest collect-only",[py,"-m","pytest","--collect-only","-q"],cwd=root,timeout=1800)
     if a.prevalidated_python_evidence:
         evidence_path=a.prevalidated_python_evidence.resolve()
+        r["collect"]=load_prevalidated_result(evidence_path.parent / "pytest_collect.json", "Python", "pytest collect-only")
         r["pytest"]=load_prevalidated_result(evidence_path.parent / "pytest.json", "Python", "pytest")
         r["pytest_second"]=load_prevalidated_result(evidence_path.parent / "pytest_second.json", "Python", "pytest determinism")
-        r["unittest"]=Result("Python","unittest discovery",NOT_APPLICABLE,"Standalone unittest discovery is intentionally not re-executed: pytest already collects unittest.TestCase subclasses in the repository, and the CI evidence is retained in the pytest runs.",command="pytest unittest.TestCase coverage")
+        r["unittest"]=Result("Python","unittest discovery",NOT_APPLICABLE,"Standalone unittest discovery is intentionally not re-executed: pytest collects unittest.TestCase subclasses in the repository, and the CI evidence is retained in the pytest runs.",command="pytest unittest.TestCase coverage")
     else:
         r["pytest"]=run_command("Python","pytest",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
         r["pytest_second"]=run_command("Python","pytest determinism",[py,"-m","pytest","-q"],cwd=root,timeout=1800)

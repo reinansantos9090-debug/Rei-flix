@@ -423,6 +423,9 @@ async def main(page: ft.Page):
                 refresh_current_metadata, library.resolve_artwork, library.resolve_artwork_batch,
                 on_open_marathon=open_marathon,
                 resolve_artwork_palette=library.resolve_artwork_palette,
+                is_active=lambda anime_id=(current[0] or {}).get("id"): (
+                    navigation.current == "details" and (current[0] or {}).get("id") == anime_id
+                ),
             )
         elif route == "collector":
             control = CollectorView.build(
@@ -713,6 +716,7 @@ async def main(page: ft.Page):
     async def refresh_current_metadata(e=None):
         """Refresh only editorial metadata; never rescans or mutates playback state."""
         anime = current[0] or {}
+        anime_id = anime.get("id")
         lookup = (anime.get("meta") or {}).get("lookup_title")
         title = anime.get("main_title") or (anime.get("meta") or {}).get("title") or "Anime local"
         if not lookup:
@@ -724,11 +728,15 @@ async def main(page: ft.Page):
             return
         try:
             await asyncio.to_thread(library.refresh_metadata, lookup, title, force=True)
+            if navigation.current != "details" or (current[0] or {}).get("id") != anime_id:
+                logger.info("[METADATA] stale refresh result ignored anime_id=%s", anime_id)
+                return
             await refresh_current_details()
             page.snack_bar = ft.SnackBar(ft.Text("Metadata atualizada."))
             page.snack_bar.open = True
             safe_update()
         except Exception:
+            logger.exception("[METADATA] refresh failed anime_id=%s", anime_id)
             page.snack_bar = ft.SnackBar(ft.Text("Não foi possível atualizar a metadata agora."))
             page.snack_bar.open = True
             safe_update()

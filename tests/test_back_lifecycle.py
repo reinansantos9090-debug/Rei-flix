@@ -61,7 +61,7 @@ class BackLifecycleTests(unittest.TestCase):
     def test_host_and_player_have_distinct_system_bar_policies(self):
         main = self.read(MAIN_ACTIVITY)
         player = self.read(PLAYER_ACTIVITY)
-        self.assertIn("systemUiController.applyNormal(useContextAppearance = false)", main)
+        self.assertIn("systemUiController.applyApplicationImmersivePolicy(useContextAppearance = false)", main)
         exit_start = player.index("private fun restoreSystemUiBeforeExit")
         exit_end = player.index("private fun applyImmersiveAfterLayout", exit_start)
         self.assertIn("systemUiController.applyNormal(useContextAppearance = false)", player[exit_start:exit_end])

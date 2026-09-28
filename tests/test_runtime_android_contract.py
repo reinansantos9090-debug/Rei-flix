@@ -194,7 +194,8 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "mandatorySystemGestures()",
             "setAudioAttributes",
             "FEATURE_PICTURE_IN_PICTURE",
-            "setAutoEnterEnabled(true)",
+            "setAutoEnterEnabled(",
+            "player.playWhenReady && player.isPlaying",
         )
         for token in required:
             self.assertIn(token, source)

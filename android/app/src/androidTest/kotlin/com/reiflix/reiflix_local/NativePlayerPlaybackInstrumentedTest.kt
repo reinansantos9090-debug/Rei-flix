@@ -94,7 +94,7 @@ class NativePlayerPlaybackInstrumentedTest {
         val mainIntent = Intent(target, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         target.startActivity(mainIntent)
-        waitForReiFlixMainActivityForeground()
+        waitForReiAnixMainActivityForeground()
         await("Bringing ReiAnix to foreground must exit the player from PiP") {
             !activity!!.isInPictureInPictureMode
         }
@@ -531,7 +531,7 @@ class NativePlayerPlaybackInstrumentedTest {
             device.pressBack(),
         )
         await("Android Back must finish the native player Activity") { activity!!.isFinishing }
-        waitForReiFlixMainActivityForeground()
+        waitForReiAnixMainActivityForeground()
 
     }
 
@@ -631,7 +631,7 @@ class NativePlayerPlaybackInstrumentedTest {
         )
     }
 
-    private fun waitForReiFlixMainActivityForeground(timeoutMs: Long = 15_000L) {
+    private fun waitForReiAnixMainActivityForeground(timeoutMs: Long = 15_000L) {
         val deadline = SystemClock.uptimeMillis() + timeoutMs
         while (SystemClock.uptimeMillis() < deadline) {
             if (UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).currentPackageName == target.packageName) {
@@ -692,7 +692,7 @@ class NativePlayerPlaybackInstrumentedTest {
             put(MediaStore.Video.Media.DISPLAY_NAME, FIXTURE_DISPLAY_NAME)
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
             if (Build.VERSION.SDK_INT >= 29) {
-                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/ReiFlixTest")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/ReiAnixTest")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
             }
         }

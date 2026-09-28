@@ -86,11 +86,13 @@ class RecoveryView:
                     allowed_extensions=["zip"],
                 )
                 if not files:
+                    operation_busy["value"] = False
                     notice("Restore cancelado.")
                     return
                 raw = files[0].bytes or b""
                 preview = await on_restore(raw, preview_only=True)
                 counts = preview.get("counts") or {}
+
                 async def confirm(_event):
                     page.pop_dialog()
                     try:
@@ -115,6 +117,7 @@ class RecoveryView:
                             page.update()
                         except Exception:
                             logger.debug("recovery UI update skipped", exc_info=True)
+
                 def cancel_restore(_event):
                     page.pop_dialog()
                     operation_busy["value"] = False

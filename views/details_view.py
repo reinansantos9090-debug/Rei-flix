@@ -431,7 +431,6 @@ class DetailView:
 
         primary_button = ft.FilledButton(
             primary_label, icon=ft.Icons.PLAY_ARROW, disabled=not bool(primary_target),
-            autofocus=bool(primary_target),
             on_click=lambda _: play(primary_target),
             style=ft.ButtonStyle(
                 bgcolor=theme.primary,
@@ -845,9 +844,21 @@ class DetailView:
             soft = str(palette.get("accent_soft") or "").strip()
             if not accent:
                 return
+            # The Details tree owns this exact button instance. Apply the palette
+            # only when it actually changes; this prevents redundant page.update()
+            # calls from looking like a visual state transition.
+            next_on_accent = on_accent or theme.text_on_accent
+            next_soft = soft or theme.surface_variant
+            palette_changed = (
+                contextual_accent[0] != accent
+                or contextual_on_accent[0] != next_on_accent
+                or contextual_soft[0] != next_soft
+            )
+            if not palette_changed:
+                return
             contextual_accent[0] = accent
-            contextual_on_accent[0] = on_accent or theme.text_on_accent
-            contextual_soft[0] = soft or theme.surface_variant
+            contextual_on_accent[0] = next_on_accent
+            contextual_soft[0] = next_soft
             hero_accent_indicator.bgcolor = accent
             primary_button.style = ft.ButtonStyle(
                 bgcolor=accent,

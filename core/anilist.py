@@ -1,6 +1,7 @@
 """Cliente AniList somente para metadados, com falha segura e cache de capas."""
 from __future__ import annotations
-import hashlib, json, logging, os, tempfile, threading, time, urllib.error, urllib.request
+import hashlib, json, logging, os, re, tempfile, threading, time, urllib.error, urllib.request
+from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,134 @@ class AniListClient:
         self._transport_backoff_until = 0.0
         self._transport_failures = 0
         self._last_request_status = "idle"
+        self._translation_cache_path = os.path.join(self.cache_dir, "anilist_description_ptbr.json")
+        self._translation_cache: dict[str, dict] | None = None
+
+    def _load_translation_cache(self) -> dict:
+        if self._translation_cache is not None:
+            return self._translation_cache
+        try:
+            with open(self._translation_cache_path, "r", encoding="utf-8") as handle:
+                value = json.load(handle)
+            self._translation_cache = value if isinstance(value, dict) else {}
+        except (OSError, ValueError, TypeError):
+            self._translation_cache = {}
+        return self._translation_cache
+
+    def _save_translation_cache(self) -> None:
+        cache = self._translation_cache or {}
+        os.makedirs(self.cache_dir, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=".anilist-ptbr-", suffix=".tmp", dir=self.cache_dir)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(cache, handle, ensure_ascii=False, sort_keys=True)
+            os.replace(temporary, self._translation_cache_path)
+        except OSError:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _looks_english_description(text: str) -> bool:
+        words = {
+            token.strip(".,!?;:\"'()[]{}").casefold()
+            for token in str(text or "").split()
+        }
+        english = {
+            "the", "this", "that", "with", "from", "when", "where", "after",
+            "before", "into", "about", "story", "follows", "young", "girl",
+            "boy", "people", "their", "they", "is", "are", "has", "have",
+        }
+        return len(words & english) >= 2
+
+    @staticmethod
+    def _looks_portuguese_description(text: str) -> bool:
+        value = str(text or "").casefold()
+        if any(char in value for char in "ãõáàâéêíóôúç"):
+            return True
+        words = {
+            token.strip(".,!?;:\"'()[]{}")
+            for token in value.split()
+        }
+        return len(words & {"que", "uma", "um", "não", "com", "quando", "através", "está", "são", "dos", "das"}) >= 2
+
+    @staticmethod
+    def _translation_chunks(text: str, max_bytes: int = 480) -> list[str]:
+        chunks: list[str] = []
+        current: list[str] = []
+        current_bytes = 0
+        for word in str(text).split():
+            encoded = word.encode("utf-8")
+            extra = len(encoded) + (1 if current else 0)
+            if current and current_bytes + extra > max_bytes:
+                chunks.append(" ".join(current))
+                current = [word]
+                current_bytes = len(encoded)
+            else:
+                current.append(word)
+                current_bytes += extra
+        if current:
+            chunks.append(" ".join(current))
+        return chunks
+
+    def _translate_chunk_to_pt_br(self, text: str) -> str | None:
+        query = urlencode({"q": text, "langpair": "en|pt-BR", "mt": "1"})
+        request = urllib.request.Request(
+            "https://api.mymemory.translated.net/get?" + query,
+            headers={"User-Agent": "Rei-flix/1.0 (personal-use)"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=12) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            translated = str((payload.get("responseData") or {}).get("translatedText") or "").strip()
+            if not translated or translated.casefold() == text.casefold():
+                return None
+            if "MYMEMORY WARNING" in translated.upper():
+                return None
+            return translated
+        except (OSError, ValueError, TypeError, urllib.error.URLError, urllib.error.HTTPError):
+            logger.warning("AniList PT-BR translation request failed", exc_info=True)
+            return None
+
+    def localize_description_to_pt_br(self, description: str) -> str:
+        original = str(description or "").strip()
+        if not original or self._looks_portuguese_description(original) or not self._looks_english_description(original):
+            return original
+        key = hashlib.sha256(("en|pt-BR|" + original).encode("utf-8")).hexdigest()
+        with self._rate_lock:
+            cache = self._load_translation_cache()
+            entry = cache.get(key)
+            if isinstance(entry, dict):
+                status = str(entry.get("status") or "")
+                if status == "ok" and str(entry.get("translated") or "").strip():
+                    return str(entry["translated"]).strip()
+                if status == "failed":
+                    retry_after = float(entry.get("retry_after") or 0)
+                    if time.time() < retry_after:
+                        return original
+            translated_chunks = []
+            for chunk in self._translation_chunks(original):
+                translated = self._translate_chunk_to_pt_br(chunk)
+                if not translated:
+                    cache[key] = {
+                        "status": "failed",
+                        "retry_after": time.time() + 24 * 60 * 60,
+                        "updated_at": time.time(),
+                    }
+                    self._save_translation_cache()
+                    return original
+                translated_chunks.append(translated)
+            localized = " ".join(translated_chunks).strip()
+            if not localized:
+                return original
+            cache[key] = {
+                "status": "ok",
+                "translated": localized,
+                "updated_at": time.time(),
+            }
+            self._save_translation_cache()
+            return localized
 
     @staticmethod
     def _header(headers, name):
@@ -186,7 +315,7 @@ class AniListClient:
             if media is None and chosen_id is None:
                 media = results[0] if results else None
         return self.metadata_from_media(title, media)
-    def metadata_from_media(self, title, media):
+    def metadata_from_media(self, title, media, *, localize_description=False):
         if not media: return {'title':title,'genres':'[]'}
         cover=(media.get('coverImage') or {}).get('extraLarge') or (media.get('coverImage') or {}).get('large') or ''
         # ArtworkEngine owns persistent cover downloads. Keep cache_cover() as a
@@ -194,7 +323,7 @@ class AniListClient:
         cache=''
         t=media.get('title') or {}; studios=((media.get('studios') or {}).get('nodes') or [])
         studios = [studio for studio in studios if isinstance(studio, dict)]
-        metadata = {'title':t.get('english') or t.get('romaji') or title,'romaji':t.get('romaji'),'english':t.get('english'),'native':t.get('native'),'aliases':json.dumps(media.get('synonyms') or [],ensure_ascii=False),'description':(media.get('description') or '').strip(),'cover_url':cover,'cover_cache':cache,'banner_url':media.get('bannerImage') or '','genres':json.dumps(media.get('genres') or [],ensure_ascii=False),'year':media.get('seasonYear'),'season':media.get('season'),'status':media.get('status'),'episodes_count':media.get('episodes'),'duration':media.get('duration'),'score':media.get('averageScore'),'format':media.get('format'),'studio':', '.join(x.get('name','') for x in studios)}
+        metadata = {'title':t.get('english') or t.get('romaji') or title,'romaji':t.get('romaji'),'english':t.get('english'),'native':t.get('native'),'aliases':json.dumps(media.get('synonyms') or [],ensure_ascii=False),'description':(self.localize_description_to_pt_br(media.get('description') or '') if localize_description else (media.get('description') or '').strip()),'cover_url':cover,'cover_cache':cache,'banner_url':media.get('bannerImage') or '','genres':json.dumps(media.get('genres') or [],ensure_ascii=False),'year':media.get('seasonYear'),'season':media.get('season'),'status':media.get('status'),'episodes_count':media.get('episodes'),'duration':media.get('duration'),'score':media.get('averageScore'),'format':media.get('format'),'studio':', '.join(x.get('name','') for x in studios)}
         if media.get('id') is not None:
             metadata['anilist_id'] = media['id']
         return metadata

@@ -2298,12 +2298,21 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("requestId", requestId)
             .put("positionMs", player.currentPosition.coerceAtLeast(0L))
             .put("durationMs", player.duration.coerceAtLeast(0L))
-        NativeMailbox.write(
+        val published = NativeMailbox.write(
             this,
             JSONObject().put("type", eventType)
                 .put("requestId", requestId)
                 .put("payload", payload)
         )
+        if (!published) {
+            episodeChangePending = false
+            episodeChangeTimeoutRequestId = ""
+            episodeChangeTimeoutUri = ""
+            handler.removeCallbacks(episodeChangeTimeout)
+            showFeedback("Não foi possível mudar de episódio.", 1800L)
+            logPlayer(eventType + " PUBLISH_FAILED requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri)
+            return
+        }
         handler.postDelayed(episodeChangeTimeout, 5_000L)
         logPlayer(eventType + " requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri + " keepActivity=true")
     }
@@ -2473,6 +2482,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         handler.removeCallbacks(progressReporter)
         handler.removeCallbacks(controlsHider)
         handler.removeCallbacks(feedbackHider)
+        handler.removeCallbacks(episodeChangeTimeout)
         cancelFirstFrameDiagnostics("destroy")
         restoreSystemUiBeforeExit()
         pendingPreparation?.cancel(true)

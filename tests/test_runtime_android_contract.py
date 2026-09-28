@@ -349,7 +349,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         immersive = system_ui[system_ui.index("fun applyApplicationImmersivePolicy("):system_ui.index("    /** Backward-compatible normal policy")]
         normal = system_ui[system_ui.index("fun applyNormal("):system_ui.index("private fun applyEdgeToEdgeWindow")]
         self.assertIn("applyImmersive(useContextAppearance)", immersive)
-        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", immersive)
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", system_ui)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", normal)
         self.assertIn("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE", system_ui)
         self.assertNotIn("systemUiController.applyNormal(useContextAppearance = false)", main)

@@ -2281,6 +2281,33 @@ class LibraryStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def collector_snapshot(self):
+        """Return canonical local consumption/metadata rows for Collector Journey rebuilds."""
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT
+                    e.id,
+                    e.anime_id,
+                    e.progress,
+                    e.duration,
+                    e.watched,
+                    e.missing,
+                    e.last_played_at,
+                    e.episode_type,
+                    a.title AS anime_title,
+                    a.year,
+                    a.genres,
+                    a.format,
+                    a.media_kind
+                FROM episodes e
+                JOIN anime a ON a.id=e.anime_id
+                WHERE e.missing=0
+                ORDER BY e.anime_id, e.season, e.number, e.absolute_number, e.id
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def home_sections(self, limit=12):
         """Build bounded Home sections without materializing the full catalog."""
         page_limit = min(24, max(1, int(limit)))

@@ -156,12 +156,18 @@ jobs:
                   )
                   raise SystemExit(process.returncode)
 
-          Path("build/python-test-evidence.json").write_text(
+          evidence_dir = Path("build")
+          evidence_dir.mkdir(parents=True, exist_ok=True)
+          (evidence_dir / "python-test-evidence.json").write_text(
               json.dumps(evidence, indent=2, ensure_ascii=False),
               encoding="utf-8",
           )
+          (evidence_dir / "pytest.json").write_text(json.dumps(evidence["pytest"], indent=2, ensure_ascii=False), encoding="utf-8")
+          (evidence_dir / "pytest_second.json").write_text(json.dumps(evidence["pytest_second"], indent=2, ensure_ascii=False), encoding="utf-8")
           PY
           test -s build/python-test-evidence.json
+          test -s build/pytest.json
+          test -s build/pytest_second.json
 
       - name: Validate Python application
         run: |
@@ -534,7 +540,8 @@ jobs:
             --report build/release-certification.md \
             --matrix build/release-certification-matrix.json \
             --prevalidated-compileall \
-            --prevalidated-gradle
+            --prevalidated-gradle \
+            --prevalidated-python-evidence build/python-test-evidence.json
 
       - name: Upload release certification evidence
         if: always() && hashFiles('build/release-certification.json', 'build/release-certification.md', 'build/release-certification-matrix.json') != ''

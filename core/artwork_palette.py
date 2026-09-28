@@ -71,7 +71,7 @@ def _accessible_accent(
     target_lightness = 0.48 if mode == "dark" else 0.43
     saturation = _clamp(saturation, 0.0, 0.68)
     if saturation < 0.10:
-        saturation = 0.06
+        saturation = 0.0
     background = (22, 21, 31) if mode == "dark" else (247, 247, 250)
     candidates = []
     for offset in range(-18, 19, 3):

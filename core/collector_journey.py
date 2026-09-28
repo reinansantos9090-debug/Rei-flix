@@ -1,4 +1,4 @@
-"""Offline Collector Journey derived from Rei-Flix canonical library/consumption state.
+"""Offline Collector Journey derived from ReiAnix canonical library/consumption state.
 
 No persistence for derived XP, achievements or statistics is required.  The
 snapshot is rebuilt from LibraryStore rows every time the Collector Journey is

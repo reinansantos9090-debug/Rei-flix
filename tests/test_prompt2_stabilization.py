@@ -134,6 +134,24 @@ class Prompt2StabilizationTests(unittest.TestCase):
         self.assertIn("callable(is_active) and not is_active()", tags)
         self.assertIn("callable(is_active) and not is_active()", identification)
 
+    def test_thumbnail_ready_only_accepts_latest_generation(self):
+        start = MAIN.index("elif event_type == 'thumbnail_ready':")
+        end = MAIN.index("elif event_type == 'thumbnail_error':", start)
+        block = MAIN[start:end]
+        self.assertIn("thumbnail_latest_key_by_uri", MAIN)
+        self.assertIn("latest_key = thumbnail_latest_key_by_uri.get(uri)", block)
+        self.assertIn("thumbnail_key != latest_key", block)
+        self.assertIn('diagnostics.record(\n                                    "THUMBNAIL_STALE"', block)
+        self.assertIn("thumbnail_request_started_at", MAIN)
+
+    def test_home_and_organize_catalog_refreshes_are_coalesced(self):
+        home = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
+        organize = (ROOT / "views" / "organize_view.py").read_text(encoding="utf-8")
+        for source in (home, organize):
+            self.assertIn("catalog_refresh_scheduled", source)
+            self.assertIn("catalog_refresh_dirty", source)
+            self.assertIn("while catalog_refresh_dirty[0]", source)
+
     def test_duplicate_player_handoffs_are_serialized(self):
         start = MAIN.index("def play_episode")
         end = MAIN.index("def open_marathon", start)

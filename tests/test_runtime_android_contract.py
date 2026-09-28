@@ -168,6 +168,11 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         self.assertNotIn("calculateCloudStreamSeekTarget", source)
         self.assertNotIn("horizontalSeekDelta", source)
         self.assertNotIn("GestureMode.HORIZONTAL_SEEK", source)
+        self.assertIn("GESTURE_HORIZONTAL_IGNORED", source)
+        self.assertIn("reiflix_skip_opening", source)
+        self.assertIn("reiflix_skip_ending", source)
+        self.assertIn("showLocalMetadataEditor", source)
+        self.assertIn("PlayerLocalMetadataStore", source)
 
     def test_generation_back_immersive_and_error_contracts(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")

@@ -30,7 +30,7 @@ Também ficam fora do backup:
 - arquivos de vídeo originais;
 - artefatos de build e arquivos temporários.
 
-O backup funciona offline e não requer Google Login, AniList ou artwork remoto.
+O backup funciona offline e não requer Google Login, AniList ou artwork remoto. Artwork manual portátil é tratado como conteúdo opcional: se um membro de capa estiver ausente ou com checksum inválido, a biblioteca lógica ainda pode ser validada/restaurada e a capa pode ser regenerada posteriormente.
 
 ## Segurança e atomicidade
 
@@ -38,9 +38,9 @@ O snapshot SQLite é obtido pela API de backup do SQLite, em vez de copiar um ar
 
 O ZIP é criado em arquivo temporário, validado e somente depois promovido ao nome final com rename. Um nome já existente não é sobrescrito silenciosamente.
 
-O restore executa pré-validação completa do container e dos checksums. Antes de alterar o catálogo, é criado um backup de segurança `pre-restore-*.zip`. A aplicação depois importa o SQLite dentro de uma transação e executa `quick_check`, `foreign_key_check` e verificação de identidades persistentes antes do commit.
+O restore executa pré-validação completa do container e dos checksums. Antes de alterar o catálogo, é criado um backup de segurança `pre-restore-*.zip`. A aplicação depois importa o SQLite dentro de uma transação e executa `quick_check`, `foreign_key_check` e verificação de identidades persistentes antes do commit. No Recovery Mode, se o SQLite atual estiver corrompido e a sessão não puder ser lida, a restauração do catálogo ainda é permitida quando houver snapshot bruto de segurança; nesse caso o login é refeito pelo usuário.
 
-Falhas durante a transação fazem rollback e deixam o estado anterior no SQLite.
+Falhas durante a transação fazem rollback e deixam o estado anterior no SQLite. As operações de backup/restore usam um lock compartilhado para impedir sobreposição perigosa entre operações. A criação verifica espaço livre estimado antes de produzir o ZIP.
 
 ## Restore
 

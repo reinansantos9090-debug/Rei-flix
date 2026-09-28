@@ -26,12 +26,12 @@ class DeviceCompatibilityContractTests(unittest.TestCase):
         self.assertEqual(source.count("class SystemUiController"), 1)
         self.assertIn("WindowCompat.setDecorFitsSystemWindows(window, false)", source)
         self.assertIn("LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS", source)
-        application_start = source.index("fun applyApplicationPolicy(")
-        application_end = source.index("/** Player-only policy", application_start)
+        application_start = source.index("fun applyApplicationImmersivePolicy(")
+        application_end = source.index("    /** Backward-compatible normal policy", application_start)
         application = source[application_start:application_end]
         normal = source[source.index("fun applyNormal("):source.index("private fun applyEdgeToEdgeWindow")]
-        self.assertIn("applyNormal(useContextAppearance)", application)
-        self.assertNotIn("hide(WindowInsetsCompat.Type.systemBars())", application)
+        self.assertIn("applyImmersive(useContextAppearance)", application)
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", source)
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", normal)
         self.assertIn("UI_MODE_NIGHT_MASK", source)
         self.assertIn("isAppearanceLightStatusBars = !darkTheme", source)

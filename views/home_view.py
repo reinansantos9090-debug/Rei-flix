@@ -10,6 +10,7 @@ import flet as ft
 from core.consumption import consumption_state, progress_ratio
 from core.settings import SettingsStore
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, activate_theme_for_page, empty_state, media_artwork, count_label, focus_button_style
+from core.library_discovery import format_duration
 
 logger = logging.getLogger(__name__)
 
@@ -635,6 +636,167 @@ class HomeView:
             page.pop_dialog()
             await load_library_page(reset=True)
 
+        def current_gacha_filters():
+            return {
+                "query": search.value or "",
+                "state": selected_state[0],
+                "genre": selected_genre[0],
+                "sort": selected_sort[0],
+                "tag": selected_tag[0],
+                "media_type": selected_media_type[0],
+                "season": selected_season[0],
+                "episode_type": selected_episode_type[0],
+                "availability": selected_availability[0],
+                "metadata": selected_metadata[0],
+                "artwork": selected_artwork[0],
+            }
+
+        def open_gacha(_event=None):
+            state = {"last_id": None, "episode": False, "result": None}
+            dialog_width = min(520, max(280, float(page.width or 480) - 32))
+
+            async def draw():
+                try:
+                    result = await asyncio.to_thread(
+                        library.gacha_pick,
+                        filters=current_gacha_filters(),
+                        exclude_id=state["last_id"],
+                        episode=state["episode"],
+                    )
+                except Exception:
+                    logger.exception("Gacha calculation failed", extra={"screen": "home"})
+                    result = None
+                state["result"] = result
+                if not result:
+                    dialog.content = empty_state(ft.Icons.CASINO_OUTLINED, "Acervo vazio", "Não há itens que correspondam aos filtros atuais.", theme=theme)
+                    dialog.actions = [ft.TextButton("Fechar", on_click=lambda _: page.pop_dialog())]
+                    page.update()
+                    return
+                anime = result["anime"]
+                state["last_id"] = anime.get("id")
+                cover = (anime.get("meta") or {}).get("cover_cache") or (anime.get("meta") or {}).get("cover_url")
+                title = anime.get("main_title") or "Anime local"
+                episode = result.get("episode")
+                content = [
+                    ft.Text("Resultado local", size=11, color=TEXT_MUTED),
+                    media_artwork(cover, 210, width=140, icon_size=28, label="Sem capa", theme=theme),
+                    ft.Text(title, size=18, weight=ft.FontWeight.BOLD, color=TEXT, text_align=ft.TextAlign.CENTER),
+                ]
+                if episode:
+                    number = episode.get("number")
+                    label = f"T{episode.get('season', '—')} E{number if number is not None else '—'}"
+                    content.extend([
+                        ft.Text(label, color=ACCENT, weight=ft.FontWeight.BOLD),
+                        ft.Text(episode.get("episode_title") or episode.get("file_name") or "Episódio local", size=12, text_align=ft.TextAlign.CENTER),
+                        ft.Text(f"{format_duration(episode.get('duration'))}", size=11, color=TEXT_MUTED),
+                    ])
+                elif state["episode"]:
+                    content.append(ft.Text("Este item não possui episódios regulares disponíveis para sorteio.", size=11, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER))
+                else:
+                    content.append(ft.Text("Sorteio não altera consumo, progresso ou histórico.", size=11, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER))
+                dialog.content = ft.Column(content, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8, width=dialog_width, scroll=ft.ScrollMode.AUTO)
+                dialog.actions = [
+                    ft.TextButton("Sortear episódio", on_click=lambda _: (state.__setitem__("episode", True), page.run_task(draw))),
+                    ft.TextButton("Sortear novamente", on_click=lambda _: page.run_task(draw)),
+                    ft.FilledButton("Abrir", on_click=lambda _: open_gacha_result()),
+                ]
+                page.update()
+
+            def open_gacha_result():
+                result = state.get("result") or {}
+                anime = result.get("anime")
+                if not anime:
+                    return
+                page.pop_dialog()
+                on_select_anime(anime)
+
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("🎲 Gacha do Acervo"),
+                content=ft.Row([ft.ProgressRing(), ft.Text("Sorteando do acervo local…")], tight=True),
+                actions=[ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog())],
+            )
+            page.show_dialog(dialog)
+            page.run_task(draw)
+
+        def open_timeline(_event=None):
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("📅 Linha do Tempo"),
+                content=ft.Row([ft.ProgressRing(), ft.Text("Lendo o metadata local…")], tight=True),
+                actions=[ft.TextButton("Fechar", on_click=lambda _: page.pop_dialog())],
+            )
+            page.show_dialog(dialog)
+
+            async def load_timeline():
+                try:
+                    groups = await asyncio.to_thread(library.library_timeline)
+                except Exception:
+                    logger.exception("Timeline calculation failed", extra={"screen": "home"})
+                    groups = []
+                controls = []
+                if not groups:
+                    controls.append(ft.Text("A biblioteca ainda não possui itens para a timeline.", color=TEXT_MUTED))
+                for group in groups:
+                    controls.append(ft.Text(str(group["label"]), size=15, weight=ft.FontWeight.BOLD, color=ACCENT))
+                    for item in group["items"]:
+                        item_id = item.get("id")
+                        def make_open(anime_id):
+                            async def open_item():
+                                try:
+                                    projected = await asyncio.to_thread(library.catalog_by_ids, [int(anime_id)])
+                                except Exception:
+                                    logger.exception("Timeline details lookup failed", extra={"anime_id": anime_id})
+                                    return
+                                anime = next(iter(projected or []), None)
+                                if anime:
+                                    page.pop_dialog()
+                                    on_select_anime(anime)
+                            return open_item
+                        controls.append(ft.ListTile(
+                            leading=ft.Icon(ft.Icons.EVENT_OUTLINED, color=TEXT_MUTED),
+                            title=ft.Text(item.get("title") or "Anime local", color=TEXT),
+                            subtitle=ft.Text(str(item.get("season") or ""), color=TEXT_MUTED) if item.get("season") else None,
+                            trailing=ft.Icon(ft.Icons.CHEVRON_RIGHT, color=TEXT_MUTED),
+                            on_click=lambda _, callback=make_open(item_id): page.run_task(callback),
+                        ))
+                dialog.content = ft.Column(controls, tight=True, scroll=ft.ScrollMode.AUTO, width=min(560, max(280, float(page.width or 480) - 32)), height=min(520, max(180, len(controls) * 52)))
+                page.update()
+            page.run_task(load_timeline)
+
+        def open_duration_anomalies(_event=None):
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("⚠ Durações incomuns"),
+                content=ft.Row([ft.ProgressRing(), ft.Text("Comparando durações locais…")], tight=True),
+                actions=[ft.TextButton("Fechar", on_click=lambda _: page.pop_dialog())],
+            )
+            page.show_dialog(dialog)
+
+            async def load_anomalies():
+                try:
+                    report = await asyncio.to_thread(library.duration_anomaly_report)
+                except Exception:
+                    logger.exception("Duration anomaly calculation failed", extra={"screen": "home"})
+                    report = {"items": [], "anomaly_count": 0, "series_with_anomalies": 0, "series_with_insufficient_data": 0}
+                controls = [ft.Text(
+                    f"{report['series_with_anomalies']} série(s) com duração incomum • {report['series_with_insufficient_data']} com dados insuficientes",
+                    size=11, color=TEXT_MUTED,
+                )]
+                unusual = [item for item in report.get("items", []) if item.get("status") == "unusual"]
+                if not unusual:
+                    controls.append(ft.Text("Nenhuma duração incomum foi identificada com os dados locais atuais.", color=TEXT_MUTED))
+                for series in unusual:
+                    controls.append(ft.Text(series["anime_title"], size=14, weight=ft.FontWeight.BOLD, color=TEXT))
+                    for anomaly in series["anomalies"]:
+                        label = anomaly.get("episode_title") or anomaly.get("file_name") or "Episódio local"
+                        controls.append(ft.Text(
+                            f"• {label} — {format_duration(anomaly['duration_seconds'])} • {anomaly['label']}",
+                            size=11, color=ACCENT,
+                        ))
+                dialog.content = ft.Column(controls, tight=True, scroll=ft.ScrollMode.AUTO, width=min(560, max(280, float(page.width or 480) - 32)), height=min(520, max(180, len(controls) * 34)))
+                page.update()
+            page.run_task(load_anomalies)
         def open_filters(_=None):
             page.run_task(load_filter_options)
             page_width = float(page.width or 470)
@@ -844,6 +1006,11 @@ class HomeView:
             ], spacing=0),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True, run_spacing=8)
         filter_button = ft.OutlinedButton("Filtros", icon=ft.Icons.TUNE, on_click=open_filters)
+        smart_tools_row = ft.Row([
+            ft.OutlinedButton("🎲 Gacha", on_click=open_gacha),
+            ft.OutlinedButton("📅 Timeline", on_click=open_timeline),
+            ft.OutlinedButton("⚠ Durações", on_click=open_duration_anomalies),
+        ], wrap=True, spacing=8, run_spacing=8)
         main_library_bar = ft.Row(
             [ft.Row([library_label, filter_summary], spacing=10, wrap=True), sort, filter_button],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,

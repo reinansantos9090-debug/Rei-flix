@@ -164,7 +164,7 @@ class BackAndSettingsReturnInstrumentedTest {
     }
 
     @Test
-    fun appSystemBackFromChildActivityReturnsToReiFlix() {
+    fun appSystemBackFromChildActivityReturnsToReiAnix() {
         val intent = Intent(target, NativePlayerActivity::class.java)
             .putExtra("requestId", "instrumented-system-back")
             .putExtra("uri", "content://invalid/reiflix-system-back")

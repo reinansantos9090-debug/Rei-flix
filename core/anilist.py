@@ -113,7 +113,7 @@ class AniListClient:
         query = urlencode({"q": text, "langpair": "en|pt-BR", "mt": "1"})
         request = urllib.request.Request(
             "https://api.mymemory.translated.net/get?" + query,
-            headers={"User-Agent": "Rei-flix/1.0 (personal-use)"},
+            headers={"User-Agent": "ReiAnix/1.0 (personal-use)"},
         )
         try:
             with urllib.request.urlopen(request, timeout=12) as response:
@@ -230,7 +230,7 @@ class AniListClient:
     def _request(self, query, variables):
         self._last_request_status = "pending"
         data = json.dumps({'query': query, 'variables': variables}).encode()
-        req = urllib.request.Request(self.endpoint, data=data, headers={'Content-Type':'application/json','Accept':'application/json','User-Agent':'ReiFlix/1.0'})
+        req = urllib.request.Request(self.endpoint, data=data, headers={'Content-Type':'application/json','Accept':'application/json','User-Agent':'ReiAnix/1.0'})
         with self._rate_lock:
             if time.monotonic() < self._transport_backoff_until:
                 logger.info("AniList request skipped during transport backoff.")

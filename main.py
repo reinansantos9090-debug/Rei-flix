@@ -401,6 +401,7 @@ async def main(page: ft.Page):
                 page, library, navigate_details, navigate_settings, play_episode,
                 navigate_organize, view_state=home_state,
                 on_request_thumbnail=request_missing_thumbnail,
+                on_open_collector=navigate_collector,
             )
         elif route == "organize":
             control = OrganizeView.build(

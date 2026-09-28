@@ -18,6 +18,7 @@ from core.organizer_ai import AnimeOrganizer, MatchContext
 from core.search_engine import LibrarySearchEngine, normalize_text
 from core.genre_classifier import GenreClassifier
 from core.genre_registry import GenreRegistry
+from core.library_discovery import duration_anomalies, format_duration, marathon_plan, timeline_groups
 
 logger = logging.getLogger(__name__)
 
@@ -1046,6 +1047,47 @@ class LibraryService:
 
     def restore_backup(self, backup_path=None): return self.store.restore_backup(backup_path)
 
+
+    def gacha_pick(self, *, filters=None, exclude_id=None, episode=False):
+        """Draw from the existing local catalog; never changes consumption state."""
+        import random
+
+        filters = dict(filters or {})
+        item = self.store.random_catalog_item(exclude_id=exclude_id, **filters)
+        if not item:
+            return None
+
+        result = {
+            "anime": item,
+            "episode": None,
+            "duration_label": None,
+        }
+        if episode:
+            rows = self.store.marathon_episodes(item["id"])
+            if rows:
+                result["episode"] = random.SystemRandom().choice(rows)
+                result["duration_label"] = format_duration(result["episode"].get("duration"))
+            else:
+                # Keep anime-level Gacha useful even when this item has no regular
+                # episode rows; callers can display that the episode pool is empty.
+                return {
+                    "anime": item,
+                    "episode": None,
+                    "duration_label": None,
+                }
+        return result
+
+    def library_timeline(self):
+        return timeline_groups(self.store.timeline_items())
+
+    def duration_anomaly_report(self, anime_id=None):
+        return duration_anomalies(self.store.duration_observations(anime_id=anime_id))
+
+    def marathon(self, anime_id, *, current_path=None):
+        return marathon_plan(
+            self.store.marathon_episodes(anime_id),
+            current_path=current_path,
+        )
 
     def media_center_home(self, limit=12, *, catalog=None):
         """Build Home sections from bounded local projections when no catalog is supplied.

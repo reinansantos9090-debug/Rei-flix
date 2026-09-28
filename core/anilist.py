@@ -25,6 +25,20 @@ class AniListClient:
         self._translation_cache_path = os.path.join(self.cache_dir, "anilist_description_ptbr.json")
         self._translation_cache: dict[str, dict] | None = None
 
+    MAX_TRANSLATION_CACHE_ENTRIES = 4096
+
+    def _trim_translation_cache(self) -> dict:
+        cache = self._translation_cache or {}
+        if len(cache) <= self.MAX_TRANSLATION_CACHE_ENTRIES:
+            return cache
+        ranked = sorted(
+            cache.items(),
+            key=lambda item: float((item[1] or {}).get("updated_at") or 0) if isinstance(item[1], dict) else 0,
+            reverse=True,
+        )
+        self._translation_cache = dict(ranked[:self.MAX_TRANSLATION_CACHE_ENTRIES])
+        return self._translation_cache
+
     def _load_translation_cache(self) -> dict:
         if self._translation_cache is not None:
             return self._translation_cache
@@ -32,12 +46,13 @@ class AniListClient:
             with open(self._translation_cache_path, "r", encoding="utf-8") as handle:
                 value = json.load(handle)
             self._translation_cache = value if isinstance(value, dict) else {}
+            self._trim_translation_cache()
         except (OSError, ValueError, TypeError):
             self._translation_cache = {}
         return self._translation_cache
 
     def _save_translation_cache(self) -> None:
-        cache = self._translation_cache or {}
+        cache = self._trim_translation_cache()
         os.makedirs(self.cache_dir, exist_ok=True)
         fd, temporary = tempfile.mkstemp(prefix=".anilist-ptbr-", suffix=".tmp", dir=self.cache_dir)
         try:

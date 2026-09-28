@@ -120,7 +120,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("compressed ZIP size", workflow)
         self.assertNotIn("ZIP_STORED", workflow)
         self.assertEqual(workflow.count("archive: false"), 2)
-        self.assertEqual(workflow.count("actions/upload-artifact@v7"), 4)
+        self.assertEqual(workflow.count("actions/upload-artifact@v7"), 5)
         self.assertIn("Upload APK metadata", workflow)
         self.assertNotIn("reactivecircus/android-emulator-runner", workflow)
         self.assertNotIn("android_api30", workflow)

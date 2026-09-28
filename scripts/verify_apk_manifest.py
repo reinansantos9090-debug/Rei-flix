@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the effective AndroidManifest.xml packaged in a Rei-Flix APK.
+"""Validate the effective AndroidManifest.xml packaged in a ReiAnix APK.
 
 AAPT2's xmltree output is diagnostic text whose indentation can vary between
 build-tools releases. Keep parsing semantic instead of depending on one exact

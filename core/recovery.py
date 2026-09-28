@@ -1,6 +1,6 @@
 """Explicit, non-destructive recovery service for an inconsistent local database.
 
-Recovery is an exceptional path. It validates an incoming Rei-Flix backup with
+Recovery is an exceptional path. It validates an incoming ReiAnix backup with
 the existing BackupService, preserves the current database as a safety copy, and
 only replaces the database after the replacement has passed SQLite integrity and
 foreign-key checks. Authentication is preserved when the damaged database can

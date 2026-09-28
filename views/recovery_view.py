@@ -1,4 +1,4 @@
-"""Minimal explicit recovery UI for an inconsistent Rei-Flix database."""
+"""Minimal explicit recovery UI for an inconsistent ReiAnix database."""
 from __future__ import annotations
 
 import json
@@ -20,7 +20,7 @@ class RecoveryView:
         message = ft.Text("", color=TEXT_MUTED, size=12)
         operation_busy = {"value": False}
         details = ft.Text(
-            "O banco local apresenta uma inconsistência. O Rei-Flix não iniciou a biblioteca "
+            "O banco local apresenta uma inconsistência. O ReiAnix não iniciou a biblioteca "
             "normalmente e não apagará o banco automaticamente.",
             color=TEXT_MUTED,
             size=12,
@@ -79,7 +79,7 @@ class RecoveryView:
                 notice("Selecione o backup para validar…")
                 page.update()
                 files = await ft.FilePicker().pick_files(
-                    dialog_title="Selecionar backup Rei-Flix",
+                    dialog_title="Selecionar backup ReiAnix",
                     allow_multiple=False,
                     with_data=True,
                     file_type=ft.FilePickerFileType.CUSTOM,
@@ -105,7 +105,7 @@ class RecoveryView:
                             )
                         else:
                             notice(
-                                "Restore concluído com segurança. Feche e abra o Rei-Flix para "
+                                "Restore concluído com segurança. Feche e abra o ReiAnix para "
                                 "carregar o banco restaurado."
                             )
                     except Exception as exc:

@@ -133,7 +133,7 @@ class FinalRegressionTests(unittest.TestCase):
     def test_backup_rejects_incompatible_schema_before_replacement(self):
         bad = os.path.join(self.tmp.name, "bad.zip")
         with zipfile.ZipFile(bad, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr("manifest.json", json.dumps({"app": "Rei-flix", "schema": 20}))
+            archive.writestr("manifest.json", json.dumps({"app": "ReiAnix", "schema": 20}))
             archive.writestr("library.sqlite3", b"not-a-sqlite-db")
         from core.backup import BackupValidationError
         with self.assertRaises(BackupValidationError):

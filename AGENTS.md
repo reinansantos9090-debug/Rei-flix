@@ -1,7 +1,7 @@
-# AGENTS.md — Rei-flix
+# AGENTS.md — ReiAnix
 
 ## Objetivo
-Este é um projeto existente e em estabilização. Trabalhe sobre o código atual do Rei-flix. Não reinicie, recrie ou substitua o projeto por uma implementação nova.
+Este é um projeto existente e em estabilização. Trabalhe sobre o código atual do ReiAnix. Não reinicie, recrie ou substitua o projeto por uma implementação nova.
 
 ## Regras obrigatórias de preservação
 - Preserve todas as funcionalidades existentes que já funcionam.
@@ -59,6 +59,6 @@ Se a solução parecer exigir remover uma funcionalidade existente, pare e procu
 - Preserve o estado atual do repositório e produza mudanças rastreáveis.
 
 ## Prioridade
-A prioridade é: estabilidade e preservação do Rei-flix existente > correção precisa do problema solicitado > limpeza/refatoração.
+A prioridade é: estabilidade e preservação do ReiAnix existente > correção precisa do problema solicitado > limpeza/refatoração.
 
 Quando houver conflito entre "simplificar o código" e "preservar comportamento existente", preserve o comportamento existente.

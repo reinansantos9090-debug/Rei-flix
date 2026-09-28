@@ -1,6 +1,6 @@
 # Genre Registry
 
-The Rei-Flix Genre Registry is the single local identity layer for genres. It does not replace the existing library, catalog, AniList client, tags, collections, or classifier.
+The ReiAnix Genre Registry is the single local identity layer for genres. It does not replace the existing library, catalog, AniList client, tags, collections, or classifier.
 
 ## Sources
 

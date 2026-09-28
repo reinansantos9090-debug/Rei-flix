@@ -1,4 +1,4 @@
-# Rei-Flix — Scan Coordinator
+# ReiAnix — Scan Coordinator
 
 ## Responsabilidade
 ScanCoordinator é o ponto lógico único para decidir quando uma descoberta da biblioteca deve acontecer. Ele não acessa SQLite, não navega, não chama Flet e não implementa a descoberta física dos arquivos.

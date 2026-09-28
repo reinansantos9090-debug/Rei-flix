@@ -1,6 +1,6 @@
 # AniList Matching 2.0
 
-Rei-Flix keeps local media and the local catalog authoritative. AniList is used only for metadata and entity identification.
+ReiAnix keeps local media and the local catalog authoritative. AniList is used only for metadata and entity identification.
 
 ## Matching layers
 

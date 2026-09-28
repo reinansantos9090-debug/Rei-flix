@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail a release build unless the ReiFlix native Android host is in its APK.
+"""Fail a release build unless the ReiAnix native Android host is in its APK.
 
 A successful Flet/Flutter build alone is insufficient: a stock Flet client does
 not contain the SAF, mailbox, and Media3 classes maintained in this repository.
@@ -49,10 +49,10 @@ def main() -> int:
 
     missing = [descriptor.decode() for descriptor in REQUIRED_CLASSES if descriptor not in dex]
     if missing:
-        print("Native ReiFlix host was not packaged; refusing to publish a stock Flet APK.", file=sys.stderr)
+        print("Native ReiAnix host was not packaged; refusing to publish a stock Flet APK.", file=sys.stderr)
         print("Missing DEX descriptors: " + ", ".join(missing), file=sys.stderr)
         return 1
-    print(f"Verified native ReiFlix host in {args.apk} ({args.apk.stat().st_size} bytes).")
+    print(f"Verified native ReiAnix host in {args.apk} ({args.apk.stat().st_size} bytes).")
     return 0
 
 

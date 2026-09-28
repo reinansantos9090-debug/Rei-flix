@@ -1,4 +1,4 @@
-"""Persistent, local-first Artwork Engine 2.0 for Rei-Flix.
+"""Persistent, local-first Artwork Engine 2.0 for ReiAnix.
 
 Artwork is an enrichment layer.  The local catalog, NativeIndex/scanners and
 AniList matching remain authoritative for their own domains.  This module only
@@ -991,7 +991,7 @@ class ArtworkEngine:
     def _download_url(self, url):
         request = urllib.request.Request(
             url,
-            headers={"User-Agent": "Rei-Flix/ArtworkEngine"},
+            headers={"User-Agent": "ReiAnix/ArtworkEngine"},
             method="GET",
         )
         with urllib.request.urlopen(request, timeout=self.REQUEST_TIMEOUT_SECONDS) as response:

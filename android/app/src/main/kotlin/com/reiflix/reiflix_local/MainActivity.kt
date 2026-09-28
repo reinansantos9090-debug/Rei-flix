@@ -786,7 +786,7 @@ class MainActivity : FlutterFragmentActivity() {
         if (::systemUiController.isInitialized) {
             // MainActivity owns the immersive application surface. External Android
             // Activities may temporarily reveal their own system UI; focus/resume
-            // re-applies this single host policy when Rei-flix returns foreground.
+            // re-applies this single host policy when ReiAnix returns foreground.
             systemUiController.applyApplicationImmersivePolicy(useContextAppearance = false)
             publishInteractionProfileIfChanged(force = true)
             ViewCompat.requestApplyInsets(window.decorView)
@@ -915,7 +915,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
         if (protocolRaw != null && (protocolVersion == null || protocolVersion != BRIDGE_PROTOCOL_VERSION)) {
             publishNativeCommandError(requestId, action, "command_validation", "UNSUPPORTED_PROTOCOL_VERSION",
-                "A versão do protocolo nativo não é compatível com este Rei-Flix.")
+                "A versão do protocolo nativo não é compatível com este ReiAnix.")
             return
         }
         if (protocolRaw != null && (commandCreatedAt == null || commandCreatedAt <= 0L)) {
@@ -1807,7 +1807,7 @@ class MainActivity : FlutterFragmentActivity() {
             Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId + " uri=" + episodeUri + " reason=unsupported_scheme")
             NativeMailbox.writeBestEffort(this, JSONObject().put("type", "player_error")
                 .put("requestId", requestId)
-                .put("message", "O Rei-Flix aceita somente mídias locais autorizadas.")
+                .put("message", "O ReiAnix aceita somente mídias locais autorizadas.")
                 .put("payload", JSONObject().put("uri", episodeUri).put("stage", "handoff").put("reason", "unsupported_scheme")))
             return
         }

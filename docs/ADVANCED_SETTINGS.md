@@ -1,24 +1,24 @@
-# Rei-Flix — Configurações avançadas 2.0
+# ReiAnix — Configurações avançadas 2.0
 
 ## Objetivo
 
 As opções avançadas usam CloudStream, Nova Video Player e Animiru/AnIyomi somente como referências de comportamento e de organização de opções. Nenhum branding, tela ou código desses projetos foi copiado.
 
-CloudStream mantém um player configurável, mas seu projeto é GPL-3.0 e seu foco inclui extensões/fontes/streaming; essas partes não foram incorporadas ao Rei-Flix.  
+CloudStream mantém um player configurável, mas seu projeto é GPL-3.0 e seu foco inclui extensões/fontes/streaming; essas partes não foram incorporadas ao ReiAnix.  
 Nova Video Player documenta gestos, velocidade, aspect ratio e modos de reprodução para mídia local; seu repositório é Apache-2.0.  
 Aniyomi/Animiru documentam categorias de player para controles, gestos, decoder, legendas, áudio e configurações avançadas; Aniyomi é Apache-2.0.  
-A implementação do Rei-Flix continua própria e usa SettingsStore, LibraryService, ArtworkEngine e NativePlayerActivity existentes.
+A implementação do ReiAnix continua própria e usa SettingsStore, LibraryService, ArtworkEngine e NativePlayerActivity existentes.
 
 ## Matriz de auditoria
 
-| Referência | Configuração | Compatibilidade Rei-Flix | Estado | Ação |
+| Referência | Configuração | Compatibilidade ReiAnix | Estado | Ação |
 |---|---|---|---|---|
 | CloudStream / Nova / Aniyomi | velocidade padrão | Media3 | Já existente e aplicada | JÁ EXISTE |
 | Aniyomi / Nova | velocidade disponível | Media3 | Lista no player já existe | JÁ EXISTE |
 | Aniyomi / Nova | double tap ±N segundos | Media3 + GestureDetector | Antes fixa em 10s; agora configurável | ADAPTAR |
 | Aniyomi / Nova | pressão longa com velocidade temporária | GestureDetector + Media3 | Antes fixa em 2x; agora configurável | ADAPTAR |
 | Aniyomi | gesto vertical volume/brilho | Android AudioManager/Window | Já existente e opt-in | JÁ EXISTE |
-| Aniyomi | seek horizontal por swipe | Contraria requisito do Rei-Flix | Bloqueado | NÃO IMPLEMENTAR |
+| Aniyomi | seek horizontal por swipe | Contraria requisito do ReiAnix | Bloqueado | NÃO IMPLEMENTAR |
 | Aniyomi | auto-hide dos controles | Player custom existente | Persistido e aplicado | JÁ EXISTE |
 | Aniyomi | orientação | ActivityInfo | Persistido e aplicado | JÁ EXISTE |
 | Aniyomi / Nova | immersive/system bars/PiP | Android API existente | Persistido e aplicado | JÁ EXISTE |
@@ -27,7 +27,7 @@ A implementação do Rei-Flix continua própria e usa SettingsStore, LibraryServ
 | Media3 / Aniyomi | limite de resolução | TrackSelectionParameters | Novo e aplicado | IMPLEMENTAR |
 | Media3 / Aniyomi | limite de FPS | TrackSelectionParameters | Novo e aplicado | IMPLEMENTAR |
 | Media3 / Aniyomi | limite de canais de áudio | TrackSelectionParameters | Novo e aplicado | IMPLEMENTAR |
-| Aniyomi | decoder hardware/software/GPU/MPV | Rei-Flix usa ExoPlayer/Media3 | Não há segunda engine compatível | NÃO COMPATÍVEL |
+| Aniyomi | decoder hardware/software/GPU/MPV | ReiAnix usa ExoPlayer/Media3 | Não há segunda engine compatível | NÃO COMPATÍVEL |
 | Aniyomi | MPV scripts/config | Arquitetura proibiria player paralelo | Sem infraestrutura e indesejado | NÃO IMPLEMENTAR |
 | Aniyomi | idioma de áudio | TrackSelectionParameters | Já existente e aplicado | JÁ EXISTE |
 | Aniyomi | idioma de legenda | TrackSelectionParameters | Já existente e aplicado | JÁ EXISTE |
@@ -38,12 +38,12 @@ A implementação do Rei-Flix continua própria e usa SettingsStore, LibraryServ
 | Aniyomi / CloudStream | delay de legenda | Exigiria política persistente de offset da cue/player | Sem infraestrutura segura neste Media3 1.11.1 | REQUER INFRAESTRUTURA |
 | Aniyomi | delay de áudio | Exigiria offset de reprodução por track | Sem infraestrutura equivalente no player atual | REQUER INFRAESTRUTURA |
 | Aniyomi | filtros de vídeo | Não há pipeline de filtros Media3 no player atual | Não suportado sem nova infraestrutura | NÃO COMPATÍVEL |
-| Aniyomi | marcação como assistido em percentual | Sistema de consumo do Rei-Flix usa 0.90 como contrato | Não alterado nesta fase | JÁ EXISTE |
+| Aniyomi | marcação como assistido em percentual | Sistema de consumo do ReiAnix usa 0.90 como contrato | Não alterado nesta fase | JÁ EXISTE |
 | Aniyomi | preservar posição | Sistema de progresso já existente | Já existente | JÁ EXISTE |
 | Aniyomi / CloudStream | autoplay próximo episódio | Biblioteca + NativePlayerActivity | Já existente e aplicado | JÁ EXISTE |
 | Aniyomi / Nova | informações técnicas | Decoder/track diagnostics | Já existente | JÁ EXISTE |
 | Aniyomi | sleep timer | Exigiria estado temporizado do player | Não necessário para objetivo desta fase | NÃO IMPLEMENTAR |
-| CloudStream / Aniyomi | streaming/provider/source/downloader | Fonte de verdade do Rei-Flix é local | Arquiteturalmente incompatível | NÃO COMPATÍVEL |
+| CloudStream / Aniyomi | streaming/provider/source/downloader | Fonte de verdade do ReiAnix é local | Arquiteturalmente incompatível | NÃO COMPATÍVEL |
 | Nova / Aniyomi | ordenação/densidade/tamanho da biblioteca | Home/LibraryService existentes | Agora persistido e aplicado | IMPLEMENTAR |
 | Aniyomi / biblioteca | paginação e lazy loading | Home existente | page_size passou a ser configurável sem nova fonte de dados | IMPLEMENTAR |
 | Artwork/cache | limite de cache | ArtworkEngine existente | Novo limite aplicado ao único cache | IMPLEMENTAR |
@@ -98,7 +98,7 @@ A busca do Settings Center indexa agora chave, nome e descrição de cada opçã
 
 ## Limites desta fase
 
-Não foi implementado um seletor de decoder alternativo, filtros de vídeo, delay persistente de A/V ou de legenda, scripts MPV, fontes de vídeo remotas ou controle de provider. Esses itens exigiriam infraestrutura que não existe no player Media3 atual ou entrariam em conflito com o modelo local-first do Rei-Flix.
+Não foi implementado um seletor de decoder alternativo, filtros de vídeo, delay persistente de A/V ou de legenda, scripts MPV, fontes de vídeo remotas ou controle de provider. Esses itens exigiriam infraestrutura que não existe no player Media3 atual ou entrariam em conflito com o modelo local-first do ReiAnix.
 
 ## Referências
 
@@ -120,7 +120,7 @@ Não foi implementado um seletor de decoder alternativo, filtros de vídeo, dela
 - Subtitles: https://aniyomi.org/docs/guides/player-settings/subtitles
 - Advanced: https://aniyomi.org/docs/guides/player-settings/advanced
 
-Animiru forks of the Aniyomi lineage document a configurable mpv-based player and local watching, but that player engine was not copied into Rei-Flix.
+Animiru forks of the Aniyomi lineage document a configurable mpv-based player and local watching, but that player engine was not copied into ReiAnix.
 
 ### Android / Media3
 - Track selection parameters: https://developer.android.com/media/media3/exoplayer/track-selection

@@ -1,4 +1,4 @@
-# ReiFlix native Android host
+# ReiAnix native Android host
 
 This directory is the **native host overlay** for the Flet Android client. It
 is not a standalone Flutter application and, by itself, it is not a complete

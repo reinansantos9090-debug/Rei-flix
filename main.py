@@ -36,7 +36,7 @@ GOOGLE_REDIRECT_URL = os.getenv('REIFLIX_GOOGLE_REDIRECT_URL', CONFIG_GOOGLE_RED
 GOOGLE_WEB_CLIENT_ID = os.getenv('REIFLIX_GOOGLE_WEB_CLIENT_ID', CONFIG_GOOGLE_WEB_CLIENT_ID)
 
 async def main(page: ft.Page):
-    page.title='Rei-Flix Local'; page.padding=0
+    page.title='ReiAnix Local'; page.padding=0
     apply_page_theme(page, "dark")
     data_dir=os.getenv("FLET_APP_STORAGE_DATA") or os.path.join(os.path.dirname(__file__),'.reiflix-data')
     store=LibraryStore(data_dir)
@@ -1191,7 +1191,7 @@ async def main(page: ft.Page):
             modal=True,
             title=ft.Text("Permissão necessária"),
             content=ft.Text(
-                "O Rei-flix precisa de uma fonte de acesso aos seus vídeos locais. "
+                "O ReiAnix precisa de uma fonte de acesso aos seus vídeos locais. "
                 "Você pode permitir o acesso aos vídeos do dispositivo ou escolher uma pasta específica."
             ),
         )
@@ -2334,7 +2334,7 @@ async def main(page: ft.Page):
                                 if code == 'no_credential':
                                     message = 'Nenhuma conta/credencial Google disponível. Verifique se uma conta Google está configurada no dispositivo.'
                                 elif code == 'unsupported':
-                                    message = 'Este dispositivo não oferece suporte ao Gerenciador de Credenciais usado pelo Rei-Flix.'
+                                    message = 'Este dispositivo não oferece suporte ao Gerenciador de Credenciais usado pelo ReiAnix.'
                                 elif code == 'provider_configuration':
                                     message = 'O provedor Google do Gerenciador de Credenciais não está configurado corretamente.'
                                 elif code == 'invalid_credential':

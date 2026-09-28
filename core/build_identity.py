@@ -1,4 +1,4 @@
-"""Build identity embedded into every packaged Rei-Flix Python runtime.
+"""Build identity embedded into every packaged ReiAnix Python runtime.
 
 This file is overwritten by scripts/generate_build_identity.py in release builds.
 The checked-in values deliberately identify an unbuilt development checkout.

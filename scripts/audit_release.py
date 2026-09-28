@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evidence-oriented source and CI integrity audit for Rei-Flix Prompt 3.
+"""Evidence-oriented source and CI integrity audit for ReiAnix Prompt 3.
 
 This audit is intentionally static. It never upgrades static evidence to a
 runtime PASS; runtime device/emulator evidence is produced by the instrumented
@@ -236,7 +236,7 @@ def audit_architecture(root: Path, failures: list[str]) -> None:
     ):
         if token not in instrumented_workflow:
             failures.append(f"instrumented runtime workflow missing: {token}")
-    if "name: ReiFlix Android No-Emulator Contract Checks" in instrumented_workflow:
+    if "name: ReiAnix Android No-Emulator Contract Checks" in instrumented_workflow:
         failures.append("instrumented workflow still advertises no-emulator-only certification")
 
 

@@ -21,6 +21,7 @@ import androidx.core.view.ViewCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -48,7 +49,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var safPickerWatchdog: Runnable? = null
     private val safPickerWatchdogHandler = Handler(Looper.getMainLooper())
     private var activityResumed = false
-    private var googleSignInJob: kotlinx.coroutines.Job? = null
+    private var googleSignInJob: Job? = null
     private var pendingMediaRequestId: String? = null
     private var pendingBroadRequestId: String? = null
     private var pendingSafRequestId: String? = null
@@ -2074,12 +2075,15 @@ class MainActivity : FlutterFragmentActivity() {
             return
         }
         googleSignInJob?.cancel()
-        googleSignInJob = CoroutineScope(Dispatchers.Main).launch {
+        val job = CoroutineScope(Dispatchers.Main).launch {
             try {
                 GoogleIdentity.signIn(this@MainActivity, serverClientId, requestId)
             } finally {
-                googleSignInJob = null
+                if (googleSignInJob === coroutineContext[Job]) {
+                    googleSignInJob = null
+                }
             }
         }
+        googleSignInJob = job
     }
 }

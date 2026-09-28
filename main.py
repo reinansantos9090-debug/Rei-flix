@@ -362,6 +362,7 @@ async def main(page: ft.Page):
     def _invalidate_catalog_views():
         # Details mutations are durable Store changes. Invalidate only the
         # cached projections that can display those fields when we return.
+        home_state.pop('_update_thumbnail', None)
         screen_cache.pop("home", None)
         screen_cache.pop("organize", None)
 
@@ -795,11 +796,13 @@ async def main(page: ft.Page):
             # query/filter state, scroll snapshots and all domain/storage/player
             # state remain owned by their existing controllers.
             apply_page_theme(page, settings.get("appearance.theme"))
+            home_state.pop('_update_thumbnail', None)
             screen_cache.clear()
             render_current(force=True)
             return
         library.configure_settings(settings)
         if setting_key.startswith(("appearance.", "library.")):
+            home_state.pop('_update_thumbnail', None)
             screen_cache.pop("home", None)
             screen_cache.pop("organize", None)
             current_route = navigation.current
@@ -810,6 +813,7 @@ async def main(page: ft.Page):
         if settings.get("appearance.theme") != "system":
             return
         apply_page_theme(page, "system")
+        home_state.pop('_update_thumbnail', None)
         screen_cache.clear()
         render_current(force=True)
     async def remove_folder(reference):
@@ -942,6 +946,7 @@ async def main(page: ft.Page):
             return False
         home_state["search_visible"] = False
         home_state["query"] = ""
+        home_state.pop('_update_thumbnail', None)
         screen_cache.pop("home", None)
         logger.info("[NAV] SEARCH_BACK consumed on Home")
         render_current()
@@ -1900,13 +1905,12 @@ async def main(page: ft.Page):
                                 if request_id:
                                     thumbnail_completed_request_by_key[thumbnail_key] = request_id
                                 if registered:
-                                    if navigation.current in {'home', 'organize'}:
-                                        on_catalog_changed()
-                                    elif navigation.current == 'details':
-                                        # Episode thumbnail generation is an in-place
-                                        # artwork update; rebuilding Details here resets
-                                        # palette/focus state and is not necessary.
-                                        on_catalog_changed(refresh_details=False)
+                                    # A generated thumbnail changes one image, not the
+                                    # catalog membership or ordering. Keep mounted Home
+                                    # controls (and their scroll/focus state) intact.
+                                    update_thumbnail = home_state.get('_update_thumbnail')
+                                    if callable(update_thumbnail):
+                                        update_thumbnail(uri, thumbnail_path)
                             diagnostics.record(
                                 "THUMBNAIL_READY",
                                 request_id=request_id,

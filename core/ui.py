@@ -318,7 +318,7 @@ def focus_button_style(*, theme: ThemeTokens | None = None, background: str | No
         },
         side={
             ft.ControlState.DEFAULT: ft.BorderSide(1, palette.border),
-            ft.ControlState.FOCUSED: ft.BorderSide(2, palette.primary),
+            ft.ControlState.FOCUSED: ft.BorderSide(1, palette.border),
         },
         shape=ft.RoundedRectangleBorder(radius=radius),
         padding=0,

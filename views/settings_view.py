@@ -260,7 +260,6 @@ class SettingsView:
             key = f"settings-category-{label}"
             return ft.OutlinedButton(
                 key=key,
-                autofocus=(label == next(iter(category_meta))),
                 height=70,
                 on_focus=lambda _event, k=key: page.run_task(reveal_category_focus, k),
                 on_click=lambda _event, item=label: open_category(item),

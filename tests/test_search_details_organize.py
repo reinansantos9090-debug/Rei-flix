@@ -99,7 +99,7 @@ class SearchDetailsOrganizeTests(unittest.TestCase):
         navigation = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn("search_generation[0] += 1", home)
         self.assertIn("await asyncio.sleep(0.18)", home)
-        self.assertIn("autofocus=search_visible[0]", home)
+        self.assertNotIn("autofocus", home)
         self.assertIn('def close_home_search():', navigation)
         self.assertIn('"[NAV] SEARCH_BACK consumed on Home"', navigation)
         self.assertNotIn('navigation.push("search")', navigation)

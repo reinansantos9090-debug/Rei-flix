@@ -14,6 +14,7 @@ import re
 
 import flet as ft
 from core.consumption import consumption_state, is_completed, is_in_progress, playback_action, progress_ratio
+from core.library_discovery import duration_anomalies
 from core.dialogs import dismiss_dialog
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, activate_theme_for_page, media_artwork, spoiler_artwork, section_title, focus_button_style
 
@@ -55,6 +56,20 @@ class DetailView:
         episode_artwork = {}
         expanded_description = [False]
         current = anime_group.get("current_episode") or {}
+        duration_warning = None
+        try:
+            duration_report = duration_anomalies([
+                {
+                    **episode,
+                    "anime_id": anime_group.get("id"),
+                    "anime_title": title,
+                }
+                for episode in regular_episodes
+            ])
+            if duration_report.get("anomaly_count"):
+                duration_warning = f"{duration_report['anomaly_count']} episódio(s) com duração incomum"
+        except Exception:
+            DetailView._logger.exception("Duration anomaly projection failed", extra={"screen":"details"})
         primary_target = get_playback_target(anime_group["id"]) if get_playback_target else (current or next((item for item in available), None))
         last_completed = max(
             (item for item in regular_episodes if is_completed(item) and not item.get("missing")),
@@ -129,6 +144,8 @@ class DetailView:
             facts.append(meta_chip(f"{metadata['duration']} min", ft.Icons.SCHEDULE_OUTLINED))
         if metadata.get("score") is not None:
             facts.append(meta_chip(f"{float(metadata['score']) / 10:g}", ft.Icons.STAR_OUTLINED))
+        if duration_warning:
+            facts.append(meta_chip(duration_warning, ft.Icons.WARNING_AMBER_OUTLINED))
 
         genres = anime_group.get("genres") or []
         genre_controls = [

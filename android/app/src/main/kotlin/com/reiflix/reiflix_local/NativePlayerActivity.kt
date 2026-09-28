@@ -505,6 +505,12 @@ class NativePlayerActivity : ComponentActivity() {
                 (newIntent.getStringExtra("requestId")?.trim().orEmpty().ifBlank { "-" }),
         )
 
+        // A malformed replacement intent must retire the previous transition
+        // watchdog before returning; otherwise its delayed callback can surface
+        // stale feedback after this Activity has already entered an error state.
+        handler.removeCallbacks(episodeChangeTimeout)
+        episodeChangeTimeoutRequestId = ""
+        episodeChangeTimeoutUri = ""
         val rawUri = newIntent.getStringExtra("uri")
         if (rawUri.isNullOrBlank()) {
             episodeChangePending = false
@@ -536,9 +542,6 @@ class NativePlayerActivity : ComponentActivity() {
         suppressExitEvent = false
         errorVisible = false
         autoplayNext = newIntent.getBooleanExtra("autoplay", autoplayNext)
-        handler.removeCallbacks(episodeChangeTimeout)
-        episodeChangeTimeoutRequestId = ""
-        episodeChangeTimeoutUri = ""
         doubleTapSeekMs = newIntent.getLongExtra("setting_player_double_tap_seek_seconds", doubleTapSeekMs / 1000L)
         longPressSpeed = newIntent.getFloatExtra("setting_player_long_press_speed", longPressSpeed)
             .coerceIn(1f, 3f)

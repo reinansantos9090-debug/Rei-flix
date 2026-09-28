@@ -1006,11 +1006,14 @@ class HomeView:
             ], spacing=0),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True, run_spacing=8)
         filter_button = ft.OutlinedButton("Filtros", icon=ft.Icons.TUNE, on_click=open_filters)
-        smart_tools_row = ft.Row([
+        smart_tool_controls = [
             ft.OutlinedButton("🎲 Gacha", on_click=open_gacha),
             ft.OutlinedButton("📅 Timeline", on_click=open_timeline),
             ft.OutlinedButton("⚠ Durações", on_click=open_duration_anomalies),
-        ], wrap=True, spacing=8, run_spacing=8)
+        ]
+        if on_open_collector is not None:
+            smart_tool_controls.append(ft.OutlinedButton("🏆 Collector", on_click=lambda _: on_open_collector()))
+        smart_tools_row = ft.Row(smart_tool_controls, wrap=True, spacing=8, run_spacing=8)
         main_library_bar = ft.Row(
             [ft.Row([library_label, filter_summary], spacing=10, wrap=True), sort, filter_button],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,

@@ -69,7 +69,9 @@ def _accessible_accent(
 ) -> tuple[int, int, int]:
     hue, lightness, saturation = rgb_to_hls(*(channel / 255.0 for channel in rgb))
     target_lightness = 0.48 if mode == "dark" else 0.43
-    saturation = _clamp(saturation, 0.28, 0.68)
+    saturation = _clamp(saturation, 0.0, 0.68)
+    if saturation < 0.10:
+        saturation = 0.06
     background = (22, 21, 31) if mode == "dark" else (247, 247, 250)
     candidates = []
     for offset in range(-18, 19, 3):

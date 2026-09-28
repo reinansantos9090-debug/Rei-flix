@@ -91,6 +91,19 @@ class AniListClientTests(unittest.TestCase):
         with patch("core.anilist.urllib.request.urlopen", return_value=malformed):
             self.assertIsNone(client._request("query", {}))
 
+    def test_localized_metadata_preserves_original_description(self):
+        client = AniListClient("/tmp/cache")
+        media = {
+            "id": 99,
+            "title": {"english": "Example", "romaji": "Example", "native": "例"},
+            "description": "The original description stays intact.",
+        }
+        from unittest.mock import patch
+        with patch.object(client, "localize_description_to_pt_br", return_value="A descrição traduzida."):
+            metadata = client.metadata_from_media("Example", media, localize_description=True)
+        self.assertEqual(metadata["description"], "A descrição traduzida.")
+        self.assertEqual(metadata["description_original"], "The original description stays intact.")
+
     def test_metadata_maps_anilist_fields(self):
         with tempfile.TemporaryDirectory() as directory:
             client = AniListClient(directory)

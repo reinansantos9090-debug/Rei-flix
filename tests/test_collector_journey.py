@@ -110,6 +110,22 @@ class CollectorJourneyAlgorithmTests(unittest.TestCase):
 
 
 class CollectorJourneyStoreTests(unittest.TestCase):
+    def test_schema_version_is_unchanged_and_no_gamification_tables_exist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            with store._conn() as connection:
+                version = connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
+                tables = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ).fetchall()
+                }
+            self.assertEqual(29, int(version))
+            self.assertNotIn("gamification", tables)
+            self.assertNotIn("achievements", tables)
+            self.assertNotIn("collector", tables)
+
     def test_uses_existing_database_and_preferences_only(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

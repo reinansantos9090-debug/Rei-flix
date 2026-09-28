@@ -359,12 +359,19 @@ async def main(page: ft.Page):
             "settings": "/settings",
         }.get(screen, "/" + str(screen))
 
+    def _invalidate_cached_view(state, route):
+        """Retire callbacks before dropping a cached Flet control tree."""
+        invalidate_tasks = state.pop('_invalidate_view_tasks', None)
+        if callable(invalidate_tasks):
+            invalidate_tasks()
+        state.pop('_update_thumbnail', None)
+        screen_cache.pop(route, None)
+
     def _invalidate_catalog_views():
         # Details mutations are durable Store changes. Invalidate only the
         # cached projections that can display those fields when we return.
-        home_state.pop('_update_thumbnail', None)
-        screen_cache.pop("home", None)
-        screen_cache.pop("organize", None)
+        _invalidate_cached_view(home_state, "home")
+        _invalidate_cached_view(organize_state, "organize")
 
     def _toggle_favorite_from_details(anime_id):
         value = store.toggle_favorite(anime_id)
@@ -796,15 +803,15 @@ async def main(page: ft.Page):
             # query/filter state, scroll snapshots and all domain/storage/player
             # state remain owned by their existing controllers.
             apply_page_theme(page, settings.get("appearance.theme"))
-            home_state.pop('_update_thumbnail', None)
+            _invalidate_cached_view(home_state, "home")
+            _invalidate_cached_view(organize_state, "organize")
             screen_cache.clear()
             render_current(force=True)
             return
         library.configure_settings(settings)
         if setting_key.startswith(("appearance.", "library.")):
-            home_state.pop('_update_thumbnail', None)
-            screen_cache.pop("home", None)
-            screen_cache.pop("organize", None)
+            _invalidate_cached_view(home_state, "home")
+            _invalidate_cached_view(organize_state, "organize")
             current_route = navigation.current
             if current_route in {"home", "organize"}:
                 render_current()
@@ -813,7 +820,8 @@ async def main(page: ft.Page):
         if settings.get("appearance.theme") != "system":
             return
         apply_page_theme(page, "system")
-        home_state.pop('_update_thumbnail', None)
+        _invalidate_cached_view(home_state, "home")
+        _invalidate_cached_view(organize_state, "organize")
         screen_cache.clear()
         render_current(force=True)
     async def remove_folder(reference):
@@ -946,8 +954,7 @@ async def main(page: ft.Page):
             return False
         home_state["search_visible"] = False
         home_state["query"] = ""
-        home_state.pop('_update_thumbnail', None)
-        screen_cache.pop("home", None)
+        _invalidate_cached_view(home_state, "home")
         logger.info("[NAV] SEARCH_BACK consumed on Home")
         render_current()
         persist_navigation_state()

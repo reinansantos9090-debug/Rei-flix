@@ -416,8 +416,10 @@ class LibraryService:
                     cached = self.refresh_metadata(
                         lookup_title,
                         display_title,
+                        # Hydration may be scheduled again while a Home view is
+                        # cached. Respect the short request dedupe window so a
+                        # still-fresh result does not make another AniList call.
                         force=True,
-                        bypass_request_dedupe=True,
                         match_context=self._match_context_from_catalog(item),
                     )
                     cached = self.store.anime_metadata(lookup_title) or cached or {}

@@ -1,6 +1,8 @@
 import asyncio
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from core.library_service import LibraryService
@@ -252,6 +254,43 @@ class ServiceAndSourceTests(unittest.TestCase):
         self.assertIn("if token != render_generation[0]:", home)
         self.assertIn("search_generation", organize)
         self.assertIn("if token != search_generation[0]:", organize)
+
+
+class MetadataAndViewLifecycleCoalescingTests(unittest.TestCase):
+    def test_hydration_respects_recent_metadata_request_dedupe(self):
+        """A discarded/recreated Home must not immediately repeat AniList I/O."""
+        with tempfile.TemporaryDirectory() as directory:
+            service = LibraryService(LibraryStore(directory))
+            anime_id = service.store.upsert_anime(
+                "deduped-show",
+                {"title": "Deduped Show", "genres": "[]", "metadata_status": "stale"},
+            )
+            service.store.upsert_episode(
+                anime_id, "/library/deduped-show-01.mkv", "Deduped Show 01", 1, 1,
+            )
+            now = time.time()
+            with service.store._conn() as con:
+                con.execute(
+                    "UPDATE anime SET anilist_id=?,metadata_status='stale',"
+                    "metadata_fetched_at=?,metadata_updated_at=? WHERE id=?",
+                    (16498, now, now, anime_id),
+                )
+            with patch.object(service.anilist, "by_id") as by_id:
+                hydrated = service.hydrate_catalog_metadata(service.catalog())
+            by_id.assert_not_called()
+            self.assertEqual(1, len(hydrated))
+            service.artwork.shutdown()
+
+    def test_cached_view_invalidation_advances_existing_generation_guards(self):
+        home = Path("views/home_view.py").read_text(encoding="utf-8")
+        organize = Path("views/organize_view.py").read_text(encoding="utf-8")
+        main = Path("main.py").read_text(encoding="utf-8")
+        for source in (home, organize):
+            self.assertIn("def invalidate_view_tasks():", source)
+            self.assertIn("render_generation[0] += 1", source)
+            self.assertIn("view_state['_invalidate_view_tasks'] = invalidate_view_tasks", source)
+        self.assertIn("def _invalidate_cached_view(state, route):", main)
+        self.assertIn("invalidate_tasks = state.pop('_invalidate_view_tasks', None)", main)
 
 
 if __name__ == "__main__":

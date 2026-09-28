@@ -1121,8 +1121,16 @@ class HomeView:
 
             page.run_task(run_catalog_refreshes)
 
+        def invalidate_view_tasks():
+            # Cached Home controls can be discarded by settings/details changes.
+            # Existing async work cannot safely mutate that retired control tree.
+            render_generation[0] += 1
+            home_sections_generation[0] = render_generation[0]
+            catalog_refresh_dirty[0] = False
+
         view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
         view_state['_update_thumbnail'] = update_thumbnail_in_place
+        view_state['_invalidate_view_tasks'] = invalidate_view_tasks
         status.visible = True
         page.run_task(load_catalog)
         return ft.Container(

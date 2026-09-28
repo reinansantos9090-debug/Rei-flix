@@ -778,6 +778,7 @@ class OrganizeView:
                 page.update()
 
         async def load_catalog():
+            token = render_generation[0]
             try:
                 last_scan = await asyncio.to_thread(library.last_scan)
                 catalog_load_failed[0] = False
@@ -787,6 +788,8 @@ class OrganizeView:
                 scan_active[0] = False
             else:
                 scan_active[0] = bool(last_scan and str(last_scan.get('status') or '').casefold() in {'running','started'})
+            if token != render_generation[0]:
+                return
             status.visible = scan_active[0]
             if scan_active[0]:
                 status.controls = [
@@ -825,7 +828,14 @@ class OrganizeView:
 
             page.run_task(run_catalog_refreshes)
 
+        def invalidate_view_tasks():
+            # Generation guards already protect page queries; advance them when
+            # the cached control tree is discarded so old tasks cannot render it.
+            render_generation[0] += 1
+            catalog_refresh_dirty[0] = False
+
         view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
+        view_state['_invalidate_view_tasks'] = invalidate_view_tasks
         save_view_state()
         render_generation[0] += 1
         render_overview()

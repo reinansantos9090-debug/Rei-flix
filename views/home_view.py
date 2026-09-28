@@ -20,7 +20,7 @@ class HomeView:
 
     @staticmethod
     def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode, on_open_organize=None,
-              view_state=None, on_request_thumbnail=None):
+              view_state=None, on_request_thumbnail=None, on_open_collector=None):
         theme = activate_theme_for_page(page)
         BACKGROUND = theme.background
         SURFACE = theme.surface

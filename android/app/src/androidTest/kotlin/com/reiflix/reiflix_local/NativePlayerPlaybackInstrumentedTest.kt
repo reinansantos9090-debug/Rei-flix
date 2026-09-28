@@ -95,7 +95,7 @@ class NativePlayerPlaybackInstrumentedTest {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         target.startActivity(mainIntent)
         waitForReiFlixMainActivityForeground()
-        await("Bringing Rei-Flix to foreground must exit the player from PiP") {
+        await("Bringing ReiAnix to foreground must exit the player from PiP") {
             !activity!!.isInPictureInPictureMode
         }
         assertTrue("Native Player Activity must remain alive after PiP exit", !activity!!.isDestroyed)
@@ -216,7 +216,7 @@ class NativePlayerPlaybackInstrumentedTest {
     @Test
     fun localMediaStoreFixture_reachesReadyAndPlays_inImmersivePlayer() {
         logStage("MEDIASTORE_FIXTURE_START")
-        // Launch the player from a real Rei-Flix task so Back is tested as it
+        // Launch the player from a real ReiAnix task so Back is tested as it
         // is in production (Player -> MainActivity), rather than with the
         // launcher underneath a standalone test Activity.
         launchMainActivityForPlayer()
@@ -645,7 +645,7 @@ class NativePlayerPlaybackInstrumentedTest {
             }
             SystemClock.sleep(100L)
         }
-        assertTrue("Android Back must return to a resumed Rei-Flix MainActivity", false)
+        assertTrue("Android Back must return to a resumed ReiAnix MainActivity", false)
     }
     private fun grantMediaReadPermission() {
         val permission = if (Build.VERSION.SDK_INT >= 33) {

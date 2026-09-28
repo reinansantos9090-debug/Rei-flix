@@ -427,7 +427,6 @@ def main():
     root=a.root.resolve(); a.output.parent.mkdir(parents=True,exist_ok=True); a.report.parent.mkdir(parents=True,exist_ok=True); a.matrix.parent.mkdir(parents=True,exist_ok=True)
     py=sys.executable; r={}
     r["compileall"]=Result("Python","compileall",PASS,"Exact `python -m compileall .` completed successfully in the preceding blocking workflow step.",command="python -m compileall .") if a.prevalidated_compileall else run_command("Python","compileall",[py,"-m","compileall","."],cwd=root,timeout=900)
-    r["collect"]=run_command("Python","pytest collect-only",[py,"-m","pytest","--collect-only","-q"],cwd=root,timeout=1800)
     if a.prevalidated_python_evidence:
         evidence_path=a.prevalidated_python_evidence.resolve()
         r["collect"]=load_prevalidated_result(evidence_path.parent / "pytest_collect.json", "Python", "pytest collect-only")
@@ -435,6 +434,7 @@ def main():
         r["pytest_second"]=load_prevalidated_result(evidence_path.parent / "pytest_second.json", "Python", "pytest determinism")
         r["unittest"]=Result("Python","unittest discovery",NOT_APPLICABLE,"Standalone unittest discovery is intentionally not re-executed: pytest collects unittest.TestCase subclasses in the repository, and the CI evidence is retained in the pytest runs.",command="pytest unittest.TestCase coverage")
     else:
+        r["collect"]=run_command("Python","pytest collect-only",[py,"-m","pytest","--collect-only","-q"],cwd=root,timeout=1800)
         r["pytest"]=run_command("Python","pytest",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
         r["pytest_second"]=run_command("Python","pytest determinism",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
         r["unittest"]=normalize_unittest_result(root,run_command("Python","unittest discovery",[py,"-m","unittest","discover","-s","tests","-v"],cwd=root,timeout=1800))

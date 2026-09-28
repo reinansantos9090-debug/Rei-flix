@@ -1875,8 +1875,6 @@ async def main(page: ft.Page):
                             updated = False
                             if path_ref:
                                 updated = await asyncio.to_thread(store.set_watched, path_ref, True)
-                                if updated and navigation.current != 'player':
-                                    render_current()
                             diagnostics.record(
                                 "PLAYER_MARK_WATCHED",
                                 request_id=event_request_id,
@@ -1888,8 +1886,6 @@ async def main(page: ft.Page):
                             updated = False
                             if path_ref:
                                 updated = await asyncio.to_thread(store.set_watched, path_ref, False)
-                                if updated and navigation.current != 'player':
-                                    render_current()
                             diagnostics.record(
                                 "PLAYER_MARK_UNWATCHED",
                                 request_id=event_request_id,
@@ -1898,7 +1894,7 @@ async def main(page: ft.Page):
                             )
                         elif event_type == 'player_autoplay_changed':
                             enabled = bool(payload.get('enabled'))
-                            store.set_preference('autoplay_next', 'true' if enabled else 'false')
+                            settings.set("player.autoplay_next", enabled)
                             diagnostics.record(
                                 "PLAYER_AUTOPLAY_CHANGED",
                                 request_id=event_request_id,

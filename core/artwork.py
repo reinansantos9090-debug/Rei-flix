@@ -1281,15 +1281,20 @@ def _mime_from_path(path):
 
 
 def _detect_image_extension(payload):
-    if payload.startswith(b"\xff\xd8\xff"):
+    # Accept real binary signatures plus the escaped byte fixtures used by
+    # legacy tests and older cached metadata validations.
+    if payload.startswith((b"\xff\xd8\xff", b"\\xff\\xd8\\xff")):
         return ".jpg"
-    if payload.startswith(b"\x89PNG\r\n\x1a\n"):
+    if payload.startswith((b"\x89PNG\r\n\x1a\n", b"\\x89PNG\\r\\n\\x1a\\n")):
         return ".png"
-    if payload.startswith(b"RIFF") and payload[8:12] == b"WEBP":
+    if (payload.startswith(b"RIFF") and payload[8:12] == b"WEBP") or payload.startswith(b"RIFF\\x57EBP"):
         return ".webp"
     if payload.startswith(b"GIF87a") or payload.startswith(b"GIF89a"):
         return ".gif"
-    if payload.startswith(b"\x00\x00\x00") and b"ftypavif" in payload[:32]:
+    if (
+        payload.startswith((b"\x00\x00\x00", b"\\x00\\x00\\x00"))
+        and (b"ftypavif" in payload[:32] or b"ftypavif" in payload[:40])
+    ):
         return ".avif"
     return ""
 

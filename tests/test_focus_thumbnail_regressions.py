@@ -68,5 +68,16 @@ class FocusAndThumbnailRegressionTests(unittest.TestCase):
         self.assertNotIn("_refresh_from_catalog", update)
 
 
+    def test_thumbnail_generation_maps_remain_bounded_while_latest_version_wins(self):
+        request_start = MAIN.index("def request_missing_thumbnail")
+        request_end = MAIN.index("def storage_state", request_start)
+        request = MAIN[request_start:request_end]
+        self.assertIn("existing_latest != key", request)
+        self.assertIn("thumbnail_requests.discard(existing_latest)", request)
+        self.assertIn("thumbnail_latest_key_by_uri[path_ref] = key", request)
+        self.assertIn("if len(thumbnail_latest_at) > 1024:", MAIN)
+        self.assertIn("if len(thumbnail_completed_request_by_key) > 1024:", MAIN)
+
+
 if __name__ == "__main__":
     unittest.main()

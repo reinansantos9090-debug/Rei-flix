@@ -560,6 +560,8 @@ async def main(page: ft.Page):
         navigation.push("collector")
         render_current()
         persist_navigation_state()
+    player_transition_inflight = {"value": False}
+
     async def start_native_player(path, title, position_ms=0):
         # Sequence decisions stay in LibraryStore. The two small SQLite reads
         # must not execute on Flet's event-loop thread because player launch is
@@ -730,7 +732,7 @@ async def main(page: ft.Page):
             page.snack_bar = ft.SnackBar(ft.Text("Não foi possível atualizar a metadata agora."))
             page.snack_bar.open = True
             safe_update()
-    def on_catalog_changed():
+    def on_catalog_changed(*, refresh_details=True):
         diagnostics.record("UI_REFRESHED", result="catalog_changed", source=navigation.current)
         # Home/Organize keep their cached control tree across Details/Player.
         # Refresh their current dataset in place instead of rebuilding the whole
@@ -745,6 +747,8 @@ async def main(page: ft.Page):
             if callable(refresh):
                 refresh()
                 return
+        if navigation.current == "details" and not refresh_details:
+            return
         screen_cache.pop(navigation.current, None)
         render_current()
 
@@ -1806,8 +1810,13 @@ async def main(page: ft.Page):
                                 )
                                 if registered:
                                     thumbnail_requests.discard(thumbnail_key)
-                                    if navigation.current in {'home', 'details', 'organize'}:
+                                    if navigation.current in {'home', 'organize'}:
                                         on_catalog_changed()
+                                    elif navigation.current == 'details':
+                                        # Episode thumbnail generation is an in-place
+                                        # artwork update; rebuilding Details here resets
+                                        # palette/focus state and is not necessary.
+                                        on_catalog_changed(refresh_details=False)
                             diagnostics.record(
                                 "THUMBNAIL_READY",
                                 request_id=request_id,
@@ -1897,49 +1906,71 @@ async def main(page: ft.Page):
                                 result="enabled" if enabled else "disabled",
                             )
                         elif event_type in {'player_next_request', 'player_previous_request'}:
-                            current_path = str(payload.get('uri') or '').strip()
-                            direction = 1 if event_type == 'player_next_request' else -1
-                            target = library.next_episode(current_path) if direction > 0 else library.previous_episode(current_path)
-                            if not target:
-                                page.snack_bar = ft.SnackBar(ft.Text(
-                                    "Não existe outro episódio local disponível nesta direção."
-                                ))
-                                page.snack_bar.open = True
-                                safe_update()
-                                continue
-                            target_path = str(target.get('path') or '').strip()
-                            target_title = (
-                                target.get('episode_title')
-                                or target.get('file_name')
-                                or target.get('title')
-                                or "Episódio local"
-                            )
-                            resume_enabled = store.get_preference('resume_playback', 'true') == 'true'
-                            target_position_ms = (
-                                max(0.0, float(target.get('progress') or 0.0)) * 1000.0
-                                if resume_enabled else 0.0
-                            )
-                            diagnostics.record(
-                                "PLAYER_NEXT" if direction > 0 else "PLAYER_PREVIOUS",
-                                request_id=event_request_id,
-                                source="native_player",
-                                result=target_path,
-                            )
-                            try:
-                                await start_native_player(
-                                    target_path,
-                                    target_title,
-                                    int(target_position_ms),
+                            if player_transition_inflight["value"]:
+                                diagnostics.record(
+                                    "PLAYER_NEXT_IGNORED" if event_type == 'player_next_request' else 'PLAYER_PREVIOUS_IGNORED',
+                                    request_id=event_request_id,
+                                    source="native_player",
+                                    result="transition_in_progress",
                                 )
-                            except Exception:
-                                logger.exception("[PLAYER] adjacent episode launch failed")
-                                page.snack_bar = ft.SnackBar(ft.Text(
-                                    "Não foi possível abrir o próximo episódio local."
+                                continue
+                            player_transition_inflight["value"] = True
+                            try:
+                                current_path = str(payload.get('uri') or '').strip()
+                                direction = 1 if event_type == 'player_next_request' else -1
+                                target = (
+                                    await asyncio.to_thread(library.next_episode, current_path)
                                     if direction > 0
-                                    else "Não foi possível abrir o episódio anterior local."
-                                ))
-                                page.snack_bar.open = True
-                                safe_update()
+                                    else await asyncio.to_thread(library.previous_episode, current_path)
+                                )
+                                if not target:
+                                    logger.warning(
+                                        "[PLAYER] adjacent episode not found direction=%s request_id=%s uri=%s",
+                                        direction,
+                                        event_request_id or "-",
+                                        current_path,
+                                    )
+                                    page.snack_bar = ft.SnackBar(ft.Text(
+                                        "Não existe outro episódio local disponível nesta direção."
+                                    ))
+                                    page.snack_bar.open = True
+                                    safe_update()
+                                    continue
+                                target_path = str(target.get('path') or '').strip()
+                                target_title = (
+                                    target.get('episode_title')
+                                    or target.get('file_name')
+                                    or target.get('title')
+                                    or "Episódio local"
+                                )
+                                resume_enabled = store.get_preference('resume_playback', 'true') == 'true'
+                                target_position_ms = (
+                                    max(0.0, float(target.get('progress') or 0.0)) * 1000.0
+                                    if resume_enabled else 0.0
+                                )
+                                diagnostics.record(
+                                    "PLAYER_NEXT" if direction > 0 else "PLAYER_PREVIOUS",
+                                    request_id=event_request_id,
+                                    source="native_player",
+                                    result=target_path,
+                                )
+                                try:
+                                    await start_native_player(
+                                        target_path,
+                                        target_title,
+                                        int(target_position_ms),
+                                    )
+                                except Exception:
+                                    logger.exception("[PLAYER] adjacent episode launch failed")
+                                    page.snack_bar = ft.SnackBar(ft.Text(
+                                        "Não foi possível abrir o próximo episódio local."
+                                        if direction > 0
+                                        else "Não foi possível abrir o episódio anterior local."
+                                    ))
+                                    page.snack_bar.open = True
+                                    safe_update()
+                            finally:
+                                player_transition_inflight["value"] = False
                         elif event_type == 'player_error':
                             message = event.get('message', 'Não foi possível reproduzir este arquivo localmente.')
                             diagnostics.record(

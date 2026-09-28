@@ -111,6 +111,8 @@ class Prompt2StabilizationTests(unittest.TestCase):
         self.assertIn("(current[0] or {}).get(\"id\") != anime_id", MAIN)
         self.assertIn("is_active=None", DETAILS)
         self.assertIn("callable(is_active) and not is_active()", DETAILS)
+        self.assertIn("details_instance_generation", MAIN)
+        self.assertIn("detail_instance_token", MAIN)
 
     def test_anilist_translation_does_not_hold_the_rate_limit_lock(self):
         start = ANILIST.index("def localize_description_to_pt_br")

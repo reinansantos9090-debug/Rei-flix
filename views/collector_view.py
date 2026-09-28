@@ -139,7 +139,6 @@ class CollectorView:
 
         async def reload():
             status.visible = True
-            status.value = None
             page.update()
             try:
                 journey = await asyncio.to_thread(library.collector_journey)

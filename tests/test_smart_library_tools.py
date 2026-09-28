@@ -75,6 +75,25 @@ class SmartLibraryAlgorithmsTests(unittest.TestCase):
 
 
 class SmartLibraryIntegrationTests(unittest.TestCase):
+    def test_ui_wires_all_tools_without_secondary_storage(self):
+        root = Path(__file__).resolve().parents[1]
+        home = (root / "views" / "home_view.py").read_text(encoding="utf-8")
+        details = (root / "views" / "details_view.py").read_text(encoding="utf-8")
+        ui = (root / "core" / "ui.py").read_text(encoding="utf-8")
+        service = (root / "core" / "library_service.py").read_text(encoding="utf-8")
+
+        for token in ("open_gacha", "open_timeline", "open_duration_anomalies", "smart_tools_row"):
+            self.assertIn(token, home)
+        for token in ("spoiler_artwork", "on_open_marathon", "Maratona"):
+            self.assertIn(token, details)
+        for token in ("GestureDetector", "on_long_press_start", "on_long_press_end", "blur=14"):
+            self.assertIn(token, ui)
+        for token in ("gacha_pick", "library_timeline", "duration_anomaly_report", "marathon"):
+            self.assertIn(token, service)
+        combined = home + details + ui + service
+        for token in ("gacha.db", "timeline.db", "marathon.db", "smart_library.db"):
+            self.assertNotIn(token, combined)
+
     def test_gacha_respects_filters_and_avoids_immediate_repetition_when_possible(self):
         with tempfile.TemporaryDirectory() as directory:
             from core.library_service import LibraryService

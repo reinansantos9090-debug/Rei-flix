@@ -2464,7 +2464,7 @@ class LibraryStore:
             return False
         if duration > 0:
             position = min(position, duration)
-        now = time.time()
+        durable_time = time.time()
         with self._conn() as c:
             row = self._find_episode_row(c, path)
             if not row:
@@ -2472,23 +2472,23 @@ class LibraryStore:
             canonical_path = str(row["path"])
             watched = int(is_completed({"progress": position, "duration": duration, "watched": bool(row["watched"])}))
             if event_time is not None:
-                event_time = event_time / 1000.0 if event_time > 10_000_000_000 else event_time
+                durable_time = event_time / 1000.0 if event_time > 10_000_000_000 else event_time
                 last_seen = self._last_playback_event_at.get(canonical_path, 0.0)
-                if event_time <= last_seen:
+                if durable_time <= last_seen:
                     return False
                 updated = c.execute(
                     """UPDATE episodes
                        SET progress=?, duration=?, watched=?, last_played_at=?
                        WHERE path=?
                          AND (last_played_at IS NULL OR last_played_at < ?)""",
-                    (position, duration, watched, event_time, canonical_path, event_time),
+                    (position, duration, watched, durable_time, canonical_path, durable_time),
                 ).rowcount
                 if updated:
-                    self._last_playback_event_at[canonical_path] = event_time
+                    self._last_playback_event_at[canonical_path] = durable_time
                 return bool(updated)
             updated = c.execute(
                 "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
-                (position, duration, watched, now, canonical_path),
+                (position, duration, watched, durable_time, canonical_path),
             ).rowcount
         return bool(updated)
     @staticmethod

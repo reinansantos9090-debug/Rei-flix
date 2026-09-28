@@ -1235,8 +1235,8 @@ class ArtworkEngine:
                 cover = row["cover_cache"]
                 if cover and self._path_under(cover, self.cache_dir):
                     con.execute("UPDATE anime SET cover_cache='' WHERE id=?", (row["id"],))
-        removed += self._clear_palette_cache()
-        removed += self.cleanup_orphans()
+        palette_removed = self._clear_palette_cache()
+        removed = palette_removed + self.cleanup_orphans()
         self._log("evict", reason="clear", removed=removed)
         return removed
 
@@ -1281,15 +1281,15 @@ def _mime_from_path(path):
 
 
 def _detect_image_extension(payload):
-    if payload.startswith(b"\\xff\\xd8\\xff"):
+    if payload.startswith(b"\xff\xd8\xff"):
         return ".jpg"
-    if payload.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+    if payload.startswith(b"\x89PNG\r\n\x1a\n"):
         return ".png"
     if payload.startswith(b"RIFF") and payload[8:12] == b"WEBP":
         return ".webp"
     if payload.startswith(b"GIF87a") or payload.startswith(b"GIF89a"):
         return ".gif"
-    if payload.startswith(b"\\x00\\x00\\x00") and b"ftypavif" in payload[:32]:
+    if payload.startswith(b"\x00\x00\x00") and b"ftypavif" in payload[:32]:
         return ".avif"
     return ""
 

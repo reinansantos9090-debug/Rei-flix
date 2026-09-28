@@ -103,6 +103,11 @@ class AniListClientTests(unittest.TestCase):
             self.assertEqual(json.loads(metadata["genres"]), ["Action", "Drama"])
             self.assertEqual(metadata["studio"], "WIT Studio")
             self.assertEqual(metadata["episodes_count"], 25)
+            self.assertEqual(metadata["score"], 91)
+            self.assertEqual(metadata["format"], None)
+            self.assertEqual(metadata["banner_url"], "https://img.example/banner.jpg")
+            self.assertEqual(metadata["status"], "FINISHED")
+            self.assertEqual(metadata["duration"], 24)
 
     def test_metadata_with_chosen_id_does_not_crash_on_candidates_without_id(self):
         client = AniListClient("/tmp/cache")

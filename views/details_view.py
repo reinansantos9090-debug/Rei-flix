@@ -27,7 +27,7 @@ class DetailView:
               on_toggle_favorite, get_playback_target=None, on_set_user_tags=None,
               on_toggle_pinned=None, on_set_personal_note=None, on_set_episode_identification=None,
                on_identification_saved=None, on_refresh_metadata=None, resolve_artwork=None, resolve_artwork_batch=None,
-               on_open_marathon=None, resolve_artwork_palette=None):
+               on_open_marathon=None, resolve_artwork_palette=None, is_active=None):
         theme = activate_theme_for_page(page)
         BACKGROUND = theme.background
         SURFACE = theme.surface
@@ -838,6 +838,8 @@ class DetailView:
                 DetailView._logger.exception("Contextual artwork palette failed", extra={"screen": "details"})
                 return
             if not palette:
+                return
+            if callable(is_active) and not is_active():
                 return
             accent = str(palette.get("accent") or "").strip()
             on_accent = str(palette.get("on_accent") or "").strip()

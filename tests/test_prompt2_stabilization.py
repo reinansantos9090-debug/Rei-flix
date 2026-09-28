@@ -114,10 +114,73 @@ class Prompt2StabilizationTests(unittest.TestCase):
     def test_details_metadata_and_palette_tasks_have_stale_result_guards(self):
         self.assertIn("navigation.current != \"details\"", MAIN)
         self.assertIn("(current[0] or {}).get(\"id\") != anime_id", MAIN)
-        self.assertIn("is_active=None", DETAILS)
-        self.assertIn("callable(is_active) and not is_active()", DETAILS)
         self.assertIn("details_instance_generation", MAIN)
         self.assertIn("detail_instance_token", MAIN)
+        self.assertIn("callable(is_active) and not is_active()", DETAILS)
+
+    def test_details_refresh_rechecks_view_generation_after_background_catalog_read(self):
+        start = MAIN.index("async def refresh_current_details")
+        end = MAIN.index("async def refresh_current_metadata", start)
+        block = MAIN[start:end]
+        self.assertIn("details_token = details_instance_generation[0]", block)
+        self.assertIn("details_instance_generation[0] != details_token", block)
+        self.assertIn('navigation.current != "details"', block)
+
+    def test_details_mutation_callbacks_ignore_results_after_navigation(self):
+        note = DETAILS[DETAILS.index("async def save(_event):", DETAILS.index("def edit_note")):DETAILS.index("async def clear_and_save", DETAILS.index("def edit_note"))]
+        tags = DETAILS[DETAILS.index("async def save_tags(tags):"):DETAILS.index("def render_tags():")]
+        identification = DETAILS[DETAILS.index("async def save(_event):", DETAILS.index("def edit_identification")):DETAILS.index("save_button.on_click = save", DETAILS.index("def edit_identification"))]
+        self.assertIn("callable(is_active) and not is_active()", note)
+        self.assertIn("callable(is_active) and not is_active()", tags)
+        self.assertIn("callable(is_active) and not is_active()", identification)
+
+    def test_duplicate_player_handoffs_are_serialized(self):
+        start = MAIN.index("def play_episode")
+        end = MAIN.index("def open_marathon", start)
+        block = MAIN[start:end]
+        self.assertIn('player_launch_inflight["value"]', block)
+        self.assertIn("PLAYER_HANDOFF_DUPLICATE_IGNORED", block)
+        self.assertIn('finally:\n                player_launch_inflight["value"] = False', block)
+
+    def test_native_player_reuse_refreshes_autoplay_state(self):
+        start = PLAYER.index("override fun onNewIntent")
+        end = PLAYER.index("private fun buildMediaItem", start)
+        block = PLAYER[start:end]
+        self.assertIn('autoplayNext = newIntent.getBooleanExtra("autoplay", autoplayNext)', block)
+        self.assertIn('isEnabled =\n            newIntent.getBooleanExtra("canNext", false)', block)
+        self.assertIn('isEnabled =\n            newIntent.getBooleanExtra("canPrevious", false)', block)
+
+    def test_anilist_original_description_survives_pt_br_localization(self):
+        from unittest.mock import patch
+        from core.anilist import AniListClient
+        media = {
+            "id": 99,
+            "title": {"english": "Example", "romaji": "Example", "native": "例"},
+            "description": "The original description stays intact.",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            client = AniListClient(directory)
+            with patch.object(client, "localize_description_to_pt_br", return_value="A descrição traduzida."):
+                metadata = client.metadata_from_media("Example", media, localize_description=True)
+            self.assertEqual(metadata["description"], "A descrição traduzida.")
+            self.assertEqual(metadata["description_original"], "The original description stays intact.")
+
+    def test_manual_description_is_not_auto_translated(self):
+        from unittest.mock import patch
+        from core.library_service import LibraryService
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            service = LibraryService(store)
+            store.upsert_anime(
+                "manual",
+                {"title": "Manual", "description": "Keep this exact text", "genres": "[]"},
+                source="manual",
+            )
+            with patch.object(service.anilist, "localize_description_to_pt_br") as translate:
+                result = service._ensure_cached_description_pt_br("manual", store.anime_metadata("manual"))
+            translate.assert_not_called()
+            self.assertEqual(result["description"], "Keep this exact text")
+
 
     def test_anilist_translation_does_not_hold_the_rate_limit_lock(self):
         start = ANILIST.index("def localize_description_to_pt_br")

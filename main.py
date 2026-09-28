@@ -570,6 +570,7 @@ async def main(page: ft.Page):
         render_current()
         persist_navigation_state()
     player_transition_inflight = {"value": False}
+    player_launch_inflight = {"value": False}
 
     async def start_native_player(path, title, position_ms=0):
         # Sequence decisions stay in LibraryStore. The two small SQLite reads
@@ -628,6 +629,15 @@ async def main(page: ft.Page):
     def play_episode(path, title, on_next=None, progress_seconds=0):
         if not settings.get("player.resume"):
             progress_seconds = 0
+        if player_launch_inflight["value"]:
+            logger.info("[PLAYER] duplicate launch ignored path=%s", path)
+            diagnostics.record(
+                "PLAYER_HANDOFF_DUPLICATE_IGNORED",
+                source="android_bridge",
+                result="launch_inflight",
+            )
+            return
+        player_launch_inflight["value"] = True
 
         async def launch_native_player():
             try:
@@ -644,6 +654,8 @@ async def main(page: ft.Page):
                     error=str(exc),
                 )
                 safe_update()
+            finally:
+                player_launch_inflight["value"] = False
 
         # NativePlayerActivity is the only player. Do not push a synthetic Flet
         # route before launching it; the current Details/Home screen remains the
@@ -716,7 +728,17 @@ async def main(page: ft.Page):
     async def refresh_current_details():
         """Reload the durable record after an in-place Details edit."""
         anime_id = current[0].get("id") if current[0] else None
+        details_token = details_instance_generation[0]
+        if navigation.current != "details" or anime_id is None:
+            return
         catalog = await asyncio.to_thread(library.catalog)
+        if (
+            navigation.current != "details"
+            or details_instance_generation[0] != details_token
+            or (current[0] or {}).get("id") != anime_id
+        ):
+            logger.info("[DETAILS] stale refresh ignored anime_id=%s token=%s", anime_id, details_token)
+            return
         current[0] = next((item for item in catalog if item["id"] == anime_id), current[0])
         render_current(force=True)
     async def refresh_current_metadata(e=None):

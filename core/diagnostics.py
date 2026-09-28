@@ -1,4 +1,4 @@
-"""Bounded end-to-end diagnostic timeline for Rei-flix.
+"""Bounded end-to-end diagnostic timeline for ReiAnix.
 
 The timeline is intentionally observational: it never becomes a second source of
 truth for permissions or the catalog. It records the hand-off between native

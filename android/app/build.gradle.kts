@@ -19,9 +19,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-}
-
-kotlin { jvmToolchain(17) }
 
     // Personal-device release APK: target the Galaxy A15 arm64 ABI.
     // Debug builds remain multi-ABI for x86_64/other CI emulators.
@@ -32,6 +29,9 @@ kotlin { jvmToolchain(17) }
             }
         }
     }
+}
+
+kotlin { jvmToolchain(17) }
 
 dependencies {
     // These are merged into the Flet Flutter host by the custom Android template.

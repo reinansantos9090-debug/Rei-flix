@@ -24,10 +24,9 @@ class SystemUiController(private val window: Window) {
         get() = WindowCompat.getInsetsController(window, window.decorView)
 
     /**
-     * Reapply the application policy after resume/focus/configuration changes.
-     *
-     * MainActivity keeps the system bars visible; player-specific hiding is
-     * performed only through applyImmersive().
+     * Reapply the host policy after resume/focus/configuration changes.
+     * The application host is immersive; the explicit normal policy remains
+     * available for temporary/external surfaces and player exit transitions.
      */
     /** Shared application policy for the immersive Flet host. */
     fun applyApplicationImmersivePolicy(useContextAppearance: Boolean = true) {

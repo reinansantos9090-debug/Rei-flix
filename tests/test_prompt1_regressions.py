@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DETAILS = (ROOT / "views" / "details_view.py").read_text(encoding="utf-8")
 MAIN = (ROOT / "main.py").read_text(encoding="utf-8")
 PLAYER = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
+SYSTEM_UI = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SystemUiController.kt").read_text(encoding="utf-8")
 
 
 class Prompt1RegressionTests(unittest.TestCase):
@@ -38,6 +39,67 @@ class Prompt1RegressionTests(unittest.TestCase):
         self.assertIn("episodeChangeTimeout", PLAYER)
         self.assertIn("EPISODE_CHANGE_TIMEOUT", PLAYER)
         self.assertIn("handler.postDelayed(episodeChangeTimeout, 5_000L)", PLAYER)
+
+    def test_details_focus_is_localized_to_primary_button_only(self):
+        primary_start = DETAILS.find("primary_button =")
+        primary_end = DETAILS.find("primary_button.style =", primary_start)
+        primary_block = DETAILS[primary_start:primary_end if primary_end >= 0 else len(DETAILS)]
+        self.assertNotIn("autofocus", primary_block)
+        self.assertIn("on_click=lambda _: play(primary_target)", primary_block)
+
+    def test_thumbnail_refresh_does_not_pop_details_cache(self):
+        thumb_block_start = MAIN.find("elif event_type == 'thumbnail_ready':")
+        thumb_block_end = MAIN.find("elif event_type == 'thumbnail_error':", thumb_block_start)
+        thumb_block = MAIN[thumb_block_start:thumb_block_end]
+        self.assertIn("on_catalog_changed(refresh_details=False)", thumb_block)
+        self.assertNotIn("screen_cache.pop('details'", thumb_block)
+
+    def test_next_without_next_episode_is_supported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            anime = store.upsert_anime("solo", {"title": "Solo", "genres": "[]"})
+            path = "/storage/emulated/0/Anime/Solo S01E01.mkv"
+            store.upsert_episode(anime, path, "Solo S01E01.mkv", 1, 1)
+            self.assertIsNone(store.next_episode(path))
+
+    def test_next_repeat_is_serialized(self):
+        self.assertIn('if player_transition_inflight["value"]:', MAIN)
+        self.assertIn('player_transition_inflight["value"] = True', MAIN)
+        self.assertIn('finally:\n                                player_transition_inflight["value"] = False', MAIN)
+
+    def test_system_ui_policy_is_reapplied_and_player_setting_is_respected(self):
+        self.assertIn("show(WindowInsetsCompat.Type.systemBars())", SYSTEM_UI)
+        self.assertIn("hide(WindowInsetsCompat.Type.systemBars())", SYSTEM_UI)
+        self.assertIn("applyApplicationSystemUi()", (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8"))
+        self.assertIn("resolveImmersivePolicy", PLAYER)
+        self.assertIn('intent.getStringExtra("setting_player_immersive")', PLAYER)
+        self.assertIn("applyImmersiveAfterLayout()", PLAYER)
+        self.assertNotIn("private fun shouldUseImmersive(): Boolean = true", PLAYER)
+
+    def test_player_media_transition_keeps_single_media3_prepare_path(self):
+        self.assertIn("onNewIntent", PLAYER)
+        self.assertIn("player.setMediaItem(mediaItem)", PLAYER)
+        self.assertIn("player.prepare()", PLAYER)
+        self.assertEqual(1, PLAYER.count("ExoPlayer.Builder(this).build()"))
+
+    def test_full_regression_contract_keeps_core_flows_present(self):
+        for token in (
+            "on_catalog_changed",
+            "start_native_player",
+            "player_exited",
+            "store.save_progress",
+            "library.next_episode",
+            "library.previous_episode",
+            "resolve_artwork_palette",
+        ):
+            self.assertIn(token, MAIN)
+        for token in (
+            "onResume()",
+            "onConfigurationChanged",
+            "onPictureInPictureModeChanged",
+            "restoreSystemUiBeforeExit",
+        ):
+            self.assertIn(token, PLAYER)
 
     def test_anilist_ptbr_translation_is_cached(self):
         with tempfile.TemporaryDirectory() as directory:

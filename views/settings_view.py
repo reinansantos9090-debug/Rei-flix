@@ -83,6 +83,8 @@ class SettingsView:
             status.color = theme.error if error else TEXT_MUTED
             safe_update()
 
+        backup_restore_busy = {"value": False}
+
         async def execute_action():
             try:
                 result = action()
@@ -547,6 +549,10 @@ class SettingsView:
             return result
 
         async def create_backup_file(_):
+            if backup_restore_busy["value"]:
+                notice("Outra operação de backup/restauração já está em execução.", True)
+                return
+            backup_restore_busy["value"] = True
             try:
                 notice("Preparando backup…")
                 raw = await call_callback(on_create_backup)
@@ -564,8 +570,15 @@ class SettingsView:
             except Exception:
                 logger.exception("backup export failed")
                 notice("Não foi possível concluir o backup.", True)
+            finally:
+                backup_restore_busy["value"] = False
+                safe_update()
 
         async def restore_backup_file(_):
+            if backup_restore_busy["value"]:
+                notice("Outra operação de backup/restauração já está em execução.", True)
+                return
+            backup_restore_busy["value"] = True
             try:
                 notice("Selecione o backup para validar…")
                 files = await ft.FilePicker().pick_files(
@@ -594,8 +607,20 @@ class SettingsView:
                         color=TEXT_MUTED, size=10,
                     ),
                     ft.Text(f"Integridade: {preview.get('integrity')}", color=TEXT, size=11),
-                    ft.Text("Antes do restore será criado um snapshot de segurança. Autenticação Google não é restaurada.", color=TEXT_MUTED, size=10),
+                    ft.Text(
+                        "Antes do restore será criado um snapshot de segurança. Autenticação Google não é restaurada; "
+                        "uma sessão existente é preservada quando o SQLite atual puder ser lido.",
+                        color=TEXT_MUTED, size=10,
+                    ),
+                    *(
+                        [ft.Text(
+                            "Artwork opcional corrompido/ausente será ignorado quando possível; o banco continuará sendo validado.",
+                            color=TEXT_MUTED, size=10,
+                        )]
+                        if preview.get("integrity_warnings") else []
+                    ),
                 ], tight=True, spacing=6)
+
                 async def confirm_restore(_event):
                     page.pop_dialog()
                     try:
@@ -612,19 +637,31 @@ class SettingsView:
                     except Exception:
                         logger.exception("backup restore failed")
                         notice("Restore recusado ou falhou; o estado anterior foi preservado.", True)
+                    finally:
+                        backup_restore_busy["value"] = False
+                        safe_update()
+
+                def cancel_restore(_event):
+                    page.pop_dialog()
+                    backup_restore_busy["value"] = False
+                    notice("Restore cancelado.")
+
                 page.show_dialog(ft.AlertDialog(
                     modal=True,
                     title=ft.Text("Restaurar backup?"),
                     content=content,
                     actions=[
-                        ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
+                        ft.TextButton("Cancelar", on_click=cancel_restore),
                         ft.FilledButton("Restaurar", on_click=confirm_restore),
                     ],
                 ))
                 safe_update()
+                return
             except Exception:
                 logger.exception("backup restore preview failed")
                 notice("O backup selecionado é inválido ou incompatível.", True)
+                backup_restore_busy["value"] = False
+                safe_update()
 
         async def reconcile_after_restore(_):
             try:

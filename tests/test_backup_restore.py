@@ -9,6 +9,8 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from core.backup import BackupError, BackupMigrationRegistry, BackupService, BackupValidationError
 from core.diagnostic_service import DiagnosticsService
@@ -343,6 +345,57 @@ class BackupRestoreTests(unittest.TestCase):
         self.assertEqual("ok", report["database"]["integrity_check"].casefold())
         self.assertTrue(report["privacy"]["secrets_exported"] is False)
         self.assertTrue(report["privacy"]["device_identifiers_exported"] is False)
+
+    def test_manifest_tampering_is_rejected_without_touching_live_database(self):
+        service, raw, _ = self._backup()
+        archive_in = zipfile.ZipFile(__import__("io").BytesIO(raw), "r")
+        tampered = self.root / "manifest-tampered.zip"
+        manifest = json.loads(archive_in.read("manifest.json").decode("utf-8"))
+        manifest["app_version"] = "tampered"
+        with zipfile.ZipFile(tampered, "w", zipfile.ZIP_DEFLATED) as out:
+            for info in archive_in.infolist():
+                payload = archive_in.read(info.filename)
+                if info.filename == "manifest.json":
+                    payload = (json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+                out.writestr(info, payload)
+        archive_in.close()
+        with self.store._conn() as con:
+            con.execute("UPDATE anime SET title='before-manifest-tamper'")
+        with self.assertRaises(BackupValidationError) as ctx:
+            service.inspect_file(tampered)
+        self.assertEqual("BACKUP_CHECKSUM_MISMATCH", ctx.exception.code)
+        self.assertEqual("before-manifest-tamper", self.store.anime_metadata("acao")["title"])
+
+    def test_corrupted_optional_artwork_is_reported_but_library_remains_recoverable(self):
+        service, raw, _ = self._backup()
+        source = zipfile.ZipFile(__import__("io").BytesIO(raw), "r")
+        corrupted = self.root / "artwork-corrupted.zip"
+        corrupted_member = "artwork/manual/" + self.art.read_bytes().hex()[:64] + ".jpg"
+        artwork_members = [name for name in source.namelist() if name.startswith("artwork/manual/")]
+        self.assertTrue(artwork_members)
+        corrupted_member = artwork_members[0]
+        with zipfile.ZipFile(corrupted, "w", zipfile.ZIP_DEFLATED) as out:
+            for info in source.infolist():
+                payload = source.read(info.filename)
+                if info.filename == corrupted_member:
+                    payload = b"corrupted-artwork-payload"
+                out.writestr(info, payload)
+        source.close()
+        preview = service.inspect_file(corrupted)
+        self.assertIn(corrupted_member, preview["integrity_warnings"])
+        result = service.restore_file(corrupted)
+        self.assertEqual(0, result["report"]["manual_artwork_reconnected"])
+        with self.store._conn() as con:
+            self.assertEqual(1, con.execute("SELECT COUNT(*) FROM anime").fetchone()[0])
+            self.assertEqual(1, con.execute("SELECT COUNT(*) FROM episodes").fetchone()[0])
+
+    def test_backup_fails_cleanly_when_estimated_space_is_insufficient(self):
+        service = BackupService(self.store, self.settings)
+        with mock.patch("core.backup.shutil.disk_usage", return_value=SimpleNamespace(free=0)):
+            with self.assertRaises(BackupError) as ctx:
+                service.create_backup_bytes()
+        self.assertEqual("BACKUP_INSUFFICIENT_SPACE", ctx.exception.code)
+        self.assertFalse(list((self.root / "data" / "backups").glob("*.tmp")))
 
     def test_large_snapshot_with_1000_episodes(self):
         now = 1_800_100_000.0

@@ -1,4 +1,4 @@
-# Rei-Flix — Regression Baseline
+# ReiAnix — Regression Baseline
 
 Baseline commit: c97e9f0cd4d103e117eb51299b1bd721de756786
 Diagnostic branch: diagnostic/regression-baseline
@@ -53,11 +53,11 @@ Media3 remains the player engine. NativePlayerActivity already has player_error/
 
 CloudStream repository metadata identifies GPL-3.0; use it as a behavioral reference, not as source to copy. urlCloudStream repositoryhttps://github.com/recloudstream/cloudstream
 
-NOVA aos-AVP is Apache-2.0 and separates Video UI, MediaLib, FileCoreLibrary and native multimedia components. This is a useful reference for later hardening, not a reason to replace Rei-Flix architecture. citeturn0search2turn0search6
+NOVA aos-AVP is Apache-2.0 and separates Video UI, MediaLib, FileCoreLibrary and native multimedia components. This is a useful reference for later hardening, not a reason to replace ReiAnix architecture. citeturn0search2turn0search6
 
 Animiru is Apache-2.0 and describes itself as a video player and library manager; it is useful as an anime-library/settings reference. urlAnimiru repositoryhttps://github.com/quickdesh/Animiru
 
-GitHub currently reports no license metadata for Rei-Flix, so no third-party license should be assumed for the project. urlRei-Flix repositoryhttps://github.com/reinansantos9090-debug/Rei-flix
+GitHub currently reports no license metadata for ReiAnix, so no third-party license should be assumed for the project. urlReiAnix repositoryhttps://github.com/reinansantos9090-debug/Rei-flix
 
 ## Validation classification
 

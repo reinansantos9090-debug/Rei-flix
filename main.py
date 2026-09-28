@@ -1064,6 +1064,18 @@ async def main(page: ft.Page):
         await bridge.open_broad_storage_settings()
 
     thumbnail_requests = set()
+    thumbnail_request_started_at = {}
+    thumbnail_latest_key_by_uri = {}
+
+    def _prune_thumbnail_requests():
+        now = time.monotonic()
+        for key, started_at in list(thumbnail_request_started_at.items()):
+            if now - started_at > 60.0:
+                thumbnail_request_started_at.pop(key, None)
+                thumbnail_requests.discard(key)
+                uri = key[0]
+                if thumbnail_latest_key_by_uri.get(uri) == key:
+                    thumbnail_latest_key_by_uri.pop(uri, None)
 
     def request_missing_thumbnail(item):
         if not bridge.available or not isinstance(item, dict):
@@ -1072,9 +1084,11 @@ async def main(page: ft.Page):
         path_ref = str(episode.get("path") or "").strip()
         if not path_ref or episode.get("missing"):
             return
+        _prune_thumbnail_requests()
         key = (path_ref, int(episode.get("file_size") or 0), int(episode.get("modified_at") or 0))
         if key in thumbnail_requests:
             return
+        thumbnail_latest_key_by_uri[path_ref] = key
         try:
             resolved = library.resolve_artwork("episode", episode.get("id"), "episode_thumbnail", allow_network=False)
         except Exception:
@@ -1084,11 +1098,15 @@ async def main(page: ft.Page):
         if len(thumbnail_requests) >= 32:
             return
         thumbnail_requests.add(key)
+        thumbnail_request_started_at[key] = time.monotonic()
         async def run():
             try:
                 await bridge.request_thumbnail(path_ref, key[1], key[2], str(episode.get('media_identity') or ''))
             except Exception as exc:
                 thumbnail_requests.discard(key)
+                thumbnail_request_started_at.pop(key, None)
+                if thumbnail_latest_key_by_uri.get(path_ref) == key:
+                    thumbnail_latest_key_by_uri.pop(path_ref, None)
                 logger.debug("[ARTWORK] native thumbnail request failed: %s", exc)
         page.run_task(run)
 
@@ -1815,11 +1833,13 @@ async def main(page: ft.Page):
                             modified_at = int(payload.get('modifiedAt') or 0)
                             media_identity = str(payload.get('mediaIdentity') or '').strip()
                             thumbnail_key = (uri, size, modified_at)
-                            pending_same_uri = any(key[0] == uri for key in thumbnail_requests)
-                            if pending_same_uri and thumbnail_key not in thumbnail_requests:
-                                # A newer request for the same URI is already pending.
-                                # Do not let a late result for the old media version
-                                # overwrite the current card/artwork.
+                            latest_key = thumbnail_latest_key_by_uri.get(uri)
+                            if latest_key is not None and thumbnail_key != latest_key:
+                                # Only the latest requested media version may publish.
+                                # Older requests can finish later and must never
+                                # overwrite the current thumbnail/artwork.
+                                thumbnail_requests.discard(thumbnail_key)
+                                thumbnail_request_started_at.pop(thumbnail_key, None)
                                 diagnostics.record(
                                     "THUMBNAIL_STALE",
                                     request_id=request_id,
@@ -1844,8 +1864,9 @@ async def main(page: ft.Page):
                                     media_identity=media_identity,
                                     metadata=metadata,
                                 )
+                                thumbnail_requests.discard(thumbnail_key)
+                                thumbnail_request_started_at.pop(thumbnail_key, None)
                                 if registered:
-                                    thumbnail_requests.discard(thumbnail_key)
                                     if navigation.current in {'home', 'organize'}:
                                         on_catalog_changed()
                                     elif navigation.current == 'details':
@@ -1866,9 +1887,11 @@ async def main(page: ft.Page):
                                 int(payload.get('size') or 0),
                                 int(payload.get('modifiedAt') or 0),
                             )
-                            pending_same_uri = any(key[0] == uri for key in thumbnail_requests)
-                            if not pending_same_uri or thumbnail_key in thumbnail_requests:
-                                thumbnail_requests.discard(thumbnail_key)
+                            latest_key = thumbnail_latest_key_by_uri.get(uri)
+                            thumbnail_requests.discard(thumbnail_key)
+                            thumbnail_request_started_at.pop(thumbnail_key, None)
+                            if latest_key == thumbnail_key:
+                                thumbnail_latest_key_by_uri.pop(uri, None)
                             diagnostics.record(
                                 "THUMBNAIL_ERROR",
                                 request_id=request_id,

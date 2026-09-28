@@ -668,7 +668,7 @@ class HomeView:
                     result = None
                 state["result"] = result
                 if not result:
-                    dialog.content = empty_state(ft.Icons.CASINO_OUTLINED, "Acervo vazio", "Não há itens que correspondam aos filtros atuais.", theme=theme)
+                    dialog.content = empty_state(ft.Icons.MOVIE_OUTLINED, "Acervo vazio", "Não há itens que correspondam aos filtros atuais.", theme=theme)
                     dialog.actions = [ft.TextButton("Fechar", on_click=lambda _: page.pop_dialog())]
                     page.update()
                     return

@@ -760,7 +760,7 @@ class HomeView:
                             trailing=ft.Icon(ft.Icons.CHEVRON_RIGHT, color=TEXT_MUTED),
                             on_click=lambda _, callback=make_open(item_id): page.run_task(callback),
                         ))
-                dialog.content = ft.Column(controls, tight=True, scroll=ft.ScrollMode.AUTO, width=min(560, max(280, float(page.width or 480) - 32)), height=min(520, max(180, len(controls) * 52)))
+                dialog.content = ft.ListView(controls=controls, spacing=4, width=min(560, max(280, float(page.width or 480) - 32)), height=min(520, max(180, len(controls) * 52)))
                 page.update()
             page.run_task(load_timeline)
 
@@ -794,7 +794,7 @@ class HomeView:
                             f"• {label} — {format_duration(anomaly['duration_seconds'])} • {anomaly['label']}",
                             size=11, color=ACCENT,
                         ))
-                dialog.content = ft.Column(controls, tight=True, scroll=ft.ScrollMode.AUTO, width=min(560, max(280, float(page.width or 480) - 32)), height=min(520, max(180, len(controls) * 34)))
+                dialog.content = ft.ListView(controls=controls, spacing=4, width=min(560, max(280, float(page.width or 480) - 32)), height=min(520, max(180, len(controls) * 34)))
                 page.update()
             page.run_task(load_anomalies)
         def open_filters(_=None):

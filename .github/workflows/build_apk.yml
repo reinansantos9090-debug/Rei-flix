@@ -31,7 +31,7 @@ jobs:
       - name: Install Python test dependencies
         shell: bash
         run: |
-          python -m pip install -r requirements.txt "flet[cli]==0.86.5"
+          python -m pip install -r requirements.txt "flet[cli]==0.86.5" pytest
           flet --version
 
       - name: Validate JSON configuration
@@ -172,7 +172,7 @@ jobs:
 
       - name: Install Python and Flet build dependencies
         run: |
-          python -m pip install -r requirements.txt "flet[cli]==0.86.5" pytest
+          python -m pip install -r requirements.txt "flet[cli]==0.86.5"
           flet --version
           flutter --version
       - name: Validate exact Python and Flet toolchain

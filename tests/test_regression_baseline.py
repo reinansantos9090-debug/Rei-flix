@@ -68,7 +68,7 @@ class RegressionBaselineTests(unittest.TestCase):
         self.assertIn("cache_cover",anilist)
         self.assertIn("class ArtworkEngine",artwork)
 
-    def test_player_contracts_and_horizontal_seek_are_present(self):
+    def test_player_contracts_and_horizontal_swipe_seek_is_forbidden(self):
         player=self.read("android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt")
         main=self.read("main.py")
         for token in ("player_error","player_exited"):
@@ -79,10 +79,8 @@ class RegressionBaselineTests(unittest.TestCase):
             "PLAYER_DOUBLE_TAP",
             "PLAYER_LONG_PRESS",
             "VERTICAL",
-            "HORIZONTAL_SEEK",
-            "GestureMode.HORIZONTAL_SEEK",
-            "horizontal_seek",
-            "horizontalSeekDelta",
+            "GESTURE_HORIZONTAL_IGNORED",
+            "seekTarget",
             "seekTarget",
             "adjustBrightness",
             "adjustVolumeByFraction",
@@ -90,6 +88,9 @@ class RegressionBaselineTests(unittest.TestCase):
             "restoreSystemUiBeforeExit",
         ):
             self.assertIn(token,player)
+        self.assertNotIn("HORIZONTAL_SEEK", player)
+        self.assertNotIn("horizontalSeekDelta", player)
+        self.assertNotIn("gestures.horizontal_swipe_seek", main)
 
 
     def test_existing_ui_async_guardrails_are_present(self):

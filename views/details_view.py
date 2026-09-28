@@ -27,7 +27,7 @@ class DetailView:
               on_toggle_favorite, get_playback_target=None, on_set_user_tags=None,
               on_toggle_pinned=None, on_set_personal_note=None, on_set_episode_identification=None,
                on_identification_saved=None, on_refresh_metadata=None, resolve_artwork=None, resolve_artwork_batch=None,
-               on_open_marathon=None):
+               on_open_marathon=None, resolve_artwork_palette=None):
         theme = activate_theme_for_page(page)
         BACKGROUND = theme.background
         SURFACE = theme.surface
@@ -40,6 +40,11 @@ class DetailView:
         title = metadata.get("title_official") or anime_group.get("main_title") or "Anime local"
         alternate_titles = [metadata.get(key) for key in ("english", "romaji", "native")]
         alternate_title = next((value for value in alternate_titles if value and value != title), None)
+        title_variants = []
+        for label, key in (("Inglês", "english"), ("Romaji", "romaji"), ("Nativo", "native")):
+            value = str(metadata.get(key) or "").strip()
+            if value and value != title and (label, value) not in title_variants:
+                title_variants.append((label, value))
         seasons = anime_group.get("seasons") or []
         regular_episodes = [episode for season in seasons for episode in season.get("episodes", [])]
         special_episodes = [episode for group in (anime_group.get("specials") or []) for episode in group.get("episodes", [])]
@@ -124,6 +129,11 @@ class DetailView:
                     backdrop = ft.Container(content=media_artwork(backdrop_path, 150, width=None, icon_size=30),
                                             height=150, border_radius=RADIUS)
 
+        contextual_accent = [theme.primary]
+        contextual_on_accent = [theme.text_on_accent]
+        contextual_soft = [theme.surface_variant]
+        hero_accent_indicator = ft.Container(width=4, height=54, bgcolor=contextual_accent[0], border_radius=3)
+
         def meta_chip(label, icon=None):
             return ft.Container(
                 content=ft.Row(([ft.Icon(icon, size=14, color=theme.secondary)] if icon else []) + [
@@ -138,13 +148,23 @@ class DetailView:
         if metadata.get("status"):
             facts.append(meta_chip(metadata["status"], ft.Icons.INFO_OUTLINE))
         if available:
-            facts.append(meta_chip(f"{len(available)} episódio local" if len(available) == 1 else f"{len(available)} episódios locais", ft.Icons.VIDEO_LIBRARY_OUTLINED))
+            local_label = "Biblioteca: 1 episódio local" if len(available) == 1 else f"Biblioteca: {len(available)} episódios locais"
+            facts.append(meta_chip(local_label, ft.Icons.VIDEO_LIBRARY_OUTLINED))
         if metadata.get("episodes_count"):
-            facts.append(meta_chip(f"{metadata['episodes_count']} no total", ft.Icons.FORMAT_LIST_NUMBERED))
+            expected_label = f"AniList: {metadata['episodes_count']} episódios esperados"
+            facts.append(meta_chip(expected_label, ft.Icons.FORMAT_LIST_NUMBERED))
+        if metadata.get("format"):
+            format_labels = {
+                "TV": "TV", "TV_SHORT": "TV curta", "MOVIE": "Filme", "OVA": "OVA",
+                "ONA": "ONA", "SPECIAL": "Special", "MUSIC": "Music",
+            }
+            facts.append(meta_chip(format_labels.get(str(metadata["format"]).upper(), str(metadata["format"])), ft.Icons.ONDemand_VIDEO))
         if metadata.get("duration"):
-            facts.append(meta_chip(f"{metadata['duration']} min", ft.Icons.SCHEDULE_OUTLINED))
+            duration_source = "AniList" if metadata.get("anilist_id") else "Metadata"
+            facts.append(meta_chip(f"{duration_source}: {metadata['duration']} min/ep", ft.Icons.SCHEDULE_OUTLINED))
         if metadata.get("score") is not None:
-            facts.append(meta_chip(f"{float(metadata['score']) / 10:g}", ft.Icons.STAR_OUTLINED))
+            score_source = "Score AniList" if metadata.get("anilist_id") else "Score"
+            facts.append(meta_chip(f"{score_source}: {float(metadata['score']) / 10:g}", ft.Icons.STAR_OUTLINED))
         if duration_warning:
             facts.append(meta_chip(duration_warning))
 
@@ -599,7 +619,9 @@ class DetailView:
                 ft.Text(identification, size=10, color=theme.text_muted, visible=not is_movie),
             ], spacing=4, expand=True)
             if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing") and state.value == "in_progress":
-                details.controls.append(ft.ProgressBar(value=episode_ratio, color=theme.primary, bgcolor=theme.surface_variant, bar_height=4))
+                progress_bar = ft.ProgressBar(value=episode_ratio, color=contextual_accent[0], bgcolor=theme.surface_variant, bar_height=4)
+                progress_bars.append(progress_bar)
+                details.controls.append(progress_bar)
             is_missing = bool(episode.get("missing"))
             clickable = None if is_missing else lambda _, item=episode: play(item)
             content = (ft.Row([thumb, details], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -722,6 +744,7 @@ class DetailView:
         season_picker.helper_text = season_progress_text(seasons[0]) if seasons else None
         season_picker.on_select = change_season
 
+        progress_bars = []
         progress_section = []
         if current:
             current_ratio = ratio(current)
@@ -734,18 +757,24 @@ class DetailView:
                 ft.Container(content=ft.Column([
                     ft.Text(("Filme" if is_movie else f"Temporada {season or '—'} • Episódio {number if number is not None else '—'}"), color=theme.text, size=13, weight=ft.FontWeight.BOLD),
                     ft.Text(progress_label, color=theme.secondary, size=11),
-                    ft.ProgressBar(value=current_ratio, color=theme.primary, bgcolor=theme.surface_variant, bar_height=4,
+                    ft.ProgressBar(value=current_ratio, color=contextual_accent[0], bgcolor=theme.surface_variant, bar_height=4,
                                    visible=current_ratio is not None and current_state.value == "in_progress"),
                 ], spacing=6), padding=12, bgcolor=SURFACE, border_radius=RADIUS),
             ]
 
         additional = []
-        for label, value in (("Estúdio", metadata.get("studio")), ("Temporada", metadata.get("season")), ("Título alternativo", alternate_title)):
+        for label, value in (("Studio(s)", metadata.get("studio")), ("Temporada", metadata.get("season"))):
             if value:
                 additional.append(ft.Row([
                     ft.Text(label, color=theme.text_muted, size=12, width=120),
-                    ft.Text(str(value), color=theme.text, size=12, expand=True, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Text(str(value), color=theme.text, size=12, expand=True, max_lines=3, overflow=ft.TextOverflow.ELLIPSIS),
                 ], vertical_alignment=ft.CrossAxisAlignment.START))
+
+        for label, value in title_variants:
+            additional.append(ft.Row([
+                ft.Text(f"Título {label}", color=theme.text_muted, size=12, width=120),
+                ft.Text(value, color=theme.text, size=12, expand=True, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS),
+            ], vertical_alignment=ft.CrossAxisAlignment.START))
 
         header = ft.Row([
             ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=theme.text, tooltip="Voltar", on_click=lambda _: on_back()),
@@ -767,7 +796,7 @@ class DetailView:
             layout_controls.append(backdrop)
         layout_controls.extend([
             header,
-            ft.Row([poster, hero_text], spacing=14, vertical_alignment=ft.CrossAxisAlignment.START),
+            ft.Row([hero_accent_indicator, poster, hero_text], spacing=10, vertical_alignment=ft.CrossAxisAlignment.START),
         ])
         if description:
             layout_controls.extend([section_title("Sinopse", ft.Icons.SUBJECT_OUTLINED), description_text, expand_button])
@@ -791,8 +820,48 @@ class DetailView:
             layout_controls.extend([section_title("Informações adicionais", ft.Icons.INFO_OUTLINE),
                                     ft.Container(ft.Column(additional, spacing=9), padding=12, bgcolor=SURFACE, border_radius=RADIUS)])
 
+        async def load_contextual_palette():
+            if resolve_artwork_palette is None:
+                return
+            try:
+                palette = await asyncio.to_thread(
+                    resolve_artwork_palette,
+                    artwork_entity,
+                    anime_group["id"],
+                    "poster",
+                    mode=theme.mode,
+                )
+            except Exception:
+                DetailView._logger.exception("Contextual artwork palette failed", extra={"screen": "details"})
+                return
+            if not palette:
+                return
+            accent = str(palette.get("accent") or "").strip()
+            on_accent = str(palette.get("on_accent") or "").strip()
+            soft = str(palette.get("accent_soft") or "").strip()
+            if not accent:
+                return
+            contextual_accent[0] = accent
+            contextual_on_accent[0] = on_accent or theme.text_on_accent
+            contextual_soft[0] = soft or theme.surface_variant
+            hero_accent_indicator.bgcolor = accent
+            primary_button.style = ft.ButtonStyle(
+                bgcolor=accent,
+                color=contextual_on_accent[0],
+                side={
+                    ft.ControlState.DEFAULT: ft.BorderSide(0, accent),
+                    ft.ControlState.FOCUSED: ft.BorderSide(2, contextual_on_accent[0]),
+                },
+                shape=ft.RoundedRectangleBorder(radius=12),
+            )
+            pin_button.icon_color = accent if pinned[0] else theme.text
+            for progress_bar in progress_bars:
+                progress_bar.color = accent
+            page.update()
+
         layout = ft.Column(layout_controls, scroll=ft.ScrollMode.AUTO, expand=True, spacing=14)
         render_episodes()
+        page.run_task(load_contextual_palette)
         return ft.Container(
             content=layout,
             padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=14, bottom=18),

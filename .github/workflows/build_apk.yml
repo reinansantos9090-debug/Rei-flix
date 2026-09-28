@@ -29,6 +29,10 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Reuse pip cache for embedded Python packaging
+        shell: bash
+        run: echo "PIP_CACHE_DIR=$HOME/.cache/pip" >> "$GITHUB_ENV"
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:

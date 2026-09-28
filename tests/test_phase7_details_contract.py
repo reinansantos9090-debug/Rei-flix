@@ -30,7 +30,7 @@ class Phase7DetailsContractTests(unittest.TestCase):
     def test_contextual_palette_does_not_replace_global_theme(self):
         details = self.read("views/details_view.py")
         self.assertIn("activate_theme_for_page(page)", details)
-        self.assertIn("page.run_task(load_contextual_palette)", details)
+        self.assertIn("run_task(load_contextual_palette)", details)
         self.assertNotIn("page.theme =", details)
         self.assertNotIn("page.theme_mode =", details)
         self.assertNotIn("apply_page_theme(", details)

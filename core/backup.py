@@ -189,8 +189,6 @@ class BackupService:
                 raise BackupValidationError("BACKUP_TOO_LARGE", "O backup excede o limite de tamanho suportado.")
             if name not in cls.REQUIRED_MEMBERS and not name.startswith(cls.MANUAL_ARTWORK_PREFIX):
                 raise BackupValidationError("BACKUP_UNEXPECTED_ENTRY", f"Entrada não permitida: {name}")
-            if name.startswith(cls.MANUAL_ARTWORK_PREFIX) and declared == 0:
-                raise BackupValidationError("BACKUP_INVALID", f"Artwork vazio: {name}")
             validated.append(info)
         if not cls.REQUIRED_MEMBERS.issubset(seen):
             raise BackupValidationError("BACKUP_INVALID", "Backup sem manifest.json ou library.sqlite3.")

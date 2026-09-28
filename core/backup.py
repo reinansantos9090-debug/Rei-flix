@@ -455,6 +455,10 @@ class BackupService:
         manifest["integrity"] = {
             "algorithm": "SHA-256",
             "entries": archive_entries,
+            "optional_entries": sorted(
+                name for name in archive_entries
+                if name.startswith(self.MANUAL_ARTWORK_PREFIX)
+            ),
             "payload_sha256": payload_sha,
             "manifest_core_sha256": core_sha,
         }

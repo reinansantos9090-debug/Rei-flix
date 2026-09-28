@@ -1,8 +1,8 @@
-# Rei-Flix — Backup, Restore e Integridade
+# ReiAnix — Backup, Restore e Integridade
 
 ## Formato
 
-O Rei-Flix usa o formato versionado `rei-flix-backup-v1`. O arquivo é um ZIP validável contendo, no mínimo:
+O ReiAnix usa o formato versionado `rei-flix-backup-v1`. O arquivo é um ZIP validável contendo, no mínimo:
 
 - `manifest.json`
 - `library.sqlite3`

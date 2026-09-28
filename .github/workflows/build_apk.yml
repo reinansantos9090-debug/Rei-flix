@@ -472,49 +472,20 @@ jobs:
           python - <<'PY'
           import json
           import os
-          import re
           import subprocess
           import sys
           import time
           from pathlib import Path
 
-          wrapper = Path("./gradlew").resolve()
-          tasks = subprocess.run(
-              [str(wrapper), "tasks", "--all"],
-              text=True,
-              stdout=subprocess.PIPE,
-              stderr=subprocess.STDOUT,
-              check=False,
-          )
-          output = tasks.stdout or ""
-          if tasks.returncode != 0:
-              print(output, end="")
-              raise SystemExit(tasks.returncode)
+          workspace = Path(os.environ["GITHUB_WORKSPACE"])
+          sys.path.insert(0, str(workspace / "scripts"))
+          import release_certification as certification
 
-          task_names = {
-              ":" + value
-              for value in re.findall(
-                  r"^:?((?:app):[A-Za-z0-9_]*lint[A-Za-z0-9_]*)s+-",
-                  output,
-                  flags=re.MULTILINE,
-              )
-          }
-          preferred = (
-              ":app:lintReportDebug",
-              ":app:lintReportRelease",
-              ":app:lintVitalReportRelease",
-              ":app:lintFixDebug",
-              ":app:lintAnalyzeRelease",
-          )
-          lint_task = next((name for name in preferred if name in task_names), None)
-          if lint_task is None:
-              lint_task = next(
-                  (name for name in sorted(task_names) if name.lower().startswith(":app:lint")),
-                  None,
-              )
-          if lint_task is None:
-              print(output, end="")
-              raise SystemExit("No app lint task discovered from the available Gradle tasks.")
+          wrapper = Path("./gradlew").resolve()
+          discovery, lint_task = certification.discover_lint_task(wrapper, Path(".").resolve())
+          if discovery.status != certification.PASS or not lint_task:
+              print(discovery.evidence)
+              raise SystemExit(discovery.exit_code or 1)
 
           command = [str(wrapper), ":app:testDebugUnitTest", lint_task]
           started = time.monotonic()
@@ -536,9 +507,9 @@ jobs:
               "stderr": "",
               "commit_sha": os.environ["GITHUB_SHA"],
               "lint_task": lint_task,
-              "lint_discovery_stdout": output,
+              "lint_discovery_stdout": discovery.stdout,
           }
-          evidence_path = Path(os.environ["GITHUB_WORKSPACE"]) / "build" / "gradle-validation.json"
+          evidence_path = workspace / "build" / "gradle-validation.json"
           evidence_path.write_text(
               json.dumps(evidence, indent=2, ensure_ascii=False),
               encoding="utf-8",

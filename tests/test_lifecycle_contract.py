@@ -224,7 +224,7 @@ class LifecycleContractTests(unittest.TestCase):
         progress_start = store.index("def save_progress")
         progress_block = store[progress_start:progress_start + 4200]
         self.assertIn("event_created_at", progress_block)
-        self.assertIn("if event_time <= last_seen", progress_block)
+        self.assertIn("if durable_time <= last_seen", progress_block)
         self.assertIn("durable_time", progress_block)
 
     def test_thumbnail_callbacks_are_media_version_guarded(self):

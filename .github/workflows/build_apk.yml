@@ -538,7 +538,8 @@ jobs:
               "lint_task": lint_task,
               "lint_discovery_stdout": output,
           }
-          Path("$GITHUB_WORKSPACE/build/gradle-validation.json").write_text(
+          evidence_path = Path(os.environ["GITHUB_WORKSPACE"]) / "build" / "gradle-validation.json"
+          evidence_path.write_text(
               json.dumps(evidence, indent=2, ensure_ascii=False),
               encoding="utf-8",
           )

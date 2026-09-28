@@ -383,7 +383,6 @@ class NativePlayerActivity : ComponentActivity() {
 
         applyConfiguredRotation()
         systemUiController = SystemUiController(window)
-        systemUiController.applyApplicationPolicy()
         configureWindow()
         if (shouldUseImmersive()) enterImmersiveMode() else restoreSystemUiBeforeExit()
         savedInstanceState?.getFloat("window_brightness", WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)

@@ -2329,6 +2329,9 @@ async def main(page: ft.Page):
 
                         if operation_key:
                             processed_native_operations.add(operation_key)
+                            if len(processed_native_operations) > 1024:
+                                for _ in range(len(processed_native_operations) - 768):
+                                    processed_native_operations.pop()
                         logger.info(
                             "[ANDROID] EVENT_PROCESSED eventId=%s requestId=%s type=%s state=%s",
                             event_id,

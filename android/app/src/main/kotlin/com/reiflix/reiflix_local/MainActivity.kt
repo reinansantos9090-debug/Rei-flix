@@ -48,6 +48,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var safPickerWatchdog: Runnable? = null
     private val safPickerWatchdogHandler = Handler(Looper.getMainLooper())
     private var activityResumed = false
+    private var googleSignInJob: kotlinx.coroutines.Job? = null
     private var pendingMediaRequestId: String? = null
     private var pendingBroadRequestId: String? = null
     private var pendingSafRequestId: String? = null
@@ -694,6 +695,8 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onDestroy() {
         cancelSafPickerWatchdog()
+        googleSignInJob?.cancel()
+        googleSignInJob = null
         logLifecycle("onDestroy")
         if (isFinishing) NativeScanController.cancelAll()
         unregisterStorageReceiver()
@@ -2066,7 +2069,17 @@ class MainActivity : FlutterFragmentActivity() {
         ViewCompat.requestApplyInsets(window.decorView)
     }
     private fun signInWithGoogle(serverClientId: String?, requestId: String? = null) {
-        if (serverClientId.isNullOrBlank()) { NativeMailbox.write(this, JSONObject().put("type", "google_error").put("requestId", requestId ?: "").put("message", "Configure o Web Client ID do Google.")); return }
-        CoroutineScope(Dispatchers.Main).launch { GoogleIdentity.signIn(this@MainActivity, serverClientId, requestId) }
+        if (serverClientId.isNullOrBlank()) {
+            NativeMailbox.write(this, JSONObject().put("type", "google_error").put("requestId", requestId ?: "").put("message", "Configure o Web Client ID do Google."))
+            return
+        }
+        googleSignInJob?.cancel()
+        googleSignInJob = CoroutineScope(Dispatchers.Main).launch {
+            try {
+                GoogleIdentity.signIn(this@MainActivity, serverClientId, requestId)
+            } finally {
+                googleSignInJob = null
+            }
+        }
     }
 }

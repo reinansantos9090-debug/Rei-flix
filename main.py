@@ -212,6 +212,7 @@ async def main(page: ft.Page):
     settings_state = {}
     device_interaction_profile = {}
     navigation = NavigationController()
+    details_instance_generation = [0]
     saf_selection = SafSelectionState()
     # One Python navigation stack, one persistent Flet host, and cached
     # top-level screens. Returning to a screen must not destroy its scroll,
@@ -414,6 +415,9 @@ async def main(page: ft.Page):
                 view_state=organize_state,
             )
         elif route == "details":
+            details_instance_generation[0] += 1
+            detail_instance_token = details_instance_generation[0]
+            detail_anime_id = (current[0] or {}).get("id")
             control = DetailView.build(
                 page, current[0], play_episode,
                 lambda: navigate_back("visual:details"),
@@ -423,8 +427,10 @@ async def main(page: ft.Page):
                 refresh_current_metadata, library.resolve_artwork, library.resolve_artwork_batch,
                 on_open_marathon=open_marathon,
                 resolve_artwork_palette=library.resolve_artwork_palette,
-                is_active=lambda anime_id=(current[0] or {}).get("id"): (
-                    navigation.current == "details" and (current[0] or {}).get("id") == anime_id
+                is_active=lambda token=detail_instance_token, anime_id=detail_anime_id: (
+                    navigation.current == "details"
+                    and details_instance_generation[0] == token
+                    and (current[0] or {}).get("id") == anime_id
                 ),
             )
         elif route == "collector":

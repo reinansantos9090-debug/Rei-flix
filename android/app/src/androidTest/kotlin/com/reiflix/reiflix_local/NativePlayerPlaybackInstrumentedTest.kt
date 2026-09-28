@@ -213,6 +213,7 @@ class NativePlayerPlaybackInstrumentedTest {
         }
     }
 
+    @Test
     fun localMediaStoreFixture_reachesReadyAndPlays_inImmersivePlayer() {
         logStage("MEDIASTORE_FIXTURE_START")
         // Launch the player from a real Rei-Flix task so Back is tested as it

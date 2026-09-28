@@ -1,4 +1,4 @@
-"""Shared visual language and theme engine for Rei-Flix Flet UI."""
+"""Shared visual language and theme engine for ReiAnix Flet UI."""
 from __future__ import annotations
 
 from dataclasses import dataclass

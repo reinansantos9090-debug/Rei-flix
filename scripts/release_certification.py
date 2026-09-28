@@ -110,6 +110,26 @@ def run_command(area,test,command,*,cwd,timeout=1800):
             evidence += "\\npytest compact failure-summary rerun unavailable: %s" % (exc,)
     return Result(area,test,PASS if p.returncode==0 else FAIL,evidence,time.monotonic()-start," ".join(map(str,command)),p.returncode,out[-limit:],err[-limit:])
 
+def load_prevalidated_result(path, area, test):
+    """Load a previously executed CI result without silently treating missing evidence as a pass."""
+    path = Path(path)
+    if not path.is_file():
+        return Result(area, test, FAIL, f"Prevalidated evidence file is missing: {path}", command=f"evidence:{path}", exit_code=1)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return Result(area, test, FAIL, f"Invalid prevalidated evidence {path}: {exc}", command=f"evidence:{path}", exit_code=1)
+    status = data.get("status")
+    if status not in {PASS, FAIL}:
+        return Result(area, test, FAIL, f"Invalid prevalidated status in {path}: {status!r}", command=f"evidence:{path}", exit_code=1)
+    stdout = str(data.get("stdout", ""))
+    stderr = str(data.get("stderr", ""))
+    exit_code = data.get("exit_code")
+    duration_s = data.get("duration_s")
+    command = str(data.get("command", "evidence:" + str(path)))
+    evidence = "Prevalidated by the blocking CI test step. Evidence source: %s\\nexit=%s\\nstdout:\\n%s\\nstderr:\\n%s" % (path, exit_code, stdout[-20000:], stderr[-6000:])
+    return Result(area, test, status, evidence, duration_s, command, exit_code, stdout[-20000:], stderr[-6000:])
+
 def parse_pytest(output):
     d={"collected":0,"passed":0,"failed":0,"errors":0,"skipped":0,"xfailed":0,"xpassed":0}
     m=re.search(r"collected\s+(\d+)\s+items",output)
@@ -399,14 +419,20 @@ def make_row(root,item,results,apk,collection):
     return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":py.command+" ; "+un.command,"Execution status":"YES" if py.status==PASS and un.status in (PASS,FAIL) else "NO","Result":PARTIAL,"Evidence":"Shared regression suite evidence only; no requirement-specific assertion was registered for this row. "+json.dumps(evidence,ensure_ascii=False),"Limitation":"A requirement-specific test/static contract is required before this row can be PASS."}
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/release-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/release-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/release-certification-matrix.json")); ap.add_argument("--gradle-root",type=Path); ap.add_argument("--apk",type=Path); ap.add_argument("--aapt2",type=Path); ap.add_argument("--skip-gradle",action="store_true"); ap.add_argument("--prevalidated-compileall",action="store_true"); ap.add_argument("--prevalidated-gradle",action="store_true"); a=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/release-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/release-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/release-certification-matrix.json")); ap.add_argument("--gradle-root",type=Path); ap.add_argument("--apk",type=Path); ap.add_argument("--aapt2",type=Path); ap.add_argument("--skip-gradle",action="store_true"); ap.add_argument("--prevalidated-compileall",action="store_true"); ap.add_argument("--prevalidated-gradle",action="store_true"); ap.add_argument("--prevalidated-python-evidence",type=Path); a=ap.parse_args()
     root=a.root.resolve(); a.output.parent.mkdir(parents=True,exist_ok=True); a.report.parent.mkdir(parents=True,exist_ok=True); a.matrix.parent.mkdir(parents=True,exist_ok=True)
     py=sys.executable; r={}
     r["compileall"]=Result("Python","compileall",PASS,"Exact `python -m compileall .` completed successfully in the preceding blocking workflow step.",command="python -m compileall .") if a.prevalidated_compileall else run_command("Python","compileall",[py,"-m","compileall","."],cwd=root,timeout=900)
     r["collect"]=run_command("Python","pytest collect-only",[py,"-m","pytest","--collect-only","-q"],cwd=root,timeout=1800)
-    r["pytest"]=run_command("Python","pytest",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
-    r["pytest_second"]=run_command("Python","pytest determinism",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
-    r["unittest"]=normalize_unittest_result(root,run_command("Python","unittest discovery",[py,"-m","unittest","discover","-s","tests","-v"],cwd=root,timeout=1800))
+    if a.prevalidated_python_evidence:
+        evidence_path=a.prevalidated_python_evidence.resolve()
+        r["pytest"]=load_prevalidated_result(evidence_path.parent / "pytest.json", "Python", "pytest")
+        r["pytest_second"]=load_prevalidated_result(evidence_path.parent / "pytest_second.json", "Python", "pytest determinism")
+        r["unittest"]=Result("Python","unittest discovery",NOT_APPLICABLE,"Standalone unittest discovery is intentionally not re-executed: pytest already collects unittest.TestCase subclasses in the repository, and the CI evidence is retained in the pytest runs.",command="pytest unittest.TestCase coverage")
+    else:
+        r["pytest"]=run_command("Python","pytest",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
+        r["pytest_second"]=run_command("Python","pytest determinism",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
+        r["unittest"]=normalize_unittest_result(root,run_command("Python","unittest discovery",[py,"-m","unittest","discover","-s","tests","-v"],cwd=root,timeout=1800))
     r["diff_check"]=run_command("Git","diff --check",["git","diff","--check"],cwd=root,timeout=60)
     files=inventory(root); collection=collection_audit(files,r["collect"].stdout,root); skip_audit=audit_skip_xfail(root)
     if a.gradle_root and not a.skip_gradle:

@@ -12,7 +12,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 /**
  * Single authority for the host Activity system-bar policy.
  *
- * MainActivity uses an edge-to-edge application policy with system bars visible.
+ * MainActivity and the native player use the same controller, but each Activity chooses its lifecycle policy.
  * NativePlayerActivity calls applyImmersive() while the player is active and
  * restores applyNormal() before returning to the host. Android-owned external
  * surfaces (permissions/settings/pickers) may reveal their own system UI while
@@ -29,12 +29,17 @@ class SystemUiController(private val window: Window) {
      * MainActivity keeps the system bars visible; player-specific hiding is
      * performed only through applyImmersive().
      */
-    /** Shared application/host policy: edge-to-edge with visible system bars. */
+    /** Shared application policy for the immersive Flet host. */
+    fun applyApplicationImmersivePolicy(useContextAppearance: Boolean = true) {
+        applyImmersive(useContextAppearance)
+    }
+
+    /** Backward-compatible normal policy for external/temporary surfaces. */
     fun applyApplicationPolicy(useContextAppearance: Boolean = true) {
         applyNormal(useContextAppearance)
     }
 
-    /** Player-only policy: edge-to-edge with system bars hidden. */
+    /** Player policy: edge-to-edge with system bars hidden. */
     fun applyImmersive(useContextAppearance: Boolean = true) {
         applyEdgeToEdgeWindow()
         if (useContextAppearance) {

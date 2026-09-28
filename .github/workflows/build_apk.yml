@@ -11,6 +11,122 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  python-preflight:
+    name: Python validation and determinism
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python test dependencies
+        shell: bash
+        run: |
+          python -m pip install -r requirements.txt "flet[cli]==0.86.5"
+          flet --version
+
+      - name: Validate JSON configuration
+        shell: bash
+        run: |
+          while IFS= read -r -d '' file; do
+            if grep -q "{{cookiecutter." "$file" || grep -q "{%" "$file"; then
+              echo "Unrendered Jinja JSON template (skipped): $file"
+              continue
+            fi
+            python -m json.tool "$file" >/dev/null
+            echo "Valid JSON: $file"
+          done < <(find . -path './.git' -prune -o -path './build' -prune -o -type f -name '*.json' -print0)
+
+      - name: Run full Python test suite and deterministic repeat
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          import time
+          from pathlib import Path
+
+          evidence = {}
+          commands = [
+              ("pytest", [sys.executable, "-m", "pytest", "-q"]),
+              ("pytest_second", [sys.executable, "-m", "pytest", "-q"]),
+          ]
+          for key, command in commands:
+              started = time.monotonic()
+              process = subprocess.run(
+                  command,
+                  text=True,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+                  check=False,
+              )
+              output = process.stdout or ""
+              print(output, end="")
+              result = {
+                  "status": "PASS" if process.returncode == 0 else "FAIL",
+                  "exit_code": process.returncode,
+                  "duration_s": time.monotonic() - started,
+                  "command": " ".join(command),
+                  "stdout": output,
+                  "stderr": "",
+                  "commit_sha": os.environ["GITHUB_SHA"],
+              }
+              evidence[key] = result
+              if process.returncode != 0:
+                  Path("build").mkdir(parents=True, exist_ok=True)
+                  Path("build/python-test-evidence.json").write_text(
+                      json.dumps(evidence, indent=2, ensure_ascii=False),
+                      encoding="utf-8",
+                  )
+                  Path("build/pytest.json").write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+                  raise SystemExit(process.returncode)
+
+          evidence_dir = Path("build")
+          evidence_dir.mkdir(parents=True, exist_ok=True)
+          (evidence_dir / "python-test-evidence.json").write_text(
+              json.dumps(evidence, indent=2, ensure_ascii=False),
+              encoding="utf-8",
+          )
+          (evidence_dir / "pytest.json").write_text(json.dumps(evidence["pytest"], indent=2, ensure_ascii=False), encoding="utf-8")
+          (evidence_dir / "pytest_second.json").write_text(json.dumps(evidence["pytest_second"], indent=2, ensure_ascii=False), encoding="utf-8")
+          PY
+          test -s build/python-test-evidence.json
+          test -s build/pytest.json
+          test -s build/pytest_second.json
+
+      - name: Validate Python application and CI contracts
+        shell: bash
+        run: |
+          python -m compileall -q main.py app_config.py core views scripts
+          bash -n scripts/run_android_instrumented_diagnostic.sh
+          python scripts/audit_release.py --root .
+          git diff --check
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Upload Python validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-test-evidence
+          path: |
+            build/python-test-evidence.json
+            build/pytest.json
+            build/pytest_second.json
+          if-no-files-found: error
+          retention-days: 7
+
   build:
     timeout-minutes: 60
     runs-on: ubuntu-latest
@@ -105,82 +221,6 @@ jobs:
           Path("build/app_config.source.py").write_text(original, encoding="utf-8")
           print("Google Web Client ID injected into this APK build:" + (" yes" if value else " no (login will show configuration required)"))
           PY
-
-      - name: Validate JSON configuration
-        shell: bash
-        run: |
-          while IFS= read -r -d '' file; do
-            if grep -q "{{cookiecutter." "$file" || grep -q "{%" "$file"; then
-              echo "Unrendered Jinja JSON template (skipped): $file"
-              continue
-            fi
-            python -m json.tool "$file" >/dev/null
-            echo "Valid JSON: $file"
-          done < <(find . -path './.git' -prune -o -path './build' -prune -o -type f -name '*.json' -print0)
-
-      - name: Run full Python test suite and deterministic repeat
-        shell: bash
-        run: |
-          python - <<'PY'
-          import json
-          import subprocess
-          import sys
-          import time
-          from pathlib import Path
-
-          evidence = {}
-          commands = [
-              ("pytest", [sys.executable, "-m", "pytest", "-q"]),
-              ("pytest_second", [sys.executable, "-m", "pytest", "-q"]),
-          ]
-          for key, command in commands:
-              started = time.monotonic()
-              process = subprocess.run(
-                  command,
-                  text=True,
-                  stdout=subprocess.PIPE,
-                  stderr=subprocess.STDOUT,
-                  check=False,
-              )
-              output = process.stdout or ""
-              print(output, end="")
-              result = {
-                  "status": "PASS" if process.returncode == 0 else "FAIL",
-                  "exit_code": process.returncode,
-                  "duration_s": time.monotonic() - started,
-                  "command": " ".join(command),
-                  "stdout": output,
-                  "stderr": "",
-              }
-              evidence[key] = result
-              if process.returncode != 0:
-                  Path("build/python-test-evidence.json").write_text(
-                      json.dumps(evidence, indent=2, ensure_ascii=False),
-                      encoding="utf-8",
-                  )
-                  raise SystemExit(process.returncode)
-
-          evidence_dir = Path("build")
-          evidence_dir.mkdir(parents=True, exist_ok=True)
-          (evidence_dir / "python-test-evidence.json").write_text(
-              json.dumps(evidence, indent=2, ensure_ascii=False),
-              encoding="utf-8",
-          )
-          (evidence_dir / "pytest.json").write_text(json.dumps(evidence["pytest"], indent=2, ensure_ascii=False), encoding="utf-8")
-          (evidence_dir / "pytest_second.json").write_text(json.dumps(evidence["pytest_second"], indent=2, ensure_ascii=False), encoding="utf-8")
-          PY
-          test -s build/python-test-evidence.json
-          test -s build/pytest.json
-          test -s build/pytest_second.json
-
-      - name: Validate Python application
-        run: |
-          python -m compileall -q main.py app_config.py core views scripts
-          bash -n scripts/run_android_instrumented_diagnostic.sh
-          python scripts/audit_release.py --root .
-          git diff --check
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git status --short
 
       - name: Validate blocking runtime/player/lifecycle contracts
         shell: bash
@@ -531,6 +571,12 @@ jobs:
             --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
             --expected-version-code "$GITHUB_RUN_NUMBER" \
             --expected-version-name "0.2.1"
+
+      - name: Download Python validation evidence
+        uses: actions/download-artifact@v7
+        with:
+          name: python-test-evidence
+          path: build
 
       - name: Run release evidence certification (no emulator)
         shell: bash

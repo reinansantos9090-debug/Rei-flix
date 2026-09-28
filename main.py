@@ -1067,6 +1067,7 @@ async def main(page: ft.Page):
     thumbnail_request_started_at = {}
     thumbnail_latest_key_by_uri = {}
     thumbnail_latest_at = {}
+    thumbnail_completed_request_by_key = {}
 
     def _prune_thumbnail_requests():
         now = time.monotonic()
@@ -1083,6 +1084,9 @@ async def main(page: ft.Page):
             for uri, _ in oldest:
                 thumbnail_latest_at.pop(uri, None)
                 thumbnail_latest_key_by_uri.pop(uri, None)
+        if len(thumbnail_completed_request_by_key) > 1024:
+            for key in list(thumbnail_completed_request_by_key)[:256]:
+                thumbnail_completed_request_by_key.pop(key, None)
 
     def request_missing_thumbnail(item):
         if not bridge.available or not isinstance(item, dict):
@@ -1846,6 +1850,15 @@ async def main(page: ft.Page):
                             modified_at = int(payload.get('modifiedAt') or 0)
                             media_identity = str(payload.get('mediaIdentity') or '').strip()
                             thumbnail_key = (uri, size, modified_at)
+                            _prune_thumbnail_requests()
+                            completed_request_id = thumbnail_completed_request_by_key.get(thumbnail_key)
+                            if request_id and completed_request_id == request_id and thumbnail_key not in thumbnail_requests:
+                                diagnostics.record(
+                                    "THUMBNAIL_DUPLICATE",
+                                    request_id=request_id,
+                                    result="IGNORED",
+                                )
+                                continue
                             latest_key = thumbnail_latest_key_by_uri.get(uri)
                             if latest_key is not None and thumbnail_key != latest_key:
                                 # Only the latest requested media version may publish.
@@ -1880,6 +1893,8 @@ async def main(page: ft.Page):
                                 thumbnail_requests.discard(thumbnail_key)
                                 thumbnail_request_started_at.pop(thumbnail_key, None)
                                 thumbnail_latest_at[uri] = time.monotonic()
+                                if request_id:
+                                    thumbnail_completed_request_by_key[thumbnail_key] = request_id
                                 if registered:
                                     if navigation.current in {'home', 'organize'}:
                                         on_catalog_changed()

@@ -81,7 +81,6 @@ class RegressionBaselineTests(unittest.TestCase):
             "VERTICAL",
             "GESTURE_HORIZONTAL_IGNORED",
             "seekTarget",
-            "seekTarget",
             "adjustBrightness",
             "adjustVolumeByFraction",
             "playerGeneration",

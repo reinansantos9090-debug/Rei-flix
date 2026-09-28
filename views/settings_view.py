@@ -1,4 +1,4 @@
-"""Settings Center 2.0 for Rei-Flix.
+"""Settings Center 2.0 for ReiAnix.
 
 The view is a thin UI layer. Persistent values live in the existing
 LibraryStore preferences table through SettingsStore; storage, scanner,
@@ -223,7 +223,7 @@ class SettingsView:
             "Privacidade": ("Dados locais e conectividade", ft.Icons.PRIVACY_TIP_OUTLINED),
             "Varredura": ("Estado e histórico das varreduras", ft.Icons.REFRESH_OUTLINED),
             "Diagnóstico": ("Informações técnicas e diagnóstico", ft.Icons.BUG_REPORT_OUTLINED),
-            "Sobre": ("Versão e componentes do Rei-Flix", ft.Icons.INFO_OUTLINE),
+            "Sobre": ("Versão e componentes do ReiAnix", ft.Icons.INFO_OUTLINE),
         }
 
         def current_settings_path():
@@ -256,7 +256,7 @@ class SettingsView:
                 logger.debug("Settings focus scroll skipped key=%s", key, exc_info=True)
 
         def build_category_tile(label):
-            description, icon = category_meta.get(label, ("Configurações Rei-Flix", ft.Icons.SETTINGS_OUTLINED))
+            description, icon = category_meta.get(label, ("Configurações ReiAnix", ft.Icons.SETTINGS_OUTLINED))
             key = f"settings-category-{label}"
             return ft.OutlinedButton(
                 key=key,
@@ -450,7 +450,7 @@ class SettingsView:
                 rebuild()
             confirm(
                 "Restaurar todas as configurações?",
-                "Somente preferências do Rei-Flix serão restauradas. Biblioteca, consumo, metadata manual, artwork, arquivos e permissões não serão apagados.",
+                "Somente preferências do ReiAnix serão restauradas. Biblioteca, consumo, metadata manual, artwork, arquivos e permissões não serão apagados.",
                 "Restaurar",
                 do_reset_all,
             )
@@ -559,7 +559,7 @@ class SettingsView:
                     raise RuntimeError("Backup vazio.")
                 stamp = __import__("time").strftime("%Y%m%d-%H%M%S")
                 path = await ft.FilePicker().save_file(
-                    dialog_title="Salvar backup Rei-Flix",
+                    dialog_title="Salvar backup ReiAnix",
                     file_name=f"reiflix-backup-{stamp}.zip",
                     file_type=ft.FilePickerFileType.CUSTOM,
                     allowed_extensions=["zip"],
@@ -581,7 +581,7 @@ class SettingsView:
             try:
                 notice("Selecione o backup para validar…")
                 files = await ft.FilePicker().pick_files(
-                    dialog_title="Selecionar backup Rei-Flix",
+                    dialog_title="Selecionar backup ReiAnix",
                     allow_multiple=False,
                     with_data=True,
                     file_type=ft.FilePickerFileType.CUSTOM,
@@ -952,7 +952,7 @@ class SettingsView:
             ], ("diagnóstico","logs","database","index","player","android","exportar","técnico")))
 
             items.append(section("Sobre", ft.Icons.INFO_OUTLINE, [
-                ft.Text("Rei-Flix Local", color=TEXT, size=14, weight=ft.FontWeight.BOLD),
+                ft.Text("ReiAnix Local", color=TEXT, size=14, weight=ft.FontWeight.BOLD),
                 ft.Text("Versão real do projeto: 0.2.1 • Flet 0.86.5", color=TEXT_MUTED, size=11),
                 ft.Text("Licença do projeto: não declarada no repositório atual.", color=TEXT_MUTED, size=11),
                 ft.Text("Player nativo: Media3. Storage: MediaStore / SAF / scanner nativo.", color=TEXT_MUTED, size=11),

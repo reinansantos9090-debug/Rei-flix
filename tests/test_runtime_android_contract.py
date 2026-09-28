@@ -315,7 +315,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "event_type == 'player_mark_watched'",
             "store.set_watched",
             "event_type == 'player_autoplay_changed'",
-            "store.set_preference",
+            'settings.set("player.autoplay_next", enabled)',
             "event_type in {'player_next_request', 'player_previous_request'}",
             "library.next_episode(current_path)",
             "library.previous_episode(current_path)",

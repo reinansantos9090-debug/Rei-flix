@@ -2489,6 +2489,13 @@ class LibraryStore:
                 ).rowcount
                 if updated:
                     self._last_playback_event_at[canonical_path] = durable_time
+                    if len(self._last_playback_event_at) > 8192:
+                        oldest = sorted(
+                            self._last_playback_event_at.items(),
+                            key=lambda item: item[1],
+                        )[:2048]
+                        for old_path, _ in oldest:
+                            self._last_playback_event_at.pop(old_path, None)
                 return bool(updated)
             updated = c.execute(
                 "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",

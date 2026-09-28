@@ -145,7 +145,7 @@ class DetailView:
         if metadata.get("score") is not None:
             facts.append(meta_chip(f"{float(metadata['score']) / 10:g}", ft.Icons.STAR_OUTLINED))
         if duration_warning:
-            facts.append(meta_chip(duration_warning, ft.Icons.WARNING_AMBER_OUTLINED))
+            facts.append(meta_chip(duration_warning))
 
         genres = anime_group.get("genres") or []
         genre_controls = [

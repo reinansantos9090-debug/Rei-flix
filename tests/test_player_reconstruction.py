@@ -35,7 +35,7 @@ class PlayerReconstructionTests(unittest.TestCase):
             "PLAYER_DOUBLE_TAP",
             "gestureConsumed",
             "pinchActive",
-            "horizontal_seek",
+            "GESTURE_HORIZONTAL_IGNORED",
             "vertical_ignored_or_applied",
         ):
             self.assertIn(token, self.player)

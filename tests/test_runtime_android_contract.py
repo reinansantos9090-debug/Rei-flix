@@ -149,9 +149,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "PLAYER_LONG_PRESS",
             "GESTURE_START",
             "GESTURE_END",
-            "horizontal_seek",
-            "horizontalSeekDelta",
-            "GestureMode.HORIZONTAL_SEEK",
+            "GESTURE_HORIZONTAL_IGNORED",
             "VERTICAL",
             "adjustBrightness",
             "adjustVolumeByFraction",
@@ -168,6 +166,8 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         ):
             self.assertIn(token, source)
         self.assertNotIn("calculateCloudStreamSeekTarget", source)
+        self.assertNotIn("horizontalSeekDelta", source)
+        self.assertNotIn("GestureMode.HORIZONTAL_SEEK", source)
 
     def test_generation_back_immersive_and_error_contracts(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")

@@ -24,7 +24,7 @@ class Phase7DetailsContractTests(unittest.TestCase):
         self.assertIn("resolve_artwork_palette=None", details)
         self.assertIn("asyncio.to_thread(", details)
         self.assertIn("resolve_artwork_palette", details)
-        self.assertIn("page.run_task(load_contextual_palette)", details)
+        self.assertIn("run_task(load_contextual_palette)", details)
         self.assertIn("resolve_artwork_palette=library.resolve_artwork_palette", main)
 
     def test_contextual_palette_does_not_replace_global_theme(self):

@@ -6,8 +6,8 @@ dependencies = ["flet==0.86.5", "certifi>=2024.8.30", "Pillow>=11.0,<13"]
 
 [tool.flet]
 org = "com.reiflix"
-product = "ReiFlix Local"
-company = "ReiFlix"
+product = "ReiAnix Local"
+company = "ReiAnix"
 
 # INTERNET is a normal permission, used only for AniList metadata, cached cover
 # downloads, and the configured OAuth/OIDC flow. Android storage access is

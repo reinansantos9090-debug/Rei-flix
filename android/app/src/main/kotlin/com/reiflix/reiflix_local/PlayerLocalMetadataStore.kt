@@ -6,9 +6,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.nio.charset.StandardCharsets
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -221,19 +218,11 @@ class PlayerLocalMetadataStore(context: Context) {
         val temp = File(parent, file.name + ".tmp")
         runCatching {
             temp.writeText(root.toString(), Charsets.UTF_8)
-            try {
-                Files.move(
-                    temp.toPath(),
-                    file.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(
-                    temp.toPath(),
-                    file.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
+            if (!temp.renameTo(file)) {
+                file.delete()
+                if (!temp.renameTo(file)) {
+                    throw IllegalStateException("Unable to replace local player metadata file")
+                }
             }
         }.onFailure {
             temp.delete()

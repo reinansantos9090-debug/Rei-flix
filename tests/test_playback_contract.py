@@ -155,8 +155,8 @@ class PlaybackContractTests(unittest.TestCase):
             "elif event_type in {'player_progress', 'player_paused', 'player_completed'}:",
             "store.save_progress",
             "elif event_type == 'player_exited':",
-            "library.next_episode(current_path)",
-            "library.previous_episode(current_path)",
+            "asyncio.to_thread(library.next_episode, current_path)",
+            "asyncio.to_thread(library.previous_episode, current_path)",
         ):
             self.assertIn(token, self.main)
 

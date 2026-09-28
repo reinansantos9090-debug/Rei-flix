@@ -18,7 +18,7 @@ from core.search_engine import normalize_text
 
 
 class LibraryStore:
-    SCHEMA_VERSION = 30
+    SCHEMA_VERSION = 29
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.db_path = os.path.join(data_dir, "library.sqlite3")

@@ -694,7 +694,7 @@ class HomeView:
                     content.append(ft.Text("Este item não possui episódios regulares disponíveis para sorteio.", size=11, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER))
                 else:
                     content.append(ft.Text("Sorteio não altera consumo, progresso ou histórico.", size=11, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER))
-                dialog.content = ft.Column(content, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8, width=dialog_width, scroll=ft.ScrollMode.AUTO)
+                dialog.content = ft.Column(content, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8, width=dialog_width)
                 dialog.actions = [
                     ft.TextButton("Sortear episódio", on_click=lambda _: (state.__setitem__("episode", True), page.run_task(draw))),
                     ft.TextButton("Sortear novamente", on_click=lambda _: page.run_task(draw)),

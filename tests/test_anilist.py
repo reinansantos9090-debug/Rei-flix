@@ -39,6 +39,13 @@ class AniListClientTests(unittest.TestCase):
         with patch("core.anilist.urllib.request.urlopen", return_value=fake):
             self.assertEqual(client._request("query", {"id": 123}), response["data"])
 
+    def test_request_timeout_fails_safe_without_retry_loop(self):
+        client = AniListClient("/tmp/cache")
+        with patch("core.anilist.urllib.request.urlopen", side_effect=TimeoutError("timeout")) as request:
+            self.assertIsNone(client._request("query", {}))
+            self.assertEqual(client.last_request_status, "network_error")
+        request.assert_called_once()
+
     def test_request_fails_safe_for_network_error(self):
         client = AniListClient("/tmp/cache")
         with patch("core.anilist.urllib.request.urlopen", side_effect=URLError("offline")):

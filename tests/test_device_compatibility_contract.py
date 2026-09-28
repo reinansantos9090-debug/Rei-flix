@@ -85,14 +85,14 @@ class DeviceCompatibilityContractTests(unittest.TestCase):
 
     def test_certification_has_real_emulator_matrix(self):
         workflow = INSTRUMENTED_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("ReiFlix Android Instrumented Runtime Matrix", workflow)
+        self.assertIn("ReiAnix Android Instrumented Runtime Matrix", workflow)
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("push:", workflow)
         self.assertIn("matrix:", workflow)
         self.assertIn("api: [30, 36]", workflow)
         self.assertIn("reactivecircus/android-emulator-runner@v2", workflow)
         self.assertIn("connectedDebugAndroidTest", workflow)
-        self.assertNotIn("ReiFlix Android No-Emulator Contract Checks", workflow)
+        self.assertNotIn("ReiAnix Android No-Emulator Contract Checks", workflow)
 
     def test_predictive_back_uses_androidx_dispatcher_without_fake_gesture_implementation(self):
         main = MAIN_ACTIVITY.read_text(encoding="utf-8")

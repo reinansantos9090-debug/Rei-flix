@@ -18,6 +18,7 @@ class RecoveryView:
         TEXT = theme.text
         TEXT_MUTED = theme.text_muted
         message = ft.Text("", color=TEXT_MUTED, size=12)
+        operation_busy = {"value": False}
         details = ft.Text(
             "O banco local apresenta uma inconsistência. O Rei-Flix não iniciou a biblioteca "
             "normalmente e não apagará o banco automaticamente.",
@@ -50,15 +51,33 @@ class RecoveryView:
                 notice("Não foi possível exportar o diagnóstico.", True)
 
         async def snapshot(_):
+            if operation_busy["value"]:
+                notice("Outra operação de Recovery já está em execução.", True)
+                return
+            operation_busy["value"] = True
             try:
+                notice("Criando snapshot de segurança…")
+                page.update()
                 path = await on_snapshot()
                 notice(f"Snapshot de segurança criado: {path}")
             except Exception as exc:
                 logger.exception("recovery snapshot failed")
                 notice(str(exc), True)
+            finally:
+                operation_busy["value"] = False
+                try:
+                    page.update()
+                except Exception:
+                    logger.debug("recovery UI update skipped", exc_info=True)
 
         async def restore(_):
+            if operation_busy["value"]:
+                notice("Outra operação de Recovery já está em execução.", True)
+                return
+            operation_busy["value"] = True
             try:
+                notice("Selecione o backup para validar…")
+                page.update()
                 files = await ft.FilePicker().pick_files(
                     dialog_title="Selecionar backup Rei-Flix",
                     allow_multiple=False,
@@ -75,14 +94,27 @@ class RecoveryView:
                 async def confirm(_event):
                     page.pop_dialog()
                     try:
+                        notice("Validando novamente e aplicando restauração…")
                         result = await on_restore(raw, preview_only=False)
-                        notice(
-                            "Restore concluído com segurança. Feche e abra o Rei-Flix para "
-                            "carregar o banco restaurado."
-                        )
+                        if result.get("reauthentication_required"):
+                            notice(
+                                "Restore concluído. O banco foi recuperado, mas a sessão atual não pôde ser preservada; "
+                                "faça login novamente quando necessário."
+                            )
+                        else:
+                            notice(
+                                "Restore concluído com segurança. Feche e abra o Rei-Flix para "
+                                "carregar o banco restaurado."
+                            )
                     except Exception as exc:
                         logger.exception("recovery restore failed")
                         notice(str(exc), True)
+                    finally:
+                        operation_busy["value"] = False
+                        try:
+                            page.update()
+                        except Exception:
+                            logger.debug("recovery UI update skipped", exc_info=True)
                 page.show_dialog(ft.AlertDialog(
                     modal=True,
                     title=ft.Text("Restaurar backup em Recovery Mode?"),
@@ -90,7 +122,8 @@ class RecoveryView:
                         f"Backup v{preview.get('format_version')} • schema {preview.get('schema_version')}\n"
                         f"Animes: {counts.get('anime', 0)} • episódios: {counts.get('episodes', 0)}\n"
                         "Será preservado um snapshot do banco atual antes da substituição. "
-                        "A autenticação atual será preservada quando o banco puder ser lido.",
+                        "Autenticação atual será preservada quando puder ser lida; se o SQLite estiver corrompido, "
+                        "o catálogo ainda poderá ser restaurado e o login poderá precisar ser refeito.",
                         color=TEXT_MUTED,
                         size=11,
                     ),
@@ -103,6 +136,16 @@ class RecoveryView:
             except Exception:
                 logger.exception("recovery restore preview failed")
                 notice("O backup é inválido, incompatível ou não pôde ser validado.", True)
+                operation_busy["value"] = False
+            finally:
+                if not operation_busy["value"]:
+                    return
+                # Keep busy until the confirmation action finishes. This blocks
+                # duplicate taps while the validation dialog is open.
+                try:
+                    page.update()
+                except Exception:
+                    logger.debug("recovery UI update skipped", exc_info=True)
 
         db = status
         status_lines = [

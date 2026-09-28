@@ -3,6 +3,7 @@ import time
 import asyncio
 import logging
 import json
+import datetime
 import flet as ft
 from flet.auth import OAuthProvider
 from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URL as CONFIG_GOOGLE_REDIRECT_URL, GOOGLE_WEB_CLIENT_ID as CONFIG_GOOGLE_WEB_CLIENT_ID
@@ -16,6 +17,7 @@ from core.diagnostic_service import DiagnosticsService
 from core.backup import BackupError, BackupService
 from core.library_store import LibraryStore
 from core.library_service import LibraryService
+from core.library_discovery import format_duration
 from core.settings import SettingsStore
 from core.ui import apply_page_theme
 from core.recovery import RecoveryService
@@ -416,6 +418,7 @@ async def main(page: ft.Page):
                 _set_tags_from_details, _toggle_pin_from_details, _set_note_from_details,
                 _set_episode_identification_from_details, refresh_current_details,
                 refresh_current_metadata, library.resolve_artwork, library.resolve_artwork_batch,
+                on_open_marathon=open_marathon,
             )
         elif route == "settings":
             fixed_settings_path = (
@@ -623,6 +626,62 @@ async def main(page: ft.Page):
         # route before launching it; the current Details/Home screen remains the
         # origin to which Android back returns.
         page.run_task(launch_native_player)
+    def open_marathon(anime_id, current_path=None):
+        async def load_and_show():
+            try:
+                report = await asyncio.to_thread(library.marathon, int(anime_id), current_path=current_path)
+            except Exception:
+                logger.exception("Marathon calculation failed", extra={"anime_id": anime_id})
+                page.pop_dialog()
+                page.snack_bar = ft.SnackBar(ft.Text("Não foi possível calcular a maratona agora."))
+                page.snack_bar.open = True
+                safe_update()
+                return
+
+            items = report.get("items") or []
+            if not items:
+                dialog.content = ft.Column([
+                    ft.Text("Nenhum episódio restante foi encontrado."),
+                    ft.Text("Episódios concluídos não entram no cálculo. Durações desconhecidas não são inventadas.", size=12),
+                ], tight=True)
+                dialog.actions = [ft.TextButton("Fechar", on_click=lambda _: page.pop_dialog())]
+                page.update()
+                return
+
+            known_seconds = float(report.get("known_duration_seconds") or 0)
+            unknown_count = int(report.get("unknown_duration_count") or 0)
+            start = datetime.datetime.now()
+            estimated_end = start + datetime.timedelta(seconds=known_seconds)
+            lines = [
+                ft.Text(f"{report.get('episode_count', 0)} episódios na sequência", weight=ft.FontWeight.BOLD),
+                ft.Text(f"Tempo conhecido: {format_duration(known_seconds)}"),
+                ft.Text(f"Início: {start.strftime('%H:%M')}"),
+            ]
+            if unknown_count:
+                lines.append(ft.Text(f"{unknown_count} episódio(s) sem duração — término parcialmente desconhecido.", color=ft.Colors.ORANGE_300))
+            else:
+                lines.append(ft.Text(f"Término estimado: {estimated_end.strftime('%H:%M')}"))
+                lines.append(ft.Text("Estimativa em velocidade normal; pausas e interrupções não estão incluídas.", size=11))
+            episode_lines = []
+            for index, item in enumerate(items[:48], 1):
+                label = item.get("episode_title") or item.get("file_name") or f"Episódio {index}"
+                remaining = item.get("remaining_seconds")
+                remaining_label = format_duration(remaining) if remaining is not None else "duração desconhecida"
+                prefix = "Agora • " if item.get("is_current") else ""
+                episode_lines.append(ft.Text(f"{prefix}{label} — {remaining_label}", size=11))
+            lines.append(ft.Column(episode_lines, spacing=4, scroll=ft.ScrollMode.AUTO, height=min(320, max(160, len(episode_lines) * 26))))
+            dialog.content = ft.Column(lines, tight=True, spacing=8, width=min(520, max(280, float(page.width or 480) - 48)))
+            dialog.actions = [ft.TextButton("Fechar", on_click=lambda _: page.pop_dialog())]
+            page.update()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Maratona"),
+            content=ft.Row([ft.ProgressRing(), ft.Text("Calculando…")], tight=True),
+            actions=[ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog())],
+        )
+        page.show_dialog(dialog)
+        page.run_task(load_and_show)
     def navigate_details(anime, on_back=None):
         current[0] = anime
         # Details is keyed by the selected anime, so never reuse the previous

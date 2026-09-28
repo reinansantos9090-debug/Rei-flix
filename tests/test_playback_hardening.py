@@ -89,9 +89,7 @@ class PlaybackHardeningTests(unittest.TestCase):
         player = PLAYER.read_text(encoding="utf-8")
         for token in (
             "horizontal_seek",
-            "horizontalSeekDelta",
-            "horizontalSeekEnabled",
-            "setting_gestures_horizontal_swipe_seek",
+            "GESTURE_HORIZONTAL_IGNORED",
             "PlayerGesturePolicy",
             "systemUiController",
             "restoreSystemUiBeforeExit",

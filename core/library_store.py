@@ -2539,14 +2539,29 @@ class LibraryStore:
     def adjacent_episode(self, path, direction=1):
         """Return the adjacent playable local episode in catalog order.
 
-        Missing rows deliberately remain in SQLite but are never playback
-        destinations.  Keeping this policy here makes the Android bridge a
-        transport layer rather than a second episode-ordering implementation.
+        NativePlayerActivity publishes a normalized ``file://`` URI while older
+        filesystem imports may have persisted the same media as an absolute
+        path. Both representations identify the same local episode.
         """
         if direction not in (-1, 1):
             raise ValueError("direction must be -1 or 1")
+        lookup_paths = [str(path or "")]
+        value = lookup_paths[0]
+        if value.casefold().startswith("file://"):
+            try:
+                decoded = unquote(urlparse(value).path)
+            except ValueError:
+                decoded = ""
+            if decoded and decoded not in lookup_paths:
+                lookup_paths.append(decoded)
         with self._conn() as c:
-            current = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
+            current = None
+            for candidate in lookup_paths:
+                if not candidate:
+                    continue
+                current = c.execute("SELECT * FROM episodes WHERE path=?", (candidate,)).fetchone()
+                if current:
+                    break
             if not current:
                 return None
             if not is_regular_episode(dict(current)):
@@ -2555,16 +2570,12 @@ class LibraryStore:
                 "SELECT e.*, a.title AS anime_title FROM episodes e JOIN anime a ON a.id=e.anime_id WHERE e.anime_id=? AND e.missing=0 AND e.episode_type NOT IN ('movie','special','ova','oad','ona','extra')",
                 (current["anime_id"],),
             ).fetchall()
-        # SQLite's NULL ordering differs from the catalog policy. Reusing the
-        # same Python ordering here keeps episodes without a parsed number
-        # navigable instead of making them invisible to next/previous.
         current_row = dict(current)
         return self._adjacent_from_rows(
             current_row,
             [dict(row) for row in rows],
             direction,
         )
-
     def next_episode(self, path):
         return self.adjacent_episode(path, 1)
 

@@ -339,10 +339,13 @@ class SettingsView:
             )
 
         def render_settings(_=None):
+            nonlocal section_cache
             render_started = performance.now()
             performance.counter("settings.renders")
             query = (search.value or "").strip().casefold()
             active_category = current_category()
+            if active_category is None and query and not section_cache:
+                section_cache = build_sections()
             if active_category is None:
                 labels = [
                     label for label in category_meta
@@ -397,9 +400,37 @@ class SettingsView:
         scan = scan_snapshot or {}
         runtime_status = str(scan.get("state") or "IDLE").upper()
         running_scan = runtime_status in {"CHECKING", "SCANNING", "WAITING_FOR_MEDIASTORE"}
-        last_scan = None if running_scan else store.last_scan()
-        folders = store.folders()
-        summary = store.library_summary()
+        data_cache = {
+            "last_scan": None,
+            "folders": None,
+            "summary": None,
+            "database": None,
+        }
+
+        def get_last_scan():
+            if running_scan:
+                return None
+            if data_cache["last_scan"] is None:
+                data_cache["last_scan"] = store.last_scan()
+            return data_cache["last_scan"]
+
+        def get_folders():
+            if data_cache["folders"] is None:
+                data_cache["folders"] = store.folders()
+            return data_cache["folders"]
+
+        def get_summary():
+            if data_cache["summary"] is None:
+                data_cache["summary"] = store.library_summary()
+            return data_cache["summary"]
+
+        def get_database_check():
+            if data_cache["database"] is None:
+                if hasattr(store, "database_check"):
+                    data_cache["database"] = store.database_check()
+                else:
+                    data_cache["database"] = (False, "não disponível")
+            return data_cache["database"]
 
         def add_folder(_):
             if busy["folder"] or folder_selection_pending():
@@ -793,6 +824,12 @@ class SettingsView:
             sections_started = performance.now()
             performance.counter("settings.build_sections")
             items = []
+            active_category = current_category()
+            query_text = (search.value or "").strip().casefold()
+            materialize_all = active_category is None and bool(query_text)
+
+            def should_materialize_section(label):
+                return active_category == label or materialize_all
             connected = bool(account.get("email"))
             account_text = account.get("name") or account.get("email") or "Não conectado"
             account_status = {
@@ -805,7 +842,8 @@ class SettingsView:
                 if not connected else
                 ft.OutlinedButton("Sair", on_click=lambda _: on_logout())
             )
-            items.append(section("Conta", ft.Icons.PERSON_OUTLINE, [
+            if should_materialize_section("Conta"):
+                items.append(section("Conta", ft.Icons.PERSON_OUTLINE, [
                 ft.Row([
                     ft.Icon(ft.Icons.ACCOUNT_CIRCLE_OUTLINED, size=42),
                     ft.Column([
@@ -816,7 +854,8 @@ class SettingsView:
                 ]),
             ], ("google", "login", "conta")))
 
-            items.append(section("Geral", ft.Icons.SETTINGS_OUTLINED, [
+            if should_materialize_section("Geral"):
+                items.append(section("Geral", ft.Icons.SETTINGS_OUTLINED, [
                 row("app.confirm_destructive", "Confirmar ações destrutivas", "Pede confirmação antes de ações como limpar cache e restaurar configurações."),
             ], ("geral", "confirmação", "animações")))
 
@@ -838,7 +877,8 @@ class SettingsView:
                 wrap=True,
                 spacing=8,
             )
-            items.append(section("Aparência", ft.Icons.DARK_MODE_OUTLINED, [
+            if should_materialize_section("Aparência"):
+                items.append(section("Aparência", ft.Icons.DARK_MODE_OUTLINED, [
                 ft.Row([
                     ft.Column([
                         ft.Text("Tema", color=TEXT, weight=ft.FontWeight.BOLD),
@@ -853,7 +893,8 @@ class SettingsView:
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ], ("aparência", "tema", "dark", "light", "system", "sistema", "claro", "escuro")))
 
-            items.append(section("Biblioteca", ft.Icons.VIDEO_LIBRARY_OUTLINED, [
+            if should_materialize_section("Biblioteca"):
+                items.append(section("Biblioteca", ft.Icons.VIDEO_LIBRARY_OUTLINED, [
                 row("appearance.card_size", "Tamanho dos cards", "Controla o tamanho visual dos cards da Home."),
                 row("appearance.show_thumbnails", "Mostrar miniaturas", "Quando desativado, a Home mantém o espaço do card mas não carrega imagens."),
                 row("library.sort_default", "Ordenação padrão", "Define a ordenação inicial da Home quando não há outra ordenação salva na tela.", "enum",
@@ -867,36 +908,40 @@ class SettingsView:
                 row("library.continue_watching_limit", "Limite de Continue Watching", "Limite persistido para a seção.", "enum", (5, 10, 15, 20), {5:"5",10:"10",15:"15",20:"20"}),
             ], ("biblioteca", "home", "continue watching", "grid", "organize", "cards", "ordenação", "paginação")))
 
-            player = [
-                row("player.autoplay_next", "Autoplay do próximo episódio", "Permite avanço automático no player local."),
-                row("player.resume", "Continuar reprodução", "Usa a posição de progresso já salva; desligar não apaga o progresso."),
-                row("player.default_speed", "Velocidade padrão", "Aplicada quando um episódio é aberto.", "enum", (0.5,0.75,1.0,1.25,1.5,1.75,2.0), {x:f"{x:.2f}x" for x in (0.5,0.75,1.0,1.25,1.5,1.75,2.0)}),
-                row("player.aspect_ratio", "Modo de vídeo", "Ajustar preserva toda a imagem; Preencher ocupa a tela cortando somente o excedente, sem esticar o vídeo.", "enum",
-                    ("fit","fill"), {"fit":"Ajustar","fill":"Preencher"}),
-                row("player.double_tap_seek_seconds", "Salto no double tap", "Define quantos segundos são avançados/retrocedidos pelo double tap.", "enum", (5,10,15,30), {5:"5s",10:"10s",15:"15s",30:"30s"}),
-                row("player.long_press_speed", "Velocidade da pressão longa", "Velocidade temporária aplicada enquanto a pressão longa estiver ativa.", "enum", (1.5,1.75,2.0), {1.5:"1,50x",1.75:"1,75x",2.0:"2,00x"}),
-                row("player.max_video_resolution", "Resolução máxima", "Limita a faixa de vídeo selecionada pelo Media3 quando o arquivo oferece múltiplas tracks.", "enum",
-                    ("auto","480p","720p","1080p","1440p","2160p"), {"auto":"Automática","480p":"480p","720p":"720p","1080p":"1080p","1440p":"1440p","2160p":"2160p"}),
-                row("player.max_video_frame_rate", "FPS máximo", "Limita a taxa de frames da track de vídeo selecionada.", "enum",
-                    (0,24,30,60), {0:"Automático",24:"24 fps",30:"30 fps",60:"60 fps"}),
-                row("player.max_audio_channels", "Canais de áudio máximos", "Limita a seleção de áudio sem criar um mixer ou decoder alternativo.", "enum",
-                    (0,2,6,8), {0:"Automático",2:"2",6:"5.1 / 6",8:"7.1 / 8"}),
-                row("player.immersive", "Modo imersivo", "Controla as barras do sistema somente no player.", "enum", ("always","landscape","never"), {"always":"Sempre","landscape":"Somente landscape","never":"Nunca"}),
-                row("player.rotation", "Rotação", "Orientação do player, sem forçar o aplicativo inteiro.", "enum", ("auto","portrait","landscape"), {"auto":"Automática","portrait":"Portrait","landscape":"Landscape"}),
-                row("player.pip", "Picture-in-Picture", "Permite PiP quando suportado."),
-                row("player.auto_hide_seconds", "Auto-hide dos controles", "0 significa nunca.", "enum", (5,10,15,30,0), {5:"5s",10:"10s",15:"15s",30:"30s",0:"Nunca"}),
-                action_row("Restaurar Player", "Volta somente as preferências do Player aos defaults.", "Restaurar", reset_player),
-            ]
-            items.append(section("Player", ft.Icons.PLAY_CIRCLE_OUTLINE, player, ("player","autoplay","resume","velocidade","aspect","immersive","pip","rotation")))
+            if should_materialize_section("Player"):
+                player = [
+                    row("player.autoplay_next", "Autoplay do próximo episódio", "Permite avanço automático no player local."),
+                    row("player.resume", "Continuar reprodução", "Usa a posição de progresso já salva; desligar não apaga o progresso."),
+                    row("player.default_speed", "Velocidade padrão", "Aplicada quando um episódio é aberto.", "enum", (0.5,0.75,1.0,1.25,1.5,1.75,2.0), {x:f"{x:.2f}x" for x in (0.5,0.75,1.0,1.25,1.5,1.75,2.0)}),
+                    row("player.aspect_ratio", "Modo de vídeo", "Ajustar preserva toda a imagem; Preencher ocupa a tela cortando somente o excedente, sem esticar o vídeo.", "enum",
+                        ("fit","fill"), {"fit":"Ajustar","fill":"Preencher"}),
+                    row("player.double_tap_seek_seconds", "Salto no double tap", "Define quantos segundos são avançados/retrocedidos pelo double tap.", "enum", (5,10,15,30), {5:"5s",10:"10s",15:"15s",30:"30s"}),
+                    row("player.long_press_speed", "Velocidade da pressão longa", "Velocidade temporária aplicada enquanto a pressão longa estiver ativa.", "enum", (1.5,1.75,2.0), {1.5:"1,50x",1.75:"1,75x",2.0:"2,00x"}),
+                    row("player.max_video_resolution", "Resolução máxima", "Limita a faixa de vídeo selecionada pelo Media3 quando o arquivo oferece múltiplas tracks.", "enum",
+                        ("auto","480p","720p","1080p","1440p","2160p"), {"auto":"Automática","480p":"480p","720p":"720p","1080p":"1080p","1440p":"1440p","2160p":"2160p"}),
+                    row("player.max_video_frame_rate", "FPS máximo", "Limita a taxa de frames da track de vídeo selecionada.", "enum",
+                        (0,24,30,60), {0:"Automático",24:"24 fps",30:"30 fps",60:"60 fps"}),
+                    row("player.max_audio_channels", "Canais de áudio máximos", "Limita a seleção de áudio sem criar um mixer ou decoder alternativo.", "enum",
+                        (0,2,6,8), {0:"Automático",2:"2",6:"5.1 / 6",8:"7.1 / 8"}),
+                    row("player.immersive", "Modo imersivo", "Controla as barras do sistema somente no player.", "enum", ("always","landscape","never"), {"always":"Sempre","landscape":"Somente landscape","never":"Nunca"}),
+                    row("player.rotation", "Rotação", "Orientação do player, sem forçar o aplicativo inteiro.", "enum", ("auto","portrait","landscape"), {"auto":"Automática","portrait":"Portrait","landscape":"Landscape"}),
+                    row("player.pip", "Picture-in-Picture", "Permite PiP quando suportado."),
+                    row("player.auto_hide_seconds", "Auto-hide dos controles", "0 significa nunca.", "enum", (5,10,15,30,0), {5:"5s",10:"10s",15:"15s",30:"30s",0:"Nunca"}),
+                    action_row("Restaurar Player", "Volta somente as preferências do Player aos defaults.", "Restaurar", reset_player),
+                ]
+                if should_materialize_section("Player"):
+                items.append(section("Player", ft.Icons.PLAY_CIRCLE_OUTLINE, player, ("player","autoplay","resume","velocidade","aspect","immersive","pip","rotation")))
 
-            items.append(section("Gestos", ft.Icons.TOUCH_APP_OUTLINED, [
+            if should_materialize_section("Gestos"):
+                items.append(section("Gestos", ft.Icons.TOUCH_APP_OUTLINED, [
                 row("gestures.volume", "Gestos de volume", "Swipe vertical no lado direito ajusta o volume quando ativado."),
                 row("gestures.brightness", "Gestos de brilho", "Swipe vertical no lado esquerdo ajusta o brilho quando ativado."),
                 row("gestures.double_tap", "Double tap para seek", "Controla o double tap existente."),
                 row("gestures.long_press", "Pressão longa", "Controla a ação de long press existente."),
             ], ("gestos","volume","brilho","double tap","long press","swipe")))
 
-            items.append(section("Áudio e Legendas", ft.Icons.HEADPHONES_OUTLINED, [
+            if should_materialize_section("Áudio e Legendas"):
+                items.append(section("Áudio e Legendas", ft.Icons.HEADPHONES_OUTLINED, [
                 row("audio.subtitle_scale", "Escala da legenda", "Aplica o tamanho relativo usando o SubtitleView do Media3.", "enum",
                     (0.75,1.0,1.25,1.5), {0.75:"75%",1.0:"100%",1.25:"125%",1.5:"150%"}),
                 row("audio.subtitle_bottom_padding", "Margem inferior da legenda", "Controla a margem inferior quando a cue não especifica uma linha fixa.", "enum",
@@ -923,13 +968,15 @@ class SettingsView:
                 ft.Text("Delay global de legenda: NÃO IMPLEMENTADO. Media3 1.11.1 não expõe uma preferência persistente de offset nessa camada; nenhuma configuração falsa é exibida.", color=TEXT_MUTED, size=10),
             ], ("áudio","legenda","subtitle","audio","pt-br","en","ja")))
 
-            items.append(section("Metadata", ft.Icons.MANAGE_SEARCH_OUTLINED, [
+            if should_materialize_section("Metadata"):
+                items.append(section("Metadata", ft.Icons.MANAGE_SEARCH_OUTLINED, [
                 row("metadata.anilist_enabled", "Usar AniList", "Permite ou bloqueia chamadas remotas do cliente AniList. O catálogo local continua disponível sem rede."),
                 row("metadata.auto_match", "Auto-match AniList", "Quando desativado, a biblioteca não dispara novas buscas automáticas; associações já existentes continuam sendo usadas."),
                 ft.Text("Alterar Settings não dispara sincronização em massa.", color=TEXT_MUTED, size=10),
             ], ("metadata","anilist","matching","offline","rede")))
 
-            items.append(section("Artwork", ft.Icons.IMAGE_OUTLINED, [
+            if should_materialize_section("Artwork"):
+                items.append(section("Artwork", ft.Icons.IMAGE_OUTLINED, [
                 row("artwork.enabled", "Artwork remoto", "Permite que o Artwork Engine faça download de capas remotas. Artwork local e manual continuam utilizáveis."),
                 row("artwork.cache_limit_mb", "Limite do cache de artwork", "Limite aplicado ao único Artwork Engine existente.", "enum",
                     (64,128,256,512), {64:"64 MB",128:"128 MB",256:"256 MB",512:"512 MB"}),
@@ -938,6 +985,7 @@ class SettingsView:
             ], ("artwork","cache","thumbnail","offline","limite","poster")))
 
             folder_lines = []
+            folders = get_folders()
             for folder in folders:
                 name = folder.get("name") or folder.get("path") or "Pasta"
                 path = str(folder.get("path") or "")
@@ -956,7 +1004,8 @@ class SettingsView:
                 )
             media_label = {"full":"Permitida","partial":"Parcial","denied":"Negada"}.get(media_state, "Desconhecida")
             broad_label = "Disponível" if broad_state == "available" else "Indisponível"
-            items.append(section("Armazenamento", ft.Icons.STORAGE_OUTLINED, [
+            if should_materialize_section("Armazenamento"):
+                items.append(section("Armazenamento", ft.Icons.STORAGE_OUTLINED, [
                 ft.Text(f"Permissão de vídeos: {media_label}", color=TEXT, size=12),
                 ft.Text(f"Acesso amplo: {broad_label} • SAF autorizadas: {len(saf_roots)} • volumes ativos: {len(volumes)}", color=TEXT_MUTED, size=11),
                 ft.Column(folder_lines or [ft.Text("Nenhuma pasta indexada.", color=TEXT_MUTED, size=11)], spacing=2),
@@ -971,8 +1020,9 @@ class SettingsView:
                 ], wrap=True),
             ], ("storage","armazenamento","permission","saf","mediastore","scan")))
 
-            items.append(section("Dados e Cache", ft.Icons.CACHED_OUTLINED, [
-                ft.Text(f"{summary['folders']} pasta(s) • {summary['animes']} anime(s) • {summary['episodes']} episódio(s)", color=TEXT, size=12),
+            if should_materialize_section("Dados e Cache"):
+                items.append(section("Dados e Cache", ft.Icons.CACHED_OUTLINED, [
+                ft.Text(f"{get_summary()['folders']} pasta(s) • {get_summary()['animes']} anime(s) • {get_summary()['episodes']} episódio(s)", color=TEXT, size=12),
                 ft.Text("Limpar cache não remove catálogo, consumo, favoritos, tags, notas, pins, IDs AniList ou arquivos.", color=TEXT_MUTED, size=10),
                 ft.Row([
                     ft.OutlinedButton("Exportar configurações", icon=ft.Icons.UPLOAD_FILE, on_click=lambda e: page.run_task(export_settings, e)),
@@ -981,7 +1031,8 @@ class SettingsView:
                 action_row("Restaurar configurações", "Reseta somente Settings; não é backup/restore completo.", "Restaurar", reset_all),
             ], ("dados","cache","reset","exportar","importar")))
 
-            items.append(section("Backup e Restauração", ft.Icons.SECURITY_OUTLINED, [
+            if should_materialize_section("Backup e Restauração"):
+                items.append(section("Backup e Restauração", ft.Icons.SECURITY_OUTLINED, [
                 ft.Text(
                     "Backup v1 guarda o estado lógico do SQLite, preferências suportadas e referências de mídia. "
                     "Vídeos, autenticação, tokens, credenciais e identificadores do dispositivo não entram no arquivo.",
@@ -1005,20 +1056,23 @@ class SettingsView:
                 ),
             ], ("backup","restore","migração","integridade","checksum","recovery","offline")))
 
-            items.append(section("Privacidade", ft.Icons.PRIVACY_TIP_OUTLINED, [
+            if should_materialize_section("Privacidade"):
+                items.append(section("Privacidade", ft.Icons.PRIVACY_TIP_OUTLINED, [
                 ft.Text("Biblioteca, histórico e caminhos locais permanecem locais.", color=TEXT, size=12),
                 ft.Text("Não há analytics, tracking ou upload da biblioteca. Google Login não é requisito para reprodução local.", color=TEXT_MUTED, size=10),
             ], ("privacidade","local","offline","google")))
 
-            database_ok, database_detail = store.database_check() if hasattr(store, "database_check") else (False, "não disponível")
+            database_ok, database_detail = get_database_check()
             database_label = "OK" if database_ok else f"ERRO ({database_detail})"
-            items.append(section("Varredura", ft.Icons.REFRESH_OUTLINED, [
+            if should_materialize_section("Varredura"):
+                items.append(section("Varredura", ft.Icons.REFRESH_OUTLINED, [
                 ft.Text("Varredura em andamento:" if running_scan else "Nenhuma varredura em andamento.", color=TEXT if running_scan else TEXT_MUTED, size=11),
                 ft.Text(f"Status: {runtime_status}", color=TEXT_MUTED, size=11),
-                ft.Text(f"Última varredura: {(last_scan or {}).get("status") or "nenhuma"}", color=TEXT_MUTED, size=10),
+                ft.Text(f"Última varredura: {(get_last_scan() or {}).get("status") or "nenhuma"}", color=TEXT_MUTED, size=10),
             ], ("scan", "varredura", "status", "biblioteca")))
 
-            items.append(section("Diagnóstico", ft.Icons.BUG_REPORT_OUTLINED, [
+            if should_materialize_section("Diagnóstico"):
+                items.append(section("Diagnóstico", ft.Icons.BUG_REPORT_OUTLINED, [
                 ft.Text(f"Database: {database_label} • Schema SQLite: {getattr(store, 'SCHEMA_VERSION', '—')}", color=TEXT if database_ok else theme.error, size=11),
                 ft.Text(f"Scan: {scan.get('state') or 'IDLE'} • encontrados: {int(scan.get('found') or 0)} • arquivos: {int(scan.get('files') or 0)}", color=TEXT_MUTED, size=11),
                 ft.Text(f"Volumes removíveis: {len(volumes)} • SAF: {len(saf_roots)}", color=TEXT_MUTED, size=11),
@@ -1027,7 +1081,8 @@ class SettingsView:
                 action_row("Exportar diagnóstico", "Gera informações técnicas sem misturar restore de biblioteca ou configurações.", "Exportar", export_diagnostic),
             ], ("diagnóstico","logs","database","index","player","android","exportar","técnico")))
 
-            items.append(section("Sobre", ft.Icons.INFO_OUTLINE, [
+            if should_materialize_section("Sobre"):
+                items.append(section("Sobre", ft.Icons.INFO_OUTLINE, [
                 ft.Text("ReiAnix Local", color=TEXT, size=14, weight=ft.FontWeight.BOLD),
                 ft.Text("Versão real do projeto: 0.2.1 • Flet 0.86.5", color=TEXT_MUTED, size=11),
                 ft.Text("Licença do projeto: não declarada no repositório atual.", color=TEXT_MUTED, size=11),
@@ -1035,7 +1090,8 @@ class SettingsView:
             ], ("sobre","versão","build","licença","media3")))
             performance.event("settings.build_sections", duration_ms=(performance.now()-sections_started)*1000.0,
                               screen="settings",
-                              metadata={"sections": len(items), "categories": len(category_meta), "folders": len(folders)})
+                              metadata={"sections": len(items), "categories": len(category_meta),
+                                        "active_category": active_category, "materialize_all": materialize_all})
             return items
 
         rebuild()

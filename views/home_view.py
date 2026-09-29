@@ -21,7 +21,7 @@ class HomeView:
 
     @staticmethod
     def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode, on_open_organize=None,
-              view_state=None, on_request_thumbnail=None, on_open_collector=None):
+              view_state=None, on_request_thumbnail=None, on_open_collector=None, is_active=None):
         performance = get_performance_monitor()
         build_started = performance.now()
         performance.counter("ui.builds_requested.home")
@@ -35,6 +35,7 @@ class HomeView:
         continuing: list[dict] = []
         home_data: dict = {}
         view_state = view_state if view_state is not None else {}
+        is_active = is_active or (lambda: True)
         settings = SettingsStore(library.store)
         sort_labels = {
             "added_desc": "Mais recentes",
@@ -151,15 +152,21 @@ class HomeView:
         )
         section_rows: dict[str, ft.Row] = {}
         section_cards: dict[str, ft.Container] = {}
+        section_signatures: dict[str, tuple] = {}
+        continue_signature = [None]
 
         def schedule_artwork_ui_update():
             if artwork_ui_update_scheduled[0]:
+                return
+            if not is_active():
                 return
             artwork_ui_update_scheduled[0] = True
 
             async def flush():
                 try:
                     await asyncio.sleep(0)
+                    if not is_active():
+                        return
                     update_started = time.perf_counter()
                     page.update()
                     logger.info(
@@ -319,10 +326,46 @@ class HomeView:
             except Exception:
                 logger.debug("Home vertical focus scroll skipped key=%s", key, exc_info=True)
 
+        def _visible_item_signature(item, *, episode=False):
+            if not isinstance(item, dict):
+                return (repr(item),)
+            meta = item.get("meta") or {}
+            return (
+                item.get("id"),
+                item.get("anime_id"),
+                item.get("path"),
+                item.get("main_title") or item.get("anime_title") or item.get("title"),
+                item.get("episode_title"),
+                item.get("season"),
+                item.get("number"),
+                item.get("favorite"),
+                item.get("is_pinned"),
+                item.get("progress"),
+                item.get("duration"),
+                item.get("watched"),
+                item.get("last_played_at"),
+                item.get("missing"),
+                item.get("media_kind"),
+                item.get("available_count"),
+                item.get("watched_count"),
+                item.get("missing_count"),
+                item.get("cover"),
+                meta.get("cover_cache"),
+                meta.get("cover_url"),
+                "episode" if episode else "anime",
+            )
+
         def render_section(title, key, items, action=None, episode=False):
+            visible_items = list((items or [])[:8])
+            signature = tuple(_visible_item_signature(item, episode=episode) for item in visible_items)
             row = section_rows.setdefault(key, ft.Row(scroll=ft.ScrollMode.AUTO, spacing=10))
+            card = section_cards.get(key)
+            if card is not None and section_signatures.get(key) == signature:
+                card.visible = bool(visible_items)
+                return False
+
             row.controls.clear()
-            for index, item in enumerate((items or [])[:8]):
+            for index, item in enumerate(visible_items):
                 control = home_card(item, action=action, episode=episode)
                 focus_key = f"home-section-{key}-{index}"
                 control.key = focus_key
@@ -330,10 +373,18 @@ class HomeView:
                     reveal_section_focus, container, k
                 )
                 row.controls.append(control)
-            if key not in section_cards:
-                section_cards[key] = ft.Container(content=ft.Column([ft.Text(title, size=15, weight=ft.FontWeight.BOLD, color=TEXT), row], spacing=9))
-            section_cards[key].visible = bool(items)
-            section_cards[key].content.controls[1] = row
+            if card is None:
+                card = ft.Container(
+                    content=ft.Column(
+                        [ft.Text(title, size=15, weight=ft.FontWeight.BOLD, color=TEXT), row],
+                        spacing=9,
+                    )
+                )
+                section_cards[key] = card
+            card.visible = bool(visible_items)
+            card.content.controls[1] = row
+            section_signatures[key] = signature
+            return True
 
         def _library_filters():
             return dict(
@@ -351,11 +402,6 @@ class HomeView:
                 current_page[0] = 0
                 has_more[0] = True
                 total_matches[0] = 0
-                artwork_bindings.clear()
-                catalog_focus_targets.clear()
-                catalog.clear()
-                grid.controls.clear()
-                feedback.visible = False
             page_loading[0] = True
             token = render_generation[0]
             target_page = 0 if reset else current_page[0] + 1
@@ -384,6 +430,12 @@ class HomeView:
                 page_loading[0] = False
                 return
             page_items = result.get("items") or []
+            if reset:
+                artwork_bindings.clear()
+                catalog_focus_targets.clear()
+                catalog.clear()
+                grid.controls.clear()
+                feedback.visible = False
             existing_ids = {int(item.get("id")) for item in catalog if item.get("id") is not None}
             fresh_items = [item for item in page_items if item.get("id") is None or int(item.get("id")) not in existing_ids]
             catalog.extend(fresh_items)
@@ -413,8 +465,9 @@ class HomeView:
             filter_summary.value = f"{active_filters} filtro(s) ativo(s)" if active_filters else "Filtros"
             status.visible = scan_active[0]
             page_loading[0] = False
-            page.update()
-            await restore_scroll_position()
+            if is_active():
+                page.update()
+                await restore_scroll_position()
             if fresh_items:
                 async def run_hydration_batch():
                     await hydrate_metadata_and_artwork(list(fresh_items), token)
@@ -436,6 +489,8 @@ class HomeView:
                 view_state["scroll_position"] = float(event.pixels)
                 remaining = float(event.max_scroll_extent - event.pixels)
             except (TypeError, ValueError, AttributeError):
+                return
+            if not is_active():
                 return
             if remaining < 800 and has_more[0] and not page_loading[0]:
                 schedule_background(load_next_page)
@@ -539,9 +594,16 @@ class HomeView:
             page.run_task(task)
 
         def render_continue():
+            nonlocal continue_signature
+            visible_items = list(continuing[:6])
+            signature = tuple(_visible_item_signature(item, episode=True) for item in visible_items)
+            if continue_signature[0] == signature:
+                continuation_section.visible = bool(visible_items)
+                return False
+            continue_signature[0] = signature
             continue_row.controls.clear()
-            continuation_section.visible = bool(continuing)
-            for item in continuing[:6]:
+            continuation_section.visible = bool(visible_items)
+            for item in visible_items:
                 progress = ratio(item)
                 label = "FILME" if item.get("episode_type") == "movie" else f"T{item.get('season', 1)} • E{item.get('number', '—')}"
                 card_control = ft.Container(
@@ -921,7 +983,7 @@ class HomeView:
             if settings.get("library.continue_watching"):
                 limit = settings.get("library.continue_watching_limit")
                 continuing.extend(home_data.get("continue_watching", [])[:limit])
-            render_continue()
+            changed = render_continue()
             for title, key, is_episode in (
                 ("PRÓXIMO EPISÓDIO", "next_episode", False),
                 ("RECENTEMENTE ADICIONADOS", "recently_added", False),
@@ -933,10 +995,17 @@ class HomeView:
                 ("ESPECIAIS", "specials", False),
             ):
                 try:
-                    render_section(title, key, home_data.get(key), action=None if is_episode else on_select_anime, episode=is_episode)
+                    changed = render_section(
+                        title,
+                        key,
+                        home_data.get(key),
+                        action=None if is_episode else on_select_anime,
+                        episode=is_episode,
+                    ) or changed
                 except Exception:
                     logger.exception("Home section render failed", extra={"screen":"home","section":key})
-            page.update()
+            if changed and is_active():
+                page.update()
 
         async def load_filter_options():
             if filter_options_loaded[0]:
@@ -946,7 +1015,7 @@ class HomeView:
             except Exception:
                 logger.exception("Home filter options load failed", extra={"screen":"home"})
                 return
-            if filter_options_loaded[0]:
+            if filter_options_loaded[0] or not is_active():
                 return
             refresh_filter_options(loaded_options or {})
             filter_options_loaded[0] = True
@@ -959,6 +1028,8 @@ class HomeView:
             intentionally avoids catalog queries and reset=True, which would replace
             the grid and lose its viewport/focus state for a single image change.
             """
+            if not is_active():
+                return False
             uri = str(uri or "").strip()
             thumbnail_path = str(thumbnail_path or "").strip()
             if not show_thumbnails or not uri or not thumbnail_path:
@@ -1009,6 +1080,8 @@ class HomeView:
             return bool(updated)
 
         async def refresh_from_catalog():
+            if not is_active():
+                return
             save_view_state()
             filter_options_loaded[0] = False
             await load_library_page(reset=True)
@@ -1024,7 +1097,6 @@ class HomeView:
                 ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
                 ft.Text("Carregando biblioteca local…", color=TEXT_MUTED, size=12),
             ]
-            page.update()
             try:
                 last_scan = await asyncio.to_thread(library.last_scan)
             except Exception:
@@ -1035,7 +1107,8 @@ class HomeView:
                     ft.TextButton("Tentar novamente", on_click=retry_load_catalog),
                 ]
                 status.visible = True
-                page.update()
+                if is_active():
+                    page.update()
                 return
             scan_active[0] = bool(
                 last_scan and str(last_scan.get("status") or "").casefold() in {"running", "started"}
@@ -1044,8 +1117,6 @@ class HomeView:
             await load_library_page(reset=True)
             home_sections_generation[0] = render_generation[0]
             status.visible = scan_active[0]
-            page.update()
-            await restore_scroll_position()
             page.run_task(refresh_home_sections, render_generation[0])
 
         search.on_change = on_search

@@ -329,6 +329,9 @@ class NativePlayerActivity : ComponentActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         requestId = savedInstanceState?.getString("session_request_id")?.trim()
             ?: intent.getStringExtra("requestId")?.trim().orEmpty()
+        PerformanceDiagnostics.attach(this)
+        PerformanceDiagnostics.markPlayer(this, "activity_created", requestId,
+            intent.getLongExtra("commandCreatedAtMs", 0L), reused = false)
         commandCreatedAtMs = intent.getLongExtra("commandCreatedAtMs", 0L)
         commandReceivedAtMs = intent.getLongExtra("commandReceivedAtMs", 0L)
         handoffDispatchedAtMs = intent.getLongExtra("handoffDispatchedAtMs", 0L)
@@ -441,6 +444,8 @@ class NativePlayerActivity : ComponentActivity() {
             logPlayer("EXOPLAYER_CREATE requestId=" + requestId.ifEmpty { "-" })
             logPlayer("MEDIA3_PLAYER_CREATE_START requestId=" + requestId.ifEmpty { "-" })
             player = ExoPlayer.Builder(this).build()
+            PerformanceDiagnostics.markPlayer(this, "player_created", requestId,
+                commandCreatedAtMs, reused = false)
             player.setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
@@ -500,6 +505,10 @@ class NativePlayerActivity : ComponentActivity() {
     override fun onNewIntent(newIntent: Intent) {
         super.onNewIntent(newIntent)
         setIntent(newIntent)
+        PerformanceDiagnostics.attach(this)
+        PerformanceDiagnostics.markPlayer(this, "reuse_intent",
+            newIntent.getStringExtra("requestId")?.trim().orEmpty(),
+            newIntent.getLongExtra("commandCreatedAtMs", 0L), reused = true)
         logPlayer(
             "PLAYER_REUSE_INTENT requestId=" +
                 (newIntent.getStringExtra("requestId")?.trim().orEmpty().ifBlank { "-" }),
@@ -717,6 +726,8 @@ class NativePlayerActivity : ComponentActivity() {
                             " generation=$generation reason=" + reason,
                     )
                     prepareDispatchedAtMs = System.currentTimeMillis()
+                    PerformanceDiagnostics.markPlayer(this@NativePlayerActivity, "prepare_dispatched",
+                        requestId, commandCreatedAtMs, reused = reason == "reuse")
                     logPlayer(
                         "MEDIA3_PREPARE_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
                             " generation=" + generation +
@@ -776,6 +787,8 @@ class NativePlayerActivity : ComponentActivity() {
                 cancelFirstFrameDiagnostics("first_frame")
                 if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
                 firstFrameRenderedAtMs = System.currentTimeMillis()
+                PerformanceDiagnostics.markPlayer(this@NativePlayerActivity, "first_frame",
+                    requestId, commandCreatedAtMs, reused = false)
                 val timing = playbackTimingPayload(firstFrameRenderedAtMs)
                 logPlayer(
                     "FIRST_FRAME_RENDERED requestId=" + requestId.ifEmpty { "-" } +
@@ -899,6 +912,10 @@ class NativePlayerActivity : ComponentActivity() {
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (!isCurrent()) return
+            if (isPlaying) {
+                PerformanceDiagnostics.markPlayer(this@NativePlayerActivity, "playing",
+                    requestId, commandCreatedAtMs, reused = false)
+            }
             logPlayer("IS_PLAYING_CHANGED=" + isPlaying)
             updatePlayPauseButton()
             updatePictureInPictureParams()
@@ -2279,6 +2296,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         handler.removeCallbacks(lockAffordanceHider)
         handler.removeCallbacks(feedbackHider)
         restoreSystemUiBeforeExit()
+        PerformanceDiagnostics.markPlayer(this, "player_exited", requestId,
+            commandCreatedAtMs, reused = false)
         reportPlayerExit(reason)
         setResult(
             RESULT_OK,
@@ -2480,6 +2499,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     }
 
     override fun onDestroy() {
+        PerformanceDiagnostics.sampleMemory(this, "player_on_destroy")
+        PerformanceDiagnostics.detach()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.resetZoomToFit()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.dispose()
         handler.removeCallbacks(progressReporter)

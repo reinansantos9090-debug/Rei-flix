@@ -19,6 +19,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -92,8 +93,18 @@ class NativePlayerActivity : ComponentActivity() {
 
     private var locked = false
     private var inPictureInPicture = false
+    @Volatile
     private var sessionState = SessionState.ACTIVE
     private var playerGeneration = 0L
+    @Volatile
+    private var transitionGeneration = 0L
+    private var transitionPublishFuture: Future<*>? = null
+    private var playerSessionId = UUID.randomUUID().toString()
+    private var transitionSourceRequestId = ""
+    private var transitionSourceUri = ""
+    private var transitionSourceCreatedAtMs = 0L
+    private var transitionSourceGeneration = 0L
+    private var transitionStartedAtMs = 0L
     private var activePlayerListener: Player.Listener? = null
     private var errorPublishedForGeneration = false
     private var gestureSafeLeft = 0
@@ -134,6 +145,9 @@ class NativePlayerActivity : ComponentActivity() {
     private var moreVisible = false
     private var lastControlsInteraction = 0L
     private var requestId = ""
+    private var originRequestId = ""
+    private var originCreatedAtMs = 0L
+    private var originTransitionGeneration = 0L
     private var commandCreatedAtMs = 0L
     private var commandReceivedAtMs = 0L
     private var handoffDispatchedAtMs = 0L
@@ -150,10 +164,19 @@ class NativePlayerActivity : ComponentActivity() {
     private var episodeChangePending = false
     private var episodeChangeTimeoutRequestId = ""
     private var episodeChangeTimeoutUri = ""
+    private var episodeChangeTimeoutGeneration = 0L
     private val episodeChangeTimeout = Runnable {
         if (!episodeChangePending) return@Runnable
-        if (episodeChangeTimeoutRequestId != requestId || episodeChangeTimeoutUri != uri.toString()) return@Runnable
+        if (episodeChangeTimeoutRequestId != requestId ||
+            episodeChangeTimeoutUri != uri.toString() ||
+            episodeChangeTimeoutGeneration != transitionSourceGeneration ||
+            episodeChangeTimeoutGeneration != transitionGeneration
+        ) return@Runnable
         episodeChangePending = false
+        transitionPublishFuture = null
+        transitionSourceRequestId = ""
+        transitionSourceUri = ""
+        transitionSourceCreatedAtMs = 0L
         updateEpisodeNavigationButtons()
         showFeedback("Não foi possível mudar de episódio.", 1800L)
         logPlayer("EPISODE_CHANGE_TIMEOUT requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri)
@@ -337,6 +360,9 @@ class NativePlayerActivity : ComponentActivity() {
         PerformanceDiagnostics.attach(this)
         PerformanceDiagnostics.markPlayer(this, "activity_created", requestId,
             intent.getLongExtra("commandCreatedAtMs", 0L), reused = false)
+        originRequestId = intent.getStringExtra("originRequestId")?.trim().orEmpty()
+        originCreatedAtMs = intent.getLongExtra("originCreatedAtMs", 0L)
+        originTransitionGeneration = intent.getLongExtra("originTransitionGeneration", 0L)
         commandCreatedAtMs = intent.getLongExtra("commandCreatedAtMs", 0L)
         commandReceivedAtMs = intent.getLongExtra("commandReceivedAtMs", 0L)
         handoffDispatchedAtMs = intent.getLongExtra("handoffDispatchedAtMs", 0L)
@@ -508,14 +534,26 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     override fun onNewIntent(newIntent: Intent) {
+        if (sessionState != SessionState.ACTIVE) {
+            logPlayer(
+                "PLAYER_REUSE_IGNORED requestId=" +
+                    (newIntent.getStringExtra("requestId")?.trim().orEmpty().ifBlank { "-" }) +
+                    " reason=session_not_active state=" + sessionState.name,
+            )
+            return
+        }
         super.onNewIntent(newIntent)
         setIntent(newIntent)
         val traceEpisodeId = newIntent.getStringExtra("episodeId").orEmpty()
         val traceAnimeId = newIntent.getStringExtra("animeId").orEmpty()
         PerformanceDiagnostics.attach(this)
-        PerformanceDiagnostics.markPlayer(this, "reuse_intent",
+        PerformanceDiagnostics.markPlayer(
+            this,
+            "reuse_intent",
             newIntent.getStringExtra("requestId")?.trim().orEmpty(),
-            newIntent.getLongExtra("commandCreatedAtMs", 0L), reused = true)
+            newIntent.getLongExtra("commandCreatedAtMs", 0L),
+            reused = true,
+        )
         logPlayer(
             "PLAYER_REUSE_INTENT requestId=" +
                 (newIntent.getStringExtra("requestId")?.trim().orEmpty().ifBlank { "-" }) +
@@ -523,27 +561,41 @@ class NativePlayerActivity : ComponentActivity() {
                 " episodeId=" + traceEpisodeId.ifEmpty { "-" },
         )
 
-        // Carry a real episode transition gate from the old intent into the
-        // replacement intent. The gate is released only at READY/error/timeout.
+        // A valid reuse is accepted only when the new Intent proves it is the
+        // exact successor of the transition generated by this player session.
         val transitionPending = episodeChangePending
+        val transitionPendingRequestId = transitionSourceRequestId
+        val transitionPendingCreatedAtMs = transitionSourceCreatedAtMs
+        val transitionPendingGeneration = transitionSourceGeneration
+        transitionGeneration += 1L
+        transitionPublishFuture?.cancel(true)
+        transitionPublishFuture = null
         handler.removeCallbacks(episodeChangeTimeout)
         episodeChangeTimeoutRequestId = ""
         episodeChangeTimeoutUri = ""
+        episodeChangeTimeoutGeneration = 0L
+        episodeChangePending = false
+        transitionSourceRequestId = ""
+        transitionSourceUri = ""
+        transitionSourceCreatedAtMs = 0L
+
         val rawUri = newIntent.getStringExtra("uri")
         if (rawUri.isNullOrBlank()) {
-            episodeChangePending = false
             showPlayerError("Arquivo local inválido.", "missing_uri_on_reuse")
             return
         }
         val normalized = normalizeLocalReference(rawUri)
         if (normalized == null) {
-            episodeChangePending = false
             showPlayerError("Referência local inválida.", "invalid_uri_on_reuse")
             return
         }
+
         uri = normalized
         loadLocalMetadata()
         requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
+        originRequestId = newIntent.getStringExtra("originRequestId")?.trim().orEmpty()
+        originCreatedAtMs = newIntent.getLongExtra("originCreatedAtMs", 0L)
+        originTransitionGeneration = newIntent.getLongExtra("originTransitionGeneration", 0L)
         commandCreatedAtMs = newIntent.getLongExtra("commandCreatedAtMs", 0L)
         commandReceivedAtMs = newIntent.getLongExtra("commandReceivedAtMs", 0L)
         handoffDispatchedAtMs = newIntent.getLongExtra("handoffDispatchedAtMs", 0L)
@@ -559,14 +611,42 @@ class NativePlayerActivity : ComponentActivity() {
         suppressExitEvent = false
         errorVisible = false
         playbackWasRequestedBeforeStop = false
-        if (transitionPending) {
+
+        val expectedSuccessor =
+            transitionPending &&
+                originRequestId.isNotBlank() &&
+                originRequestId == transitionPendingRequestId &&
+                originCreatedAtMs > 0L &&
+                originCreatedAtMs == transitionPendingCreatedAtMs &&
+                originTransitionGeneration == transitionPendingGeneration
+
+        if (expectedSuccessor) {
             episodeChangePending = true
+            transitionSourceRequestId = requestId
+            transitionSourceUri = uri.toString()
+            transitionSourceCreatedAtMs = originCreatedAtMs
+            transitionSourceGeneration = transitionGeneration
             episodeChangeTimeoutRequestId = requestId
             episodeChangeTimeoutUri = uri.toString()
+            episodeChangeTimeoutGeneration = transitionGeneration
             handler.postDelayed(episodeChangeTimeout, 5_000L)
+            logPlayer(
+                "PLAYER_REUSE_ORIGIN_VALIDATED requestId=" + requestId.ifEmpty { "-" } +
+                    " originRequestId=" + originRequestId +
+                    " originGeneration=" + originTransitionGeneration +
+                    " sessionGeneration=" + transitionGeneration,
+            )
         } else {
             episodeChangePending = false
+            logPlayer(
+                "PLAYER_REUSE_ORIGIN_REJECTED requestId=" + requestId.ifEmpty { "-" } +
+                    " originRequestId=" + originRequestId.ifEmpty { "-" } +
+                    " expectedRequestId=" + transitionPendingRequestId.ifEmpty { "-" } +
+                    " originGeneration=" + originTransitionGeneration +
+                    " expectedGeneration=" + transitionPendingGeneration,
+            )
         }
+
         autoplayNext = newIntent.getBooleanExtra("autoplay", autoplayNext)
         doubleTapSeekMs = newIntent.getLongExtra("setting_player_double_tap_seek_seconds", doubleTapSeekMs / 1000L)
         longPressSpeed = newIntent.getFloatExtra("setting_player_long_press_speed", longPressSpeed)
@@ -600,8 +680,11 @@ class NativePlayerActivity : ComponentActivity() {
             prepareCurrentMedia("reuse")
         } catch (exception: Exception) {
             logPlayer("MEDIA_REUSE_FAILED requestId=" + requestId.ifEmpty { "-" }, exception)
-            showPlayerError("Não foi possível iniciar o próximo episódio local.", "player_reuse", JSONObject()
-                .put("error", exception.message ?: exception::class.java.simpleName))
+            showPlayerError(
+                "Não foi possível iniciar o próximo episódio local.",
+                "player_reuse",
+                JSONObject().put("error", exception.message ?: exception::class.java.simpleName),
+            )
         }
     }
 
@@ -891,11 +974,37 @@ class NativePlayerActivity : ComponentActivity() {
                         seekToSavedPosition(restoredPositionMs ?: savedPosition)
                         initialSeekApplied = true
                     }
-                    if (episodeChangePending) {
+                    if (episodeChangePending &&
+                        transitionSourceRequestId == requestId &&
+                        transitionSourceUri == uri.toString()
+                    ) {
                         episodeChangePending = false
                         episodeChangeTimeoutRequestId = ""
                         episodeChangeTimeoutUri = ""
+                        episodeChangeTimeoutGeneration = 0L
+                        transitionSourceRequestId = ""
+                        transitionSourceUri = ""
+                        transitionSourceCreatedAtMs = 0L
                         handler.removeCallbacks(episodeChangeTimeout)
+                        if (transitionStartedAtMs > 0L) {
+                            val readyAtMs = System.currentTimeMillis()
+                            val transitionLatencyMs = readyAtMs - transitionStartedAtMs
+                            PerformanceDiagnostics.markPlayer(
+                                this@NativePlayerActivity,
+                                "transition_ready",
+                                requestId,
+                                commandCreatedAtMs,
+                                reused = true,
+                            )
+                            logPlayer(
+                                "PLAYER_TRANSITION_READY requestId=" + requestId.ifEmpty { "-" } +
+                                    " transitionLatencyMs=" + transitionLatencyMs +
+                                    " originRequestId=" + originRequestId.ifEmpty { "-" } +
+                                    " originCreatedAtMs=" + originCreatedAtMs,
+                            )
+                            transitionStartedAtMs = 0L
+                        }
+                        transitionPublishFuture = null
                         logPlayer(
                             "EPISODE_CHANGE_COMMITTED requestId=" +
                                 requestId.ifEmpty { "-" } +
@@ -1894,6 +2003,11 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun playbackTimingPayload(atMs: Long = System.currentTimeMillis()): JSONObject = JSONObject()
         .put("commandCreatedAtMs", commandCreatedAtMs)
+        .put("originRequestId", originRequestId)
+        .put("originCreatedAtMs", originCreatedAtMs)
+        .put("originTransitionGeneration", originTransitionGeneration)
+        .put("playerSessionId", playerSessionId)
+        .put("transitionGeneration", transitionGeneration)
         .put("commandReceivedAtMs", commandReceivedAtMs)
         .put("handoffDispatchedAtMs", handoffDispatchedAtMs)
         .put("activityStartedAtMs", activityStartedAtMs)
@@ -2322,27 +2436,39 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("completion", completionReported)
             .put("reason", reason)
             .put("timestamp", exitCapturedAt)
+            .put("playerSessionId", playerSessionId)
+            .put("transitionGeneration", transitionGeneration)
         val exitEvent = JSONObject()
             .put("type", "player_exited")
             .put("requestId", requestId)
             .put("createdAt", exitCapturedAt)
             .put("payload", payload)
-        val ok = NativeMailbox.write(
-            this,
-            exitEvent,
+
+        MainActivity.notePlayerExit(requestId, exitCapturedAt)
+        exitProgressPublished = true
+        try {
+            playbackWorker.submit {
+                val ok = NativeMailbox.write(this@NativePlayerActivity, exitEvent)
+                if (!ok) {
+                    logPlayer("FAILED_TO_PUBLISH player_exited requestId=" + requestId.ifEmpty { "-" })
+                }
+            }
+        } catch (error: java.util.concurrent.RejectedExecutionException) {
+            exitProgressPublished = false
+            logPlayer("PLAYER_EXIT_PUBLISH_REJECTED requestId=" + requestId.ifEmpty { "-" }, error)
+        }
+        logPlayer(
+            "player_exit_queued reason=" + reason +
+                " requestId=" + requestId.ifEmpty { "-" } +
+                " timestamp=" + exitCapturedAt,
         )
-        exitProgressPublished = ok
-        if (!ok) logPlayer("FAILED_TO_PUBLISH player_exited requestId=" + requestId.ifEmpty { "-" })
-        logPlayer("player_exit_reported reason=" + reason + " requestId=" + requestId.ifEmpty { "-" })
     }
 
     private fun finishPlayer(reason: String) {
         if (sessionState == SessionState.DESTROYED) return
         sessionState = SessionState.EXITING
-        episodeChangePending = false
-        episodeChangeTimeoutRequestId = ""
-        episodeChangeTimeoutUri = ""
-        handler.removeCallbacks(episodeChangeTimeout)
+        invalidateTransition("finish_player")
+        pendingPreparation?.cancel(true)
         cancelFirstFrameDiagnostics("finish_player")
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         handler.removeCallbacks(controlsHider)
@@ -2369,14 +2495,57 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             enabled && intent.getBooleanExtra("canPrevious", false)
     }
 
+    private fun invalidateTransition(reason: String) {
+        transitionGeneration += 1L
+        transitionPublishFuture?.cancel(true)
+        transitionPublishFuture = null
+        handler.removeCallbacks(episodeChangeTimeout)
+        episodeChangePending = false
+        episodeChangeTimeoutRequestId = ""
+        episodeChangeTimeoutUri = ""
+        episodeChangeTimeoutGeneration = 0L
+        transitionSourceRequestId = ""
+        transitionSourceUri = ""
+        transitionSourceCreatedAtMs = 0L
+        logPlayer(
+            "PLAYER_TRANSITION_INVALIDATED reason=" + reason +
+                " generation=" + transitionGeneration +
+                " requestId=" + requestId.ifEmpty { "-" },
+        )
+        updateEpisodeNavigationButtons()
+    }
+
+    private fun isCurrentTransition(generation: Long): Boolean =
+        generation == transitionGeneration && sessionState == SessionState.ACTIVE
+
     private fun requestEpisode(eventType: String) {
         if (!::player.isInitialized || episodeChangePending || errorVisible) return
-        if (!completionReported) saveProgress("player_progress", force = true)
+        if (!intent.getBooleanExtra(
+                if (eventType == "player_next_request") "canNext" else "canPrevious",
+                false,
+            )
+        ) return
+
+        val startedAtMs = System.currentTimeMillis()
+        transitionGeneration += 1L
+        val generation = transitionGeneration
+        transitionStartedAtMs = startedAtMs
+        transitionSourceRequestId = requestId
+        transitionSourceUri = uri.toString()
+        transitionSourceCreatedAtMs = startedAtMs
+        transitionSourceGeneration = generation
         episodeChangePending = true
-        updateEpisodeNavigationButtons()
         episodeChangeTimeoutRequestId = requestId
         episodeChangeTimeoutUri = uri.toString()
+        episodeChangeTimeoutGeneration = generation
         handler.removeCallbacks(episodeChangeTimeout)
+        updateEpisodeNavigationButtons()
+        showFeedback(if (eventType == "player_next_request") "Próximo…" else "Anterior…", 1400L)
+
+        if (!completionReported) {
+            saveProgress("player_progress", force = true)
+        }
+
         val payload = JSONObject()
             .put("uri", uri.toString())
             .put("requestId", requestId)
@@ -2384,24 +2553,90 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("animeId", intent.getStringExtra("animeId").orEmpty())
             .put("positionMs", player.currentPosition.coerceAtLeast(0L))
             .put("durationMs", player.duration.coerceAtLeast(0L))
-        val published = NativeMailbox.write(
-            this,
-            JSONObject().put("type", eventType)
-                .put("requestId", requestId)
-                .put("payload", payload)
-        )
-        if (!published) {
+            .put("createdAt", startedAtMs)
+            .put("buttonPressedAtMs", startedAtMs)
+            .put("transitionGeneration", generation)
+            .put("playerSessionId", playerSessionId)
+
+        val transitionEvent = JSONObject()
+            .put("type", eventType)
+            .put("requestId", requestId)
+            .put("createdAt", startedAtMs)
+            .put("payload", payload)
+
+        try {
+            transitionPublishFuture = playbackWorker.submit {
+                try {
+                    if (!isCurrentTransition(generation)) return@submit
+                    val published = NativeMailbox.write(
+                        this@NativePlayerActivity,
+                        transitionEvent,
+                    )
+                    handler.post {
+                        if (!isCurrentTransition(generation) || !episodeChangePending) return@post
+                        transitionPublishFuture = null
+                        if (!published) {
+                            episodeChangePending = false
+                            episodeChangeTimeoutRequestId = ""
+                            episodeChangeTimeoutUri = ""
+                            episodeChangeTimeoutGeneration = 0L
+                            transitionSourceRequestId = ""
+                            transitionSourceUri = ""
+                            transitionSourceCreatedAtMs = 0L
+                            transitionStartedAtMs = 0L
+                            updateEpisodeNavigationButtons()
+                            showFeedback("Não foi possível mudar de episódio.", 1800L)
+                            logPlayer(
+                                eventType + " PUBLISH_FAILED requestId=" +
+                                    requestId.ifEmpty { "-" } + " uri=" + uri,
+                            )
+                            return@post
+                        }
+                        handler.postDelayed(episodeChangeTimeout, 5_000L)
+                        logPlayer(
+                            eventType + " requestId=" + requestId.ifEmpty { "-" } +
+                                " transitionGeneration=" + generation +
+                                " buttonLatencyMs=" + (System.currentTimeMillis() - startedAtMs) +
+                                " keepActivity=true",
+                        )
+                    }
+                } catch (cancelled: java.util.concurrent.CancellationException) {
+                    logPlayer(
+                        eventType + " PUBLISH_CANCELLED requestId=" +
+                            requestId.ifEmpty { "-" } +
+                            " transitionGeneration=" + generation,
+                    )
+                } catch (error: Exception) {
+                    handler.post {
+                        if (!isCurrentTransition(generation)) return@post
+                        episodeChangePending = false
+                        episodeChangeTimeoutRequestId = ""
+                        episodeChangeTimeoutUri = ""
+                        episodeChangeTimeoutGeneration = 0L
+                        transitionSourceRequestId = ""
+                        transitionSourceUri = ""
+                        transitionSourceCreatedAtMs = 0L
+                        transitionStartedAtMs = 0L
+                        transitionPublishFuture = null
+                        updateEpisodeNavigationButtons()
+                        showFeedback("Não foi possível mudar de episódio.", 1800L)
+                        logPlayer(eventType + " PUBLISH_FAILED_ASYNC", error)
+                    }
+                }
+            }
+        } catch (error: java.util.concurrent.RejectedExecutionException) {
             episodeChangePending = false
-            updateEpisodeNavigationButtons()
             episodeChangeTimeoutRequestId = ""
             episodeChangeTimeoutUri = ""
-            handler.removeCallbacks(episodeChangeTimeout)
+            episodeChangeTimeoutGeneration = 0L
+            transitionSourceRequestId = ""
+            transitionSourceUri = ""
+            transitionSourceCreatedAtMs = 0L
+            transitionStartedAtMs = 0L
+            updateEpisodeNavigationButtons()
             showFeedback("Não foi possível mudar de episódio.", 1800L)
-            logPlayer(eventType + " PUBLISH_FAILED requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri)
-            return
+            logPlayer(eventType + " PUBLISH_REJECTED", error)
         }
-        handler.postDelayed(episodeChangeTimeout, 5_000L)
-        logPlayer(eventType + " requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri + " keepActivity=true")
     }
 
     private fun seekToSavedPosition(savedPositionMs: Long) {
@@ -2423,25 +2658,27 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         }
     }
 
-    private fun saveProgress(eventType: String, force: Boolean = false) {
-        if (!::player.isInitialized) return
+    private fun buildProgressEvent(eventType: String, force: Boolean): JSONObject? {
+        if (!::player.isInitialized) return null
         val rawDuration = player.duration
         val duration = if (rawDuration > 0L) rawDuration else 0L
         val rawPosition = player.currentPosition.coerceAtLeast(0L)
         val position = if (duration > 0L) rawPosition.coerceAtMost(duration) else rawPosition
-        if (!force && lastSavedPosition >= 0L && abs(position - lastSavedPosition) < PROGRESS_INTERVAL_MS) return
+        if (!force && lastSavedPosition >= 0L && abs(position - lastSavedPosition) < PROGRESS_INTERVAL_MS) return null
         if (force && position == lastSavedPosition &&
-            eventType != "player_completed" && eventType != "player_exited") {
-            return
+            eventType != "player_completed" && eventType != "player_exited"
+        ) {
+            return null
         }
         lastSavedPosition = position
-        val event = JSONObject()
+        return JSONObject()
             .put("type", eventType)
             .put("requestId", requestId)
             .put("createdAt", System.currentTimeMillis())
             .put(
                 "payload",
-                JSONObject().put("uri", uri.toString())
+                JSONObject()
+                    .put("uri", uri.toString())
                     .put("mediaId", currentMediaId())
                     .put("episodeId", currentEpisodeId())
                     .put("animeId", intent.getStringExtra("animeId").orEmpty())
@@ -2449,15 +2686,31 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                     .put("durationMs", duration)
                     .put("playerState", if (::player.isInitialized) player.playbackStateLabel() else "STATE_IDLE")
                     .put("isPlaying", if (::player.isInitialized) player.isPlaying else false)
-                    .put("playbackSpeed", if (::player.isInitialized) player.playbackParameters.speed else 1f),
+                    .put("playbackSpeed", if (::player.isInitialized) player.playbackParameters.speed else 1f)
+                    .put("playerSessionId", playerSessionId)
             )
+    }
+
+    private fun saveProgress(eventType: String, force: Boolean = false) {
+        val event = buildProgressEvent(eventType, force) ?: return
         val durable = force || eventType in setOf("player_paused", "player_completed", "player_exited")
-        val ok = if (durable) {
-            NativeMailbox.write(this, event)
-        } else {
-            NativeMailbox.writeBestEffort(this, event)
+        try {
+            playbackWorker.submit {
+                val ok = if (durable) {
+                    NativeMailbox.write(this@NativePlayerActivity, event)
+                } else {
+                    NativeMailbox.writeBestEffort(this@NativePlayerActivity, event)
+                }
+                if (!ok) {
+                    logPlayer(
+                        "FAILED_TO_PUBLISH " + eventType +
+                            " requestId=" + requestId.ifEmpty { "-" },
+                    )
+                }
+            }
+        } catch (error: java.util.concurrent.RejectedExecutionException) {
+            logPlayer("PROGRESS_PUBLISH_REJECTED event=" + eventType, error)
         }
-        if (!ok) logPlayer("FAILED_TO_PUBLISH " + eventType + " requestId=" + requestId.ifEmpty { "-" })
     }
 
     override fun onStart() {
@@ -2501,6 +2754,9 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     override fun onStop() {
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
+        if (isFinishing && !isChangingConfigurations) {
+            invalidateTransition("onStop_finishing")
+        }
         if (::player.isInitialized && !inPictureInPicture && sessionState == SessionState.ACTIVE) {
             playbackWasRequestedBeforeStop =
                 player.playWhenReady &&
@@ -2595,6 +2851,13 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     override fun onDestroy() {
         PerformanceDiagnostics.sampleMemory(this, "player_on_destroy")
         PerformanceDiagnostics.detach()
+        val shouldReportExit = isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations
+        if (shouldReportExit) {
+            reportPlayerExit("activity_finish")
+        }
+        invalidateTransition("destroy")
+        transitionGeneration += 1L
+        sessionState = SessionState.DESTROYED
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.resetZoomToFit()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.dispose()
         handler.removeCallbacks(progressReporter)
@@ -2604,11 +2867,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         cancelFirstFrameDiagnostics("destroy")
         restoreSystemUiBeforeExit()
         pendingPreparation?.cancel(true)
-        playbackWorker.shutdownNow()
+        playbackWorker.shutdown()
         if (::player.isInitialized) {
-            if (isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations) {
-                reportPlayerExit("activity_finish")
-            }
             activePlayerListener?.let { player.removeListener(it) }
             activeAnalyticsListener?.let { player.removeAnalyticsListener(it) }
             activePlayerListener = null
@@ -2619,11 +2879,14 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             }
             player.release()
             logPlayer("player.release requestId=" + requestId.ifEmpty { "-" })
-        } else if (isFinishing && !exitReported && !isChangingConfigurations) {
-            reportPlayerExit("activity_finish_without_player")
+        } else if (shouldReportExit) {
+            logPlayer("PLAYER_EXIT_REPORTED_WITHOUT_PLAYER requestId=" + requestId.ifEmpty { "-" })
         }
-        logPlayer("onDestroy finishing=" + isFinishing + " changingConfig=" + isChangingConfigurations)
-        sessionState = SessionState.DESTROYED
+        logPlayer(
+            "onDestroy finishing=" + isFinishing +
+                " changingConfig=" + isChangingConfigurations +
+                " transitionGeneration=" + transitionGeneration,
+        )
         super.onDestroy()
     }
 

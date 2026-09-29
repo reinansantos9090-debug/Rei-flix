@@ -2710,7 +2710,10 @@ class LibraryStore:
         ]
         ordered = sorted(candidates, key=self._episode_order_key)
         if ordered:
-            return ordered[0]
+            result = ordered[0]
+            get_performance_monitor().record_sqlite("playback_target", (time.perf_counter()-started)*1000.0,
+                                                    rows=len(rows), metadata={"source": "ordered_regular"})
+            return result
         # A library containing only specials still needs a valid Details
         # playback target, but specials must never become part of the regular
         # episode sequence used by next/previous/autoplay.

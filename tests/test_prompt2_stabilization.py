@@ -175,8 +175,12 @@ class Prompt2StabilizationTests(unittest.TestCase):
         end = PLAYER.index("private fun buildMediaItem", start)
         block = PLAYER[start:end]
         self.assertIn('autoplayNext = newIntent.getBooleanExtra("autoplay", autoplayNext)', block)
-        self.assertIn('isEnabled =\n            newIntent.getBooleanExtra("canNext", false)', block)
-        self.assertIn('isEnabled =\n            newIntent.getBooleanExtra("canPrevious", false)', block)
+        self.assertIn("updateEpisodeNavigationButtons()", block)
+        button_start = PLAYER.index("private fun updateEpisodeNavigationButtons")
+        button_end = PLAYER.index("private fun requestEpisode", button_start)
+        button_block = PLAYER[button_start:button_end]
+        self.assertIn('intent.getBooleanExtra("canNext", false)', button_block)
+        self.assertIn('intent.getBooleanExtra("canPrevious", false)', button_block)
 
     def test_anilist_original_description_survives_pt_br_localization(self):
         from unittest.mock import patch

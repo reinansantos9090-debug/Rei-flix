@@ -1001,8 +1001,9 @@ class ArtworkEngine:
             target = self.cache_dir / f"{key}{extension}"
             temporary = self.cache_dir / f".{key}.tmp"
             temporary.write_bytes(payload)
-            os.replace(temporary, target)
-            now = time.time()
+            # Do not replace an existing cache entry until the generation check
+            # has passed. Otherwise a stale refresh could overwrite a valid file
+            # and then delete that file while aborting.
             with self._lock:
                 stale = generation is not None and generation != self._generation
             if stale:
@@ -1010,12 +1011,10 @@ class ArtworkEngine:
                     temporary.unlink()
                 except FileNotFoundError:
                     pass
-                try:
-                    target.unlink()
-                except FileNotFoundError:
-                    pass
                 self._log("cancel", key=key, reason="stale_generation_before_commit")
                 return None
+            os.replace(temporary, target)
+            now = time.time()
             with self.store._conn() as con:
                 con.execute(
                     """UPDATE artwork SET source='cache',local_path=?,status=?,priority=?,

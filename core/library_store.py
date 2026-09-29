@@ -2764,7 +2764,7 @@ class LibraryStore:
                 """,
                 (limit,),
             ).fetchall()
-        return [
+        result = [
             {
                 "anime_id": row["anime_id"],
                 "anime_title": row["anime_title"],
@@ -2773,6 +2773,8 @@ class LibraryStore:
             }
             for row in rows
         ]
+        get_performance_monitor().record_sqlite("continue_watching", (time.perf_counter()-started)*1000.0, rows=len(result))
+        return result
 
     def playback_history(self, limit=50):
         """Latest state for played local episodes; one durable row per episode."""

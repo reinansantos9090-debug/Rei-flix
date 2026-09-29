@@ -68,6 +68,8 @@ class SettingsView:
 
         def safe_update():
             nonlocal initial_render_pending
+            if not settings_is_active():
+                return
             try:
                 performance.counter("settings.page_updates")
                 page.update()
@@ -80,6 +82,12 @@ class SettingsView:
             safe_update()
 
         backup_restore_busy = {"value": False}
+
+        def start_task(handler, *args):
+            task = page.run_task(handler, *args)
+            if callable(register_settings_task):
+                register_settings_task(task)
+            return task
 
         async def execute_action():
             try:
@@ -94,7 +102,7 @@ class SettingsView:
 
         def confirm(title, body, action_label, action):
             if not settings.get("app.confirm_destructive"):
-                page.run_task(execute_action)
+                start_task(execute_action)
                 return
 
             async def run(_):
@@ -121,7 +129,7 @@ class SettingsView:
                     try:
                         result = on_settings_changed(key, normalized)
                         if inspect.isawaitable(result):
-                            page.run_task(result)
+                            start_task(result)
                     except Exception:
                         logger.exception("settings runtime apply failed: %s", key)
                         notice("Configuração salva, mas a aplicação em runtime falhou.", True)
@@ -314,7 +322,7 @@ class SettingsView:
                     focus_task.cancel()
                 except Exception:
                     logger.debug("previous Settings focus task cancellation failed", exc_info=True)
-            focus_task = page.run_task(
+            focus_task = start_task(
                 reveal_category_focus,
                 key,
                 decision.generation,
@@ -457,7 +465,7 @@ class SettingsView:
                 finally:
                     busy["folder"] = False
                     safe_update()
-            page.run_task(run)
+            start_task(run)
 
         def refresh(_):
             if busy["scan"]:
@@ -849,7 +857,7 @@ class SettingsView:
                 "configuration_required": "Configuração necessária",
             }.get(account_state, "Conectada" if connected else "Não conectada")
             account_control = (
-                ft.FilledButton("Entrar com Google", on_click=lambda _: page.run_task(on_login))
+                ft.FilledButton("Entrar com Google", on_click=lambda _: start_task(on_login))
                 if not connected else
                 ft.OutlinedButton("Sair", on_click=lambda _: on_logout())
             )
@@ -1036,8 +1044,8 @@ class SettingsView:
                 ft.Text(f"{get_summary()['folders']} pasta(s) • {get_summary()['animes']} anime(s) • {get_summary()['episodes']} episódio(s)", color=TEXT, size=12),
                 ft.Text("Limpar cache não remove catálogo, consumo, favoritos, tags, notas, pins, IDs AniList ou arquivos.", color=TEXT_MUTED, size=10),
                 ft.Row([
-                    ft.OutlinedButton("Exportar configurações", icon=ft.Icons.UPLOAD_FILE, on_click=lambda e: page.run_task(export_settings, e)),
-                    ft.OutlinedButton("Importar configurações", icon=ft.Icons.DOWNLOAD, on_click=lambda e: page.run_task(import_settings, e)),
+                    ft.OutlinedButton("Exportar configurações", icon=ft.Icons.UPLOAD_FILE, on_click=lambda e: start_task(export_settings, e)),
+                    ft.OutlinedButton("Importar configurações", icon=ft.Icons.DOWNLOAD, on_click=lambda e: start_task(import_settings, e)),
                 ], wrap=True, spacing=8),
                 action_row("Restaurar configurações", "Reseta somente Settings; não é backup/restore completo.", "Restaurar", reset_all),
             ], ("dados","cache","reset","exportar","importar")))
@@ -1050,10 +1058,10 @@ class SettingsView:
                     color=TEXT, size=11,
                 ),
                 ft.Row([
-                    ft.OutlinedButton("Fazer backup", icon=ft.Icons.BACKUP_OUTLINED, on_click=lambda e: page.run_task(create_backup_file, e)),
-                    ft.OutlinedButton("Restaurar backup", icon=ft.Icons.RESTORE_OUTLINED, on_click=lambda e: page.run_task(restore_backup_file, e)),
-                    ft.OutlinedButton("Verificar integridade", icon=ft.Icons.VERIFIED_OUTLINED, on_click=lambda e: page.run_task(verify_integrity, e)),
-                    ft.OutlinedButton("Reconciliar arquivos", icon=ft.Icons.REFRESH, on_click=lambda e: page.run_task(reconcile_after_restore, e)),
+                    ft.OutlinedButton("Fazer backup", icon=ft.Icons.BACKUP_OUTLINED, on_click=lambda e: start_task(create_backup_file, e)),
+                    ft.OutlinedButton("Restaurar backup", icon=ft.Icons.RESTORE_OUTLINED, on_click=lambda e: start_task(restore_backup_file, e)),
+                    ft.OutlinedButton("Verificar integridade", icon=ft.Icons.VERIFIED_OUTLINED, on_click=lambda e: start_task(verify_integrity, e)),
+                    ft.OutlinedButton("Reconciliar arquivos", icon=ft.Icons.REFRESH, on_click=lambda e: start_task(reconcile_after_restore, e)),
                 ], wrap=True, spacing=8),
                 ft.Text(
                     "Restore: valida formato, schema, SHA-256, tabelas, referências e foreign keys antes de alterar o banco. "

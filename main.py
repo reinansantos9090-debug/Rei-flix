@@ -236,6 +236,14 @@ async def main(page: ft.Page):
     # top-level screens. Returning to a screen must not destroy its scroll,
     # search, filter or focus state.
     screen_cache = {}
+    # Cache the Flet navigation shells separately from the content controls.
+    # Replacing one screen's content therefore does not recreate its View/SafeArea
+    # wrapper or unnecessarily churn page.views.
+    view_shell_cache = {}
+    render_state = {
+        "dirty": True,
+        "signature": None,
+    }
     # Settings background tasks are generation-bound to the current Settings
     # control tree. Navigation/render replacement invalidates the previous tree.
     # Settings nested levels are part of NavigationController, so Android Back
@@ -378,6 +386,49 @@ async def main(page: ft.Page):
             "collector": "/collector",
             "settings": "/settings",
         }.get(screen, "/" + str(screen))
+
+    def _ui_render_signature():
+        current_id = None
+        if isinstance(current[0], dict):
+            current_id = current[0].get("id")
+        return (
+            tuple(navigation.stack),
+            tuple(navigation.settings_path),
+            current_id,
+        )
+
+    def _mark_ui_dirty():
+        render_state["dirty"] = True
+
+    def _drop_screen_cache(route):
+        _drop_screen_cache(route)
+        _mark_ui_dirty()
+
+    def _clear_screen_cache():
+        _clear_screen_cache()
+        _mark_ui_dirty()
+
+    def _view_shell(route, view_route, control, *, key):
+        cached = view_shell_cache.get(key)
+        if cached is None:
+            safe_area = ft.SafeArea(
+                expand=True,
+                content=control,
+            )
+            view = ft.View(
+                route=view_route,
+                bgcolor=page.bgcolor,
+                controls=[safe_area],
+                padding=0,
+            )
+            view_shell_cache[key] = (view, safe_area)
+            return view
+
+        view, safe_area = cached
+        safe_area.content = control
+        view.route = view_route
+        view.bgcolor = page.bgcolor
+        return view
 
     def _invalidate_cached_view(state, route):
         """Retire callbacks before dropping a cached Flet control tree."""
@@ -524,10 +575,41 @@ async def main(page: ft.Page):
         paths.extend(current_path[:index] for index in range(1, len(current_path) + 1))
         return paths
 
-    def render_current(force=False):
+    def render_current(force=False, *, reason="unknown"):
         render_started = performance.now()
+        reason_key = "".join(
+            char if char.isalnum() else "_" for char in str(reason or "unknown")
+        ).strip("_").lower() or "unknown"
+        performance.counter("ui.render_current.requested")
+        performance.counter(f"ui.render_current.request.{reason_key}")
+        signature = _ui_render_signature()
+
+        # Repeated render requests are common around navigation/back and external
+        # callbacks. When neither navigation nor the mounted screen changed, do
+        # not rebuild, invalidate Settings focus, churn page.views or call update.
+        if (
+            not force
+            and not render_state["dirty"]
+            and render_state["signature"] == signature
+        ):
+            performance.counter("ui.render_current.skipped_unchanged")
+            performance.counter(f"ui.render_current.skip.{reason_key}")
+            performance.event(
+                "ui.render_current",
+                status="skipped_unchanged",
+                screen=navigation.current,
+                metadata={
+                    "reason": reason,
+                    "settings_depth": len(navigation.settings_path),
+                },
+            )
+            return
+
         if navigation.current == "settings":
+            # Only a real Settings tree replacement invalidates focus tasks.
+            # An unchanged render request must leave active focus work intact.
             settings_tasks.invalidate()
+
         views = []
         for route in navigation.stack:
             if route != "settings":
@@ -536,16 +618,11 @@ async def main(page: ft.Page):
                     force=force and route == navigation.current,
                 )
                 views.append(
-                    ft.View(
-                        route=_route_for_screen(route),
-                        bgcolor=page.bgcolor,
-                        controls=[
-                            ft.SafeArea(
-                                expand=True,
-                                content=control,
-                            )
-                        ],
-                        padding=0,
+                    _view_shell(
+                        route,
+                        _route_for_screen(route),
+                        control,
+                        key=(route, None),
                     )
                 )
                 continue
@@ -562,37 +639,55 @@ async def main(page: ft.Page):
                 route_suffix = "/".join(path)
                 view_route = "/settings" + (f"/{route_suffix}" if route_suffix else "")
                 views.append(
-                    ft.View(
-                        route=view_route,
-                        bgcolor=page.bgcolor,
-                        controls=[
-                            ft.SafeArea(
-                                expand=True,
-                                content=control,
-                            )
-                        ],
-                        padding=0,
+                    _view_shell(
+                        "settings",
+                        view_route,
+                        control,
+                        key=("settings", tuple(path)),
                     )
                 )
 
-        page.views.clear()
-        page.views.extend(views)
+        previous_view_ids = tuple(id(view) for view in page.views)
+        next_view_ids = tuple(id(view) for view in views)
+        page_views_replaced = previous_view_ids != next_view_ids
+        if page_views_replaced:
+            page.views.clear()
+            page.views.extend(views)
+            performance.counter("ui.render_current.page_views_replaced")
+        else:
+            performance.counter("ui.render_current.page_views_reused")
+
+        render_state["signature"] = signature
+        render_state["dirty"] = False
         performance.counter("ui.render_current")
-        performance.event("ui.render_current",
-                          duration_ms=(performance.now()-render_started)*1000.0,
-                          screen=navigation.current,
-                          metadata={"force": force,
-                                    "settings_depth": len(navigation.settings_path),
-                                    "view_count": len(views),
-                                    "controls": sum(performance.control_count(view) or 0 for view in views)})
+        performance.counter("ui.render_current.executed")
+        performance.counter(f"ui.render_current.execute.{reason_key}")
+        performance.event(
+            "ui.render_current",
+            duration_ms=(performance.now()-render_started)*1000.0,
+            screen=navigation.current,
+            metadata={
+                "force": force,
+                "reason": reason,
+                "settings_depth": len(navigation.settings_path),
+                "view_count": len(views),
+                "controls": sum(
+                    performance.control_count(view) or 0 for view in views
+                ),
+                "page_views_replaced": page_views_replaced,
+            },
+        )
         safe_update()
         logger.info(
-            "NAV_RENDER_CURRENT duration_ms=%s current=%s settings_depth=%s view_count=%s force=%s",
+            "NAV_RENDER_CURRENT duration_ms=%s current=%s settings_depth=%s "
+            "view_count=%s force=%s reason=%s page_views_replaced=%s",
             int((time.perf_counter() - render_started) * 1000),
             navigation.current,
             len(navigation.settings_path),
             len(views),
             force,
+            reason,
+            page_views_replaced,
         )
 
     def handle_flet_view_pop(_event):
@@ -611,20 +706,20 @@ async def main(page: ft.Page):
         previous = navigation.current
         with performance.interaction("return_home", source=previous, target="home"):
             navigation.reset_to_root()
-            render_current()
+            render_current(reason="return_home")
             persist_navigation_state()
 
     def navigate_organize():
         previous = navigation.current
         with performance.interaction("open_organize", source=previous, target="organize"):
             navigation.push("organize")
-            render_current()
+            render_current(reason="open_organize")
             persist_navigation_state()
     def navigate_collector():
         previous = navigation.current
         with performance.interaction("open_collector", source=previous, target="collector"):
             navigation.push("collector")
-            render_current()
+            render_current(reason="open_collector")
             persist_navigation_state()
     player_transition_inflight = {"value": False}
     player_launch_inflight = {"value": False}
@@ -788,9 +883,9 @@ async def main(page: ft.Page):
         with performance.interaction("open_details", source=previous, target="details",
                                       metadata={"anime_id": (anime or {}).get("id") if isinstance(anime, dict) else None}):
             current[0] = anime
-            screen_cache.pop("details", None)
+            _drop_screen_cache("details")
             navigation.push("details")
-            render_current()
+            render_current(reason="open_details")
             persist_navigation_state()
     async def refresh_current_details():
         """Reload the durable record after an in-place Details edit."""
@@ -808,7 +903,7 @@ async def main(page: ft.Page):
             logger.info("[DETAILS] stale refresh ignored anime_id=%s token=%s", anime_id, details_token)
             return
         current[0] = next((item for item in catalog if item["id"] == anime_id), current[0])
-        render_current(force=True)
+        render_current(force=True, reason="details_refresh")
         performance.event("details.refresh", duration_ms=(performance.now()-refresh_started)*1000.0,
                           screen="details", metadata={"anime_id": anime_id})
     async def refresh_current_metadata(e=None):
@@ -859,8 +954,8 @@ async def main(page: ft.Page):
                 return
         if navigation.current == "details" and not refresh_details:
             return
-        screen_cache.pop(navigation.current, None)
-        render_current()
+        _drop_screen_cache(navigation.current)
+        render_current(reason="catalog_changed")
         performance.event("ui.catalog_changed", duration_ms=(performance.now()-catalog_started)*1000.0,
                           screen=navigation.current, metadata={"refresh_details": refresh_details})
 
@@ -873,8 +968,8 @@ async def main(page: ft.Page):
             apply_page_theme(page, settings.get("appearance.theme"))
             _invalidate_cached_view(home_state, "home")
             _invalidate_cached_view(organize_state, "organize")
-            screen_cache.clear()
-            render_current(force=True)
+            _clear_screen_cache()
+            render_current(force=True, reason="theme_changed")
             return
         library.configure_settings(settings)
         if setting_key.startswith(("appearance.", "library.")):
@@ -882,7 +977,7 @@ async def main(page: ft.Page):
             _invalidate_cached_view(organize_state, "organize")
             current_route = navigation.current
             if current_route in {"home", "organize"}:
-                render_current()
+                render_current(reason="runtime_setting_changed")
 
     def handle_platform_brightness_change(_event=None):
         if settings.get("appearance.theme") != "system":
@@ -1005,8 +1100,8 @@ async def main(page: ft.Page):
                 navigation.replace("settings")
             else:
                 navigation.push("settings")
-            screen_cache.pop("settings", None)
-            render_current()
+            _drop_screen_cache("settings")
+            render_current(reason="open_settings")
             persist_navigation_state()
             if bridge.available:
                 diagnostics.record("PERMISSION_CHECK", source="android")
@@ -1029,7 +1124,7 @@ async def main(page: ft.Page):
         home_state["query"] = ""
         _invalidate_cached_view(home_state, "home")
         logger.info("[NAV] SEARCH_BACK consumed on Home")
-        render_current()
+        render_current(reason="home_search_closed")
         persist_navigation_state()
         return True
 
@@ -1110,8 +1205,8 @@ async def main(page: ft.Page):
             # returning to Organize so its collection reflects durable state
             # without triggering a scan or permission flow.
             if navigation.current == "organize":
-                screen_cache.pop("organize", None)
-            render_current()
+                _drop_screen_cache("organize")
+            render_current(reason="back")
             persist_navigation_state()
         elif action == "prompt_exit":
             persist_navigation_state()
@@ -1129,7 +1224,7 @@ async def main(page: ft.Page):
         logger.warning("[FLET] platform brightness callback unavailable: %s", exc)
     def refresh_settings_if_active():
         if navigation.current == "settings":
-            render_current(force=True)
+            render_current(force=True, reason="settings_refresh")
     async def add_folder(_=None):
         # A scan already running must not block the user from choosing another
         # folder. ScanCoordinator already queues/coalesces the follow-up rescan.

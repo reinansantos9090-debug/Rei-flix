@@ -127,6 +127,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var exitReported = false
     private var exitProgressPublished = false
     private var initialSeekApplied = false
+    private var playbackWasRequestedBeforeStop = false
     private var autoplayNext = true
     private var completionReported = false
     private var controlsVisible = true
@@ -2470,6 +2471,15 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         if (!inPictureInPicture) applyImmersiveAfterLayout()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.refreshZoomForLayout()
         if (::player.isInitialized && !errorVisible) {
+            if (!inPictureInPicture && playbackWasRequestedBeforeStop &&
+                player.playbackState != Player.STATE_ENDED
+            ) {
+                player.playWhenReady = true
+                playbackWasRequestedBeforeStop = false
+                logPlayer(
+                    "PLAYER_FOREGROUND_RESUME requestId=" + requestId.ifEmpty { "-" }
+                )
+            }
             updateProgressUi()
             updatePlayPauseButton()
             updatePictureInPictureParams()
@@ -2490,6 +2500,18 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     override fun onStop() {
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
+        if (::player.isInitialized && !inPictureInPicture && sessionState == SessionState.ACTIVE) {
+            playbackWasRequestedBeforeStop =
+                player.playWhenReady &&
+                    player.playbackState != Player.STATE_ENDED &&
+                    !errorVisible
+            if (playbackWasRequestedBeforeStop) {
+                player.pause()
+                logPlayer(
+                    "PLAYER_BACKGROUND_PAUSE requestId=" + requestId.ifEmpty { "-" }
+                )
+            }
+        }
         if (sessionState != SessionState.EXITING || !exitProgressPublished) {
             saveProgress("player_progress", force = true)
         }

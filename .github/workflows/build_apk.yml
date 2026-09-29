@@ -551,8 +551,12 @@ jobs:
           ) &
           certification_pid="$!"
 
-          wait "$android_pid" || true
-          wait "$certification_pid" || true
+          set +e
+          wait "$android_pid"
+          android_wait_status="$?"
+          wait "$certification_pid"
+          certification_wait_status="$?"
+          set -e
 
           android_status="$(cat "$android_status_file")"
           certification_status="$(cat "$certification_status_file")"

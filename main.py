@@ -1364,6 +1364,11 @@ async def main(page: ft.Page):
             return
         performance.counter("artwork.thumbnail.cache_miss")
         if len(thumbnail_requests) >= 32:
+            thumbnail_requests.discard(key)
+            thumbnail_request_started_at.pop(key, None)
+            if thumbnail_latest_key_by_uri.get(path_ref) == key:
+                thumbnail_latest_key_by_uri.pop(path_ref, None)
+                thumbnail_latest_at.pop(path_ref, None)
             performance.counter("artwork.thumbnail.rejected")
             return
         thumbnail_requests.add(key)

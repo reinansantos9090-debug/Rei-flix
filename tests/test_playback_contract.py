@@ -69,9 +69,8 @@ class PlaybackContractTests(unittest.TestCase):
         start = self.main.index("    async def start_native_player(")
         end = self.main.index("    def play_episode(", start)
         block = self.main[start:end]
-        self.assertIn("await asyncio.gather(", block)
-        self.assertIn("asyncio.to_thread(library.next_episode, path)", block)
-        self.assertIn("asyncio.to_thread(library.previous_episode, path)", block)
+        self.assertIn("await asyncio.to_thread(library.player_navigation, path)", block)
+        self.assertIn('source": "player_navigation"', block)
         self.assertNotIn("can_next=library.next_episode(path)", block)
         self.assertNotIn("can_previous=library.previous_episode(path)", block)
 

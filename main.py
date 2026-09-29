@@ -615,6 +615,9 @@ async def main(page: ft.Page):
     player_launch_inflight = {"value": False}
 
     async def start_native_player(path, title, position_ms=0):
+        performance.player_started_at = performance.now() if hasattr(performance, "player_started_at") else performance.now()
+        performance.event("player.start_native_player", screen=navigation.current,
+                          metadata={"path": path, "position_ms": position_ms})
         # Sequence decisions stay in LibraryStore. The two small SQLite reads
         # must not execute on Flet's event-loop thread because player launch is
         # a latency-critical UI path.
@@ -624,6 +627,9 @@ async def main(page: ft.Page):
             asyncio.to_thread(library.previous_episode, path),
         )
         neighbor_resolution_ms = int((time.perf_counter() - play_started_at) * 1000)
+        performance.event("player.neighbor_resolution", duration_ms=neighbor_resolution_ms,
+                          screen=navigation.current,
+                          metadata={"path": path, "can_next": can_next is not None, "can_previous": can_previous is not None})
         logger.info(
             "[PLAYER] PLAY_PREPARED path=%s neighbor_resolution_ms=%s",
             path,
@@ -661,6 +667,8 @@ async def main(page: ft.Page):
                 "audio.subtitle_embedded_style": settings.get("audio.subtitle_embedded_style"),
             },
         )
+        performance.event("player.command_confirmed", duration_ms=(time.perf_counter()-play_started_at)*1000.0,
+                          screen=navigation.current, metadata={"request_id": request_id})
         logger.info(
             "[PLAYER] PLAY_COMMAND_CONFIRMED request_id=%s total_python_handoff_ms=%s",
             request_id,
@@ -669,6 +677,8 @@ async def main(page: ft.Page):
         return request_id
 
     def play_episode(path, title, on_next=None, progress_seconds=0):
+        performance.event("player.click", screen=navigation.current,
+                          metadata={"path": path, "progress_seconds": progress_seconds})
         if not settings.get("player.resume"):
             progress_seconds = 0
         if player_launch_inflight["value"]:
@@ -2008,6 +2018,7 @@ async def main(page: ft.Page):
                                 try:
                                     position_ms = max(0.0, float(payload.get('positionMs') or 0.0))
                                     duration_ms = max(0.0, float(payload.get('durationMs') or 0.0))
+                                    progress_started = performance.now()
                                     updated = await asyncio.to_thread(
                                         store.save_progress,
                                         path_ref,
@@ -2015,6 +2026,11 @@ async def main(page: ft.Page):
                                         duration_ms / 1000.0,
                                         event_created_at=event.get('createdAt') or event.get('timestamp'),
                                     )
+                                    performance.event("player.progress_persist", duration_ms=(performance.now()-progress_started)*1000.0,
+                                                      screen=navigation.current,
+                                                      metadata={"episode_id": payload.get("episodeId"), "media_identity": payload.get("mediaId"),
+                                                                "position_ms": position_ms, "duration_ms": duration_ms, "event": event_type,
+                                                                "updated": updated})
                                 except (TypeError, ValueError):
                                     updated = False
                                 # Playback progress is persisted while the native Activity is
@@ -2058,6 +2074,10 @@ async def main(page: ft.Page):
                                 result="enabled" if enabled else "disabled",
                             )
                         elif event_type in {'player_next_request', 'player_previous_request'}:
+                            transition_started = performance.now()
+                            direction_name = "NEXT" if event_type == "player_next_request" else "PREVIOUS"
+                            performance.event(f"player.{direction_name.lower()}.request", screen=navigation.current,
+                                              metadata={"request_id": event_request_id, "media_identity": payload.get("mediaId")})
                             if player_transition_inflight["value"]:
                                 diagnostics.record(
                                     "PLAYER_NEXT_IGNORED" if event_type == 'player_next_request' else 'PLAYER_PREVIOUS_IGNORED',
@@ -2070,11 +2090,15 @@ async def main(page: ft.Page):
                             try:
                                 current_path = str(payload.get('uri') or '').strip()
                                 direction = 1 if event_type == 'player_next_request' else -1
+                                query_started = performance.now()
                                 target = (
                                     await asyncio.to_thread(library.next_episode, current_path)
                                     if direction > 0
                                     else await asyncio.to_thread(library.previous_episode, current_path)
                                 )
+                                performance.event(f"player.{direction_name.lower()}.query", duration_ms=(performance.now()-query_started)*1000.0,
+                                                  screen=navigation.current,
+                                                  metadata={"request_id": event_request_id, "target": (target or {}).get("path") if isinstance(target, dict) else None})
                                 if not target:
                                     logger.warning(
                                         "[PLAYER] adjacent episode not found direction=%s request_id=%s uri=%s",
@@ -2107,11 +2131,18 @@ async def main(page: ft.Page):
                                     result=target_path,
                                 )
                                 try:
+                                    performance.event(f"player.{direction_name.lower()}.target", screen=navigation.current,
+                                                      metadata={"request_id": event_request_id, "episode_id": target.get("id"),
+                                                                "media_identity": target.get("media_identity")})
+                                    handoff_started = performance.now()
                                     await start_native_player(
                                         target_path,
                                         target_title,
                                         int(target_position_ms),
                                     )
+                                    performance.event(f"player.{direction_name.lower()}.handoff", duration_ms=(performance.now()-handoff_started)*1000.0,
+                                                      screen=navigation.current,
+                                                      metadata={"request_id": event_request_id, "target": target_path})
                                 except Exception:
                                     logger.exception("[PLAYER] adjacent episode launch failed")
                                     page.snack_bar = ft.SnackBar(ft.Text(
@@ -2157,6 +2188,10 @@ async def main(page: ft.Page):
                                     )
                                 except (TypeError, ValueError):
                                     exit_updated = False
+                            performance.event("player.exited", screen=navigation.current,
+                                              metadata={"request_id": event_request_id, "episode_id": payload.get("episodeId"),
+                                                        "media_identity": payload.get("mediaId"), "position_ms": payload.get("positionMs"),
+                                                        "duration_ms": payload.get("durationMs")})
                             diagnostics.record(
                                 "PLAYER_EXITED",
                                 request_id=event_request_id,

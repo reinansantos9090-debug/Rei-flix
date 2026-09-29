@@ -511,6 +511,8 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PerformanceDiagnostics.attach(this)
+        PerformanceDiagnostics.sampleMemory(this, "main_on_create")
         installSystemBackHandler()
         nativeRequestState.bind(this)
         nativeRequestState.restore(
@@ -573,6 +575,8 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        PerformanceDiagnostics.attach(this)
+        PerformanceDiagnostics.sampleMemory(this, "main_on_resume")
         activityResumed = true
         logLifecycle("onResume")
         NativeMailbox.writeBestEffort(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "ON_RESUME").put("lifecycle", "onResume")))
@@ -695,6 +699,8 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        PerformanceDiagnostics.sampleMemory(this, "main_on_destroy")
+        PerformanceDiagnostics.detach()
         cancelSafPickerWatchdog()
         googleSignInJob?.cancel()
         googleSignInJob = null
@@ -1938,6 +1944,7 @@ class MainActivity : FlutterFragmentActivity() {
                             Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
                     ),
                 )
+                PerformanceDiagnostics.markPlayer(this, "handoff_dispatched", requestId, playerRequest.commandCreatedAtMs, reused = true)
                 Log.i(
                     tag,
                     "PLAY_HANDOFF_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
@@ -1946,6 +1953,7 @@ class MainActivity : FlutterFragmentActivity() {
                 )
             } else {
                 playerActivityLauncher.launch(intent)
+                PerformanceDiagnostics.markPlayer(this, "handoff_dispatched", requestId, playerRequest.commandCreatedAtMs, reused = false)
                 Log.i(
                     tag,
                     "PLAY_HANDOFF_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +

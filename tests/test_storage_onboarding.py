@@ -174,7 +174,7 @@ class StorageOnboardingTests(unittest.TestCase):
 
     def test_native_mailbox_drain_does_not_silently_hide_io_or_json_failures(self):
         source = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
-        self.assertIn('logger.error("[ANDROID] Invalid legacy native mailbox batch discarded:', source)
+        self.assertIn('logger.error("[ANDROID] Invalid legacy native mailbox batch discarded: %s", legacy.name)', source)
         self.assertIn('logger.error("[ANDROID] Invalid native mailbox event discarded:', source)
         self.assertIn('logger.error("[ANDROID] Native mailbox drain failed;', source)
 

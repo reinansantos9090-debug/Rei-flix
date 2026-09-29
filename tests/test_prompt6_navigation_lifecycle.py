@@ -7,6 +7,7 @@ MAIN = ROOT / "main.py"
 SETTINGS = ROOT / "views" / "settings_view.py"
 COLLECTOR = ROOT / "views" / "collector_view.py"
 DETAILS = ROOT / "views" / "details_view.py"
+NAVIGATION = ROOT / "core" / "navigation.py"
 MAIN_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt"
 
 
@@ -28,6 +29,14 @@ class Prompt6NavigationLifecycleTests(unittest.TestCase):
         self.assertIn('navigation.duplicate_details_ignored', handler)
         self.assertIn('if navigation.current != "details":', handler)
         self.assertNotIn('navigation.push("details")\n            navigation.push("details")', handler)
+
+    def test_duplicate_settings_category_does_not_grow_nested_path(self):
+        source = NAVIGATION.read_text(encoding="utf-8")
+        start = source.index("def push_settings")
+        end = source.index("def back", start)
+        block = source[start:end]
+        self.assertIn("if self._settings_path and self._settings_path[-1] == normalized:", block)
+        self.assertIn("return", block)
 
     def test_duplicate_settings_root_navigation_is_ignored(self):
         source = MAIN.read_text(encoding="utf-8")

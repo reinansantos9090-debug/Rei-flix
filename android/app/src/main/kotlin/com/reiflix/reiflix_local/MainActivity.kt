@@ -2013,7 +2013,7 @@ class MainActivity : FlutterFragmentActivity() {
                                 .put("component", intent.component?.flattenToShortString() ?: ""),
                         ),
                 )
-                return
+                return false
             }
             Log.i(
                 tag,
@@ -2046,7 +2046,6 @@ class MainActivity : FlutterFragmentActivity() {
                             Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
                     ),
                 )
-                PerformanceDiagnostics.markPlayer(this, "handoff_dispatched", requestId, playerRequest.commandCreatedAtMs, reused = true)
                 PerformanceDiagnostics.markPlayer(this, "handoff_dispatched", requestId, playerRequest.commandCreatedAtMs, reused = true)
                 nativeRequestState.markOperationState(requestId, "play", NativeRequestState.OperationState.COMPLETED)
                 publishNativeDiagnostic(
@@ -2099,8 +2098,9 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("uri", localUri.toString())
                     .put("stage", "start_activity")
                     .put("error", exception.message ?: exception::class.java.simpleName)))
+            return false
         }
-        return false
+        return true
     }
 
     private fun clearPendingPlay() {

@@ -615,7 +615,6 @@ async def main(page: ft.Page):
     player_launch_inflight = {"value": False}
 
     async def start_native_player(path, title, position_ms=0):
-        performance.player_started_at = performance.now() if hasattr(performance, "player_started_at") else performance.now()
         performance.event("player.start_native_player", screen=navigation.current,
                           metadata={"path": path, "position_ms": position_ms})
         # Sequence decisions stay in LibraryStore. The two small SQLite reads

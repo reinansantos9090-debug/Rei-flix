@@ -2508,7 +2508,9 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 " generation=" + transitionGeneration +
                 " requestId=" + requestId.ifEmpty { "-" },
         )
-        updateEpisodeNavigationButtons()
+        if (::root.isInitialized) {
+            updateEpisodeNavigationButtons()
+        }
     }
 
     private fun isCurrentTransition(generation: Long): Boolean =

@@ -739,9 +739,10 @@ async def main(page: ft.Page):
     player_transition_inflight = {"value": False}
     player_launch_inflight = {"value": False}
 
-    async def start_native_player(path, title, position_ms=0):
+    async def start_native_player(path, title, position_ms=0, *, episode_id=None, anime_id=None):
         performance.event("player.start_native_player", screen=navigation.current,
-                          metadata={"path": path, "position_ms": position_ms})
+                          metadata={"path": path, "position_ms": position_ms,
+                                    "episode_id": episode_id, "anime_id": anime_id})
         # Sequence decisions stay in LibraryStore. The two small SQLite reads
         # must not execute on Flet's event-loop thread because player launch is
         # a latency-critical UI path.
@@ -764,6 +765,8 @@ async def main(page: ft.Page):
             path,
             title,
             position_ms,
+            episode_id=episode_id,
+            anime_id=anime_id,
             can_next=can_next is not None,
             can_previous=can_previous is not None,
             autoplay=settings.get("player.autoplay_next"),
@@ -792,7 +795,8 @@ async def main(page: ft.Page):
             },
         )
         performance.event("player.command_confirmed", duration_ms=(time.perf_counter()-play_started_at)*1000.0,
-                          screen=navigation.current, metadata={"request_id": request_id})
+                          screen=navigation.current,
+                          metadata={"request_id": request_id, "episode_id": episode_id, "anime_id": anime_id})
         logger.info(
             "[PLAYER] PLAY_COMMAND_CONFIRMED request_id=%s total_python_handoff_ms=%s",
             request_id,
@@ -800,9 +804,10 @@ async def main(page: ft.Page):
         )
         return request_id
 
-    def play_episode(path, title, on_next=None, progress_seconds=0):
+    def play_episode(path, title, on_next=None, progress_seconds=0, *, episode_id=None, anime_id=None):
         performance.event("player.click", screen=navigation.current,
-                          metadata={"path": path, "progress_seconds": progress_seconds})
+                          metadata={"path": path, "progress_seconds": progress_seconds,
+                                    "episode_id": episode_id, "anime_id": anime_id})
         if not settings.get("player.resume"):
             progress_seconds = 0
         if player_launch_inflight["value"]:
@@ -817,7 +822,18 @@ async def main(page: ft.Page):
 
         async def launch_native_player():
             try:
-                await start_native_player(path, title, max(0, int(progress_seconds * 1000)))
+                request_id = await start_native_player(
+                    path,
+                    title,
+                    max(0, int(progress_seconds * 1000)),
+                    episode_id=episode_id,
+                    anime_id=anime_id,
+                )
+                performance.event(
+                    "player.launch_complete",
+                    screen=navigation.current,
+                    metadata={"request_id": request_id, "episode_id": episode_id, "anime_id": anime_id},
+                )
             except Exception as exc:
                 logger.exception("[PLAYER] native handoff failed path=%s", path)
                 page.snack_bar = ft.SnackBar(

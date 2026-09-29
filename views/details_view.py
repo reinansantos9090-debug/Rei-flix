@@ -391,8 +391,13 @@ class DetailView:
             number = episode.get("number")
             episode_label = f"T{episode.get('season', '—')} E{number if number is not None else '—'}"
             player_title = f"{anime_group.get('main_title') or title} • {episode_label}"
-            on_play_episode(episode["path"], player_title,
-                            progress_seconds=episode.get("progress") or 0)
+            on_play_episode(
+                episode["path"],
+                player_title,
+                progress_seconds=episode.get("progress") or 0,
+                episode_id=episode.get("id"),
+                anime_id=anime_group.get("id"),
+            )
 
         primary_ratio = ratio(primary_target) if primary_target else None
         primary_type = str(primary_target.get("episode_type") or "regular").casefold() if primary_target else ""

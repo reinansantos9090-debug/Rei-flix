@@ -265,7 +265,13 @@ class HomeView:
             if not episode.get("path") or episode.get("missing"):
                 return
             anime_title = item.get("anime_title") or item.get("main_title") or item.get("title") or "Reproduzir"
-            on_play_episode(episode["path"], player_episode_title(anime_title, episode), progress_seconds=episode.get("progress", 0) or 0)
+            on_play_episode(
+                episode["path"],
+                player_episode_title(anime_title, episode),
+                progress_seconds=episode.get("progress", 0) or 0,
+                episode_id=episode.get("id"),
+                anime_id=item.get("id"),
+            )
 
         async def reveal_focus(scrollable, scroll_key):
             try:

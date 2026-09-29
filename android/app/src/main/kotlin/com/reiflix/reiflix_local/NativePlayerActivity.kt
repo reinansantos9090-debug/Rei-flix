@@ -329,6 +329,8 @@ class NativePlayerActivity : ComponentActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         requestId = savedInstanceState?.getString("session_request_id")?.trim()
             ?: intent.getStringExtra("requestId")?.trim().orEmpty()
+        val traceEpisodeId = intent.getStringExtra("episodeId").orEmpty()
+        val traceAnimeId = intent.getStringExtra("animeId").orEmpty()
         PerformanceDiagnostics.attach(this)
         PerformanceDiagnostics.markPlayer(this, "activity_created", requestId,
             intent.getLongExtra("commandCreatedAtMs", 0L), reused = false)
@@ -511,7 +513,9 @@ class NativePlayerActivity : ComponentActivity() {
             newIntent.getLongExtra("commandCreatedAtMs", 0L), reused = true)
         logPlayer(
             "PLAYER_REUSE_INTENT requestId=" +
-                (newIntent.getStringExtra("requestId")?.trim().orEmpty().ifBlank { "-" }),
+                (newIntent.getStringExtra("requestId")?.trim().orEmpty().ifBlank { "-" }) +
+                " animeId=" + traceAnimeId.ifEmpty { "-" } +
+                " episodeId=" + traceEpisodeId.ifEmpty { "-" },
         )
 
         // A malformed replacement intent must retire the previous transition
@@ -535,6 +539,8 @@ class NativePlayerActivity : ComponentActivity() {
         uri = normalized
         loadLocalMetadata()
         requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
+        val traceEpisodeId = newIntent.getStringExtra("episodeId").orEmpty()
+        val traceAnimeId = newIntent.getStringExtra("animeId").orEmpty()
         commandCreatedAtMs = newIntent.getLongExtra("commandCreatedAtMs", 0L)
         commandReceivedAtMs = newIntent.getLongExtra("commandReceivedAtMs", 0L)
         handoffDispatchedAtMs = newIntent.getLongExtra("handoffDispatchedAtMs", 0L)
@@ -857,6 +863,7 @@ class NativePlayerActivity : ComponentActivity() {
                                     .put("title", titleValue)
                                     .put("mediaId", uri.toString())
                                     .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
+                                    .put("animeId", intent.getStringExtra("animeId").orEmpty())
                                     .put("state", "READY"))
                         )
                         if (!opened) {
@@ -2272,6 +2279,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
             .put("mediaId", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("mediaId").orEmpty())
             .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
+            .put("animeId", intent.getStringExtra("animeId").orEmpty())
             .put("positionMs", currentPosition)
             .put("durationMs", currentDuration)
             .put("completion", completionReported)
@@ -2376,6 +2384,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 JSONObject().put("uri", uri.toString())
                     .put("mediaId", uri.toString())
                     .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
+                    .put("animeId", intent.getStringExtra("animeId").orEmpty())
                     .put("positionMs", position)
                     .put("durationMs", duration)
                     .put("playerState", if (::player.isInitialized) player.playbackStateLabel() else "STATE_IDLE")

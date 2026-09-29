@@ -25,6 +25,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.LinkedHashSet
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -62,8 +63,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingPlayCommandCreatedAtMs: Long = 0L
     private var pendingPlayRequestId: String? = null
     private var activePlayerRequestId: String? = null
-    private var lastPlayerHandoffUri: String? = null
-    private var lastPlayerHandoffAtElapsedMs: Long = 0L
+    private val seenPlayerRequestIds = LinkedHashSet<String>()
     private var startupDiscoveryTriggered = false
     private var lastObservedMediaAccess: String? = null
     private var lastObservedBroadAccess: Boolean? = null
@@ -140,7 +140,7 @@ class MainActivity : FlutterFragmentActivity() {
         private const val SAF_PICKER_LAUNCH_TIMEOUT_MS = 5000L
         private const val SAF_PICKER_RETURN_GRACE_MS = 2500L
         private const val SAF_PICKER_WATCHDOG_RETRY_MS = 250L
-        private const val PLAYER_HANDOFF_DEDUPE_WINDOW_MS = 900L
+
     }
     /** Native lifecycle/observer events only request a logical scan. The Python
      * ScanCoordinator decides whether and when a scanner actually runs. */
@@ -1835,20 +1835,7 @@ class MainActivity : FlutterFragmentActivity() {
 
         val previousActiveRequestId = activePlayerRequestId
         val reusingPlayerActivity = !previousActiveRequestId.isNullOrBlank()
-        if (reusingPlayerActivity && previousActiveRequestId == requestId && requestId.isNotBlank()) {
-            Log.i(tag, "PLAY_HANDOFF_DUPLICATE requestId=$requestId ignored=true reason=same_request")
-            return
-        }
-
-        // A double tap can produce two different bridge request IDs before the
-        // first NativePlayerActivity has even reached onCreate(). Deduplicate
-        // only the same normalized local URI inside a short handoff window; the
-        // window is intentionally small so a deliberate later reopen still works.
-        val handoffNow = android.os.SystemClock.elapsedRealtime()
-        val normalizedHandoffUri = localUri.toString()
-        if (lastPlayerHandoffUri == normalizedHandoffUri &&
-            handoffNow - lastPlayerHandoffAtElapsedMs in 0..PLAYER_HANDOFF_DEDUPE_WINDOW_MS
-        ) {
+        if (requestId.isNotBlank() && !seenPlayerRequestIds.add(requestId)) {
             nativeRequestState.markOperationState(
                 requestId,
                 "play",
@@ -1857,20 +1844,21 @@ class MainActivity : FlutterFragmentActivity() {
             Log.i(
                 tag,
                 "PLAY_HANDOFF_DUPLICATE requestId=" + requestId +
-                    " ignored=true reason=same_uri windowMs=" + PLAYER_HANDOFF_DEDUPE_WINDOW_MS +
-                    " uri=" + normalizedHandoffUri,
+                    " ignored=true reason=same_request",
             )
             publishNativeDiagnostic(
                 "PLAYER_HANDOFF_DUPLICATE",
                 requestId,
                 "play",
                 NativeRequestState.OperationState.COMPLETED.name,
-                result = "ignored_same_uri",
+                result = "ignored_same_request",
             )
             return
         }
-        lastPlayerHandoffUri = normalizedHandoffUri
-        lastPlayerHandoffAtElapsedMs = handoffNow
+        while (seenPlayerRequestIds.size > 256) {
+            val oldest = seenPlayerRequestIds.iterator().next()
+            seenPlayerRequestIds.remove(oldest)
+        }
 
         activePlayerRequestId = requestId.takeIf { it.isNotBlank() }
         Log.i(
@@ -1888,10 +1876,6 @@ class MainActivity : FlutterFragmentActivity() {
             val resolvedActivity = intent.resolveActivity(packageManager)
             if (resolvedActivity == null) {
                 activePlayerRequestId = previousActiveRequestId
-                if (lastPlayerHandoffUri == normalizedHandoffUri) {
-                    lastPlayerHandoffUri = null
-                    lastPlayerHandoffAtElapsedMs = 0L
-                }
                 Log.e(
                     tag,
                     "PLAY_HANDOFF_FAILED requestId=" + requestId.ifEmpty { "-" } +
@@ -1963,10 +1947,6 @@ class MainActivity : FlutterFragmentActivity() {
             }
         } catch (exception: Exception) {
             activePlayerRequestId = previousActiveRequestId
-            if (lastPlayerHandoffUri == normalizedHandoffUri) {
-                lastPlayerHandoffUri = null
-                lastPlayerHandoffAtElapsedMs = 0L
-            }
             Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId.ifEmpty { "-" } + " reason=start_activity", exception)
             NativeMailbox.writeBestEffort(this, JSONObject().put("type", "player_error")
                 .put("requestId", requestId)

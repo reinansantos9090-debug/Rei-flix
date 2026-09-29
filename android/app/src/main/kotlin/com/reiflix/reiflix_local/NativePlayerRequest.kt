@@ -16,6 +16,7 @@ data class NativePlayerRequest(
     val commandCreatedAtMs: Long,
     val episodeUri: String,
     val episodeId: String,
+    val animeId: String,
     val title: String,
     val positionMs: Long,
     val canNext: Boolean,
@@ -50,6 +51,7 @@ data class NativePlayerRequest(
             .putExtra("uri", normalizedUri.toString())
             .putExtra("mediaId", normalizedUri.toString())
             .putExtra("episodeId", episodeId)
+            .putExtra("animeId", animeId)
             .putExtra("title", title)
             .putExtra("positionMs", positionMs)
             .putExtra("canNext", canNext)
@@ -91,6 +93,7 @@ data class NativePlayerRequest(
                 commandCreatedAtMs = get("created_at")?.toLongOrNull()?.takeIf { it > 0L } ?: 0L,
                 episodeUri = get("uri").orEmpty().trim(),
                 episodeId = get("episode_id").orEmpty(),
+                animeId = get("anime_id").orEmpty(),
                 title = get("title") ?: "Episódio",
                 positionMs = get("position_ms")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
                 canNext = get("can_next")?.toBooleanStrictOrNull() ?: false,

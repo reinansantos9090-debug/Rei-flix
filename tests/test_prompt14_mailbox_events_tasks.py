@@ -44,7 +44,7 @@ class NativeMailboxPrompt14Tests(unittest.TestCase):
 
             self.assertEqual([10, 11, 12], [event["createdAt"] for event in drained])
             self.assertEqual(7, bridge.pending_count())
-            self.assertEqual(3, len(list((root / "data" / "reiflix-native-events").glob("*.consumed"))))
+            self.assertEqual(3, len(list((root / "reiflix-native-events").glob("*.consumed"))))
 
             bridge.acknowledge()
             self.assertEqual(7, bridge.pending_count())
@@ -67,7 +67,7 @@ class NativeMailboxPrompt14Tests(unittest.TestCase):
             bridge.requeue_event_ids({"evt-failed"})
             bridge.acknowledge()
 
-            queue = root / "data" / "reiflix-native-events"
+            queue = root / "reiflix-native-events"
             self.assertEqual(1, bridge.pending_count())
             self.assertTrue(first.exists())
             self.assertFalse((queue / "event-evt-ok.json").exists())

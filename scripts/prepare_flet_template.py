@@ -284,6 +284,32 @@ if "// ReiAnix native host dependencies" not in existing:
 # module explicitly instead of relying on Flutter template defaults.
 existing = gradle.read_text(encoding="utf-8")
 
+# PerformanceDiagnostics uses the Android-generated BuildConfig class. Flet's
+# rendered Android module does not guarantee BuildConfig generation, so make
+# this explicit in the actual Gradle project that will compile the APK.
+build_config_marker = "ReiAnix BuildConfig generation contract"
+if build_config_marker not in existing:
+    if gradle.suffix == ".kts":
+        build_config_block = """
+// ReiAnix BuildConfig generation contract
+android {
+    buildFeatures {
+        buildConfig = true
+    }
+}
+"""
+    else:
+        build_config_block = """
+// ReiAnix BuildConfig generation contract
+android {
+    buildFeatures {
+        buildConfig true
+    }
+}
+"""
+    existing += build_config_block
+    gradle.write_text(existing, encoding="utf-8")
+
 # Kotlin/JVM and Android instrumentation tests are part of the host contract.
 test_dependency_marker = "ReiAnix Kotlin test dependencies"
 if test_dependency_marker not in existing:

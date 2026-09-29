@@ -78,7 +78,7 @@ class Prompt6NavigationLifecycleTests(unittest.TestCase):
     def test_details_instance_guard_includes_lifecycle_connection_state(self):
         main = MAIN.read_text(encoding="utf-8")
         start = main.index("is_active=lambda token=detail_instance_token")
-        end = main.index(")", start)
+        end = main.index("            )\n        elif route == \"collector\":", start)
         fragment = main[start:end]
         self.assertIn("ui_alive[0]", fragment)
         self.assertIn("details_instance_generation[0] == token", fragment)

@@ -32,7 +32,7 @@ class DetailView:
         performance = get_performance_monitor()
         build_started = performance.now()
         performance.counter("ui.builds_requested.details")
-theme = activate_theme_for_page(page)
+        theme = activate_theme_for_page(page)
         BACKGROUND = theme.background
         SURFACE = theme.surface
         TEXT = theme.text

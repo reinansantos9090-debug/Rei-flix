@@ -2797,6 +2797,53 @@ class LibraryStore:
         get_performance_monitor().record_sqlite("next_episode" if direction > 0 else "previous_episode",
                                                 (time.perf_counter()-started)*1000.0, rows=len(rows))
         return result
+    def player_navigation(self, path):
+        """Resolve Next/Previous plus destination edge flags in one SQLite read."""
+        started = time.perf_counter()
+        with self._conn() as c:
+            current = self._find_episode_row(c, path)
+            if not current or not is_regular_episode(dict(current)):
+                return {
+                    "current": dict(current) if current else None,
+                    "next": None,
+                    "previous": None,
+                    "can_next": False,
+                    "can_previous": False,
+                    "next_can_next": False,
+                    "next_can_previous": False,
+                    "previous_can_next": False,
+                    "previous_can_previous": False,
+                }
+            rows = c.execute(
+                "SELECT e.*, a.title AS anime_title FROM episodes e JOIN anime a ON a.id=e.anime_id "
+                "WHERE e.anime_id=? AND e.missing=0 AND e.episode_type NOT IN "
+                "('movie','special','ova','oad','ona','extra')",
+                (current["anime_id"],),
+            ).fetchall()
+        available = [dict(row) for row in rows]
+        current_row = dict(current)
+        next_item = self._adjacent_from_rows(current_row, available, 1)
+        previous_item = self._adjacent_from_rows(current_row, available, -1)
+        next_after = self._adjacent_from_rows(next_item, available, 1) if next_item else None
+        previous_before = self._adjacent_from_rows(previous_item, available, -1) if previous_item else None
+        result = {
+            "current": current_row,
+            "next": next_item,
+            "previous": previous_item,
+            "can_next": next_item is not None,
+            "can_previous": previous_item is not None,
+            "next_can_next": next_after is not None,
+            "next_can_previous": next_item is not None,
+            "previous_can_next": previous_item is not None,
+            "previous_can_previous": previous_before is not None,
+        }
+        get_performance_monitor().record_sqlite(
+            "player_navigation",
+            (time.perf_counter() - started) * 1000.0,
+            rows=len(rows),
+        )
+        return result
+
     def next_episode(self, path):
         return self.adjacent_episode(path, 1)
 

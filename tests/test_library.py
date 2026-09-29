@@ -640,7 +640,10 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(any(bridge.queue_dir.glob("event-*.consumed")))
             bridge.mailbox.write_text("{bad json", encoding="utf-8")
             self.assertEqual(bridge.drain(), [])
-            self.assertFalse(bridge.mailbox.with_suffix(".consumed").exists())
+            # Invalid legacy JSON stays claimed as .consumed so the malformed
+            # batch is not silently lost and can be diagnosed/recovered.
+            self.assertTrue(bridge.mailbox.with_suffix(".consumed").exists())
+            bridge.mailbox.with_suffix(".consumed").unlink()
 
     def test_native_events_written_while_batch_is_claimed_survive_acknowledgement(self):
         with tempfile.TemporaryDirectory() as d:

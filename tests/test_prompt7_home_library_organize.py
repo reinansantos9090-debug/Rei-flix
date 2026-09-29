@@ -70,7 +70,7 @@ class Prompt7HomeLibraryOrganizeTests(unittest.TestCase):
     def test_organize_initial_build_does_not_query_summary_synchronously(self):
         organize = self.read(ORGANIZE)
         start = organize.rindex("        save_view_state()\n")
-        end = organize.index("        page.run_task(load_catalog)", start)
+        end = organize.index("        _start_view_task(load_catalog)", start)
         initial = organize[start:end]
         self.assertNotIn("organize_summary_bounded", initial)
         self.assertNotIn("genre_options(", initial)

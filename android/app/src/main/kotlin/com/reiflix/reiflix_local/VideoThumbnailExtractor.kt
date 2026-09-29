@@ -28,6 +28,7 @@ object VideoThumbnailExtractor {
 
     private val inFlight = ConcurrentHashMap<String, Any>()
     private const val MAX_CACHE_BYTES = 128L * 1024L * 1024L
+    private const val MAX_FRAME_DIMENSION = 320
     internal fun cacheKey(mediaIdentity: String, size: Long, modifiedAt: Long): String =
         sha256(mediaIdentity + "|" + size + "|" + modifiedAt)
 
@@ -98,12 +99,26 @@ object VideoThumbnailExtractor {
                 retriever.getScaledFrameAtTime(
                     0L,
                     MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                    640,
-                    640,
+                    MAX_FRAME_DIMENSION,
+                    MAX_FRAME_DIMENSION,
                 )
             } else {
                 retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
             } ?: return null
+
+            if (bitmap.width > MAX_FRAME_DIMENSION || bitmap.height > MAX_FRAME_DIMENSION) {
+                val scale = minOf(
+                    MAX_FRAME_DIMENSION.toFloat() / bitmap.width.toFloat(),
+                    MAX_FRAME_DIMENSION.toFloat() / bitmap.height.toFloat(),
+                )
+                val scaledWidth = (bitmap.width * scale).toInt().coerceAtLeast(1)
+                val scaledHeight = (bitmap.height * scale).toInt().coerceAtLeast(1)
+                val scaled = Bitmap.createScaledBitmap(bitmap, scaledWidth, scaledHeight, true)
+                if (scaled !== bitmap) {
+                    bitmap.recycle()
+                    bitmap = scaled
+                }
+            }
 
             if (rotation != 0 && bitmap.width > 1 && bitmap.height > 1) {
                 val matrix = Matrix().apply { postRotate(rotation.toFloat()) }

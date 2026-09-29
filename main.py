@@ -985,8 +985,8 @@ async def main(page: ft.Page):
         apply_page_theme(page, "system")
         _invalidate_cached_view(home_state, "home")
         _invalidate_cached_view(organize_state, "organize")
-        screen_cache.clear()
-        render_current(force=True)
+        _clear_screen_cache()
+        render_current(force=True, reason="platform_brightness")
     async def remove_folder(reference):
         if scan_coordinator.active or saf_selection.pending:
             page.snack_bar = ft.SnackBar(ft.Text("Aguarde a atualização ou a seleção de pasta terminar antes de remover uma pasta."))
@@ -1113,8 +1113,8 @@ async def main(page: ft.Page):
             if navigation.current != "settings":
                 navigation.push("settings")
             navigation.push_settings(label)
-            screen_cache.pop("settings", None)
-            render_current()
+            _drop_screen_cache("settings")
+            render_current(reason="open_settings_category")
             persist_navigation_state()
 
     def close_home_search():
@@ -1197,9 +1197,9 @@ async def main(page: ft.Page):
             # Settings content is rebuilt whenever its nested path changes, while
             # top-level screens remain cached for scroll/filter/search continuity.
             if action == "settings_inner":
-                screen_cache.pop("settings", None)
+                _drop_screen_cache("settings")
             elif navigation.current == "settings":
-                screen_cache.pop("settings", None)
+                _drop_screen_cache("settings")
             # Details can mutate favorite/pin/progress state in LibraryStore while
             # Organize is cached for scroll/filter continuity. Refresh only when
             # returning to Organize so its collection reflects durable state

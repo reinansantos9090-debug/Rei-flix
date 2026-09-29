@@ -1681,7 +1681,7 @@ async def main(page: ft.Page):
             )
             return result
 
-        poll_interval = 0.2
+        poll_interval = 0.08
         while ui_alive[0]:
             try:
                 mailbox_started = performance.now()
@@ -1743,14 +1743,47 @@ async def main(page: ft.Page):
                                     operation_state or "-",
                                     payload.get('result') or "-",
                                 )
+                            diagnostic_event = str(payload.get('event') or 'NATIVE_DIAGNOSTIC').strip()
+                            if diagnostic_event == "PLAYER_HANDOFF_DISPATCHED" and event_request_id:
+                                player_active_request_id["value"] = event_request_id
+                                player_session_active["value"] = True
+                            elif diagnostic_event == "PLAYER_ACTIVITY_RESULT":
+                                controlled_result = bool(payload.get("controlled"))
+                                if controlled_result and (
+                                    player_active_request_id["value"] in (None, event_request_id)
+                                ):
+                                    cancel_player_transition("player_activity_result")
+                                    player_active_request_id["value"] = None
+                                    player_session_active["value"] = False
                             diagnostics.record(
-                                str(payload.get('event') or 'NATIVE_DIAGNOSTIC'),
+                                diagnostic_event,
                                 request_id=event_request_id,
                                 scan_id=event_scan_id,
                                 source=payload.get('source'),
                                 result=payload.get('result') or payload.get('access'),
                             )
                         else:
+                            if event_type in {
+                                "player_next_request",
+                                "player_previous_request",
+                                "player_opened",
+                                "player_exited",
+                                "player_error",
+                            }:
+                                created_ms = int(
+                                    event.get("createdAt")
+                                    or payload.get("createdAt")
+                                    or time.time() * 1000
+                                )
+                                performance.event(
+                                    "player.mailbox.consume",
+                                    duration_ms=max(0, int(time.time() * 1000) - created_ms),
+                                    screen=navigation.current,
+                                    metadata={
+                                        "event_type": event_type,
+                                        "request_id": event_request_id,
+                                    },
+                                )
                             timeline_name = {
                                 'storage_capabilities': 'ACTUAL_PERMISSION_STATE',
                                 'mediastore_permission': 'PERMISSION_RESULT',
@@ -2279,12 +2312,22 @@ async def main(page: ft.Page):
                             performance.record_native_event(event)
                             continue
                         elif event_type == 'player_opened':
-                            diagnostics.record(
-                                "PLAYER_OPENED",
-                                request_id=event_request_id,
-                                source=payload.get('source') or "native_player",
-                                result=payload.get('state') or "READY",
-                            )
+                            if player_active_request_id["value"] in (None, event_request_id):
+                                player_active_request_id["value"] = event_request_id
+                                player_session_active["value"] = True
+                                diagnostics.record(
+                                    "PLAYER_OPENED",
+                                    request_id=event_request_id,
+                                    source=payload.get('source') or "native_player",
+                                    result=payload.get('state') or "READY",
+                                )
+                            else:
+                                diagnostics.record(
+                                    "PLAYER_OPENED_IGNORED",
+                                    request_id=event_request_id,
+                                    source="native_player",
+                                    result="stale_player_session",
+                                )
                         elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
                             path_ref = str(payload.get('uri') or '').strip()
                             if path_ref:
@@ -2589,6 +2632,8 @@ async def main(page: ft.Page):
                             )
                             player_transition_task["task"] = task
                         elif event_type == 'player_error':
+                            if event_request_id and event_request_id == player_active_request_id["value"]:
+                                cancel_player_transition("player_error")
                             message = event.get('message', 'Não foi possível reproduzir este arquivo localmente.')
                             diagnostics.record(
                                 "PLAYER_ERROR",
@@ -2607,6 +2652,17 @@ async def main(page: ft.Page):
                             page.snack_bar.open = True
                             safe_update()
                         elif event_type == 'player_exited':
+                            if player_active_request_id["value"] in (None, event_request_id):
+                                cancel_player_transition("player_exited")
+                                player_active_request_id["value"] = None
+                                player_session_active["value"] = False
+                            else:
+                                diagnostics.record(
+                                    "PLAYER_EXIT_IGNORED",
+                                    request_id=event_request_id,
+                                    source="native_player",
+                                    result="stale_player_session",
+                                )
                             exit_uri = str(payload.get('uri') or '').strip()
                             exit_updated = False
                             if exit_uri and payload.get('positionMs') is not None:
@@ -2917,7 +2973,12 @@ async def main(page: ft.Page):
                         "backlog_after": bridge.pending_count(),
                     },
                 )
-                poll_interval = 0.2 if events else min(1.0, poll_interval * 1.5)
+                if events:
+                    poll_interval = 0.08 if player_session_active["value"] else 0.2
+                elif player_session_active["value"]:
+                    poll_interval = min(0.25, max(0.08, poll_interval * 1.25))
+                else:
+                    poll_interval = min(1.0, max(0.2, poll_interval * 1.5))
             except Exception as exc:
                 logger.exception("[ANDROID] NATIVE_MAILBOX_LOOP_FAILED")
                 poll_interval = min(1.0, poll_interval * 1.5)

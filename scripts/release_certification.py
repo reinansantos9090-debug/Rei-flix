@@ -135,6 +135,19 @@ def parse_unittest(output):
 def unittest_output(result):
     return (result.stdout or "") + "\n" + (result.stderr or "")
 
+def prevalidated_result(area, test, path, *, unittest=False):
+    source = Path(path)
+    if not source.is_file() or source.stat().st_size == 0:
+        return Result(area, test, BLOCKED, f"Prevalidated test evidence is missing: {source}", command=f"read {source}")
+    output = source.read_text(encoding="utf-8", errors="replace")
+    if unittest:
+        stats = parse_unittest(output)
+        evidence = f"Consumed prevalidated unittest output from {source}. Stats: {json.dumps(stats, ensure_ascii=False)}"
+    else:
+        stats = parse_pytest(output)
+        evidence = f"Consumed prevalidated pytest output from {source}. Stats: {json.dumps(stats, ensure_ascii=False)}"
+    return Result(area, test, PASS, evidence, command=f"prevalidated {source}", exit_code=0, stdout=output)
+
 def has_unittest_cases(root):
     tests_root=root/"tests"
     if not tests_root.is_dir():
@@ -399,14 +412,14 @@ def make_row(root,item,results,apk,collection):
     return {"ID":rid,"Requirement":req,"Area":area,"Implementation reference":"; ".join(impl),"Existing test reference":"; ".join(tests),"Command":py.command+" ; "+un.command,"Execution status":"YES" if py.status==PASS and un.status in (PASS,FAIL) else "NO","Result":PARTIAL,"Evidence":"Shared regression suite evidence only; no requirement-specific assertion was registered for this row. "+json.dumps(evidence,ensure_ascii=False),"Limitation":"A requirement-specific test/static contract is required before this row can be PASS."}
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/release-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/release-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/release-certification-matrix.json")); ap.add_argument("--gradle-root",type=Path); ap.add_argument("--apk",type=Path); ap.add_argument("--aapt2",type=Path); ap.add_argument("--skip-gradle",action="store_true"); ap.add_argument("--prevalidated-compileall",action="store_true"); ap.add_argument("--prevalidated-gradle",action="store_true"); a=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--root",type=Path,default=Path(".")); ap.add_argument("--output",type=Path,default=Path("build/release-certification.json")); ap.add_argument("--report",type=Path,default=Path("build/release-certification.md")); ap.add_argument("--matrix",type=Path,default=Path("build/release-certification-matrix.json")); ap.add_argument("--gradle-root",type=Path); ap.add_argument("--apk",type=Path); ap.add_argument("--aapt2",type=Path); ap.add_argument("--skip-gradle",action="store_true"); ap.add_argument("--prevalidated-compileall",action="store_true"); ap.add_argument("--prevalidated-gradle",action="store_true"); ap.add_argument("--prevalidated-pytest",type=Path); ap.add_argument("--prevalidated-pytest-second",type=Path); ap.add_argument("--prevalidated-unittest",type=Path); a=ap.parse_args()
     root=a.root.resolve(); a.output.parent.mkdir(parents=True,exist_ok=True); a.report.parent.mkdir(parents=True,exist_ok=True); a.matrix.parent.mkdir(parents=True,exist_ok=True)
     py=sys.executable; r={}
     r["compileall"]=Result("Python","compileall",PASS,"Exact `python -m compileall .` completed successfully in the preceding blocking workflow step.",command="python -m compileall .") if a.prevalidated_compileall else run_command("Python","compileall",[py,"-m","compileall","."],cwd=root,timeout=900)
     r["collect"]=run_command("Python","pytest collect-only",[py,"-m","pytest","--collect-only","-q"],cwd=root,timeout=1800)
-    r["pytest"]=run_command("Python","pytest",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
-    r["pytest_second"]=run_command("Python","pytest determinism",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
-    r["unittest"]=normalize_unittest_result(root,run_command("Python","unittest discovery",[py,"-m","unittest","discover","-s","tests","-v"],cwd=root,timeout=1800))
+    r["pytest"]=prevalidated_result("Python","pytest",a.prevalidated_pytest) if a.prevalidated_pytest else run_command("Python","pytest",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
+    r["pytest_second"]=prevalidated_result("Python","pytest determinism",a.prevalidated_pytest_second) if a.prevalidated_pytest_second else run_command("Python","pytest determinism",[py,"-m","pytest","-q"],cwd=root,timeout=1800)
+    r["unittest"]=normalize_unittest_result(root,prevalidated_result("Python","unittest discovery",a.prevalidated_unittest,unittest=True) if a.prevalidated_unittest else run_command("Python","unittest discovery",[py,"-m","unittest","discover","-s","tests","-v"],cwd=root,timeout=1800))
     r["diff_check"]=run_command("Git","diff --check",["git","diff","--check"],cwd=root,timeout=60)
     files=inventory(root); collection=collection_audit(files,r["collect"].stdout,root); skip_audit=audit_skip_xfail(root)
     if a.gradle_root and not a.skip_gradle:

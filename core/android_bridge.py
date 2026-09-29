@@ -398,7 +398,7 @@ class AndroidBridge:
                         logger.error("[ANDROID] Invalid legacy native mailbox batch discarded: %s", exc)
                         legacy.unlink(missing_ok=True)
 
-            candidates: list[tuple[float, int, Path, dict]] = []
+            candidates: list[tuple[float, int, Path]] = []
             for index, source in enumerate(sorted(self.queue_dir.glob("event-*.json"))):
                 try:
                     payload = json.loads(source.read_text(encoding="utf-8"))
@@ -410,15 +410,31 @@ class AndroidBridge:
                     logger.warning("[ANDROID] Ignoring non-object modern mailbox payload file=%s", source.name)
                     continue
                 normalized = self._normalize_event(payload, source.name, 0)
-                if normalized is not None:
-                    candidates.append((self._event_time(normalized), index, source, normalized))
+                if normalized is None:
+                    continue
+                event_time = self._event_time(normalized)
+                candidate = (-event_time, -index, source)
+                if len(candidates) < limit:
+                    heapq.heappush(candidates, candidate)
+                elif candidate > candidates[0]:
+                    heapq.heapreplace(candidates, candidate)
 
-            candidates.sort(key=lambda item: (item[0], item[1]))
-            for _, _, source, normalized in candidates[:limit]:
+            selected = sorted(
+                ((-item[0], -item[1], item[2]) for item in candidates),
+                key=lambda item: (item[0], item[1]),
+            )
+            for _, _, source in selected:
                 consumed = source.with_suffix(".consumed")
                 try:
+                    payload = json.loads(source.read_text(encoding="utf-8"))
+                    if not isinstance(payload, dict):
+                        continue
+                    normalized = self._normalize_event(payload, source.name, 0)
+                    if normalized is None:
+                        continue
                     source.replace(consumed)
-                except OSError:
+                except (OSError, json.JSONDecodeError) as exc:
+                    logger.warning("[ANDROID] Failed to claim selected native event %s: %s", source.name, exc)
                     continue
                 claimed.append(consumed)
                 events.append(normalized)

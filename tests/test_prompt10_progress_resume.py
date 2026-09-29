@@ -99,8 +99,9 @@ class Prompt10ProgressResumeTests(unittest.TestCase):
         player = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
         pause = player[player.index("override fun onPause()"):player.index("override fun onStop()")]
         stop = player[player.index("override fun onStop()"):player.index("override fun onWindowFocusChanged")]
-        self.assertIn("sessionState != SessionState.EXITING", pause)
-        self.assertIn("sessionState != SessionState.EXITING", stop)
+        self.assertIn("sessionState != SessionState.EXITING || !exitProgressPublished", pause)
+        self.assertIn("sessionState != SessionState.EXITING || !exitProgressPublished", stop)
+        self.assertIn("exitProgressPublished = ok", player)
         self.assertIn("reportPlayerExit(reason)", player)
 
     def test_out_of_order_events_remain_rejected_after_switching_to_episode_id(self):

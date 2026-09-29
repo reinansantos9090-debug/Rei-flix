@@ -55,6 +55,31 @@ class Prompt6NavigationLifecycleTests(unittest.TestCase):
         self.assertGreater(invalidate, dialog)
         self.assertIn('if dialog is not None:', back)
 
+
+    def test_settings_render_only_invalidates_tasks_when_tree_is_rebuilt(self):
+        source = MAIN.read_text(encoding="utf-8")
+        start = source.index("def render_current")
+        end = source.index("def handle_flet_view_pop", start)
+        render = source[start:end]
+        self.assertIn("settings_tree_replaced = False", render)
+        self.assertIn("settings_tree_replaced = settings_tree_replaced or (", render)
+        self.assertIn("if settings_tree_replaced:", render)
+        invalidate = render.index("settings_tasks.invalidate()")
+        replaced = render.index("if settings_tree_replaced:")
+        self.assertGreater(invalidate, replaced)
+
+    def test_settings_focus_task_has_single_registration_path(self):
+        source = SETTINGS.read_text(encoding="utf-8")
+        start = source.index("def handle_category_focus")
+        end = source.index("def build_category_tile", start)
+        handler = source[start:end]
+        self.assertEqual(handler.count("register_settings_task("), 0)
+        self.assertIn("focus_task = start_task(", handler)
+        start_task = source.index("def start_task")
+        end_task = source.index("async def execute_action", start_task)
+        helper = source[start_task:end_task]
+        self.assertEqual(helper.count("register_settings_task(task)"), 1)
+
     def test_settings_background_tasks_are_registered(self):
         source = SETTINGS.read_text(encoding="utf-8")
         self.assertIn("def start_task(handler, *args):", source)

@@ -442,11 +442,16 @@ class SettingsView:
             page.run_task(run)
 
         def clear_cache_action():
+            cache_started = performance.now()
             busy["cache"] = True
             try:
                 removed = library.clear_anilist_cache()
+                performance.event("settings.clear_cache", duration_ms=(performance.now()-cache_started)*1000.0,
+                                  screen="settings", metadata={"removed": removed})
                 notice(f"Cache AniList limpo ({removed} capa(s) removida(s)).")
             except Exception:
+                performance.event("settings.clear_cache", duration_ms=(performance.now()-cache_started)*1000.0,
+                                  status="error", screen="settings")
                 logger.exception("clear cache failed")
                 notice("Não foi possível limpar o cache AniList.", True)
             finally:

@@ -407,6 +407,8 @@ class AndroidBridge:
                 )
                 temp.replace(target)
                 migrated += 1
+            if migrated == 0 and raw_events:
+                logger.error("[ANDROID] Invalid legacy native mailbox batch discarded: %s", legacy.name)
             legacy.unlink(missing_ok=True)
             logger.info("[ANDROID] LEGACY_MAILBOX_MIGRATED events=%s", migrated)
         except (OSError, json.JSONDecodeError) as exc:

@@ -7,6 +7,7 @@ deduplication and lightweight UI-facing resolution.
 """
 from __future__ import annotations
 
+from io import BytesIO
 import hashlib
 import logging
 import os
@@ -17,6 +18,8 @@ import urllib.error
 import urllib.request
 from concurrent.futures import Future
 from pathlib import Path
+
+from PIL import Image, ImageOps
 
 from core.artwork_palette import extract_palette
 
@@ -66,7 +69,8 @@ _EVENT_NAMES = {
 class ArtworkEngine:
     """Manages artwork without making artwork a dependency of the library."""
 
-    MAX_WORKERS = 3
+    MAX_WORKERS = 2
+    MAX_PENDING_TASKS = 128
     MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024
     DEFAULT_CACHE_LIMIT_BYTES = 128 * 1024 * 1024
     MAX_RETRIES = 3
@@ -95,6 +99,10 @@ class ArtworkEngine:
         self._closed = False
         self._ensure_schema()
         self._start_workers()
+        # Enforce the persisted disk-cache budget when an existing installation
+        # is opened; otherwise an oversized cache could remain above the limit
+        # until another download happens.
+        self._evict_if_needed()
 
     def _log(self, event, **extra):
         logger.info("%s %s", _EVENT_NAMES.get(event, event), extra)
@@ -835,6 +843,8 @@ class ArtworkEngine:
             existing = self._pending.get(key)
             if existing and not existing.done():
                 return existing
+            if len(self._pending) >= self.MAX_PENDING_TASKS:
+                raise queue.Full
             future = Future()
             self._sequence += 1
             self._pending[key] = future
@@ -886,11 +896,16 @@ class ArtworkEngine:
         self._set_status(row["id"], STATUS_QUEUED)
         with self._lock:
             generation = self._generation
-        future = self._enqueue(
-            key,
-            lambda generation=generation: self._download_row(row, force=force, generation=generation),
-            priority=priority,
-        )
+        try:
+            future = self._enqueue(
+                key,
+                lambda generation=generation: self._download_row(row, force=force, generation=generation),
+                priority=priority,
+            )
+        except queue.Full:
+            self._set_status(row["id"], STATUS_NOT_REQUESTED)
+            self._log("cancel", key=key, reason="pending_limit")
+            return row
         if blocking:
             return future.result()
         return dict(row, status=STATUS_QUEUED)
@@ -913,6 +928,45 @@ class ArtworkEngine:
                 logger.exception("Artwork prefetch request failed")
         return futures
 
+    @staticmethod
+    def _prepare_download_payload(payload, *, artwork_type, variant, extension):
+        """Keep cached artwork close to the largest useful UI size.
+
+        Local/manual artwork is never rewritten. Only freshly downloaded managed
+        artwork is normalized, and only when it exceeds the variant-specific bound.
+        Unsupported formats are kept byte-for-byte unchanged.
+        """
+        try:
+            with Image.open(BytesIO(payload)) as image:
+                original_width, original_height = image.size
+                if artwork_type in {"thumbnail", "episode_thumbnail"} or variant == "small":
+                    max_width, max_height = 640, 640
+                elif artwork_type == "backdrop":
+                    max_width, max_height = 1440, 810
+                else:
+                    max_width, max_height = 960, 1440
+                if original_width <= max_width and original_height <= max_height:
+                    return payload, original_width, original_height
+
+                normalized = ImageOps.exif_transpose(image)
+                normalized.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+                output = BytesIO()
+                if extension in {".jpg", ".jpeg"}:
+                    normalized.convert("RGB").save(
+                        output, format="JPEG", quality=90, optimize=True, progressive=True,
+                    )
+                elif extension == ".png":
+                    normalized.save(output, format="PNG", optimize=True)
+                elif extension == ".webp":
+                    save_image = normalized.convert("RGB") if normalized.mode not in {"RGB", "RGBA"} else normalized
+                    save_image.save(output, format="WEBP", quality=90, method=4)
+                else:
+                    return payload, original_width, original_height
+                return output.getvalue(), normalized.width, normalized.height
+        except Exception:
+            logger.debug("Artwork payload normalization skipped", exc_info=True)
+            return payload, None, None
+
     def _download_row(self, row, *, force=False, generation=None):
         with self._lock:
             if generation is not None and generation != self._generation:
@@ -933,10 +987,16 @@ class ArtworkEngine:
                 extension = _detect_image_extension(payload)
             if not extension:
                 raise ValueError("conteúdo recebido não é uma imagem suportada")
+            variant = row.get("variant") or _VARIANT_PRIORITY.get(row["artwork_type"], "default")
+            payload, width, height = self._prepare_download_payload(
+                payload,
+                artwork_type=row["artwork_type"],
+                variant=variant,
+                extension=extension,
+            )
             checksum = hashlib.sha256(payload).hexdigest()
             key = row.get("artwork_key") or self._make_key(
-                "url", row.get("source_ref") or url, row["artwork_type"],
-                row.get("variant") or _VARIANT_PRIORITY.get(row["artwork_type"], "default"),
+                "url", row.get("source_ref") or url, row["artwork_type"], variant,
             )
             target = self.cache_dir / f"{key}{extension}"
             temporary = self.cache_dir / f".{key}.tmp"
@@ -959,9 +1019,9 @@ class ArtworkEngine:
             with self.store._conn() as con:
                 con.execute(
                     """UPDATE artwork SET source='cache',local_path=?,status=?,priority=?,
-                       updated_at=?,last_access=?,byte_size=?,checksum=?,content_type=?,
+                       updated_at=?,last_access=?,byte_size=?,width=?,height=?,checksum=?,content_type=?,
                        next_retry_at=NULL,http_status=?,failure_count=0 WHERE id=?""",
-                    (str(target), STATUS_READY, _SOURCE_PRIORITY["cache"], now, now, len(payload), checksum,
+                    (str(target), STATUS_READY, _SOURCE_PRIORITY["cache"], now, now, len(payload), width, height, checksum,
                      content_type or _mime_from_path(str(target)), http_status, row_id),
                 )
                 if row["entity_type"] in {"anime", "movie"} and row["artwork_type"] == "poster":

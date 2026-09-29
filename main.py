@@ -12,6 +12,7 @@ from core.navigation import NavigationController, SafSelectionState
 from core.scan_coordinator import ScanCoordinator, ScanOrigin, ScanState, ScanTarget
 from core.storage_access import StorageAccessState, StorageCapabilities, ScanUiState, scan_ui_state_from_native, storage_access_state, storage_source_states
 from core.diagnostics import DiagnosticTimeline
+from core.performance import get_performance_monitor
 from core.build_identity import as_dict as build_identity
 from core.diagnostic_service import DiagnosticsService
 from core.backup import BackupError, BackupService
@@ -36,10 +37,16 @@ GOOGLE_REDIRECT_URL = os.getenv('REIFLIX_GOOGLE_REDIRECT_URL', CONFIG_GOOGLE_RED
 GOOGLE_WEB_CLIENT_ID = os.getenv('REIFLIX_GOOGLE_WEB_CLIENT_ID', CONFIG_GOOGLE_WEB_CLIENT_ID)
 
 async def main(page: ft.Page):
+    performance = get_performance_monitor()
+    startup_started = performance.now()
+    performance.counter("startup.python_main")
     page.title='ReiAnix Local'; page.padding=0
     apply_page_theme(page, "dark")
     data_dir=os.getenv("FLET_APP_STORAGE_DATA") or os.path.join(os.path.dirname(__file__),'.reiflix-data')
+    store_started = performance.now()
     store=LibraryStore(data_dir)
+    performance.event("startup.library_store", duration_ms=(performance.now()-store_started)*1000.0,
+                      metadata={"schema_version": getattr(store, "SCHEMA_VERSION", None)})
     recovery_service = RecoveryService(store)
     recovery_status = recovery_service.diagnose()
     if store.recovery_error or recovery_status.get("required"):
@@ -68,10 +75,16 @@ async def main(page: ft.Page):
         )
         page.update()
         return
+    settings_started = performance.now()
     settings=SettingsStore(store)
+    performance.event("startup.settings_store", duration_ms=(performance.now()-settings_started)*1000.0)
     apply_page_theme(page, settings.get("appearance.theme"))
     recovered_scans=store.interrupted_scans()
-    library=LibraryService(store, settings=settings); bridge=AndroidBridge(data_dir, page); current=[None]
+    library=LibraryService(store, settings=settings)
+    bridge_started = performance.now()
+    bridge=AndroidBridge(data_dir, page)
+    performance.event("startup.android_bridge", duration_ms=(performance.now()-bridge_started)*1000.0)
+    current=[None]
     account_state=["connected" if store.account().get("email") else "disconnected"]
     diagnostics = DiagnosticTimeline()
     backup_service = BackupService(store, settings=settings, app_version="0.2.1")
@@ -212,6 +225,8 @@ async def main(page: ft.Page):
     settings_state = {}
     device_interaction_profile = {}
     navigation = NavigationController()
+    performance.set_screen_provider(lambda: navigation.current)
+    performance.install_page_hooks(page)
     details_instance_generation = [0]
     saf_selection = SafSelectionState()
     # One Python navigation stack, one persistent Flet host, and cached
@@ -399,11 +414,14 @@ async def main(page: ft.Page):
         return result
 
     def _build_screen(route, *, force=False, settings_path_override=None):
+        build_started = performance.now()
         cache_key = None if route == "collector" else (route if settings_path_override is None else None)
         if force and cache_key is not None:
             screen_cache.pop(cache_key, None)
         control = screen_cache.get(cache_key) if cache_key is not None else None
         if control is not None:
+            performance.record_ui_build(route, (performance.now()-build_started)*1000.0,
+                                        controls=performance.control_count(control), cached=True)
             return control
         if route == "home":
             control = HomeView.build(
@@ -481,6 +499,8 @@ async def main(page: ft.Page):
             raise RuntimeError(f"Unknown navigation route: {route}")
         if cache_key is not None:
             screen_cache[cache_key] = control
+        performance.record_ui_build(route, (performance.now()-build_started)*1000.0,
+                                    controls=performance.control_count(control), cached=False)
         return control
 
     def _settings_view_paths():
@@ -492,7 +512,7 @@ async def main(page: ft.Page):
         return paths
 
     def render_current(force=False):
-        render_started = time.perf_counter()
+        render_started = performance.now()
         views = []
         for route in navigation.stack:
             if route != "settings":
@@ -542,6 +562,14 @@ async def main(page: ft.Page):
 
         page.views.clear()
         page.views.extend(views)
+        performance.counter("ui.render_current")
+        performance.event("ui.render_current",
+                          duration_ms=(performance.now()-render_started)*1000.0,
+                          screen=navigation.current,
+                          metadata={"force": force,
+                                    "settings_depth": len(navigation.settings_path),
+                                    "view_count": len(views),
+                                    "controls": sum(performance.control_count(view) or 0 for view in views)})
         safe_update()
         logger.info(
             "NAV_RENDER_CURRENT duration_ms=%s current=%s settings_depth=%s view_count=%s force=%s",

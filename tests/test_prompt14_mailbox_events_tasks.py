@@ -18,7 +18,7 @@ PLAYER = ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix
 class NativeMailboxPrompt14Tests(unittest.TestCase):
     @staticmethod
     def write_event(root: Path, event_id: str, created_at: int, event_type: str = "diagnostic") -> Path:
-        queue = root / "data" / "reiflix-native-events"
+        queue = root / "reiflix-native-events"
         queue.mkdir(parents=True, exist_ok=True)
         path = queue / f"event-{event_id}.json"
         payload = {

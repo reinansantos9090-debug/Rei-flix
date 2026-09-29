@@ -2640,6 +2640,11 @@ class LibraryStore:
                     return False
             canonical_path = str(row["path"])
             canonical_episode_id = int(row["id"])
+            stored_duration = float(row["duration"] or 0)
+            if duration <= 0 and stored_duration > 0:
+                duration = stored_duration
+            if duration > 0:
+                position = min(position, duration)
             watched = int(is_completed({"progress": position, "duration": duration, "watched": bool(row["watched"])}))
             if event_time is not None:
                 durable_time = event_time / 1000.0 if event_time > 10_000_000_000 else event_time

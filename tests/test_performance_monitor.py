@@ -1,6 +1,9 @@
 import asyncio
 import tempfile
 import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
 
 from core.android_bridge import AndroidBridge
 from core.library_store import LibraryStore
@@ -35,6 +38,25 @@ class PerformanceMonitorTests(unittest.TestCase):
         self.assertIn("interaction.settings_open.end", names)
         self.assertIn("task.created", names)
         self.assertIn("task.finished", names)
+
+    def test_production_integration_contract_is_present(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        settings = (ROOT / "views/settings_view.py").read_text(encoding="utf-8")
+        store = (ROOT / "core/library_store.py").read_text(encoding="utf-8")
+        bridge = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
+        player = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt").read_text(encoding="utf-8")
+        host = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt").read_text(encoding="utf-8")
+        for source, tokens in (
+            (main, ("get_performance_monitor", "ui.render_current", "interaction.back", "performance_metrics")),
+            (settings, ("settings_focus_events", "settings_scroll_requests", "settings.build_sections", "task_scope")),
+            (store, ("record_sqlite", "library_summary", "save_progress", "catalog_page")),
+            (bridge, ("android.launch_url", "android.command_delivery", "COMMAND_RECEIVED")),
+            (player, ("PerformanceDiagnostics.markPlayer", "first_frame", "playing")),
+            (host, ("PerformanceDiagnostics.attach", "PLAY_HANDOFF_DISPATCHED")),
+        ):
+            for token in tokens:
+                self.assertIn(token, source)
+        self.assertIn("PerformanceDiagnostics.kt", str(ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/PerformanceDiagnostics.kt"))
 
     def test_two_percent_round_trip_keeps_same_episode(self):
         with tempfile.TemporaryDirectory() as directory:

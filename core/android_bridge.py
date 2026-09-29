@@ -25,6 +25,7 @@ BRIDGE_PROTOCOL_VERSION = 2
 
 
 class AndroidBridge:
+    DEFAULT_MAX_DRAIN_EVENTS = 64
     def __init__(self, data_dir: str, page=None):
         self.data_dir = Path(data_dir); self.page = page
         self.mailbox = self.data_dir / MAILBOX
@@ -357,9 +358,19 @@ class AndroidBridge:
                 continue
         return float("inf")
 
-    def drain(self) -> list[dict]:
+    def pending_count(self) -> int:
+        """Return the number of modern mailbox files plus the legacy batch."""
+        try:
+            legacy = 1 if self.mailbox.exists() else 0
+            return legacy + sum(1 for _ in self.queue_dir.glob("event-*.json"))
+        except OSError:
+            return 0
+
+    def drain(self, max_events: int | None = None) -> list[dict]:
+        """Claim a bounded, time-ordered slice of native events."""
         if self._claimed:
             return []
+        limit = self.DEFAULT_MAX_DRAIN_EVENTS if max_events is None else max(1, int(max_events))
         events: list[dict] = []
         claimed: list[Path] = []
         try:
@@ -386,35 +397,37 @@ class AndroidBridge:
                     except (OSError, json.JSONDecodeError) as exc:
                         logger.error("[ANDROID] Invalid legacy native mailbox batch discarded: %s", exc)
                         legacy.unlink(missing_ok=True)
-            for source in sorted(self.queue_dir.glob("event-*.json")):
+
+            candidates: list[tuple[float, int, Path, dict]] = []
+            for index, source in enumerate(sorted(self.queue_dir.glob("event-*.json"))):
+                try:
+                    payload = json.loads(source.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    logger.error("[ANDROID] Invalid native mailbox event discarded: %s (%s)", source.name, exc)
+                    source.unlink(missing_ok=True)
+                    continue
+                if not isinstance(payload, dict):
+                    logger.warning("[ANDROID] Ignoring non-object modern mailbox payload file=%s", source.name)
+                    continue
+                normalized = self._normalize_event(payload, source.name, 0)
+                if normalized is not None:
+                    candidates.append((self._event_time(normalized), index, source, normalized))
+
+            candidates.sort(key=lambda item: (item[0], item[1]))
+            for _, _, source, normalized in candidates[:limit]:
                 consumed = source.with_suffix(".consumed")
                 try:
                     source.replace(consumed)
                 except OSError:
                     continue
-                try:
-                    payload = json.loads(consumed.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError) as exc:
-                    logger.error("[ANDROID] Invalid native mailbox event discarded: %s (%s)", consumed.name, exc)
-                    consumed.unlink(missing_ok=True)
-                    continue
-                if isinstance(payload, list):
-                    for index, event in enumerate(payload):
-                        normalized = self._normalize_event(event, consumed.name, index)
-                        if normalized is not None:
-                            events.append(normalized)
-                elif isinstance(payload, dict):
-                    normalized = self._normalize_event(payload, consumed.name, 0)
-                    if normalized is not None:
-                        events.append(normalized)
                 claimed.append(consumed)
-            indexed = list(enumerate(events))
-            indexed.sort(key=lambda item: (self._event_time(item[1]), item[0]))
+                events.append(normalized)
+
             self._claimed = claimed
             self._retained = set()
-            return [event for _, event in indexed]
+            events.sort(key=self._event_time)
+            return events
         except OSError as exc:
-            # Never discard a claimed event solely because draining encountered I/O failure.
             logger.error("[ANDROID] Native mailbox drain failed; claimed events will be restored/retried: %s", exc)
             for path in claimed:
                 try:

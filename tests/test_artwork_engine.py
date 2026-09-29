@@ -457,5 +457,44 @@ class ArtworkEngineTests(unittest.TestCase):
         self.assertLessEqual(stats["bytes"], 1024)
 
 
+    def test_stale_generation_does_not_delete_existing_cache_entry(self):
+        anime = self._media("Stale refresh")
+        self._remote(anime)
+        existing = self.engine.cache_dir / "existing-cache.jpg"
+        existing.write_bytes(JPEG)
+        row_id = self.engine._upsert(
+            entity_type="anime",
+            entity_id=anime,
+            artwork_type="poster",
+            source="cache",
+            source_ref="stale-existing",
+            external_url="https://example.test/poster.jpg",
+            local_path=str(existing),
+            status=STATUS_READY,
+            byte_size=existing.stat().st_size,
+            width=64,
+            height=64,
+        )
+        row = self.engine.list_for("anime", anime, "poster")[0]
+        raw = io.BytesIO()
+        Image.new("RGB", (1200, 1800), (80, 40, 20)).save(raw, format="JPEG")
+        self.engine._downloader = lambda _url: (raw.getvalue(), "image/jpeg", 200)
+
+        generation = self.engine._generation
+        self.engine.invalidate_generation("test-stale")
+        result = self.engine._download_row(row, generation=generation)
+
+        self.assertIsNone(result)
+        self.assertTrue(existing.is_file())
+        self.assertEqual(existing.read_bytes(), JPEG)
+        with self.engine.store._conn() as con:
+            stored = con.execute(
+                "SELECT local_path,status FROM artwork WHERE id=?",
+                (row_id,),
+            ).fetchone()
+        self.assertEqual(stored["local_path"], str(existing))
+        self.assertEqual(stored["status"], STATUS_READY)
+
+
 if __name__ == "__main__":
     unittest.main()

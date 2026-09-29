@@ -593,18 +593,24 @@ async def main(page: ft.Page):
         navigate_back(f"flet_view_pop:{pop_id}")
 
     def navigate_home():
-        navigation.reset_to_root()
-        render_current()
-        persist_navigation_state()
+        previous = navigation.current
+        with performance.interaction("return_home", source=previous, target="home"):
+            navigation.reset_to_root()
+            render_current()
+            persist_navigation_state()
 
     def navigate_organize():
-        navigation.push("organize")
-        render_current()
-        persist_navigation_state()
+        previous = navigation.current
+        with performance.interaction("open_organize", source=previous, target="organize"):
+            navigation.push("organize")
+            render_current()
+            persist_navigation_state()
     def navigate_collector():
-        navigation.push("collector")
-        render_current()
-        persist_navigation_state()
+        previous = navigation.current
+        with performance.interaction("open_collector", source=previous, target="collector"):
+            navigation.push("collector")
+            render_current()
+            persist_navigation_state()
     player_transition_inflight = {"value": False}
     player_launch_inflight = {"value": False}
 
@@ -754,13 +760,14 @@ async def main(page: ft.Page):
         page.show_dialog(dialog)
         page.run_task(load_and_show)
     def navigate_details(anime, on_back=None):
-        current[0] = anime
-        # Details is keyed by the selected anime, so never reuse the previous
-        # anime's cached control tree.
-        screen_cache.pop("details", None)
-        navigation.push("details")
-        render_current()
-        persist_navigation_state()
+        previous = navigation.current
+        with performance.interaction("open_details", source=previous, target="details",
+                                      metadata={"anime_id": (anime or {}).get("id") if isinstance(anime, dict) else None}):
+            current[0] = anime
+            screen_cache.pop("details", None)
+            navigation.push("details")
+            render_current()
+            persist_navigation_state()
     async def refresh_current_details():
         """Reload the durable record after an in-place Details edit."""
         anime_id = current[0].get("id") if current[0] else None
@@ -959,23 +966,28 @@ async def main(page: ft.Page):
 
     def account(): return store.account()
     def navigate_settings():
-        if navigation.current == "settings":
-            navigation.replace("settings")
-        else:
-            navigation.push("settings")
-        screen_cache.pop("settings", None)
-        render_current()
-        persist_navigation_state()
-        if bridge.available:
-            diagnostics.record("PERMISSION_CHECK", source="android")
-            page.run_task(bridge.check_storage_access)
+        previous = navigation.current
+        with performance.interaction("open_settings", source=previous, target="settings"):
+            if navigation.current == "settings":
+                navigation.replace("settings")
+            else:
+                navigation.push("settings")
+            screen_cache.pop("settings", None)
+            render_current()
+            persist_navigation_state()
+            if bridge.available:
+                diagnostics.record("PERMISSION_CHECK", source="android")
+                page.run_task(bridge.check_storage_access)
     def navigate_settings_category(label):
-        if navigation.current != "settings":
-            navigation.push("settings")
-        navigation.push_settings(label)
-        screen_cache.pop("settings", None)
-        render_current()
-        persist_navigation_state()
+        previous = navigation.current
+        with performance.interaction("settings_category", source=previous, target="settings",
+                                      metadata={"category": label}):
+            if navigation.current != "settings":
+                navigation.push("settings")
+            navigation.push_settings(label)
+            screen_cache.pop("settings", None)
+            render_current()
+            persist_navigation_state()
 
     def close_home_search():
         if not home_state.get("search_visible"):
@@ -991,7 +1003,7 @@ async def main(page: ft.Page):
     def navigate_back(source="unknown"):
         # One user Back gesture/button owns one logical operation. This protects
         # against Android + Flutter delivering the same physical Back twice.
-        back_policy_started = time.perf_counter()
+        back_policy_started = performance.now()
         now = time.monotonic()
         route_before = navigation.current
         if now - back_state["last_at"] < BACK_DEBOUNCE_SECONDS:
@@ -999,6 +1011,9 @@ async def main(page: ft.Page):
                 "[NAV] duplicate BACK suppressed source=%s route=%s delta_ms=%.0f",
                 source, route_before, (now - back_state["last_at"]) * 1000,
             )
+            performance.event("interaction.back", duration_ms=(performance.now()-back_policy_started)*1000.0,
+                              status="duplicate_suppressed", screen=route_before,
+                              metadata={"source": source, "from": route_before})
             return
         back_state.update(last_at=now, last_action=source)
         logger.info("[NAV] BACK received source=%s route=%s", source, route_before)
@@ -1013,18 +1028,27 @@ async def main(page: ft.Page):
             dialog = None
         if dialog is not None:
             logger.info("[NAV] DIALOG_BACK source=%s route=%s", source, route_before)
+            performance.event("interaction.back", duration_ms=(performance.now()-back_policy_started)*1000.0,
+                              status="dialog", screen=route_before,
+                              metadata={"source": source, "from": route_before})
             safe_update()
             return
 
         # Search is a transient Home state, not a second route. Close it before
         # delegating Back to the top-level NavigationController.
         if route_before == "home" and close_home_search():
+            performance.event("interaction.back", duration_ms=(performance.now()-back_policy_started)*1000.0,
+                              status="search_closed", screen=route_before,
+                              metadata={"source": source, "from": route_before})
             return
 
         action = navigation.back()
+        performance.event("interaction.back", duration_ms=(performance.now()-back_policy_started)*1000.0,
+                          screen=navigation.current,
+                          metadata={"source": source, "from": route_before, "action": action, "to": navigation.current})
         logger.info(
             "NAV_BACK_POLICY duration_ms=%s source=%s from=%s action=%s",
-            int((time.perf_counter() - back_policy_started) * 1000),
+            int((performance.now() - back_policy_started) * 1000),
             source,
             route_before,
             action,

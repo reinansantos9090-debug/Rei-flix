@@ -587,7 +587,8 @@ class OrganizeView:
                 if reset:
                     collection_grid.controls.clear()
                     collection_summary.value = 'Não foi possível aplicar os filtros.'
-                page.update()
+                if is_active():
+                    page.update()
                 return
             if token != render_generation[0]:
                 page_loading[0] = False

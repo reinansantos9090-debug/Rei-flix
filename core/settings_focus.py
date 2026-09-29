@@ -6,6 +6,10 @@ verified independently from the UI runtime.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
+
+
+logger = logging.getLogger("reiflix.settings_focus")
 
 
 @dataclass(frozen=True)
@@ -71,7 +75,7 @@ class SettingsTaskRegistry:
             try:
                 add_done_callback(self._discard)
             except Exception:
-                pass
+                logger.debug("unable to register Settings task completion callback", exc_info=True)
         return task
 
     def invalidate(self) -> int:

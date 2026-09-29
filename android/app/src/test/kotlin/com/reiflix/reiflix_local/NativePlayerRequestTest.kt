@@ -15,6 +15,8 @@ class NativePlayerRequestTest {
             "request_id" to "req-123",
             "created_at" to "1700000000123",
             "uri" to "content://media/video/1",
+            "episode_id" to "42",
+            "anime_id" to "7",
             "title" to "Episode 1",
             "position_ms" to "-40",
             "can_next" to "true",
@@ -34,6 +36,8 @@ class NativePlayerRequestTest {
         assertEquals("req-123", request.requestId)
         assertEquals(1700000000123L, request.commandCreatedAtMs)
         assertEquals("content://media/video/1", request.episodeUri)
+        assertEquals("42", request.episodeId)
+        assertEquals("7", request.animeId)
         assertEquals("Episode 1", request.title)
         assertEquals(0L, request.positionMs)
         assertTrue(request.canNext)
@@ -56,6 +60,8 @@ class NativePlayerRequestTest {
                 "request_id" to "req-456",
                 "created_at" to "1700000000456",
                 "uri" to "file:///storage/emulated/0/episode.mkv",
+                "episode_id" to "84",
+                "anime_id" to "12",
                 "can_next" to "true",
                 "can_previous" to "true",
                 "autoplay" to "true",
@@ -86,6 +92,8 @@ class NativePlayerRequestTest {
         assertEquals("req-456", request.requestId)
         assertEquals(1700000000456L, request.commandCreatedAtMs)
         assertEquals("file:///storage/emulated/0/episode.mkv", request.episodeUri)
+        assertEquals("84", request.episodeId)
+        assertEquals("12", request.animeId)
         assertTrue(request.canNext)
         assertTrue(request.canPrevious)
         assertTrue(request.autoplay)
@@ -118,6 +126,8 @@ class NativePlayerRequestTest {
                 "&request_id=req%2F789" +
                 "&created_at=1700000000789" +
                 "&uri=content%3A%2F%2Fmedia%2Fexternal%2Fvideo%2F7" +
+                "&episode_id=206" +
+                "&anime_id=31" +
                 "&title=Temp+07+Ep+06" +
                 "&position_ms=12345" +
                 "&can_next=true" +
@@ -161,6 +171,8 @@ class NativePlayerRequestTest {
         assertEquals("req/789", request.requestId)
         assertEquals(1700000000789L, request.commandCreatedAtMs)
         assertEquals("content://media/external/video/7", request.episodeUri)
+        assertEquals("206", request.episodeId)
+        assertEquals("31", request.animeId)
         assertEquals("Temp 07 Ep 06", request.title)
         assertEquals(12345L, request.positionMs)
         assertTrue(request.canNext)

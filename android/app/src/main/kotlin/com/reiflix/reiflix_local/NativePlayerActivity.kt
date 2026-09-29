@@ -2371,11 +2371,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         category: PlayerMediaPolicy.ErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN,
     ) {
         currentErrorCategory = category
-        episodeChangePending = false
-        episodeChangeTimeoutRequestId = ""
-        episodeChangeTimeoutUri = ""
-        handler.removeCallbacks(episodeChangeTimeout)
-        updateEpisodeNavigationButtons()
+        invalidateTransition("player_error")
         setLocked(false, persist = true, announce = false)
         errorVisible = true
         if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE

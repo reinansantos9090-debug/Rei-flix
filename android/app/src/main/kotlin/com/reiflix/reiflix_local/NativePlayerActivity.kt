@@ -125,6 +125,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var lastProgressPersistAt = 0L
     private var suppressExitEvent = false
     private var exitReported = false
+    private var exitProgressPublished = false
     private var initialSeekApplied = false
     private var autoplayNext = true
     private var completionReported = false
@@ -2305,6 +2306,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             this,
             exitEvent,
         )
+        exitProgressPublished = ok
         if (!ok) logPlayer("FAILED_TO_PUBLISH player_exited requestId=" + requestId.ifEmpty { "-" })
         logPlayer("player_exit_reported reason=" + reason + " requestId=" + requestId.ifEmpty { "-" })
     }
@@ -2442,7 +2444,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     override fun onPause() {
         cancelFirstFrameDiagnostics("pause")
-        if (sessionState != SessionState.EXITING) {
+        if (sessionState != SessionState.EXITING || !exitProgressPublished) {
             saveProgress("player_paused", force = true)
         }
         logPlayer("onPause requestId=" + requestId.ifEmpty { "-" })
@@ -2451,7 +2453,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     override fun onStop() {
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
-        if (sessionState != SessionState.EXITING) {
+        if (sessionState != SessionState.EXITING || !exitProgressPublished) {
             saveProgress("player_progress", force = true)
         }
         logPlayer("onStop finishing=" + isFinishing + " changingConfig=" + isChangingConfigurations)

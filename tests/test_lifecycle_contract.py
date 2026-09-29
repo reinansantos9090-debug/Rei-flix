@@ -115,7 +115,7 @@ class LifecycleContractTests(unittest.TestCase):
             "handler.removeCallbacks(controlsHider)",
             "handler.removeCallbacks(feedbackHider)",
             "pendingPreparation?.cancel(true)",
-            "playbackWorker.shutdownNow()",
+            "playbackWorker.shutdown()",
             "player.release()",
         ):
             self.assertIn(token, source)

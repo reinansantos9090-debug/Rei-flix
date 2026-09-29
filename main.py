@@ -2565,7 +2565,9 @@ async def main(page: ft.Page):
                                         navigation_snapshot=target_navigation,
                                         origin_request_id=event_request_id,
                                         origin_created_at_ms=button_created_at_ms,
-                                        origin_transition_generation=transition_generation,
+                                        origin_transition_generation=int(
+                                            payload.get("transitionGeneration") or 0
+                                        ),
                                     )
                                     performance.event(
                                         f"player.{direction_name.lower()}.handoff",

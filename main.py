@@ -487,6 +487,7 @@ async def main(page: ft.Page):
                 navigate_organize, view_state=home_state,
                 on_request_thumbnail=request_missing_thumbnail,
                 on_open_collector=navigate_collector,
+                is_active=lambda: ui_alive[0] and navigation.current == "home",
             )
         elif route == "organize":
             control = OrganizeView.build(
@@ -497,6 +498,7 @@ async def main(page: ft.Page):
                 on_request_video_access=request_video_access,
                 on_add_folder=add_folder,
                 view_state=organize_state,
+                is_active=lambda: ui_alive[0] and navigation.current == "organize",
             )
         elif route == "details":
             details_instance_generation[0] += 1

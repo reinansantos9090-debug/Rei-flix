@@ -466,7 +466,7 @@ class NativePlayerActivity : ComponentActivity() {
             return
         }
         uri = resolvedUri
-        loadLocalMetadata()
+        loadLocalMetadataAsync(transitionGeneration, resolvedUri)
 
         logPlayer("PREFLIGHT_DEFERRED requestId=" + requestId.ifEmpty { "-" } +
             " source=" + sourceFor(uri) + " reason=background_io")
@@ -591,7 +591,7 @@ class NativePlayerActivity : ComponentActivity() {
         }
 
         uri = normalized
-        loadLocalMetadata()
+        loadLocalMetadataAsync(transitionGeneration, uri)
         requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
         originRequestId = newIntent.getStringExtra("originRequestId")?.trim().orEmpty()
         originCreatedAtMs = newIntent.getLongExtra("originCreatedAtMs", 0L)
@@ -2952,10 +2952,26 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         }
     }
 
-    private fun loadLocalMetadata() {
-        if (!::localMetadataStore.isInitialized || !::uri.isInitialized) return
-        localMetadata = localMetadataStore.get(uri.toString())
-        updateMetadataControls(if (::player.isInitialized) player.currentPosition else 0L)
+    private fun loadLocalMetadataAsync(generation: Long, localUri: Uri) {
+        if (!::localMetadataStore.isInitialized) return
+        try {
+            playbackWorker.submit {
+                val metadata = localMetadataStore.get(localUri.toString())
+                handler.post {
+                    if (generation != transitionGeneration ||
+                        sessionState != SessionState.ACTIVE ||
+                        !::uri.isInitialized ||
+                        uri != localUri
+                    ) {
+                        return@post
+                    }
+                    localMetadata = metadata
+                    updateMetadataControls(if (::player.isInitialized) player.currentPosition else 0L)
+                }
+            }
+        } catch (error: java.util.concurrent.RejectedExecutionException) {
+            logPlayer("PLAYER_METADATA_LOAD_REJECTED uri=" + localUri, error)
+        }
     }
 
     private fun updateMetadataControls(positionMs: Long) {

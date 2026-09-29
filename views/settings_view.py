@@ -516,7 +516,7 @@ class SettingsView:
                 finally:
                     busy["permission"] = False
                     safe_update()
-            page.run_task(run)
+            start_task(run)
 
         def broad(_):
             if busy["permission"]:

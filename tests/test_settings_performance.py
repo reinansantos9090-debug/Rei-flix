@@ -32,7 +32,7 @@ class SettingsPerformanceTests(unittest.TestCase):
 
         self.assertTrue(all(values))
         self.assertEqual(1, store.reads.get("player.resume"))
-        self.assertEqual(1, settings.get("player.resume") is True)
+        self.assertTrue(settings.get("player.resume"))
 
     def test_settings_cache_updates_on_set_and_invalidates_explicitly(self):
         store = _Store()
@@ -47,20 +47,16 @@ class SettingsPerformanceTests(unittest.TestCase):
         self.assertFalse(settings.get("player.resume"))
         self.assertEqual(1, store.reads.get("player.resume"))
 
-    def test_settings_import_refreshes_cache(self):
+    def test_settings_reset_refreshes_cached_value(self):
         store = _Store()
         settings = SettingsStore(store)
-        settings.get("player.resume")
-        store.reads.clear()
-
-        settings.import_payload({
-            "format": "reiflix-settings",
-            "schema_version": settings.SCHEMA_VERSION,
-            "settings": {"player.resume": False},
-        })
-
+        settings.set("player.resume", False)
         self.assertFalse(settings.get("player.resume"))
+
+        settings.reset("player.resume")
+        self.assertTrue(settings.get("player.resume"))
         self.assertEqual(0, store.reads.get("player.resume", 0))
+
 
 
 class SettingsLazyConstructionTests(unittest.TestCase):

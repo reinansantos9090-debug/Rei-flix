@@ -1009,7 +1009,6 @@ async def main(page: ft.Page):
             return
         store.remove_folder(reference)
         on_catalog_changed()
-        refresh_settings_if_active()
     async def resolve_match(lookup_title, anilist_id):
         try:
             await asyncio.to_thread(library.resolve_match, lookup_title, anilist_id)
@@ -1066,7 +1065,6 @@ async def main(page: ft.Page):
             await scan_coordinator.end_exclusive()
 
         on_catalog_changed()
-        refresh_settings_if_active()
         return result
 
     async def request_restore_reconciliation():
@@ -1887,7 +1885,6 @@ async def main(page: ft.Page):
                                 page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; safe_update()
                             finally:
                                 on_catalog_changed()
-                                refresh_settings_if_active()
                         elif event_type == 'broad_storage_status':
                             granted = bool(payload.get('hasAccess'))
                             apply_storage_capabilities(payload)
@@ -2510,7 +2507,6 @@ async def main(page: ft.Page):
                                 pending_folder_removals.discard(tree_uri)
                                 store.remove_folder(tree_uri)
                                 on_catalog_changed()
-                                refresh_settings_if_active()
                                 page.snack_bar=ft.SnackBar(ft.Text('Pasta removida da biblioteca.')); page.snack_bar.open=True; safe_update()
                         elif event_type == 'google_cancelled':
                             account_state[0] = 'disconnected'
@@ -2585,7 +2581,6 @@ async def main(page: ft.Page):
                             )
                             if transition.refresh_required and transition.logical_finished:
                                 on_catalog_changed()
-                                refresh_settings_if_active()
                                 safe_update()
 
                         if operation_key:

@@ -6,6 +6,7 @@ metadata, artwork and player remain owned by their existing services.
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 
@@ -15,6 +16,7 @@ from core.storage_access import normalize_storage_snapshot
 from core.backup import BackupError
 from core.settings import SettingsStore, SettingsValidationError
 from core.performance import get_performance_monitor
+from core.settings_focus import SettingsFocusState
 from core.ui import BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, activate_theme_for_page, section_title, focus_button_style
 
 logger = logging.getLogger("reiflix.settings")
@@ -35,6 +37,9 @@ class SettingsView:
         on_settings_changed=None,
         on_open_settings_category=None,
         settings_path_provider=lambda: (),
+        settings_is_active=lambda: True,
+        settings_generation_provider=lambda: 0,
+        register_settings_task=None,
         view_state=None,
     ):
         performance = get_performance_monitor()
@@ -47,6 +52,9 @@ class SettingsView:
         TEXT = theme.text
         TEXT_MUTED = theme.text_muted
         view_state = view_state if isinstance(view_state, dict) else {}
+        view_generation = settings_generation_provider()
+        focus_state = SettingsFocusState()
+        focus_task = None
         busy = {"scan": False, "folder": False, "permission": False, "cache": False}
         status = ft.Text("", size=12, color=TEXT_MUTED)
         search = ft.TextField(
@@ -66,23 +74,49 @@ class SettingsView:
         sections_host.on_scroll = save_scroll
 
         async def restore_scroll():
-            async with performance.task_scope("settings.restore_scroll", screen="settings", generation=settings_path_provider()):
+            async with performance.task_scope(
+                "settings.restore_scroll",
+                screen="settings",
+                generation=view_generation,
+            ):
+                if (
+                    not settings_is_active()
+                    or settings_generation_provider() != view_generation
+                ):
+                    performance.counter("settings_stale_tasks")
+                    return
                 stored = view_state.get("scroll_position")
                 if stored is None:
                     return
                 try:
+                    offset = float(stored)
+                    if abs(offset) < 0.5:
+                        return
+                    if (
+                        not settings_is_active()
+                        or settings_generation_provider() != view_generation
+                    ):
+                        performance.counter("settings_stale_tasks")
+                        return
                     performance.counter("settings_scroll_requests")
-                    result = sections_host.scroll_to(offset=float(stored), duration=0)
+                    performance.counter("settings_restore_scroll_requests")
+                    result = sections_host.scroll_to(offset=offset, duration=0)
                     if inspect.isawaitable(result):
                         await result
-                    performance.counter("settings_scroll_completed")
+                    if (
+                        settings_is_active()
+                        and settings_generation_provider() == view_generation
+                    ):
+                        performance.counter("settings_scroll_completed")
+                    else:
+                        performance.counter("settings_stale_tasks")
                 except asyncio.CancelledError:
                     performance.counter("settings_scroll_cancelled")
                     raise
                 except Exception:
                     logger.debug("settings scroll restoration unavailable", exc_info=True)
 
-        def safe_update():
+        def safe_update()::
             try:
                 page.update()
             except Exception:
@@ -259,22 +293,82 @@ class SettingsView:
             search.value = ""
             on_back()
 
-        async def reveal_category_focus(key):
-            performance.counter("settings_focus_events")
-            performance.counter("settings_focus_reveals")
-            performance.counter("settings_scroll_requests")
-            async with performance.task_scope("settings.reveal_category_focus", screen="settings", generation=settings_path_provider()):
+        async def reveal_category_focus(key, focus_generation):
+            async with performance.task_scope(
+                "settings.reveal_category_focus",
+                screen="settings",
+                generation=(view_generation, focus_generation),
+            ):
+                if (
+                    not settings_is_active()
+                    or settings_generation_provider() != view_generation
+                    or focus_state.generation != focus_generation
+                ):
+                    performance.counter("settings_stale_focus_tasks")
+                    return
                 try:
+                    performance.counter("settings_focus_reveals")
+                    performance.counter("settings_focus_scroll_requests")
+                    performance.counter("settings_scroll_requests")
                     await sections_host.scroll_to(scroll_key=key, duration=120)
-                    performance.counter("settings_scroll_completed")
-                    performance.event("settings.scroll_to", screen="settings",
-                                      metadata={"origin": "focus", "key": key,
-                                                "settings_path": settings_path_provider()})
+                    if (
+                        settings_is_active()
+                        and settings_generation_provider() == view_generation
+                        and focus_state.generation == focus_generation
+                    ):
+                        performance.counter("settings_scroll_completed")
+                        performance.event(
+                            "settings.scroll_to",
+                            screen="settings",
+                            metadata={
+                                "origin": "focus",
+                                "key": key,
+                                "settings_path": settings_path_provider(),
+                            },
+                        )
+                    else:
+                        performance.counter("settings_stale_focus_tasks")
                 except asyncio.CancelledError:
                     performance.counter("settings_scroll_cancelled")
                     raise
                 except Exception:
                     logger.debug("Settings focus scroll skipped key=%s", key, exc_info=True)
+
+        def handle_category_focus(key):
+            nonlocal focus_task
+            if (
+                not settings_is_active()
+                or settings_generation_provider() != view_generation
+            ):
+                performance.counter("settings_stale_focus_events")
+                return
+            decision = focus_state.on_focus(key)
+            performance.counter("settings_focus_events")
+            performance.event(
+                "settings.focus",
+                screen="settings",
+                metadata={
+                    "key": key,
+                    "reason": decision.reason,
+                    "generation": decision.generation,
+                    "settings_path": settings_path_provider(),
+                },
+            )
+            if not decision.should_scroll:
+                performance.counter(f"settings_focus_suppressed_{decision.reason}")
+                return
+            if focus_task is not None:
+                try:
+                    focus_task.cancel()
+                except Exception:
+                    logger.debug("previous Settings focus task cancellation failed", exc_info=True)
+            focus_task = page.run_task(
+                reveal_category_focus,
+                key,
+                decision.generation,
+            )
+            if callable(register_settings_task):
+                register_settings_task(focus_task)
 
         def build_category_tile(label):
             description, icon = category_meta.get(label, ("Configurações ReiAnix", ft.Icons.SETTINGS_OUTLINED))
@@ -282,7 +376,7 @@ class SettingsView:
             return ft.OutlinedButton(
                 key=key,
                 height=70,
-                on_focus=lambda _event, k=key: page.run_task(reveal_category_focus, k),
+                on_focus=lambda _event, k=key: handle_category_focus(k),
                 on_click=lambda _event, item=label: open_category(item),
                 style=focus_button_style(theme=theme, background=SURFACE),
                 content=ft.Row([
@@ -996,7 +1090,9 @@ class SettingsView:
             return items
 
         rebuild()
-        page.run_task(restore_scroll)
+        restore_task = page.run_task(restore_scroll)
+        if callable(register_settings_task):
+            register_settings_task(restore_task)
         result = ft.Container(
             content=ft.Column([
                 ft.Row([back_button, header_title]),

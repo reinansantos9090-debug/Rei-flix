@@ -190,10 +190,8 @@ class ThemeEngineTests(unittest.TestCase):
         self.assertTrue(
             any(
                 isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "screen_cache"
-                and node.func.attr == "clear"
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_clear_screen_cache"
                 for node in theme_calls
             )
         )

@@ -1968,14 +1968,6 @@ class MainActivity : FlutterFragmentActivity() {
             )
             return
         }
-        if (requestId.isNotBlank()) {
-            seenPlayerRequestIds.add(requestId)
-            while (seenPlayerRequestIds.size > 256) {
-                val oldest = seenPlayerRequestIds.iterator().next()
-                seenPlayerRequestIds.remove(oldest)
-            }
-        }
-
         activePlayerRequestId = requestId.takeIf { it.isNotBlank() }
         activePlayerCommandCreatedAtMs = playerRequest.commandCreatedAtMs
         Log.i(
@@ -2081,6 +2073,13 @@ class MainActivity : FlutterFragmentActivity() {
                         " atMs=" + handoffDispatchedAtMs +
                         " launcher=activity_result",
                 )
+            }
+            if (requestId.isNotBlank()) {
+                seenPlayerRequestIds.add(requestId)
+                while (seenPlayerRequestIds.size > 256) {
+                    val oldest = seenPlayerRequestIds.iterator().next()
+                    seenPlayerRequestIds.remove(oldest)
+                }
             }
         } catch (exception: Exception) {
             activePlayerRequestId = previousActiveRequestId

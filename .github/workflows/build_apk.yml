@@ -122,10 +122,25 @@ jobs:
             echo "Valid JSON: $file"
           done < <(find . -path './.git' -prune -o -path './build' -prune -o -type f -name '*.json' -print0)
 
-      - name: Run full Python test suite
-        shell: bash
-        run: |
-          python -m pytest -q
+      - name: Run Python regression suites concurrently
+        parallel:
+          - name: Pytest regression suite
+            shell: bash
+            run: |
+              python -m pytest -q > build/pytest-first.txt 2>&1
+              cat build/pytest-first.txt
+
+          - name: Pytest determinism suite
+            shell: bash
+            run: |
+              python -m pytest -q > build/pytest-second.txt 2>&1
+              cat build/pytest-second.txt
+
+          - name: Unittest regression suite
+            shell: bash
+            run: |
+              python -m unittest discover -s tests -v > build/unittest.txt 2>&1
+              cat build/unittest.txt
 
       - name: Validate Python application
         run: |
@@ -506,7 +521,10 @@ jobs:
                 --report build/release-certification.md \
                 --matrix build/release-certification-matrix.json \
                 --prevalidated-compileall \
-                --prevalidated-gradle
+                --prevalidated-gradle \
+                --prevalidated-pytest build/pytest-first.txt \
+                --prevalidated-pytest-second build/pytest-second.txt \
+                --prevalidated-unittest build/unittest.txt
 
       - name: Upload release certification evidence
         if: always() && hashFiles('build/release-certification.json', 'build/release-certification.md', 'build/release-certification-matrix.json') != ''

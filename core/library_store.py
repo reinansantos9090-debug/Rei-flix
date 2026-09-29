@@ -2374,11 +2374,12 @@ class LibraryStore:
 
     def home_sections(self, limit=12):
         """Build bounded Home sections without materializing the full catalog."""
+        started = time.perf_counter()
         page_limit = min(24, max(1, int(limit)))
         def items(**filters):
             return self.catalog_page(page=0, page_size=page_limit, **filters)["items"]
 
-        return {
+        result = {
             "continue_watching": self.continue_watching(limit=page_limit),
             "next_episode": self.next_episode_items(limit=page_limit),
             "recently_added": items(sort="Mais recentes"),
@@ -2389,8 +2390,17 @@ class LibraryStore:
             "movies": items(media_type="Filme", sort="Mais recentes"),
             "specials": items(media_type="Especial", sort="Mais recentes"),
         }
+        total_rows = sum(len(value or []) for value in result.values())
+        get_performance_monitor().record_sqlite(
+            "home_sections",
+            (time.perf_counter() - started) * 1000.0,
+            rows=total_rows,
+            metadata={"limit": page_limit, "sections": len(result)},
+        )
+        return result
     def organize_summary(self):
         """Return bounded Organize counters and genre summaries from SQLite."""
+        started = time.perf_counter()
         with self._conn() as c:
             base = "EXISTS (SELECT 1 FROM episodes e0 WHERE e0.anime_id=a.id)"
             completed_sql = "(e.watched=1 OR (e.duration>0 AND MIN(MAX(COALESCE(e.progress,0),0),e.duration)/e.duration >= 0.90))"
@@ -2421,11 +2431,18 @@ class LibraryStore:
                 GROUP BY g.id, g.canonical_name, g.normalized_name
                 ORDER BY g.normalized_name
             """).fetchall()
-        return {
+        result = {
             "collections": collections,
             "states": [item for item in collections if item["name"] in {"Todos","Favoritos","Em andamento","Concluídos"}],
             "genres": [{"id": str(row["id"]), "name": str(row["canonical_name"]), "count": int(row["count"] or 0), "cover": row["cover"] or ""} for row in genre_rows],
         }
+        get_performance_monitor().record_sqlite(
+            "organize_summary",
+            (time.perf_counter() - started) * 1000.0,
+            rows=len(result["genres"]),
+            metadata={"collections": len(collections), "genres": len(result["genres"])},
+        )
+        return result
     def set_episode_identification(self, path, *, season=None, number=None, episode_type="regular", title=None):
         """Persist an explicit user identification without changing consumption data."""
         if season is None:

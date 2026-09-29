@@ -31,7 +31,7 @@ class CollectorView:
         performance = get_performance_monitor()
         build_started = performance.now()
         performance.counter("ui.builds_requested.collector")
-theme = activate_theme_for_page(page)
+        theme = activate_theme_for_page(page)
         background = theme.background
         surface = theme.surface
         text = theme.text

@@ -200,7 +200,7 @@ class OrganizeHandlerContractTests(unittest.TestCase):
     def test_returning_to_organize_refreshes_durable_details_changes_without_scanning(self):
         source = MAIN.read_text(encoding="utf-8")
         self.assertIn('if navigation.current == "organize":', source)
-        self.assertIn('_invalidate_cached_view(organize_state, "organize")', source)
+        self.assertIn('_drop_screen_cache("organize")', source)
         back_block = source[source.index('if action in {"previous", "settings_inner"}:'):source.index('elif action == "prompt_exit":', source.index('if action in {"previous", "settings_inner"}:'))]
         self.assertIn('if navigation.current == "organize":', back_block)
         self.assertIn('_invalidate_cached_view(organize_state, "organize")', back_block)

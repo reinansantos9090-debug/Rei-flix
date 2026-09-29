@@ -66,6 +66,111 @@ class FletLaunchCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("created_at=", value)
         self.assertEqual(request_id, parse_qs(urlsplit(value).query)["request_id"][0])
 
+    async def test_android_bridge_play_waits_for_player_handoff_confirmation(self):
+        class Launcher:
+            def __init__(self, page):
+                self.page = page
+
+            async def launch_url(self, value, *, mode):
+                params = parse_qs(urlsplit(value).query)
+                request_id = params["request_id"][0]
+                action = params["action"][0]
+                self.page.bridge.observe_native_event({
+                    "type": "diagnostic",
+                    "requestId": request_id,
+                    "payload": {
+                        "event": "COMMAND_RECEIVED",
+                        "requestId": request_id,
+                        "action": action,
+                        "timestamp": 123456789,
+                    },
+                })
+
+        class Page:
+            platform = "android"
+            def __init__(self):
+                self.launcher = Launcher(self)
+                self.bridge = None
+            @property
+            def url_launcher(self):
+                return self.launcher
+
+        with tempfile.TemporaryDirectory() as data_dir:
+            page = Page()
+            bridge = AndroidBridge(data_dir, page)
+            page.bridge = bridge
+            bridge._command_delivery_timeout_s = 0.01
+            with self.assertRaisesRegex(RuntimeError, "não foi confirmado"):
+                await bridge.play(
+                    "content://media/external/video/1",
+                    "Episódio",
+                    episode_id=42,
+                )
+
+    async def test_android_bridge_play_confirms_only_after_player_handoff(self):
+        class Launcher:
+            def __init__(self, page):
+                self.page = page
+
+            async def launch_url(self, value, *, mode):
+                params = parse_qs(urlsplit(value).query)
+                request_id = params["request_id"][0]
+                action = params["action"][0]
+                self.page.bridge.observe_native_event({
+                    "type": "diagnostic",
+                    "requestId": request_id,
+                    "payload": {
+                        "event": "COMMAND_RECEIVED",
+                        "requestId": request_id,
+                        "action": action,
+                        "timestamp": 123456789,
+                    },
+                })
+                self.page.bridge.observe_native_event({
+                    "type": "diagnostic",
+                    "requestId": request_id,
+                    "payload": {
+                        "event": "PLAYER_HANDOFF_DISPATCHED",
+                        "requestId": request_id,
+                        "action": action,
+                        "timestamp": 123456790,
+                        "result": "activity_result",
+                    },
+                })
+
+        class Page:
+            platform = "android"
+            def __init__(self):
+                self.launcher = Launcher(self)
+                self.bridge = None
+            @property
+            def url_launcher(self):
+                return self.launcher
+
+        with tempfile.TemporaryDirectory() as data_dir:
+            page = Page()
+            bridge = AndroidBridge(data_dir, page)
+            page.bridge = bridge
+            request_id = await bridge.play(
+                "content://media/external/video/1",
+                "Episódio",
+                episode_id=42,
+            )
+
+        self.assertTrue(request_id)
+        self.assertEqual({}, bridge._command_delivery_waiters)
+        self.assertEqual({}, bridge._command_delivery_expected_events)
+
+    async def test_android_bridge_rejects_play_without_episode_id(self):
+        class Page:
+            platform = "android"
+            url_launcher = None
+
+        with tempfile.TemporaryDirectory() as data_dir:
+            bridge = AndroidBridge(data_dir, Page())
+            with self.assertRaisesRegex(ValueError, "episode_id válido"):
+                await bridge.play("content://media/external/video/1", "Episódio")
+
     async def test_android_bridge_does_not_treat_launcher_return_as_delivery(self):
         class SilentLauncher:
             async def launch_url(self, value, *, mode):

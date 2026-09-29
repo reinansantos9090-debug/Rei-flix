@@ -60,9 +60,12 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingPlayCanNext = false
     private var pendingPlayCanPrevious = false
     private var pendingPlayAutoplay = true
+    private var pendingPlayEpisodeId: String? = null
+    private var pendingPlayAnimeId: String? = null
     private var pendingPlayCommandCreatedAtMs: Long = 0L
     private var pendingPlayRequestId: String? = null
     private var activePlayerRequestId: String? = null
+    private var activePlayerCommandCreatedAtMs: Long = 0L
     private val seenPlayerRequestIds = LinkedHashSet<String>()
     private var startupDiscoveryTriggered = false
     private var lastObservedMediaAccess: String? = null
@@ -105,6 +108,7 @@ class MainActivity : FlutterFragmentActivity() {
             }
             if (requestId != null && activePlayerRequestId == requestId) {
                 activePlayerRequestId = null
+                activePlayerCommandCreatedAtMs = 0L
             }
         }
 
@@ -123,9 +127,12 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_PENDING_PLAY_CAN_NEXT = "reiflix.pendingPlayCanNext"
         private const val STATE_PENDING_PLAY_CAN_PREVIOUS = "reiflix.pendingPlayCanPrevious"
         private const val STATE_PENDING_PLAY_AUTOPLAY = "reiflix.pendingPlayAutoplay"
+        private const val STATE_PENDING_PLAY_EPISODE_ID = "reiflix.pendingPlayEpisodeId"
+        private const val STATE_PENDING_PLAY_ANIME_ID = "reiflix.pendingPlayAnimeId"
         private const val STATE_PENDING_PLAY_COMMAND_CREATED_AT_MS = "reiflix.pendingPlayCommandCreatedAtMs"
         private const val STATE_PENDING_PLAY_REQUEST_ID = "reiflix.pendingPlayRequestId"
         private const val STATE_ACTIVE_PLAYER_REQUEST_ID = "reiflix.activePlayerRequestId"
+        private const val STATE_ACTIVE_PLAYER_COMMAND_CREATED_AT_MS = "reiflix.activePlayerCommandCreatedAtMs"
         private const val STATE_SAF_PICKER_PENDING = "reiflix.safPickerPending"
         private const val STATE_SAF_PICKER_STARTED_AT_MS = "reiflix.safPickerStartedAtMs"
         private const val STATE_SAF_PICKER_FOCUS_LOST = "reiflix.safPickerFocusLost"
@@ -533,9 +540,12 @@ class MainActivity : FlutterFragmentActivity() {
         pendingPlayCanNext = savedInstanceState?.getBoolean(STATE_PENDING_PLAY_CAN_NEXT) ?: false
         pendingPlayCanPrevious = savedInstanceState?.getBoolean(STATE_PENDING_PLAY_CAN_PREVIOUS) ?: false
         pendingPlayAutoplay = savedInstanceState?.getBoolean(STATE_PENDING_PLAY_AUTOPLAY) ?: true
+        pendingPlayEpisodeId = savedInstanceState?.getString(STATE_PENDING_PLAY_EPISODE_ID)?.trim()?.takeIf { it.isNotEmpty() }
+        pendingPlayAnimeId = savedInstanceState?.getString(STATE_PENDING_PLAY_ANIME_ID)?.trim()?.takeIf { it.isNotEmpty() }
         pendingPlayCommandCreatedAtMs = savedInstanceState?.getLong(STATE_PENDING_PLAY_COMMAND_CREATED_AT_MS, 0L) ?: 0L
         pendingPlayRequestId = savedInstanceState?.getString(STATE_PENDING_PLAY_REQUEST_ID)
         activePlayerRequestId = savedInstanceState?.getString(STATE_ACTIVE_PLAYER_REQUEST_ID)?.trim()?.takeIf { it.isNotEmpty() }
+        activePlayerCommandCreatedAtMs = savedInstanceState?.getLong(STATE_ACTIVE_PLAYER_COMMAND_CREATED_AT_MS, 0L) ?: 0L
         safPickerPending = savedInstanceState?.getBoolean(STATE_SAF_PICKER_PENDING) ?: false
         safPickerStartedAtMs = savedInstanceState?.getLong(STATE_SAF_PICKER_STARTED_AT_MS, 0L) ?: 0L
         safPickerFocusLost = savedInstanceState?.getBoolean(STATE_SAF_PICKER_FOCUS_LOST) ?: false
@@ -615,10 +625,24 @@ class MainActivity : FlutterFragmentActivity() {
                 "play" -> {
                     val uri = pendingPlayUri
                     if (!uri.isNullOrBlank()) {
+                        val pendingRequestId = pendingPlayRequestId
+                        nativeRequestState.markOperationState(
+                            pendingRequestId,
+                            "play",
+                            NativeRequestState.OperationState.RUNNING,
+                        )
+                        publishNativeDiagnostic(
+                            "OPERATION_STARTED",
+                            pendingRequestId,
+                            "play",
+                            NativeRequestState.OperationState.RUNNING.name,
+                        )
                         val playData = Uri.parse("reiflix://native").buildUpon()
                             .appendQueryParameter("action", "play")
-                            .appendQueryParameter("request_id", pendingPlayRequestId.orEmpty())
+                            .appendQueryParameter("request_id", pendingRequestId.orEmpty())
                             .appendQueryParameter("uri", uri)
+                            .appendQueryParameter("episode_id", pendingPlayEpisodeId.orEmpty())
+                            .appendQueryParameter("anime_id", pendingPlayAnimeId.orEmpty())
                             .appendQueryParameter("title", pendingPlayTitle ?: "Episódio")
                             .appendQueryParameter("position_ms", pendingPlayPositionMs.toString())
                             .appendQueryParameter("can_next", pendingPlayCanNext.toString())
@@ -627,7 +651,15 @@ class MainActivity : FlutterFragmentActivity() {
                             .appendQueryParameter("created_at", pendingPlayCommandCreatedAtMs.toString())
                             .build()
                         clearPendingPlay()
-                        openPlayer(playData, commandReceivedAtMs = System.currentTimeMillis())
+                        if (openPlayer(playData, commandReceivedAtMs = System.currentTimeMillis())) {
+                            publishNativeDiagnostic(
+                                "COMMAND_DISPATCHED",
+                                pendingRequestId,
+                                "play",
+                                nativeRequestState.operationState(pendingRequestId)?.name,
+                                result = "dispatched",
+                            )
+                        }
                     } else {
                         clearPendingPlay()
                     }
@@ -723,9 +755,12 @@ class MainActivity : FlutterFragmentActivity() {
         outState.putBoolean(STATE_PENDING_PLAY_CAN_NEXT, pendingPlayCanNext)
         outState.putBoolean(STATE_PENDING_PLAY_CAN_PREVIOUS, pendingPlayCanPrevious)
         outState.putBoolean(STATE_PENDING_PLAY_AUTOPLAY, pendingPlayAutoplay)
+        outState.putString(STATE_PENDING_PLAY_EPISODE_ID, pendingPlayEpisodeId)
+        outState.putString(STATE_PENDING_PLAY_ANIME_ID, pendingPlayAnimeId)
         outState.putLong(STATE_PENDING_PLAY_COMMAND_CREATED_AT_MS, pendingPlayCommandCreatedAtMs)
         outState.putString(STATE_PENDING_PLAY_REQUEST_ID, pendingPlayRequestId)
         outState.putString(STATE_ACTIVE_PLAYER_REQUEST_ID, activePlayerRequestId)
+        outState.putLong(STATE_ACTIVE_PLAYER_COMMAND_CREATED_AT_MS, activePlayerCommandCreatedAtMs)
         outState.putBoolean(STATE_BROAD_SETTINGS_PENDING, broadStoragePermissionPending)
         outState.putBoolean(STATE_SAF_PICKER_PENDING, safPickerPending)
         outState.putLong(STATE_SAF_PICKER_STARTED_AT_MS, safPickerStartedAtMs)
@@ -1056,7 +1091,45 @@ class MainActivity : FlutterFragmentActivity() {
                 }
                 "play" -> {
                     if (!activityResumed) {
+                        val existingPendingAction = nativeRequestState.pendingLifecycleAction
+                        val existingPendingId = nativeRequestState.pendingLifecycleRequestId
+                        if (existingPendingAction == "play" && !existingPendingId.isNullOrBlank()) {
+                            val existingCreatedAt = nativeRequestState.requestSnapshot(existingPendingId)?.createdAt ?: 0L
+                            if (commandCreatedAt != null && existingCreatedAt > 0L &&
+                                commandCreatedAt <= existingCreatedAt
+                            ) {
+                                nativeRequestState.markOperationState(
+                                    requestId,
+                                    action,
+                                    NativeRequestState.OperationState.FAILED,
+                                )
+                                publishNativeDiagnostic(
+                                    "PLAYER_HANDOFF_REJECTED",
+                                    requestId,
+                                    action,
+                                    NativeRequestState.OperationState.FAILED.name,
+                                    result = "stale_pending_request",
+                                )
+                                return
+                            }
+                            nativeRequestState.markOperationState(
+                                existingPendingId,
+                                "play",
+                                NativeRequestState.OperationState.CANCELLED,
+                            )
+                            publishNativeDiagnostic(
+                                "PLAYER_REQUEST_REPLACED",
+                                existingPendingId,
+                                "play",
+                                NativeRequestState.OperationState.CANCELLED.name,
+                                result = requestId,
+                            )
+                            nativeRequestState.consumeLifecycleRequest()
+                            clearPendingPlay()
+                        }
                         pendingPlayUri = data.getQueryParameter("uri")
+                        pendingPlayEpisodeId = data.getQueryParameter("episode_id")?.trim()?.takeIf { it.isNotEmpty() }
+                        pendingPlayAnimeId = data.getQueryParameter("anime_id")?.trim()?.takeIf { it.isNotEmpty() }
                         pendingPlayTitle = data.getQueryParameter("title") ?: "Episódio"
                         pendingPlayPositionMs = data.getQueryParameter("position_ms")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
                         pendingPlayCanNext = data.getQueryParameter("can_next")?.toBooleanStrictOrNull() ?: false
@@ -1066,15 +1139,18 @@ class MainActivity : FlutterFragmentActivity() {
                         pendingPlayRequestId = requestId
                         if (nativeRequestState.queueLifecycleAction("play", requestId)) {
                             publishNativeDiagnostic("COMMAND_QUEUED", requestId, action, NativeRequestState.OperationState.QUEUED.name)
-                        } else {
-                            clearPendingPlay()
-                            publishNativeCommandError(requestId, action, "lifecycle_queue", "LIFECYCLE_QUEUE_BUSY",
-                                "Não foi possível iniciar a reprodução agora. Tente novamente.")
+                            return
                         }
+                        clearPendingPlay()
+                        publishNativeCommandError(requestId, action, "lifecycle_queue", "LIFECYCLE_QUEUE_BUSY",
+                            "Não foi possível iniciar a reprodução agora. Tente novamente.")
+                        return
                     } else {
                         nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
                         publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
-                        openPlayer(data, commandReceivedAtMs = commandReceivedAtMs)
+                        if (!openPlayer(data, commandReceivedAtMs = commandReceivedAtMs)) {
+                            return
+                        }
                     }
                 }
             }
@@ -1794,28 +1870,40 @@ class MainActivity : FlutterFragmentActivity() {
                 .put("payload", inspection.put("status", status)))
         }
     }
-    private fun openPlayer(data: Uri?, commandReceivedAtMs: Long = 0L) {
-        val source = data ?: return
+    private fun openPlayer(data: Uri?, commandReceivedAtMs: Long = 0L): Boolean {
+        val source = data ?: return false
         val playerRequest = NativePlayerRequest.fromBridgeUri(source)
         val episodeUri = playerRequest.episodeUri
         val requestId = playerRequest.requestId
+        if (requestId.isBlank()) {
+            Log.e(tag, "PLAY_HANDOFF_FAILED requestId=- reason=missing_request_id")
+            publishNativeCommandError(null, "play", "handoff", "MISSING_REQUEST_ID",
+                "Não foi possível iniciar o player porque a requisição não possui identificador.")
+            return false
+        }
         if (episodeUri.isBlank()) {
             Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId + " reason=missing_uri")
+            nativeRequestState.markOperationState(requestId, "play", NativeRequestState.OperationState.FAILED)
             NativeMailbox.writeBestEffort(this, JSONObject().put("type", "player_error")
                 .put("requestId", requestId)
                 .put("message", "Este episódio não possui uma referência local válida.")
                 .put("payload", JSONObject().put("stage", "handoff").put("reason", "missing_uri")))
-            return
+            publishNativeDiagnostic("PLAYER_HANDOFF_FAILED", requestId, "play",
+                NativeRequestState.OperationState.FAILED.name, error = "MISSING_URI")
+            return false
         }
 
         val localUri = runCatching { Uri.parse(episodeUri) }.getOrNull()
         if (localUri == null || localUri.scheme?.lowercase() !in setOf("content", "file")) {
             Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId + " uri=" + episodeUri + " reason=unsupported_scheme")
+            nativeRequestState.markOperationState(requestId, "play", NativeRequestState.OperationState.FAILED)
             NativeMailbox.writeBestEffort(this, JSONObject().put("type", "player_error")
                 .put("requestId", requestId)
                 .put("message", "O ReiAnix aceita somente mídias locais autorizadas.")
                 .put("payload", JSONObject().put("uri", episodeUri).put("stage", "handoff").put("reason", "unsupported_scheme")))
-            return
+            publishNativeDiagnostic("PLAYER_HANDOFF_FAILED", requestId, "play",
+                NativeRequestState.OperationState.FAILED.name, error = "UNSUPPORTED_SCHEME")
+            return false
         }
 
         val authority = localUri.authority.orEmpty()
@@ -1834,7 +1922,32 @@ class MainActivity : FlutterFragmentActivity() {
             " source=" + mediaSource + " activityResumed=" + activityResumed + " task=" + taskId)
 
         val previousActiveRequestId = activePlayerRequestId
+        val previousActiveCommandCreatedAtMs = activePlayerCommandCreatedAtMs
         val reusingPlayerActivity = !previousActiveRequestId.isNullOrBlank()
+        if (playerRequest.commandCreatedAtMs > 0L &&
+            previousActiveCommandCreatedAtMs > 0L &&
+            playerRequest.commandCreatedAtMs <= previousActiveCommandCreatedAtMs
+        ) {
+            nativeRequestState.markOperationState(
+                requestId,
+                "play",
+                NativeRequestState.OperationState.FAILED,
+            )
+            Log.w(
+                tag,
+                "PLAYER_HANDOFF_REJECTED requestId=" + requestId +
+                    " reason=stale_created_at incoming=" + playerRequest.commandCreatedAtMs +
+                    " active=" + previousActiveCommandCreatedAtMs,
+            )
+            publishNativeDiagnostic(
+                "PLAYER_HANDOFF_REJECTED",
+                requestId,
+                "play",
+                NativeRequestState.OperationState.FAILED.name,
+                result = "stale_request",
+            )
+            return false
+        }
         if (requestId.isNotBlank() && !seenPlayerRequestIds.add(requestId)) {
             nativeRequestState.markOperationState(
                 requestId,
@@ -1861,6 +1974,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
 
         activePlayerRequestId = requestId.takeIf { it.isNotBlank() }
+        activePlayerCommandCreatedAtMs = playerRequest.commandCreatedAtMs
         Log.i(
             tag,
             "PLAY_HANDOFF_ACCEPTED requestId=" + requestId.ifEmpty { "-" } +
@@ -1876,6 +1990,10 @@ class MainActivity : FlutterFragmentActivity() {
             val resolvedActivity = intent.resolveActivity(packageManager)
             if (resolvedActivity == null) {
                 activePlayerRequestId = previousActiveRequestId
+                activePlayerCommandCreatedAtMs = previousActiveCommandCreatedAtMs
+                nativeRequestState.markOperationState(requestId, "play", NativeRequestState.OperationState.FAILED)
+                publishNativeDiagnostic("PLAYER_HANDOFF_FAILED", requestId, "play",
+                    NativeRequestState.OperationState.FAILED.name, error = "ACTIVITY_NOT_RESOLVABLE")
                 Log.e(
                     tag,
                     "PLAY_HANDOFF_FAILED requestId=" + requestId.ifEmpty { "-" } +
@@ -1929,6 +2047,15 @@ class MainActivity : FlutterFragmentActivity() {
                     ),
                 )
                 PerformanceDiagnostics.markPlayer(this, "handoff_dispatched", requestId, playerRequest.commandCreatedAtMs, reused = true)
+                PerformanceDiagnostics.markPlayer(this, "handoff_dispatched", requestId, playerRequest.commandCreatedAtMs, reused = true)
+                nativeRequestState.markOperationState(requestId, "play", NativeRequestState.OperationState.COMPLETED)
+                publishNativeDiagnostic(
+                    "PLAYER_HANDOFF_DISPATCHED",
+                    requestId,
+                    "play",
+                    NativeRequestState.OperationState.COMPLETED.name,
+                    result = "activity_direct",
+                )
                 Log.i(
                     tag,
                     "PLAY_HANDOFF_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
@@ -1938,6 +2065,14 @@ class MainActivity : FlutterFragmentActivity() {
             } else {
                 playerActivityLauncher.launch(intent)
                 PerformanceDiagnostics.markPlayer(this, "handoff_dispatched", requestId, playerRequest.commandCreatedAtMs, reused = false)
+                nativeRequestState.markOperationState(requestId, "play", NativeRequestState.OperationState.COMPLETED)
+                publishNativeDiagnostic(
+                    "PLAYER_HANDOFF_DISPATCHED",
+                    requestId,
+                    "play",
+                    NativeRequestState.OperationState.COMPLETED.name,
+                    result = "activity_result",
+                )
                 Log.i(
                     tag,
                     "PLAY_HANDOFF_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
@@ -1947,6 +2082,15 @@ class MainActivity : FlutterFragmentActivity() {
             }
         } catch (exception: Exception) {
             activePlayerRequestId = previousActiveRequestId
+            activePlayerCommandCreatedAtMs = previousActiveCommandCreatedAtMs
+            nativeRequestState.markOperationState(requestId, "play", NativeRequestState.OperationState.FAILED)
+            publishNativeDiagnostic(
+                "PLAYER_HANDOFF_FAILED",
+                requestId,
+                "play",
+                NativeRequestState.OperationState.FAILED.name,
+                error = "START_ACTIVITY_EXCEPTION",
+            )
             Log.e(tag, "PLAY_HANDOFF_FAILED requestId=" + requestId.ifEmpty { "-" } + " reason=start_activity", exception)
             NativeMailbox.writeBestEffort(this, JSONObject().put("type", "player_error")
                 .put("requestId", requestId)
@@ -1956,6 +2100,7 @@ class MainActivity : FlutterFragmentActivity() {
                     .put("stage", "start_activity")
                     .put("error", exception.message ?: exception::class.java.simpleName)))
         }
+        return false
     }
 
     private fun clearPendingPlay() {
@@ -1965,6 +2110,9 @@ class MainActivity : FlutterFragmentActivity() {
         pendingPlayCanNext = false
         pendingPlayCanPrevious = false
         pendingPlayAutoplay = true
+        pendingPlayEpisodeId = null
+        pendingPlayAnimeId = null
+        pendingPlayCommandCreatedAtMs = 0L
         pendingPlayRequestId = null
     }
 

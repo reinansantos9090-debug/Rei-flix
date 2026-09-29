@@ -82,6 +82,38 @@ class PlaybackContractTests(unittest.TestCase):
         self.assertNotIn("PLAYER_HANDOFF_DEDUPE_WINDOW_MS", source)
         self.assertNotIn("lastPlayerHandoffUri", source)
         self.assertNotIn("ignored_same_uri", source)
+    def test_bridge_waits_for_real_play_handoff_confirmation(self):
+        bridge = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
+        self.assertIn('expected_event = "PLAYER_HANDOFF_DISPATCHED" if action == "play" else "COMMAND_RECEIVED"', bridge)
+        self.assertIn('"PLAYER_HANDOFF_FAILED"', bridge)
+        self.assertIn('"PLAYER_HANDOFF_REJECTED"', bridge)
+        self.assertIn('"PLAYER_HANDOFF_DISPATCHED"', bridge)
+
+    def test_pending_play_preserves_canonical_identity_and_stale_ordering(self):
+        source = self.main_activity
+        for token in (
+            "pendingPlayEpisodeId",
+            "pendingPlayAnimeId",
+            "STATE_PENDING_PLAY_EPISODE_ID",
+            "STATE_PENDING_PLAY_ANIME_ID",
+            "activePlayerCommandCreatedAtMs",
+            "STATE_ACTIVE_PLAYER_COMMAND_CREATED_AT_MS",
+            "reason=stale_created_at",
+            "PLAYER_HANDOFF_REJECTED",
+            "PLAYER_REQUEST_REPLACED",
+        ):
+            self.assertIn(token, source)
+
+    def test_play_handoff_only_reports_dispatched_after_start_activity(self):
+        source = self.main_activity
+        handoff_start = source.index("private fun openPlayer(")
+        handoff_end = source.index("private fun clearPendingPlay", handoff_start)
+        block = source[handoff_start:handoff_end]
+        self.assertIn('"PLAYER_HANDOFF_DISPATCHED"', block)
+        self.assertIn("NativeRequestState.OperationState.COMPLETED", block)
+        self.assertIn("return false", block)
+        self.assertIn("PLAYER_HANDOFF_FAILED", block)
+
     def test_first_frame_timing_contract_is_correlated_and_non_destructive(self):
         for token in (
             "commandCreatedAtMs",

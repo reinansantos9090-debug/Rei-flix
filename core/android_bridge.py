@@ -35,6 +35,7 @@ class AndroidBridge:
             1.0, float(os.getenv("REIFLIX_ANDROID_COMMAND_TIMEOUT_S", "10.0"))
         )
         self._command_delivery_waiters: dict[str, asyncio.Future] = {}
+        self._command_delivery_expected_events: dict[str, str] = {}
         self._recover_unacknowledged_batches()
 
     def _recover_unacknowledged_batches(self) -> None:
@@ -62,7 +63,7 @@ class AndroidBridge:
         )
 
     def observe_native_event(self, event: dict) -> None:
-        """Resolve an in-flight command only after MainActivity emitted COMMAND_RECEIVED."""
+        """Resolve a command at the actual contract boundary, not merely at receipt."""
         performance = get_performance_monitor()
         if not isinstance(event, dict) or event.get("type") != "diagnostic":
             return
@@ -71,27 +72,62 @@ class AndroidBridge:
             return
         event_name = str(payload.get("event") or "").strip()
         request_id = str(event.get("requestId") or payload.get("requestId") or "").strip()
-        if not request_id or not event_name.startswith("COMMAND_"):
+        if not request_id:
             return
         waiter = self._command_delivery_waiters.get(request_id)
         if waiter is None or waiter.done():
             return
+        expected_event = self._command_delivery_expected_events.get(request_id, "COMMAND_RECEIVED")
         if event_name == "COMMAND_RECEIVED":
-            performance.event("android.command_received", screen="android_bridge",
-                              metadata={"request_id": request_id, "action": payload.get("action")})
+            performance.event(
+                "android.command_received",
+                screen="android_bridge",
+                metadata={"request_id": request_id, "action": payload.get("action"),
+                          "expected_event": expected_event},
+            )
             logger.info(
-                "[ANDROID_BRIDGE] COMMAND_RECEIVED_CONFIRMED request_id=%s action=%s timestamp=%s",
+                "[ANDROID_BRIDGE] COMMAND_RECEIVED request_id=%s action=%s timestamp=%s "
+                "expected_delivery=%s",
                 request_id,
                 payload.get("action") or "-",
                 payload.get("timestamp") or "-",
+                expected_event,
+            )
+            if expected_event == "COMMAND_RECEIVED":
+                waiter.set_result(payload)
+            return
+        if event_name == expected_event:
+            performance.event(
+                "android.command_delivery_confirmed",
+                screen="android_bridge",
+                metadata={"request_id": request_id, "action": payload.get("action"),
+                          "delivery_event": event_name},
+            )
+            logger.info(
+                "[ANDROID_BRIDGE] DELIVERY_CONFIRMED request_id=%s action=%s event=%s",
+                request_id,
+                payload.get("action") or "-",
+                event_name,
             )
             waiter.set_result(payload)
-        elif event_name == "COMMAND_FAILED":
-            reason = str(payload.get("error") or payload.get("result") or "native_command_failed")
+            return
+        if event_name in {
+            "COMMAND_FAILED",
+            "PLAYER_HANDOFF_FAILED",
+            "PLAYER_HANDOFF_REJECTED",
+            "PLAYER_HANDOFF_DUPLICATE",
+        }:
+            reason = str(
+                payload.get("error")
+                or payload.get("result")
+                or event_name
+                or "native_command_failed"
+            )
             waiter.set_exception(
                 RuntimeError(
                     f"O Android recebeu o comando '{payload.get('action') or '-'}', "
-                    f"mas não conseguiu processá-lo (request {request_id}, reason={reason})."
+                    f"mas não concluiu o processamento (request {request_id}, "
+                    f"event={event_name}, reason={reason})."
                 )
             )
 
@@ -113,6 +149,8 @@ class AndroidBridge:
         loop = asyncio.get_running_loop()
         delivery_waiter = loop.create_future()
         self._command_delivery_waiters[request_id] = delivery_waiter
+        expected_event = "PLAYER_HANDOFF_DISPATCHED" if action == "play" else "COMMAND_RECEIVED"
+        self._command_delivery_expected_events[request_id] = expected_event
         logger.info(
             "[ANDROID_BRIDGE] COMMAND_CREATED request_id=%s action=%s created_at=%s protocol=%s",
             request_id,
@@ -151,6 +189,7 @@ class AndroidBridge:
             )
         except Exception as exc:
             self._command_delivery_waiters.pop(request_id, None)
+            self._command_delivery_expected_events.pop(request_id, None)
             if not delivery_waiter.done():
                 delivery_waiter.cancel()
             logger.exception(
@@ -173,28 +212,38 @@ class AndroidBridge:
         except asyncio.TimeoutError as exc:
             performance.event("android.command_delivery", duration_ms=(performance.now()-launch_started)*1000.0,
                               status="timeout", screen="android_bridge",
-                              metadata={"action": action, "request_id": request_id})
+                              metadata={"action": action, "request_id": request_id,
+                                        "expected_event": expected_event})
             logger.error(
                 "[ANDROID_BRIDGE] COMMAND_DELIVERY_TIMEOUT request_id=%s action=%s "
-                "timeout_s=%s reason=main_activity_not_confirmed",
+                "timeout_s=%s expected=%s",
                 request_id,
                 action,
                 self._command_delivery_timeout_s,
+                expected_event,
             )
+            if expected_event == "PLAYER_HANDOFF_DISPATCHED":
+                raise RuntimeError(
+                    f"O comando Android '{action}' chegou à MainActivity, mas o handoff "
+                    f"para o player não foi confirmado (request {request_id}) dentro de "
+                    f"{self._command_delivery_timeout_s:.1f}s."
+                ) from exc
             raise RuntimeError(
                 f"O comando Android '{action}' não chegou à MainActivity "
                 f"(request {request_id}) dentro de {self._command_delivery_timeout_s:.1f}s."
             ) from exc
         finally:
             self._command_delivery_waiters.pop(request_id, None)
+            self._command_delivery_expected_events.pop(request_id, None)
             if not delivery_waiter.done():
                 delivery_waiter.cancel()
         logger.info(
             "[ANDROID_BRIDGE] COMMAND_SENT request_id=%s action=%s timestamp=%s "
-            "delivery=COMMAND_RECEIVED_CONFIRMED",
+            "delivery=%s_CONFIRMED",
             request_id,
             action,
             int(time.time() * 1000),
+            expected_event,
         )
         return request_id
 
@@ -217,6 +266,14 @@ class AndroidBridge:
         normalized_uri = self.normalize_local_media_reference(uri)
         if normalized_uri is None:
             raise ValueError("A reprodução aceita somente arquivos locais ou URIs content://.")
+        canonical_episode_id = str(episode_id or "").strip()
+        if not canonical_episode_id:
+            raise ValueError("A reprodução requer um episode_id válido.")
+        try:
+            if int(canonical_episode_id) <= 0:
+                raise ValueError
+        except (TypeError, ValueError) as exc:
+            raise ValueError("A reprodução requer um episode_id válido.") from exc
         return await self._launch(
             "play",
             uri=normalized_uri,

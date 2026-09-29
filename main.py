@@ -231,6 +231,7 @@ async def main(page: ft.Page):
     performance.set_screen_provider(lambda: navigation.current)
     performance.install_page_hooks(page)
     details_instance_generation = [0]
+    collector_instance_generation = [0]
     saf_selection = SafSelectionState()
     # One Python navigation stack, one persistent Flet host, and cached
     # top-level screens. Returning to a screen must not destroy its scroll,
@@ -437,6 +438,7 @@ async def main(page: ft.Page):
             invalidate_tasks()
         state.pop('_update_thumbnail', None)
         screen_cache.pop(route, None)
+        _mark_ui_dirty()
 
     def _invalidate_catalog_views():
         # Details mutations are durable Store changes. Invalidate only the
@@ -510,14 +512,24 @@ async def main(page: ft.Page):
                 on_open_marathon=open_marathon,
                 resolve_artwork_palette=library.resolve_artwork_palette,
                 is_active=lambda token=detail_instance_token, anime_id=detail_anime_id: (
-                    navigation.current == "details"
+                    ui_alive[0]
+                    and navigation.current == "details"
                     and details_instance_generation[0] == token
                     and (current[0] or {}).get("id") == anime_id
                 ),
             )
         elif route == "collector":
+            collector_instance_generation[0] += 1
+            collector_instance_token = collector_instance_generation[0]
             control = CollectorView.build(
-                page, library, lambda: navigate_back("visual:collector"),
+                page,
+                library,
+                lambda: navigate_back("visual:collector"),
+                is_active=lambda token=collector_instance_token: (
+                    ui_alive[0]
+                    and navigation.current == "collector"
+                    and collector_instance_generation[0] == token
+                ),
             )
         elif route == "settings":
             fixed_settings_path = (
@@ -880,11 +892,18 @@ async def main(page: ft.Page):
         page.run_task(load_and_show)
     def navigate_details(anime, on_back=None):
         previous = navigation.current
+        anime_id = (anime or {}).get("id") if isinstance(anime, dict) else None
+        current_id = (current[0] or {}).get("id") if isinstance(current[0], dict) else None
+        if navigation.current == "details" and anime_id == current_id:
+            performance.counter("navigation.duplicate_details_ignored")
+            logger.info("[NAV] duplicate Details navigation ignored anime_id=%s", anime_id)
+            return
         with performance.interaction("open_details", source=previous, target="details",
-                                      metadata={"anime_id": (anime or {}).get("id") if isinstance(anime, dict) else None}):
+                                      metadata={"anime_id": anime_id}):
             current[0] = anime
             _drop_screen_cache("details")
-            navigation.push("details")
+            if navigation.current != "details":
+                navigation.push("details")
             render_current(reason="open_details")
             persist_navigation_state()
     async def refresh_current_details():
@@ -1093,10 +1112,12 @@ async def main(page: ft.Page):
     def account(): return store.account()
     def navigate_settings():
         previous = navigation.current
+        if navigation.current == "settings" and not navigation.settings_path:
+            performance.counter("navigation.duplicate_settings_ignored")
+            logger.info("[NAV] duplicate Settings navigation ignored")
+            return
         with performance.interaction("open_settings", source=previous, target="settings"):
-            if navigation.current == "settings":
-                navigation.replace("settings")
-            else:
+            if navigation.current != "settings":
                 navigation.push("settings")
             _drop_screen_cache("settings")
             render_current(reason="open_settings")
@@ -1143,8 +1164,6 @@ async def main(page: ft.Page):
             return
         back_state.update(last_at=now, last_action=source)
         logger.info("[NAV] BACK received source=%s route=%s", source, route_before)
-        if route_before == "settings":
-            settings_tasks.invalidate()
 
         try:
             dialog = page.pop_dialog()
@@ -1194,6 +1213,12 @@ async def main(page: ft.Page):
         if action in {"previous", "settings_inner"}:
             # Settings content is rebuilt whenever its nested path changes, while
             # top-level screens remain cached for scroll/filter/search continuity.
+            # A dialog-only Back was already returned above and therefore does not
+            # invalidate the active Settings task generation.
+            if route_before == "settings" and (
+                action == "settings_inner" or navigation.current != "settings"
+            ):
+                settings_tasks.invalidate()
             if action == "settings_inner":
                 _drop_screen_cache("settings")
             elif navigation.current == "settings":

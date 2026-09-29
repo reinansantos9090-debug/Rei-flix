@@ -2445,6 +2445,7 @@ async def main(page: ft.Page):
                             transition_generation = player_transition_generation["value"]
                             if player_active_request_id["value"] is None:
                                 player_active_request_id["value"] = event_request_id
+                            player_session_active["value"] = True
 
                             async def run_player_transition(
                                 direction_name=direction_name,

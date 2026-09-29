@@ -632,10 +632,11 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
             bridge = AndroidBridge(d)
             bridge.mailbox.write_text(json.dumps([{'type': 'unknown'}, 'bad', 3]), encoding='utf-8')
             self.assertEqual([event["type"] for event in bridge.drain()], ["unknown"])
-            self.assertTrue(bridge.mailbox.with_suffix('.consumed').exists())
+            consumed = list(bridge.queue_dir.glob('event-*.consumed'))
+            self.assertEqual(len(consumed), 1)
             self.assertEqual(bridge.drain(), [])
             bridge.acknowledge()
-            self.assertFalse(bridge.mailbox.with_suffix('.consumed').exists())
+            self.assertFalse(any(bridge.queue_dir.glob('event-*.consumed')))
             bridge.mailbox.write_text('{bad json', encoding='utf-8')
             self.assertEqual(bridge.drain(), [])
             self.assertFalse(bridge.mailbox.with_suffix('.consumed').exists())
@@ -670,9 +671,9 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
             bridge = AndroidBridge(d)
             bridge.mailbox.write_text(json.dumps(["bad", 3]), encoding="utf-8")
             self.assertEqual(bridge.drain(), [])
-            self.assertTrue(bridge.mailbox.with_suffix('.consumed').exists())
+            self.assertFalse(any(bridge.queue_dir.glob('event-*.consumed')))
             bridge.acknowledge()
-            self.assertFalse(bridge.mailbox.with_suffix('.consumed').exists())
+            self.assertFalse(any(bridge.queue_dir.glob('event-*.consumed')))
 
     def test_native_saf_documents_are_persisted_as_uris(self):
         with tempfile.TemporaryDirectory() as d:

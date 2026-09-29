@@ -360,12 +360,61 @@ class AndroidBridge:
         return float("inf")
 
     def pending_count(self) -> int:
-        """Return the number of modern mailbox files plus the legacy batch."""
+        """Return the number of queued event files plus an unclaimed legacy batch."""
         try:
             legacy = 1 if self.mailbox.exists() else 0
             return legacy + sum(1 for _ in self.queue_dir.glob("event-*.json"))
         except OSError:
             return 0
+
+    def _migrate_legacy_mailbox(self) -> None:
+        """Migrate the legacy batch into individually claimable event files.
+        
+        The legacy format stores multiple events in one JSON document, so it
+        cannot be safely acknowledged or requeued one event at a time. Convert
+        it to the modern per-event format before applying the bounded drain.
+        """
+        if not self.mailbox.exists():
+            return
+        legacy = self.mailbox.with_suffix(".consumed")
+        try:
+            self.mailbox.replace(legacy)
+        except OSError as exc:
+            logger.error("[ANDROID] Failed to claim legacy native mailbox: %s", exc)
+            return
+
+        try:
+            payload = json.loads(legacy.read_text(encoding="utf-8"))
+            raw_events = (
+                payload if isinstance(payload, list)
+                else [payload] if isinstance(payload, dict)
+                else []
+            )
+            migrated = 0
+            for index, event in enumerate(raw_events):
+                normalized = self._normalize_event(event, legacy.name, index)
+                if normalized is None:
+                    continue
+                event_id = str(normalized["eventId"]).strip()
+                digest = hashlib.sha256(event_id.encode("utf-8")).hexdigest()[:24]
+                target = self.queue_dir / f"event-legacy-{digest}.json"
+                if target.exists():
+                    continue
+                temp = target.with_suffix(".tmp")
+                temp.write_text(
+                    json.dumps(normalized, ensure_ascii=False, separators=(",", ":")),
+                    encoding="utf-8",
+                )
+                temp.replace(target)
+                migrated += 1
+            legacy.unlink(missing_ok=True)
+            logger.info("[ANDROID] LEGACY_MAILBOX_MIGRATED events=%s", migrated)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.error(
+                "[ANDROID] Legacy native mailbox migration failed; "
+                "claimed batch retained for recovery: %s",
+                exc,
+            )
 
     def drain(self, max_events: int | None = None) -> list[dict]:
         """Claim a bounded, time-ordered slice of native events."""
@@ -376,28 +425,7 @@ class AndroidBridge:
         claimed: list[Path] = []
         try:
             self.queue_dir.mkdir(parents=True, exist_ok=True)
-            legacy = self.mailbox.with_suffix(".consumed")
-            if self.mailbox.exists():
-                try:
-                    self.mailbox.replace(legacy)
-                except OSError as exc:
-                    logger.error("[ANDROID] Failed to claim legacy native mailbox: %s", exc)
-                else:
-                    try:
-                        payload = json.loads(legacy.read_text(encoding="utf-8"))
-                        if isinstance(payload, list):
-                            for index, event in enumerate(payload):
-                                normalized = self._normalize_event(event, legacy.name, index)
-                                if normalized is not None:
-                                    events.append(normalized)
-                        elif isinstance(payload, dict):
-                            normalized = self._normalize_event(payload, legacy.name, 0)
-                            if normalized is not None:
-                                events.append(normalized)
-                        claimed.append(legacy)
-                    except (OSError, json.JSONDecodeError) as exc:
-                        logger.error("[ANDROID] Invalid legacy native mailbox batch discarded: %s", exc)
-                        legacy.unlink(missing_ok=True)
+            self._migrate_legacy_mailbox()
 
             candidates: list[tuple[float, int, Path]] = []
             for index, source in enumerate(sorted(self.queue_dir.glob("event-*.json"))):

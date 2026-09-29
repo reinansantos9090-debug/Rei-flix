@@ -124,6 +124,50 @@ class StorePaginationTests(unittest.TestCase):
             self.assertEqual(second_path, result[0]["path"])
             self.assertLessEqual(len(store.continue_watching(limit=100)), 2)
 
+    def test_home_sections_batch_catalog_hydration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            self._seed(store, 40)
+            with patch.object(store, "catalog", wraps=store.catalog) as catalog:
+                sections = store.home_sections(limit=8)
+            self.assertEqual(1, catalog.call_count)
+            self.assertLessEqual(len(sections["recently_added"]), 8)
+            self.assertLessEqual(len(sections["favorites"]), 8)
+
+    def test_prompt8_episode_filter_index_has_a_direct_query_plan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            with store._conn() as con:
+                indexes = {row["name"] for row in con.execute("PRAGMA index_list(episodes)").fetchall()}
+                self.assertIn("idx_episodes_anime_season_number_abs", indexes)
+                plan = con.execute(
+                    "EXPLAIN QUERY PLAN SELECT id FROM episodes "
+                    "WHERE anime_id=? AND season=? AND number=? "
+                    "ORDER BY absolute_number, id",
+                    (1, 1, 1),
+                ).fetchall()
+                plan_text = " ".join(str(row["detail"]) for row in plan)
+                self.assertIn("idx_episodes_anime_season_number_abs", plan_text)
+
+    def test_prompt8_summary_projections_preserve_expected_counts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            completed = store.upsert_anime("complete", {"title": "Complete", "genres": "[]"})
+            active = store.upsert_anime("active", {"title": "Active", "genres": "[]"})
+            empty = store.upsert_anime("empty", {"title": "Empty", "genres": "[]"})
+            store.upsert_episode(completed, "/complete.mkv", "Complete", 1, 1)
+            store.save_progress("/complete.mkv", 100, 100)
+            store.upsert_episode(active, "/active.mkv", "Active", 1, 1)
+            store.save_progress("/active.mkv", 20, 100)
+            store.upsert_episode(empty, "/empty.mkv", "Empty", 1, 1)
+            summary = store.organize_summary()
+            values = {item["name"]: item["count"] for item in summary["collections"]}
+            self.assertEqual(3, values["Todos"])
+            self.assertEqual(1, values["Assistidos"])
+            self.assertEqual(1, values["Em andamento"])
+            self.assertEqual(1, values["Concluídos"])
+            self.assertEqual(1, values["Não iniciados"])
+
     def test_performance_indexes_cover_default_sort_resume_and_episode_query(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

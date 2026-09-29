@@ -1,0 +1,109 @@
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PLAYER = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt"
+MAIN = ROOT / "main.py"
+STORE = ROOT / "core/library_store.py"
+
+
+class Prompt12PlayerTransitionContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.player = PLAYER.read_text(encoding="utf-8")
+        cls.main = MAIN.read_text(encoding="utf-8")
+        cls.store = STORE.read_text(encoding="utf-8")
+
+    def test_transition_gate_blocks_second_request_until_media3_ready(self):
+        request = self.player[self.player.index("private fun requestEpisode"):self.player.index("private fun seekToSavedPosition")]
+        self.assertIn("episodeChangePending || errorVisible", request)
+        self.assertIn("episodeChangePending = true", request)
+        self.assertIn("updateEpisodeNavigationButtons()", request)
+
+        reuse = self.player[self.player.index("override fun onNewIntent"):self.player.index("private fun currentEpisodeId")]
+        self.assertIn("val transitionPending = episodeChangePending", reuse)
+        self.assertIn("if (transitionPending)", reuse)
+        self.assertIn("episodeChangeTimeoutRequestId = requestId", reuse)
+        self.assertIn("episodeChangeTimeoutUri = uri.toString()", reuse)
+        self.assertNotIn(
+            "sessionState = SessionState.ACTIVE\n        episodeChangePending = false",
+            reuse,
+        )
+
+        ready = self.player[
+            self.player.index("Player.STATE_READY -> {"):
+            self.player.index("Player.STATE_BUFFERING -> {")
+        ]
+        self.assertIn("if (episodeChangePending)", ready)
+        self.assertIn("episodeChangePending = false", ready)
+        self.assertIn("EPISODE_CHANGE_COMMITTED", ready)
+
+    def test_transition_watchdog_and_error_paths_release_gate(self):
+        self.assertIn("episodeChangeTimeoutRequestId != requestId", self.player)
+        self.assertIn("episodeChangeTimeoutUri != uri.toString()", self.player)
+        self.assertIn("episodeChangePending = false\n        updateEpisodeNavigationButtons()", self.player)
+
+        error = self.player[
+            self.player.index("private fun showPlayerError("):
+            self.player.index("private fun publishPlayerError")
+        ]
+        self.assertIn("episodeChangePending = false", error)
+        self.assertIn("handler.removeCallbacks(episodeChangeTimeout)", error)
+
+        finish = self.player[
+            self.player.index("private fun finishPlayer("):
+            self.player.index("private fun updateEpisodeNavigationButtons")
+        ]
+        self.assertIn("episodeChangePending = false", finish)
+        self.assertIn("handler.removeCallbacks(episodeChangeTimeout)", finish)
+
+    def test_python_transition_uses_canonical_library_direction_and_identity(self):
+        block = self.main[
+            self.main.index("elif event_type in {'player_next_request', 'player_previous_request'}:"):
+            self.main.index("elif event_type == 'player_error':")
+        ]
+        self.assertIn("direction = 1 if event_type == 'player_next_request' else -1", block)
+        self.assertIn("await asyncio.to_thread(library.next_episode, current_path)", block)
+        self.assertIn("await asyncio.to_thread(library.previous_episode, current_path)", block)
+        self.assertIn("episode_id=target.get(\"id\")", block)
+        self.assertIn("anime_id=target.get(\"anime_id\")", block)
+        self.assertIn("target.get('progress')", block)
+        self.assertIn("player_transition_inflight[\"value\"] = True", block)
+        self.assertIn("finally:\n                                player_transition_inflight[\"value\"] = False", block)
+
+    def test_autoplay_completion_is_single_transition_source(self):
+        playback = self.player[
+            self.player.index("override fun onPlaybackStateChanged"):
+            self.player.index("override fun onPlaybackParametersChanged")
+        ]
+        self.assertIn("Player.STATE_ENDED -> {", playback)
+        self.assertIn('saveProgress("player_completed", force = true)', playback)
+        self.assertIn("if (autoplayNext && intent.getBooleanExtra(\"canNext\", false))", playback)
+        self.assertIn('requestEpisode("player_next_request")', playback)
+
+    def test_media3_transition_replaces_one_current_item_without_playlist_dual_source(self):
+        prepare = self.player[
+            self.player.index("private fun prepareCurrentMedia"):
+            self.player.index("private fun createPlayerListener")
+        ]
+        self.assertIn("player.setMediaItem(mediaItem)", prepare)
+        self.assertIn("player.prepare()", prepare)
+        self.assertNotIn("player.setMediaItems(", prepare)
+        self.assertNotIn("player.addMediaItem(", prepare)
+
+    def test_navigation_order_is_canonical_and_skips_unavailable_specials(self):
+        self.assertIn("current_key = LibraryStore._episode_order_key(current)", self.store)
+        self.assertIn("ordered = sorted(available, key=LibraryStore._episode_order_key)", self.store)
+        self.assertIn("e.missing=0", self.store)
+        self.assertIn(
+            "e.episode_type NOT IN ('movie','special','ova','oad','ona','extra')",
+            self.store,
+        )
+        self.assertIn('WHERE e.anime_id=?', self.store)
+        self.assertIn("def next_episode(self, path)", self.store)
+        self.assertIn("def previous_episode(self, path)", self.store)
+
+
+if __name__ == "__main__":
+    unittest.main()

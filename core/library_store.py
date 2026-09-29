@@ -2593,7 +2593,7 @@ class LibraryStore:
                 c.execute("UPDATE episodes SET absolute_number=?,relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE path=?",(absolute_number,relative_path,volume_id,volume_uuid,episode_type,episode_title,identification_source,identification_confidence,path))
             return True
 
-    def save_progress(self, path, position, duration, *, event_created_at=None):
+    def save_progress(self, path, position, duration, *, episode_id=None, event_created_at=None):
         """Persist one normalized playback event with canonical local-media identity."""
         started = time.perf_counter()
         try:
@@ -2611,14 +2611,40 @@ class LibraryStore:
             position = min(position, duration)
         durable_time = time.time()
         with self._conn() as c:
-            row = self._find_episode_row(c, path)
-            if not row:
-                return False
+            parsed_episode_id = None
+            try:
+                if episode_id is not None and str(episode_id).strip():
+                    parsed_episode_id = int(episode_id)
+            except (TypeError, ValueError):
+                parsed_episode_id = None
+            if parsed_episode_id is not None and parsed_episode_id <= 0:
+                parsed_episode_id = None
+            identity_source = "path_fallback"
+            if parsed_episode_id is not None:
+                row = c.execute("SELECT * FROM episodes WHERE id=?", (parsed_episode_id,)).fetchone()
+                identity_source = "episode_id"
+                if not row:
+                    return False
+                if path:
+                    path_row = self._find_episode_row(c, path)
+                    if path_row and path_row["id"] != row["id"]:
+                        get_performance_monitor().record_sqlite(
+                            "save_progress", (time.perf_counter()-started)*1000.0,
+                            rows=0, status="identity_mismatch",
+                            metadata={"episode_id": parsed_episode_id},
+                        )
+                        return False
+            else:
+                row = self._find_episode_row(c, path)
+                if not row:
+                    return False
             canonical_path = str(row["path"])
+            canonical_episode_id = int(row["id"])
             watched = int(is_completed({"progress": position, "duration": duration, "watched": bool(row["watched"])}))
             if event_time is not None:
                 durable_time = event_time / 1000.0 if event_time > 10_000_000_000 else event_time
-                last_seen = self._last_playback_event_at.get(canonical_path, 0.0)
+                event_key = f"episode:{canonical_episode_id}" if parsed_episode_id is not None else canonical_path
+                last_seen = self._last_playback_event_at.get(event_key, 0.0)
                 if durable_time <= last_seen:
                     get_performance_monitor().record_sqlite("save_progress", (time.perf_counter()-started)*1000.0, rows=0, status="stale")
                     return False
@@ -2630,7 +2656,7 @@ class LibraryStore:
                     (position, duration, watched, durable_time, canonical_path, durable_time),
                 ).rowcount
                 if updated:
-                    self._last_playback_event_at[canonical_path] = durable_time
+                    self._last_playback_event_at[event_key] = durable_time
                     if len(self._last_playback_event_at) > 8192:
                         oldest = sorted(
                             self._last_playback_event_at.items(),
@@ -2660,12 +2686,29 @@ class LibraryStore:
     def is_in_progress(episode):
         return is_in_progress(episode)
 
-    def set_watched(self, path, watched):
+    def set_watched(self, path, watched, *, episode_id=None):
         """Set an episode completion state using canonical local-media identity."""
         with self._conn() as c:
-            row = self._find_episode_row(c, path)
-            if not row:
-                return False
+            parsed_episode_id = None
+            try:
+                if episode_id is not None and str(episode_id).strip():
+                    parsed_episode_id = int(episode_id)
+            except (TypeError, ValueError):
+                parsed_episode_id = None
+            if parsed_episode_id is not None and parsed_episode_id <= 0:
+                parsed_episode_id = None
+            if parsed_episode_id is not None:
+                row = c.execute("SELECT * FROM episodes WHERE id=?", (parsed_episode_id,)).fetchone()
+                if not row:
+                    return False
+                if path:
+                    path_row = self._find_episode_row(c, path)
+                    if path_row and path_row["id"] != row["id"]:
+                        return False
+            else:
+                row = self._find_episode_row(c, path)
+                if not row:
+                    return False
             canonical_path = str(row["path"])
             duration = float(row["duration"] or 0)
             progress = duration if watched and duration > 0 else (0 if not watched else 0)

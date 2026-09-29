@@ -2209,6 +2209,7 @@ async def main(page: ft.Page):
                                         path_ref,
                                         position_ms / 1000.0,
                                         duration_ms / 1000.0,
+                                        episode_id=payload.get("episodeId"),
                                         event_created_at=event.get('createdAt') or event.get('timestamp'),
                                     )
                                     performance.event("player.progress_persist", duration_ms=(performance.now()-progress_started)*1000.0,
@@ -2230,8 +2231,10 @@ async def main(page: ft.Page):
                         elif event_type == 'player_mark_watched':
                             path_ref = str(payload.get('uri') or '').strip()
                             updated = False
-                            if path_ref:
-                                updated = await asyncio.to_thread(store.set_watched, path_ref, True)
+                            if path_ref or payload.get("episodeId"):
+                                updated = await asyncio.to_thread(
+                                    store.set_watched, path_ref, True, episode_id=payload.get("episodeId")
+                                )
                             diagnostics.record(
                                 "PLAYER_MARK_WATCHED",
                                 request_id=event_request_id,
@@ -2241,8 +2244,10 @@ async def main(page: ft.Page):
                         elif event_type == 'player_mark_unwatched':
                             path_ref = str(payload.get('uri') or '').strip()
                             updated = False
-                            if path_ref:
-                                updated = await asyncio.to_thread(store.set_watched, path_ref, False)
+                            if path_ref or payload.get("episodeId"):
+                                updated = await asyncio.to_thread(
+                                    store.set_watched, path_ref, False, episode_id=payload.get("episodeId")
+                                )
                             diagnostics.record(
                                 "PLAYER_MARK_UNWATCHED",
                                 request_id=event_request_id,
@@ -2304,7 +2309,7 @@ async def main(page: ft.Page):
                                     or target.get('title')
                                     or "Episódio local"
                                 )
-                                resume_enabled = store.get_preference('resume_playback', 'true') == 'true'
+                                resume_enabled = settings.get("player.resume")
                                 target_position_ms = (
                                     max(0.0, float(target.get('progress') or 0.0)) * 1000.0
                                     if resume_enabled else 0.0
@@ -2324,6 +2329,8 @@ async def main(page: ft.Page):
                                         target_path,
                                         target_title,
                                         int(target_position_ms),
+                                        episode_id=target.get("id"),
+                                        anime_id=target.get("anime_id"),
                                     )
                                     performance.event(f"player.{direction_name.lower()}.handoff", duration_ms=(performance.now()-handoff_started)*1000.0,
                                                       screen=navigation.current,
@@ -2369,6 +2376,7 @@ async def main(page: ft.Page):
                                         exit_uri,
                                         position_seconds,
                                         duration_seconds,
+                                        episode_id=payload.get("episodeId"),
                                         event_created_at=event.get('createdAt') or event.get('timestamp'),
                                     )
                                 except (TypeError, ValueError):

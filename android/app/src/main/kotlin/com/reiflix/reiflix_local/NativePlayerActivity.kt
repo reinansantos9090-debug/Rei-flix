@@ -597,6 +597,14 @@ class NativePlayerActivity : ComponentActivity() {
         }
     }
 
+    private fun currentEpisodeId(): String = intent.getStringExtra("episodeId")?.trim().orEmpty()
+
+    private fun currentMediaId(): String {
+        val episodeId = currentEpisodeId()
+        if (episodeId.isNotBlank()) return "episode:$episodeId"
+        return if (::uri.isInitialized) uri.toString() else intent.getStringExtra("mediaId").orEmpty()
+    }
+
     private fun buildMediaItem(
         mediaUri: Uri,
         mimeType: String?,
@@ -604,7 +612,7 @@ class NativePlayerActivity : ComponentActivity() {
     ): MediaItem {
         val mediaItemBuilder = MediaItem.Builder()
             .setUri(mediaUri)
-            .setMediaId(mediaUri.toString())
+            .setMediaId(currentMediaId())
         mimeType?.takeIf { it.startsWith("video/") }?.let { mediaItemBuilder.setMimeType(it) }
         if (subtitleTracks.isNotEmpty()) {
             mediaItemBuilder.setSubtitleConfigurations(
@@ -861,8 +869,8 @@ class NativePlayerActivity : ComponentActivity() {
                                     .put("uri", uri.toString())
                                     .put("source", sourceFor(uri))
                                     .put("title", titleValue)
-                                    .put("mediaId", uri.toString())
-                                    .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
+                                    .put("mediaId", currentMediaId())
+                                    .put("episodeId", currentEpisodeId())
                                     .put("animeId", intent.getStringExtra("animeId").orEmpty())
                                     .put("state", "READY"))
                         )
@@ -2273,12 +2281,14 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         if (sessionState == SessionState.DESTROYED || exitReported) return
         exitReported = true
         suppressExitEvent = true
-        val currentPosition = if (::player.isInitialized) player.currentPosition.coerceAtLeast(0L) else 0L
-        val currentDuration = if (::player.isInitialized) player.duration.coerceAtLeast(0L) else 0L
+        val rawDuration = if (::player.isInitialized) player.duration else 0L
+        val currentDuration = if (rawDuration > 0L) rawDuration else 0L
+        val rawPosition = if (::player.isInitialized) player.currentPosition.coerceAtLeast(0L) else 0L
+        val currentPosition = if (currentDuration > 0L) rawPosition.coerceAtMost(currentDuration) else rawPosition
         val payload = JSONObject()
             .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
-            .put("mediaId", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("mediaId").orEmpty())
-            .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
+            .put("mediaId", currentMediaId())
+            .put("episodeId", currentEpisodeId())
             .put("animeId", intent.getStringExtra("animeId").orEmpty())
             .put("positionMs", currentPosition)
             .put("durationMs", currentDuration)
@@ -2326,6 +2336,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         val payload = JSONObject()
             .put("uri", uri.toString())
             .put("requestId", requestId)
+            .put("episodeId", currentEpisodeId())
+            .put("animeId", intent.getStringExtra("animeId").orEmpty())
             .put("positionMs", player.currentPosition.coerceAtLeast(0L))
             .put("durationMs", player.duration.coerceAtLeast(0L))
         val published = NativeMailbox.write(
@@ -2368,8 +2380,10 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     private fun saveProgress(eventType: String, force: Boolean = false) {
         if (!::player.isInitialized) return
-        val position = player.currentPosition.coerceAtLeast(0L)
-        val duration = player.duration.coerceAtLeast(0L)
+        val rawDuration = player.duration
+        val duration = if (rawDuration > 0L) rawDuration else 0L
+        val rawPosition = player.currentPosition.coerceAtLeast(0L)
+        val position = if (duration > 0L) rawPosition.coerceAtMost(duration) else rawPosition
         if (!force && lastSavedPosition >= 0L && abs(position - lastSavedPosition) < PROGRESS_INTERVAL_MS) return
         if (force && position == lastSavedPosition &&
             eventType != "player_completed" && eventType != "player_exited") {
@@ -2382,8 +2396,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put(
                 "payload",
                 JSONObject().put("uri", uri.toString())
-                    .put("mediaId", uri.toString())
-                    .put("episodeId", intent.getStringExtra("episodeId").orEmpty())
+                    .put("mediaId", currentMediaId())
+                    .put("episodeId", currentEpisodeId())
                     .put("animeId", intent.getStringExtra("animeId").orEmpty())
                     .put("positionMs", position)
                     .put("durationMs", duration)
@@ -2423,14 +2437,18 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     override fun onPause() {
         cancelFirstFrameDiagnostics("pause")
-        saveProgress("player_paused", force = true)
+        if (sessionState != SessionState.EXITING) {
+            saveProgress("player_paused", force = true)
+        }
         logPlayer("onPause requestId=" + requestId.ifEmpty { "-" })
         super.onPause()
     }
 
     override fun onStop() {
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
-        saveProgress("player_progress", force = true)
+        if (sessionState != SessionState.EXITING) {
+            saveProgress("player_progress", force = true)
+        }
         logPlayer("onStop finishing=" + isFinishing + " changingConfig=" + isChangingConfigurations)
         super.onStop()
     }

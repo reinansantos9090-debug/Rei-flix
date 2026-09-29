@@ -21,7 +21,7 @@ class PlaybackContractTests(unittest.TestCase):
 
     def test_progress_events_use_existing_episode_identity_and_media3_state(self):
         for token in (
-            '"mediaId", uri.toString()',
+            '"mediaId", currentMediaId()',
             '"episodeId", intent.getStringExtra("episodeId").orEmpty()',
             '"positionMs", position',
             '"durationMs", duration',
@@ -37,7 +37,7 @@ class PlaybackContractTests(unittest.TestCase):
     def test_error_diagnostics_contain_required_runtime_context(self):
         for token in (
             '"timestamp", System.currentTimeMillis()',
-            '"mediaId", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("mediaId").orEmpty()',
+            '"mediaId", currentMediaId()',
             '"episodeId", intent.getStringExtra("episodeId").orEmpty()',
             '"playerState", if (::player.isInitialized) player.playbackStateLabel() else "STATE_IDLE"',
             '"isPlaying", if (::player.isInitialized) player.isPlaying else false',
@@ -67,13 +67,13 @@ class PlaybackContractTests(unittest.TestCase):
         self.assertNotIn("can_next=library.next_episode(path)", block)
         self.assertNotIn("can_previous=library.previous_episode(path)", block)
 
-    def test_native_player_handoff_suppresses_same_uri_double_tap_without_permanent_lock(self):
+    def test_native_player_handoff_dedupes_exact_request_id_without_uri_window(self):
         source = self.main_activity
-        self.assertIn("PLAYER_HANDOFF_DEDUPE_WINDOW_MS", source)
-        self.assertIn("lastPlayerHandoffUri", source)
-        self.assertIn('reason=same_uri', source)
-        self.assertIn("NativeRequestState.OperationState.COMPLETED", source)
-        self.assertIn('result = "ignored_same_uri"', source)
+        self.assertIn("seenPlayerRequestIds", source)
+        self.assertIn("reason=same_request", source)
+        self.assertNotIn("PLAYER_HANDOFF_DEDUPE_WINDOW_MS", source)
+        self.assertNotIn("lastPlayerHandoffUri", source)
+        self.assertNotIn("ignored_same_uri", source)
     def test_first_frame_timing_contract_is_correlated_and_non_destructive(self):
         for token in (
             "commandCreatedAtMs",

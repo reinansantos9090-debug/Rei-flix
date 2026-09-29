@@ -77,6 +77,9 @@ class OrganizeView:
         on_add_folder=None,
         view_state=None,
     ):
+        performance = get_performance_monitor()
+        build_started = performance.now()
+        performance.counter("ui.builds_requested.organize")
         theme = activate_theme_for_page(page)
         BACKGROUND = theme.background
         SURFACE = theme.surface
@@ -840,7 +843,7 @@ class OrganizeView:
         render_generation[0] += 1
         render_overview()
         page.run_task(load_catalog)
-        return ft.Container(
+        result = ft.Container(
             content=content,
             padding=ft.Padding(
                 left=PAGE_PADDING,
@@ -851,3 +854,6 @@ class OrganizeView:
             bgcolor=BACKGROUND,
             expand=True,
         )
+        performance.record_ui_build("organize", (performance.now()-build_started)*1000.0,
+                                    controls=performance.control_count(result), cached=False)
+        return result

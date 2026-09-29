@@ -4,12 +4,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PLAYER = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt"
+MAIN_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt"
+GRADLE = ROOT / "android/app/build.gradle.kts"
 
 
 class Prompt13NativePlayerLifecycleTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.player = PLAYER.read_text(encoding="utf-8")
+        cls.main_activity = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        cls.gradle = GRADLE.read_text(encoding="utf-8")
 
     def test_single_exoplayer_creation_and_release_contract(self):
         self.assertEqual(1, self.player.count("ExoPlayer.Builder(this).build()"))
@@ -89,6 +93,18 @@ class Prompt13NativePlayerLifecycleTests(unittest.TestCase):
         self.assertIn("handler.post {", prepare)
         self.assertIn("player.setMediaItem(mediaItem)", prepare)
         self.assertIn("player.prepare()", prepare)
+
+    def test_android_host_compilation_contracts_used_by_player_diagnostics(self):
+        duplicate = self.main_activity[
+            self.main_activity.index('if (requestId.isNotBlank() && seenPlayerRequestIds.contains(requestId))'):
+            self.main_activity.index('activePlayerRequestId = requestId.takeIf', self.main_activity.index('if (requestId.isNotBlank() && seenPlayerRequestIds.contains(requestId))'))
+        ]
+        self.assertIn('PLAYER_HANDOFF_DUPLICATE', duplicate)
+        self.assertIn('result = "ignored_same_request"', duplicate)
+        self.assertIn("return true", duplicate)
+
+        self.assertIn("buildFeatures", self.gradle)
+        self.assertIn("buildConfig = true", self.gradle)
 
     def test_first_frame_is_generation_correlated(self):
         self.assertIn("generation == playerGeneration && sessionState == SessionState.ACTIVE", self.player)

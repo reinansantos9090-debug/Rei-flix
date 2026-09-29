@@ -1970,6 +1970,7 @@ class LibraryStore:
         metadata="Todos", artwork="Todos",
     ):
         """Return one bounded catalog page directly from SQLite."""
+        started = time.perf_counter()
         try: page = max(0, int(page))
         except (TypeError, ValueError): page = 0
         try: page_size = min(100, max(1, int(page_size)))
@@ -2095,7 +2096,10 @@ class LibraryStore:
         items = self.catalog(anime_ids=ids) if ids else []
         by_id = {int(item["id"]): item for item in items}
         ordered = [by_id[anime_id] for anime_id in ids if anime_id in by_id]
-        return {"items": ordered, "page": page, "page_size": page_size, "total": total, "has_more": offset + len(ordered) < total}
+        result = {"items": ordered, "page": page, "page_size": page_size, "total": total, "has_more": offset + len(ordered) < total}
+        get_performance_monitor().record_sqlite("catalog_page", (time.perf_counter()-started)*1000.0,
+                                                rows=len(ordered), metadata={"page": page, "page_size": page_size})
+        return result
 
     def next_episode_items(self, limit=12):
         """Return the bounded Next Episode projection directly from SQLite."""

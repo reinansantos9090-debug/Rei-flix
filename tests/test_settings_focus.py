@@ -82,6 +82,9 @@ class SettingsFocusIntegrationTests(unittest.TestCase):
         self.assertIn("handle_category_focus", settings)
         self.assertIn("settings_stale_focus_tasks", settings)
         self.assertNotIn("on_focus=lambda _event, k=key: page.run_task(reveal_category_focus, k)", settings)
+        self.assertNotIn("def restore_scroll", settings)
+        self.assertNotIn("page.run_task(restore_scroll)", settings)
+        self.assertNotIn('scroll_to(offset=float(stored)', settings)
 
     def test_main_binds_settings_tasks_to_navigation_generation(self):
         main = (ROOT / "main.py").read_text(encoding="utf-8")

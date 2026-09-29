@@ -1966,7 +1966,7 @@ class MainActivity : FlutterFragmentActivity() {
                 NativeRequestState.OperationState.COMPLETED.name,
                 result = "ignored_same_request",
             )
-            return
+            return true
         }
         activePlayerRequestId = requestId.takeIf { it.isNotBlank() }
         activePlayerCommandCreatedAtMs = playerRequest.commandCreatedAtMs

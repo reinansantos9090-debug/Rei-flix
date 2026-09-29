@@ -12,7 +12,7 @@ class UiRenderPipelineTests(unittest.TestCase):
     def test_render_current_has_unchanged_tree_fast_path(self):
         source = MAIN.read_text(encoding="utf-8")
         self.assertIn("view_shell_cache = {}", source)
-        self.assertIn('render_state = {', source)
+        self.assertIn("render_state = {", source)
         self.assertIn('"dirty": True', source)
         self.assertIn("def _ui_render_signature():", source)
         self.assertIn("ui.render_current.skipped_unchanged", source)
@@ -84,9 +84,38 @@ class UiRenderPipelineTests(unittest.TestCase):
         )
         self.assertIn("load_collection_page() performs the single required UI update", source)
 
+    def test_catalog_refresh_does_not_chain_into_settings_refresh(self):
+        source = MAIN.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "on_catalog_changed()\n        refresh_settings_if_active()",
+            source,
+        )
+        self.assertNotIn(
+            "on_catalog_changed()\n                            refresh_settings_if_active()",
+            source,
+        )
+        self.assertNotIn(
+            "on_catalog_changed()\n                                refresh_settings_if_active()",
+            source,
+        )
+
+    def test_main_only_has_intentional_direct_screen_cache_operations(self):
+        source = MAIN.read_text(encoding="utf-8")
+        refs = [
+            line.strip()
+            for line in source.splitlines()
+            if "screen_cache.pop(" in line or "screen_cache.clear(" in line
+        ]
+        self.assertLessEqual(len(refs), 2)
+        self.assertTrue(any("screen_cache.pop(route, None)" in line for line in refs))
+        self.assertTrue(any("screen_cache.pop(cache_key, None)" in line for line in refs))
+
     def test_startup_render_contract_is_preserved(self):
         source = MAIN.read_text(encoding="utf-8")
-        self.assertIn("    render_current()\n    performance.event("startup.first_render"", source)
+        self.assertIn(
+            '    render_current()\n    performance.event("startup.first_render"',
+            source,
+        )
 
 
 if __name__ == "__main__":

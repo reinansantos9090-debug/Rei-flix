@@ -13,6 +13,7 @@ from core.scan_coordinator import ScanCoordinator, ScanOrigin, ScanState, ScanTa
 from core.storage_access import StorageAccessState, StorageCapabilities, ScanUiState, scan_ui_state_from_native, storage_access_state, storage_source_states
 from core.diagnostics import DiagnosticTimeline
 from core.performance import get_performance_monitor
+from core.settings_focus import SettingsTaskRegistry
 from core.build_identity import as_dict as build_identity
 from core.diagnostic_service import DiagnosticsService
 from core.backup import BackupError, BackupService
@@ -105,6 +106,7 @@ async def main(page: ft.Page):
     }]
     ui_alive = [True]
     native_poll_task = [None]
+    settings_tasks = SettingsTaskRegistry()
 
     def _handle_page_disconnect(_event=None):
         ui_alive[0] = False
@@ -114,6 +116,7 @@ async def main(page: ft.Page):
                 task.cancel()
             except Exception as exc:
                 logger.debug("[FLET] mailbox poll task cancellation failed: %s", exc)
+        settings_tasks.invalidate()
 
     try:
         page.on_disconnect = _handle_page_disconnect
@@ -233,6 +236,8 @@ async def main(page: ft.Page):
     # top-level screens. Returning to a screen must not destroy its scroll,
     # search, filter or focus state.
     screen_cache = {}
+    # Settings background tasks are generation-bound to the current Settings
+    # control tree. Navigation/render replacement invalidates the previous tree.
     # Settings nested levels are part of NavigationController, so Android Back
     # never consults a second Settings-specific navigation authority.
     # Flet's page.views is the navigation surface consumed by the Android/system
@@ -494,6 +499,14 @@ async def main(page: ft.Page):
                     if fixed_settings_path is not None
                     else (lambda: navigation.settings_path)
                 ),
+                settings_is_active=(
+                    lambda path=fixed_settings_path: (
+                        navigation.current == "settings"
+                        and tuple(navigation.settings_path) == tuple(path or ())
+                    )
+                ),
+                settings_generation_provider=lambda: settings_tasks.generation,
+                register_settings_task=settings_tasks.register,
             )
         else:
             raise RuntimeError(f"Unknown navigation route: {route}")
@@ -513,6 +526,8 @@ async def main(page: ft.Page):
 
     def render_current(force=False):
         render_started = performance.now()
+        if navigation.current == "settings":
+            settings_tasks.invalidate()
         views = []
         for route in navigation.stack:
             if route != "settings":
@@ -1035,6 +1050,8 @@ async def main(page: ft.Page):
             return
         back_state.update(last_at=now, last_action=source)
         logger.info("[NAV] BACK received source=%s route=%s", source, route_before)
+        if route_before == "settings":
+            settings_tasks.invalidate()
 
         try:
             dialog = page.pop_dialog()

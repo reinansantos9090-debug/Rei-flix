@@ -28,7 +28,7 @@ class CollectorView:
     """Local Collector Journey; all derived values come from LibraryService."""
 
     @staticmethod
-    def build(page: ft.Page, library, on_back):
+    def build(page: ft.Page, library, on_back, is_active=None):
         performance = get_performance_monitor()
         build_started = performance.now()
         performance.counter("ui.builds_requested.collector")
@@ -38,6 +38,7 @@ class CollectorView:
         text = theme.text
         muted = theme.text_muted
         accent = theme.primary
+        is_active = is_active or (lambda: True)
 
         status = ft.Row(
             [ft.ProgressRing(width=16, height=16, stroke_width=2, color=accent),
@@ -142,12 +143,18 @@ class CollectorView:
             )
 
         async def reload():
+            if not is_active():
+                return
             status.visible = True
             page.update()
             try:
                 journey = await asyncio.to_thread(library.collector_journey)
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 logger.exception("Collector Journey load failed")
+                if not is_active():
+                    return
                 content.controls[:] = [
                     ft.Row(
                         [
@@ -168,6 +175,9 @@ class CollectorView:
                     ),
                 ]
                 page.update()
+                return
+
+            if not is_active():
                 return
 
             progress = float(journey.get("level_progress") or 0)
@@ -331,13 +341,19 @@ class CollectorView:
             page.update()
 
         async def select_title(title_id):
+            if not is_active():
+                return
             try:
                 journey = await asyncio.to_thread(library.set_collector_active_title, title_id)
             except Exception:
                 logger.exception("Collector title selection failed", extra={"title_id": title_id})
+                if not is_active():
+                    return
                 page.snack_bar = ft.SnackBar(ft.Text("Título indisponível. A jornada continua intacta."))
                 page.snack_bar.open = True
                 page.update()
+                return
+            if not is_active():
                 return
             # Reuse the freshly returned derived state; rebuilding still remains
             # available through the explicit refresh action.

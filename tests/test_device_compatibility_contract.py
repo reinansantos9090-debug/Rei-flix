@@ -40,12 +40,13 @@ class DeviceCompatibilityContractTests(unittest.TestCase):
     def test_flet_primary_views_use_safe_area_without_creating_second_system_ui(self):
         source = MAIN_PY.read_text(encoding="utf-8")
         self.assertIn("ft.SafeArea(", source)
-        render_start = source.index("def render_current")
-        render_end = source.index("def handle_flet_view_pop", render_start)
-        render = source[render_start:render_end]
-        self.assertIn("controls=[", render)
-        self.assertIn("content=control", render)
-        self.assertNotIn("padding=ft.Padding(top=", render)
+        shell_start = source.index("def _view_shell")
+        shell_end = source.index("def _invalidate_cached_view", shell_start)
+        shell = source[shell_start:shell_end]
+        self.assertIn("ft.SafeArea(", shell)
+        self.assertIn("controls=[safe_area]", shell)
+        self.assertIn("content=control", shell)
+        self.assertNotIn("padding=ft.Padding(top=", shell)
 
     def test_player_uses_dynamic_cutout_insets_and_restores_normal_bars(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")

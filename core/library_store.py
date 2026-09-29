@@ -281,7 +281,7 @@ class LibraryStore:
             # - per-anime resume windows benefit from last_played_at immediately
             #   after anime_id.
             c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_anime_season_number_abs ON episodes(anime_id, season, number, absolute_number, id)")
-            c.execute("CREATE INDEX IF NOT EXISTS idx_episodes_anime_last_played ON episodes(anime_id, last_played_at DESC, id DESC)")
+
             c.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?,?)", (self.SCHEMA_VERSION, time.time()))
         # A process can disappear between begin_scan() and finish_scan().
         # Recovering here keeps startup deterministic while leaving the
@@ -2142,6 +2142,7 @@ class LibraryStore:
 
     def next_episode_items(self, limit=12):
         """Return the bounded Next Episode projection directly from SQLite."""
+        started = time.perf_counter()
         try:
             limit = max(1, min(100, int(limit)))
         except (TypeError, ValueError):
@@ -2272,6 +2273,12 @@ class LibraryStore:
                 "next_episode": episode,
                 "last_played_at": row["last_played_at"],
             })
+        get_performance_monitor().record_sqlite(
+            "next_episode_items",
+            (time.perf_counter()-started)*1000.0,
+            rows=len(result),
+            metadata={"limit": limit},
+        )
         return result
 
     def search_options(self):
@@ -2474,6 +2481,7 @@ class LibraryStore:
                         a.favorite,
                         a.is_pinned,
                         SUM(CASE WHEN e.missing=0 THEN 1 ELSE 0 END) AS available,
+                        SUM(CASE WHEN {completed_sql} THEN 1 ELSE 0 END) AS completed_any,
                         SUM(CASE WHEN e.missing=0 AND {completed_sql} THEN 1 ELSE 0 END) AS completed,
                         SUM(CASE WHEN e.missing=0 AND COALESCE(e.progress,0)>0
                                   AND NOT {completed_sql} THEN 1 ELSE 0 END) AS active,
@@ -2487,7 +2495,7 @@ class LibraryStore:
                     COUNT(*) AS all_count,
                     SUM(CASE WHEN favorite=1 THEN 1 ELSE 0 END) AS favorites_count,
                     SUM(CASE WHEN is_pinned=1 THEN 1 ELSE 0 END) AS pinned_count,
-                    SUM(CASE WHEN completed>0 THEN 1 ELSE 0 END) AS watched_count,
+                    SUM(CASE WHEN completed_any>0 THEN 1 ELSE 0 END) AS watched_count,
                     SUM(CASE WHEN unwatched>0 THEN 1 ELSE 0 END) AS not_watched_count,
                     SUM(CASE WHEN active>0 THEN 1 ELSE 0 END) AS active_count,
                     SUM(CASE WHEN available>0 AND completed=available THEN 1 ELSE 0 END) AS completed_anime_count,
@@ -2889,11 +2897,19 @@ class LibraryStore:
 
     def playback_history(self, limit=50):
         """Latest state for played local episodes; one durable row per episode."""
+        started = time.perf_counter()
         with self._conn() as c:
             rows = c.execute("""SELECT e.*, a.title AS anime_title FROM episodes e
                 JOIN anime a ON a.id=e.anime_id WHERE e.last_played_at IS NOT NULL
                 ORDER BY e.last_played_at DESC LIMIT ?""", (limit,)).fetchall()
-            return [dict(row) for row in rows]
+        result = [dict(row) for row in rows]
+        get_performance_monitor().record_sqlite(
+            "playback_history",
+            (time.perf_counter()-started)*1000.0,
+            rows=len(result),
+            metadata={"limit": limit},
+        )
+        return result
 
     def account(self):
         with self._conn() as c: return {r["key"]: r["value"] for r in c.execute("SELECT key,value FROM account")}

@@ -149,6 +149,20 @@ class StorePaginationTests(unittest.TestCase):
                 plan_text = " ".join(str(row["detail"]) for row in plan)
                 self.assertIn("idx_episodes_anime_season_number_abs", plan_text)
 
+    def test_prompt8_organize_assistidos_preserves_missing_completed_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            anime_id = store.upsert_anime("missing-completed", {"title": "Missing Completed", "genres": "[]"})
+            path = "/library/missing-completed.mkv"
+            store.upsert_episode(anime_id, path, "Missing Completed", 1, 1)
+            store.save_progress(path, 100, 100)
+            with store._conn() as con:
+                con.execute("UPDATE episodes SET missing=1 WHERE path=?", (path,))
+            summary = store.organize_summary()
+            values = {item["name"]: item["count"] for item in summary["collections"]}
+            self.assertEqual(1, values["Assistidos"])
+            self.assertEqual(0, values["Concluídos"])
+
     def test_prompt8_summary_projections_preserve_expected_counts(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)
@@ -167,6 +181,18 @@ class StorePaginationTests(unittest.TestCase):
             self.assertEqual(1, values["Em andamento"])
             self.assertEqual(1, values["Concluídos"])
             self.assertEqual(1, values["Não iniciados"])
+
+    def test_prompt8_library_summary_returns_expected_counts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            anime_id = store.upsert_anime("summary", {"title": "Summary", "genres": "[]"})
+            store.upsert_episode(anime_id, "/library/summary.mkv", "Summary", 1, 1)
+            store.save_progress("/library/summary.mkv", 10, 100)
+            store.add_folder("/library")
+            self.assertEqual(
+                {"folders": 1, "animes": 1, "episodes": 1, "history": 1},
+                store.library_summary(),
+            )
 
     def test_performance_indexes_cover_default_sort_resume_and_episode_query(self):
         with tempfile.TemporaryDirectory() as directory:

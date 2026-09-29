@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from core.settings import SettingsDefaults
+from core.performance import get_performance_monitor
 
 
 class DiagnosticsService:
@@ -343,6 +344,7 @@ class DiagnosticsService:
             "artwork": artwork,
             "anilist": anilist,
             "player": player,
+            "performance": get_performance_monitor().snapshot(),
             "storage": self._storage_report(storage_snapshot, scan_snapshot),
             "privacy": {
                 "secrets_exported": False,

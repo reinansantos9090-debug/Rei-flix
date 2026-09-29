@@ -69,6 +69,7 @@ class SettingsView:
         def safe_update():
             nonlocal initial_render_pending
             try:
+                performance.counter("settings.page_updates")
                 page.update()
             except Exception:
                 logger.debug("settings update skipped")

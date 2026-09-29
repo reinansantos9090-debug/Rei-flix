@@ -401,11 +401,11 @@ async def main(page: ft.Page):
         render_state["dirty"] = True
 
     def _drop_screen_cache(route):
-        _drop_screen_cache(route)
+        screen_cache.pop(route, None)
         _mark_ui_dirty()
 
     def _clear_screen_cache():
-        _clear_screen_cache()
+        screen_cache.clear()
         _mark_ui_dirty()
 
     def _view_shell(route, view_route, control, *, key):

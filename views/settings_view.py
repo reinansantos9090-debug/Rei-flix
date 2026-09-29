@@ -532,7 +532,7 @@ class SettingsView:
                 finally:
                     busy["permission"] = False
                     safe_update()
-            page.run_task(run)
+            start_task(run)
 
         def clear_cache_action():
             cache_started = performance.now()

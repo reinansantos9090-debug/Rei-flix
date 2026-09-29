@@ -55,6 +55,7 @@ class SettingsView:
         view_generation = settings_generation_provider()
         focus_state = SettingsFocusState()
         focus_task = None
+        initial_render_pending = True
         busy = {"scan": False, "folder": False, "permission": False, "cache": False}
         status = ft.Text("", size=12, color=TEXT_MUTED)
         search = ft.TextField(
@@ -66,6 +67,7 @@ class SettingsView:
         sections_host = ft.Column(spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
 
         def safe_update():
+            nonlocal initial_render_pending
             try:
                 page.update()
             except Exception:
@@ -381,7 +383,10 @@ class SettingsView:
             performance.event("settings.render", duration_ms=(performance.now()-render_started)*1000.0,
                               screen="settings",
                               metadata={"category": active_category, "query": bool(query), "controls": len(controls)})
-            safe_update()
+            if initial_render_pending:
+                initial_render_pending = False
+            else:
+                safe_update()
 
         def rebuild(_=None):
             nonlocal section_cache

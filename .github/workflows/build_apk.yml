@@ -60,7 +60,7 @@ jobs:
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: "1"
         run: |
-          python -m pip install --no-cache-dir -r requirements.txt "flet[cli]==0.86.5" pytest
+          python -m pip install -r requirements.txt "flet[cli]==0.86.5" pytest
           flet --version
           flutter --version
       - name: Validate exact Python and Flet toolchain
@@ -306,7 +306,6 @@ jobs:
         shell: bash
         env:
           GRADLE_OPTS: "-Dorg.gradle.caching=true -Dorg.gradle.parallel=true"
-          GRADLE_USER_HOME: "${{ runner.temp }}/gradle-home"
         run: |
           set -o pipefail
           build_args=(

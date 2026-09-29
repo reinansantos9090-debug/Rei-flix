@@ -1213,6 +1213,7 @@ class LibraryService:
     def playback_target(self, anime_id): return self.store.playback_target(anime_id)
     def next_episode(self, path): return self.store.next_episode(path)
     def previous_episode(self, path): return self.store.previous_episode(path)
+    def player_navigation(self, path): return self.store.player_navigation(path)
     def set_user_tags(self, anime_id, tags): return self.store.set_user_tags(anime_id, tags)
     def toggle_pinned(self, anime_id): return self.store.toggle_pinned(anime_id)
     def set_personal_note(self, anime_id, note): return self.store.set_personal_note(anime_id, note)

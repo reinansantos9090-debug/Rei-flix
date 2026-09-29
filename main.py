@@ -738,28 +738,91 @@ async def main(page: ft.Page):
             persist_navigation_state()
     player_transition_inflight = {"value": False}
     player_launch_inflight = {"value": False}
+    player_transition_task = {"task": None}
+    player_transition_generation = {"value": 0}
+    player_active_request_id = {"value": None}
+    player_session_active = {"value": False}
 
-    async def start_native_player(path, title, position_ms=0, *, episode_id=None, anime_id=None):
-        performance.event("player.start_native_player", screen=navigation.current,
-                          metadata={"path": path, "position_ms": position_ms,
-                                    "episode_id": episode_id, "anime_id": anime_id})
-        # Sequence decisions stay in LibraryStore. The two small SQLite reads
-        # must not execute on Flet's event-loop thread because player launch is
-        # a latency-critical UI path.
-        play_started_at = time.perf_counter()
-        can_next, can_previous = await asyncio.gather(
-            asyncio.to_thread(library.next_episode, path),
-            asyncio.to_thread(library.previous_episode, path),
+    def cancel_player_transition(reason="unknown"):
+        player_transition_generation["value"] += 1
+        task = player_transition_task["task"]
+        if task is not None and not task.done():
+            task.cancel()
+        player_transition_task["task"] = None
+        player_transition_inflight["value"] = False
+        diagnostics.record(
+            "PLAYER_TRANSITION_CANCELLED",
+            request_id=player_active_request_id["value"],
+            source="native_player",
+            result=reason,
         )
-        neighbor_resolution_ms = int((time.perf_counter() - play_started_at) * 1000)
-        performance.event("player.neighbor_resolution", duration_ms=neighbor_resolution_ms,
-                          screen=navigation.current,
-                          metadata={"path": path, "can_next": can_next is not None, "can_previous": can_previous is not None})
         logger.info(
-            "[PLAYER] PLAY_PREPARED path=%s neighbor_resolution_ms=%s",
-            path,
-            neighbor_resolution_ms,
+            "[PLAYER] transition cancelled generation=%s reason=%s",
+            player_transition_generation["value"],
+            reason,
         )
+
+    def player_transition_is_current(generation, request_id):
+        return (
+            generation == player_transition_generation["value"]
+            and player_active_request_id["value"] in (None, request_id)
+            and player_session_active["value"]
+            and ui_alive[0]
+        )
+
+    async def start_native_player(
+        path,
+        title,
+        position_ms=0,
+        *,
+        episode_id=None,
+        anime_id=None,
+        navigation_snapshot=None,
+        origin_request_id=None,
+        origin_created_at_ms=0,
+        origin_transition_generation=0,
+    ):
+        performance.event(
+            "player.start_native_player",
+            screen=navigation.current,
+            metadata={
+                "path": path,
+                "position_ms": position_ms,
+                "episode_id": episode_id,
+                "anime_id": anime_id,
+                "origin_request_id": origin_request_id,
+                "origin_created_at_ms": origin_created_at_ms,
+                "origin_transition_generation": origin_transition_generation,
+            },
+        )
+
+        if navigation_snapshot is None:
+            play_started_at = time.perf_counter()
+            navigation_snapshot = await asyncio.to_thread(library.player_navigation, path)
+            neighbor_resolution_ms = int((time.perf_counter() - play_started_at) * 1000)
+            performance.event(
+                "player.neighbor_resolution",
+                duration_ms=neighbor_resolution_ms,
+                screen=navigation.current,
+                metadata={
+                    "path": path,
+                    "can_next": bool(navigation_snapshot.get("can_next")),
+                    "can_previous": bool(navigation_snapshot.get("can_previous")),
+                    "source": "player_navigation",
+                },
+            )
+            logger.info(
+                "[PLAYER] PLAY_PREPARED path=%s neighbor_resolution_ms=%s source=player_navigation",
+                path,
+                neighbor_resolution_ms,
+            )
+        else:
+            logger.info(
+                "[PLAYER] PLAY_PREPARED path=%s source=navigation_snapshot can_next=%s can_previous=%s",
+                path,
+                bool(navigation_snapshot.get("can_next")),
+                bool(navigation_snapshot.get("can_previous")),
+            )
 
         request_id = await bridge.play(
             path,
@@ -767,9 +830,12 @@ async def main(page: ft.Page):
             position_ms,
             episode_id=episode_id,
             anime_id=anime_id,
-            can_next=can_next is not None,
-            can_previous=can_previous is not None,
+            can_next=bool(navigation_snapshot.get("can_next")),
+            can_previous=bool(navigation_snapshot.get("can_previous")),
             autoplay=settings.get("player.autoplay_next"),
+            origin_request_id=origin_request_id,
+            origin_created_at_ms=origin_created_at_ms,
+            origin_transition_generation=origin_transition_generation,
             player_settings={
                 "player.default_speed": settings.get("player.default_speed"),
                 "player.aspect_ratio": settings.get("player.aspect_ratio"),
@@ -794,13 +860,22 @@ async def main(page: ft.Page):
                 "audio.subtitle_embedded_style": settings.get("audio.subtitle_embedded_style"),
             },
         )
-        performance.event("player.command_confirmed", duration_ms=(time.perf_counter()-play_started_at)*1000.0,
-                          screen=navigation.current,
-                          metadata={"request_id": request_id, "episode_id": episode_id, "anime_id": anime_id})
+        performance.event(
+            "player.command_confirmed",
+            screen=navigation.current,
+            metadata={
+                "request_id": request_id,
+                "episode_id": episode_id,
+                "anime_id": anime_id,
+                "origin_request_id": origin_request_id,
+                "origin_created_at_ms": origin_created_at_ms,
+                "origin_transition_generation": origin_transition_generation,
+            },
+        )
         logger.info(
-            "[PLAYER] PLAY_COMMAND_CONFIRMED request_id=%s total_python_handoff_ms=%s",
+            "[PLAYER] PLAY_COMMAND_CONFIRMED request_id=%s origin_request_id=%s",
             request_id,
-            int((time.perf_counter() - play_started_at) * 1000),
+            origin_request_id or "-",
         )
         return request_id
 

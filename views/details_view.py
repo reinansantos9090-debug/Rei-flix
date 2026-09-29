@@ -16,6 +16,7 @@ import flet as ft
 from core.consumption import consumption_state, is_completed, is_in_progress, playback_action, progress_ratio
 from core.library_discovery import duration_anomalies
 from core.dialogs import dismiss_dialog
+from core.performance import get_performance_monitor
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SUCCESS, SURFACE, TEXT, TEXT_MUTED, WARNING, activate_theme_for_page, media_artwork, spoiler_artwork, section_title, focus_button_style
 
 
@@ -28,7 +29,10 @@ class DetailView:
               on_toggle_pinned=None, on_set_personal_note=None, on_set_episode_identification=None,
                on_identification_saved=None, on_refresh_metadata=None, resolve_artwork=None, resolve_artwork_batch=None,
                on_open_marathon=None, resolve_artwork_palette=None, is_active=None):
-        theme = activate_theme_for_page(page)
+        performance = get_performance_monitor()
+        build_started = performance.now()
+        performance.counter("ui.builds_requested.details")
+theme = activate_theme_for_page(page)
         BACKGROUND = theme.background
         SURFACE = theme.surface
         TEXT = theme.text
@@ -887,9 +891,12 @@ class DetailView:
         run_task = getattr(page, "run_task", None)
         if callable(run_task):
             run_task(load_contextual_palette)
-        return ft.Container(
+        result = ft.Container(
             content=layout,
             padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=14, bottom=18),
             bgcolor=BACKGROUND,
             expand=True,
         )
+        performance.record_ui_build("details", (performance.now()-build_started)*1000.0,
+                                    controls=performance.control_count(result), cached=False)
+        return result

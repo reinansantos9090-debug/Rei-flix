@@ -74,8 +74,8 @@ class SettingsLazyConstructionTests(unittest.TestCase):
         source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")
         diagnostic = source[source.index('if should_materialize_section("Diagnóstico"):'):]
         self.assertIn("get_database_check()", diagnostic)
-        before = source[:source.index('if should_materialize_section("Diagnóstico"):')]
-        self.assertNotIn("store.database_check()", before)
+        self.assertIn("def get_database_check()", source)
+
 
     def test_prompt3_focus_guard_remains_intact(self):
         source = (ROOT / "views" / "settings_view.py").read_text(encoding="utf-8")

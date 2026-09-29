@@ -129,12 +129,13 @@ object NativeMailbox {
             val temp = File(queue, "$PREFIX$id.json.tmp")
             temporary = temp
             val now=System.currentTimeMillis()
+            val capturedAt = event.optLong("createdAt", 0L).takeIf { it > 0L } ?: now
             val payload=JSONObject(event.toString())
                 .put("eventId",id)
                 .put("eventVersion",EVENT_VERSION)
                 .put("eventType", eventType(event))
-                .put("createdAt",now)
-                .put("timestamp",now)
+                .put("createdAt",capturedAt)
+                .put("timestamp",capturedAt)
             val nested = payload.optJSONObject("payload")
             fun promote(name: String, vararg aliases: String) {
                 if (payload.has(name) || nested == null) return

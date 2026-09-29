@@ -2285,6 +2285,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         val currentDuration = if (rawDuration > 0L) rawDuration else 0L
         val rawPosition = if (::player.isInitialized) player.currentPosition.coerceAtLeast(0L) else 0L
         val currentPosition = if (currentDuration > 0L) rawPosition.coerceAtMost(currentDuration) else rawPosition
+        val exitCapturedAt = System.currentTimeMillis()
         val payload = JSONObject()
             .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
             .put("mediaId", currentMediaId())
@@ -2294,12 +2295,15 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("durationMs", currentDuration)
             .put("completion", completionReported)
             .put("reason", reason)
-            .put("timestamp", System.currentTimeMillis())
+            .put("timestamp", exitCapturedAt)
+        val exitEvent = JSONObject()
+            .put("type", "player_exited")
+            .put("requestId", requestId)
+            .put("createdAt", exitCapturedAt)
+            .put("payload", payload)
         val ok = NativeMailbox.write(
             this,
-            JSONObject().put("type", "player_exited")
-                .put("requestId", requestId)
-                .put("payload", payload),
+            exitEvent,
         )
         if (!ok) logPlayer("FAILED_TO_PUBLISH player_exited requestId=" + requestId.ifEmpty { "-" })
         logPlayer("player_exit_reported reason=" + reason + " requestId=" + requestId.ifEmpty { "-" })
@@ -2393,6 +2397,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         val event = JSONObject()
             .put("type", eventType)
             .put("requestId", requestId)
+            .put("createdAt", System.currentTimeMillis())
             .put(
                 "payload",
                 JSONObject().put("uri", uri.toString())

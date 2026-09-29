@@ -34,6 +34,14 @@ class PlaybackContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.player)
 
+    def test_playback_event_capture_time_survives_async_mailbox_delivery(self):
+        for token in (
+            '.put("createdAt", System.currentTimeMillis())',
+            'val capturedAt = event.optLong("createdAt", 0L).takeIf { it > 0L } ?: now',
+            '.put("createdAt",capturedAt)',
+        ):
+            self.assertIn(token, self.player + self.mailbox)
+
     def test_error_diagnostics_contain_required_runtime_context(self):
         for token in (
             '"timestamp", System.currentTimeMillis()',

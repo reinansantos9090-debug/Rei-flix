@@ -84,6 +84,34 @@ class HomeView:
         artwork_ui_update_scheduled = [False]
         catalog_refresh_scheduled = [False]
         catalog_refresh_dirty = [False]
+        view_tasks: set[object] = set()
+
+        def _discard_view_task(task):
+            view_tasks.discard(task)
+
+        def _start_view_task(handler, *args):
+            task = page.run_task(handler, *args)
+            if task is not None:
+                view_tasks.add(task)
+                add_done_callback = getattr(task, "add_done_callback", None)
+                if callable(add_done_callback):
+                    try:
+                        add_done_callback(_discard_view_task)
+                    except Exception:
+                        logger.debug("Home task completion hook unavailable", exc_info=True)
+            return task
+
+        def cancel_view_tasks():
+            tasks = tuple(view_tasks)
+            view_tasks.clear()
+            for task in tasks:
+                cancel = getattr(task, "cancel", None)
+                if callable(cancel):
+                    try:
+                        cancel()
+                    except Exception:
+                        logger.debug("Home task cancellation failed", exc_info=True)
+
 
         def save_view_state():
             view_state.update(
@@ -178,7 +206,7 @@ class HomeView:
                 finally:
                     artwork_ui_update_scheduled[0] = False
 
-            page.run_task(flush)
+            _start_view_task(flush)
 
         def artwork_holder(item, width, height, *, entity="anime", kind="poster", source=None):
             holder = ft.Container(
@@ -245,7 +273,7 @@ class HomeView:
                             )
                         finally:
                             artwork_tasks.discard(key)
-                    page.run_task(hydrate)
+                    _start_view_task(hydrate)
             holder.content = ft.Icon(ft.Icons.MOVIE_OUTLINED, color=TEXT_MUTED, size=28)
             return holder
 
@@ -375,7 +403,7 @@ class HomeView:
                 control = home_card(item, action=action, episode=episode)
                 focus_key = f"home-section-{key}-{index}"
                 control.key = focus_key
-                control.on_focus = lambda _event, container=row, k=focus_key: page.run_task(
+                control.on_focus = lambda _event, container=row, k=focus_key: _start_view_task(
                     reveal_section_focus, container, k
                 )
                 row.controls.append(control)
@@ -458,7 +486,7 @@ class HomeView:
                     key = f"home-catalog-{item.get('id') if item.get('id') is not None else index}"
                     control = card(item)
                     control.key = key
-                    control.on_focus = lambda _event, i=index, k=key: page.run_task(reveal_catalog_focus, i, k)
+                    control.on_focus = lambda _event, i=index, k=key: _start_view_task(reveal_catalog_focus, i, k)
                     catalog_focus_targets[key] = control
                     grid.controls.append(control)
             elif scan_active[0]:
@@ -484,9 +512,9 @@ class HomeView:
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
-                page.run_task(coro_factory)
+                _start_view_task(coro_factory)
                 return
-            loop.create_task(coro_factory())
+            _start_view_task(coro_factory)
 
         async def load_next_page():
             await load_library_page(reset=False)
@@ -598,7 +626,7 @@ class HomeView:
         def request_continuation_details(item):
             async def task():
                 await open_continuation_details(item)
-            page.run_task(task)
+            _start_view_task(task)
 
         def render_continue():
             nonlocal continue_signature
@@ -767,8 +795,8 @@ class HomeView:
                     content.append(ft.Text("Sorteio não altera consumo, progresso ou histórico.", size=11, color=TEXT_MUTED, text_align=ft.TextAlign.CENTER))
                 dialog.content = ft.Column(content, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8, width=dialog_width)
                 dialog.actions = [
-                    ft.TextButton("Sortear episódio", on_click=lambda _: (state.__setitem__("episode", True), page.run_task(draw))),
-                    ft.TextButton("Sortear novamente", on_click=lambda _: page.run_task(draw)),
+                    ft.TextButton("Sortear episódio", on_click=lambda _: (state.__setitem__("episode", True), _start_view_task(draw))),
+                    ft.TextButton("Sortear novamente", on_click=lambda _: _start_view_task(draw)),
                     ft.FilledButton("Abrir", on_click=lambda _: open_gacha_result()),
                 ]
                 page.update()
@@ -788,7 +816,7 @@ class HomeView:
                 actions=[ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog())],
             )
             page.show_dialog(dialog)
-            page.run_task(draw)
+            _start_view_task(draw)
 
         def open_timeline(_event=None):
             dialog = ft.AlertDialog(
@@ -829,11 +857,11 @@ class HomeView:
                             title=ft.Text(item.get("title") or "Anime local", color=TEXT),
                             subtitle=ft.Text(str(item.get("season") or ""), color=TEXT_MUTED) if item.get("season") else None,
                             trailing=ft.Icon(ft.Icons.CHEVRON_RIGHT, color=TEXT_MUTED),
-                            on_click=lambda _, callback=make_open(item_id): page.run_task(callback),
+                            on_click=lambda _, callback=make_open(item_id): _start_view_task(callback),
                         ))
                 dialog.content = ft.ListView(controls=controls, spacing=4, width=min(560, max(280, float(page.width or 480) - 32)), height=min(520, max(180, len(controls) * 52)))
                 page.update()
-            page.run_task(load_timeline)
+            _start_view_task(load_timeline)
 
         def open_duration_anomalies(_event=None):
             dialog = ft.AlertDialog(
@@ -867,9 +895,9 @@ class HomeView:
                         ))
                 dialog.content = ft.ListView(controls=controls, spacing=4, width=min(560, max(280, float(page.width or 480) - 32)), height=min(520, max(180, len(controls) * 34)))
                 page.update()
-            page.run_task(load_anomalies)
+            _start_view_task(load_anomalies)
         def open_filters(_=None):
-            page.run_task(load_filter_options)
+            _start_view_task(load_filter_options)
             page_width = float(page.width or 470)
             dialog_width = min(470.0, max(280.0, page_width - 32.0))
             field_width = min(220.0, max(128.0, (dialog_width - 20.0) / 2.0))
@@ -895,7 +923,7 @@ class HomeView:
                     artwork_filter,
                 ], tight=True, width=dialog_width),
                 actions=[
-                    ft.TextButton("Limpar", icon=ft.Icons.CLEAR_ALL, on_click=lambda _: page.run_task(clear_filters)),
+                    ft.TextButton("Limpar", icon=ft.Icons.CLEAR_ALL, on_click=lambda _: _start_view_task(clear_filters)),
                     ft.TextButton("Cancelar", on_click=lambda _: page.pop_dialog()),
                     ft.FilledButton("Aplicar", on_click=apply_filters),
                 ],
@@ -1091,7 +1119,7 @@ class HomeView:
             filter_options_loaded[0] = False
             await load_library_page(reset=True)
             home_sections_generation[0] = render_generation[0]
-            page.run_task(refresh_home_sections, render_generation[0])
+            _start_view_task(refresh_home_sections, render_generation[0])
 
         async def retry_load_catalog(_event=None):
             await load_catalog()
@@ -1122,7 +1150,7 @@ class HomeView:
             await load_library_page(reset=True)
             home_sections_generation[0] = render_generation[0]
             status.visible = scan_active[0]
-            page.run_task(refresh_home_sections, render_generation[0])
+            _start_view_task(refresh_home_sections, render_generation[0])
 
         search.on_change = on_search
         search.on_submit = on_search
@@ -1199,7 +1227,7 @@ class HomeView:
                     if catalog_refresh_dirty[0]:
                         schedule_refresh_from_catalog()
 
-            page.run_task(run_catalog_refreshes)
+            _start_view_task(run_catalog_refreshes)
 
         def invalidate_view_tasks():
             # Cached Home controls can be discarded by settings/details changes.
@@ -1207,12 +1235,13 @@ class HomeView:
             render_generation[0] += 1
             home_sections_generation[0] = render_generation[0]
             catalog_refresh_dirty[0] = False
+            cancel_view_tasks()
 
         view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
         view_state['_update_thumbnail'] = update_thumbnail_in_place
         view_state['_invalidate_view_tasks'] = invalidate_view_tasks
         status.visible = True
-        page.run_task(load_catalog)
+        _start_view_task(load_catalog)
         result = ft.Container(
             content=layout, padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=16, bottom=8),
             bgcolor=BACKGROUND, expand=True,

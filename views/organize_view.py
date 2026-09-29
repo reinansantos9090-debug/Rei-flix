@@ -9,6 +9,7 @@ import math
 import flet as ft
 
 from core.consumption import consumption_state, progress_ratio
+from core.performance import get_performance_monitor
 from core.ui import (
     ACCENT,
     BACKGROUND,

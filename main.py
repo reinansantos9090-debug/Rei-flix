@@ -2008,6 +2008,9 @@ async def main(page: ft.Page):
                                 result=payload.get('status') or "FAILED",
                                 error=event.get('message') or payload.get('error'),
                             )
+                        elif event_type in {'performance_metrics', 'performance_player'}:
+                            performance.record_native_event(event)
+                            continue
                         elif event_type == 'player_opened':
                             diagnostics.record(
                                 "PLAYER_OPENED",

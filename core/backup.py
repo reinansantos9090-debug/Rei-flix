@@ -680,6 +680,8 @@ class BackupService:
         try:
             extracted, mappings, created_assets, tempdir = self._prepare_restore(backup_path)
             self.store.restore_backup_transaction(extracted, artwork_mappings=mappings)
+            if self.settings is not None:
+                self.settings.invalidate_cache()
             actual = self._database_counts(self.store.db_path)
             return {
                 "preview": preview,

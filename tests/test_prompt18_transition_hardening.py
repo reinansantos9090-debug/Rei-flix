@@ -137,6 +137,18 @@ class Prompt18TransitionHardeningTests(unittest.TestCase):
         self.assertIn('navigation_snapshot.get("next")', transition)
         self.assertIn('navigation_snapshot.get("previous")', transition)
 
+    def test_reuse_metadata_read_is_off_ui_thread_and_generation_guarded(self):
+        self.assertIn("loadLocalMetadataAsync(transitionGeneration, resolvedUri)", self.player)
+        self.assertIn("loadLocalMetadataAsync(transitionGeneration, uri)", self.player)
+        start = self.player.index("private fun loadLocalMetadataAsync")
+        end = self.player.index("private fun updateMetadataControls", start)
+        block = self.player[start:end]
+        self.assertIn("playbackWorker.submit", block)
+        self.assertIn("localMetadataStore.get(localUri.toString())", block)
+        self.assertIn("handler.post", block)
+        self.assertIn("generation != transitionGeneration", block)
+        self.assertIn("uri != localUri", block)
+
     def test_progress_is_canonical_and_published_off_ui_thread(self):
         start = self.player.index("private fun buildProgressEvent")
         end = self.player.index("override fun onStart()", start)

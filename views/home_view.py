@@ -9,6 +9,7 @@ import flet as ft
 
 from core.consumption import consumption_state, progress_ratio
 from core.settings import SettingsStore
+from core.performance import get_performance_monitor
 from core.ui import ACCENT, BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, activate_theme_for_page, empty_state, media_artwork, count_label, focus_button_style
 from core.library_discovery import format_duration
 
@@ -21,6 +22,9 @@ class HomeView:
     @staticmethod
     def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode, on_open_organize=None,
               view_state=None, on_request_thumbnail=None, on_open_collector=None):
+        performance = get_performance_monitor()
+        build_started = performance.now()
+        performance.counter("ui.builds_requested.home")
         theme = activate_theme_for_page(page)
         BACKGROUND = theme.background
         SURFACE = theme.surface
@@ -1133,7 +1137,10 @@ class HomeView:
         view_state['_invalidate_view_tasks'] = invalidate_view_tasks
         status.visible = True
         page.run_task(load_catalog)
-        return ft.Container(
+        result = ft.Container(
             content=layout, padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=16, bottom=8),
             bgcolor=BACKGROUND, expand=True,
         )
+        performance.record_ui_build("home", (performance.now()-build_started)*1000.0,
+                                    controls=performance.control_count(result), cached=False)
+        return result

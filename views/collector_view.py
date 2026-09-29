@@ -6,6 +6,7 @@ import logging
 import flet as ft
 
 from core.library_discovery import format_duration
+from core.performance import get_performance_monitor
 from core.ui import (
     ACCENT,
     BACKGROUND,

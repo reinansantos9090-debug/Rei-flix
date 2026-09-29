@@ -62,7 +62,7 @@ class Prompt9PlaybackRegressionTests(unittest.TestCase):
         start = DETAILS.index("def episode_item")
         end = DETAILS.index("def load_more_episodes", start)
         block = DETAILS[start:end]
-        self.assertIn("is_missing = bool(episode.get('missing'))", block)
+        self.assertIn('is_missing = bool(episode.get("missing"))', block)
         self.assertIn("clickable = None if is_missing else", block)
         self.assertNotIn("if episode.get('progress')", block)
 

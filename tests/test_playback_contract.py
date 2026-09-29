@@ -22,7 +22,7 @@ class PlaybackContractTests(unittest.TestCase):
     def test_progress_events_use_existing_episode_identity_and_media3_state(self):
         for token in (
             '"mediaId", currentMediaId()',
-            '"episodeId", intent.getStringExtra("episodeId").orEmpty()',
+            '"episodeId", currentEpisodeId()',
             '"positionMs", position',
             '"durationMs", duration',
             '"playerState", if (::player.isInitialized) player.playbackStateLabel() else "STATE_IDLE"',
@@ -158,7 +158,8 @@ class PlaybackContractTests(unittest.TestCase):
         self.assertIn('"player_paused"', save_block)
         self.assertIn('"player_completed"', save_block)
         exit_idx = source.index('"type", "player_exited"')
-        exit_block = source[max(0, exit_idx - 280):exit_idx]
+        exit_end = source.index('        logPlayer("player_exit_reported', exit_idx)
+        exit_block = source[exit_idx:exit_end]
         self.assertIn("NativeMailbox.write(", exit_block)
         self.assertNotIn("NativeMailbox.writeBestEffort(", exit_block)
         request_idx = source.index('JSONObject().put("type", eventType)', source.index("private fun requestEpisode"))

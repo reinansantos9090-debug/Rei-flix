@@ -203,7 +203,7 @@ class OrganizeHandlerContractTests(unittest.TestCase):
         self.assertIn('_drop_screen_cache("organize")', source)
         back_block = source[source.index('if action in {"previous", "settings_inner"}:'):source.index('elif action == "prompt_exit":', source.index('if action in {"previous", "settings_inner"}:'))]
         self.assertIn('if navigation.current == "organize":', back_block)
-        self.assertIn('_invalidate_cached_view(organize_state, "organize")', back_block)
+        self.assertIn('_drop_screen_cache("organize")', back_block)
         self.assertNotIn("refresh_library(", back_block)
 
 

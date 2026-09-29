@@ -1104,7 +1104,14 @@ class LibraryBrowseTests(unittest.TestCase):
             card = next(item for item in walk(view) if item.__class__.__name__ == 'Container' and
                         item.on_click and getattr(item, 'width', None) == 258)
             card.on_click(None)
-            self.assertEqual(played[0], (path, 'Attack on Titan • T1 E1', {'progress_seconds': 25}))
+            self.assertEqual(
+                played[0],
+                (path, 'Attack on Titan • T1 E1', {
+                    'progress_seconds': 25.0,
+                    'episode_id': 1,
+                    'anime_id': 1,
+                }),
+            )
 
     def test_home_reuses_query_filter_and_sort_state_after_a_round_trip(self):
         class FakePage(AsyncRunTaskMixin):
@@ -1574,7 +1581,14 @@ class DetailsViewTests(unittest.TestCase):
                 yield from walk(content)
         primary = next(item for item in walk(view) if item.__class__.__name__ == 'FilledButton')
         primary.on_click(None)
-        self.assertEqual(played[0], ('content://document/episode-2', 'Anime • T1 E2', {'progress_seconds': 30}))
+        self.assertEqual(
+            played[0],
+            ('content://document/episode-2', 'Anime • T1 E2', {
+                'progress_seconds': 30,
+                'episode_id': None,
+                'anime_id': 6,
+            }),
+        )
 
     def test_details_marks_next_unwatched_episode_after_completion(self):
         completed = {'path': 'content://document/episode-1', 'title': 'Anime - 01.mkv', 'season': 1,

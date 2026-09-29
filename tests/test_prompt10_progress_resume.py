@@ -65,7 +65,7 @@ class Prompt10ProgressResumeTests(unittest.TestCase):
         known_row = self.store.physical_row(known["path"])
         self.assertEqual((61, 100), (known_row["progress"], known_row["duration"]))
         self.assertEqual((25, 0, 0.0), (row["progress"], row["duration"], progress_ratio(row)))
-        self.assertEqual("unwatched", consumption_state(row).value)
+        self.assertEqual("in_progress", consumption_state(row).value)
 
     def test_multiple_episodes_and_animes_never_mix_progress(self):
         rows = [

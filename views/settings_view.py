@@ -116,7 +116,7 @@ class SettingsView:
                 except Exception:
                     logger.debug("settings scroll restoration unavailable", exc_info=True)
 
-        def safe_update()::
+        def safe_update():
             try:
                 page.update()
             except Exception:

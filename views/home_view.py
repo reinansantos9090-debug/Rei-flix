@@ -416,7 +416,8 @@ class HomeView:
                 if reset:
                     feedback.content = empty_state(ft.Icons.ERROR_OUTLINE, "Não foi possível ler a biblioteca local agora.", "Tente novamente.")
                     feedback.visible = True
-                    page.update()
+                    if is_active():
+                        page.update()
                 page_loading[0] = False
                 return
             finally:

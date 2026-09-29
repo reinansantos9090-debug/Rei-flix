@@ -74,6 +74,7 @@ class HomeView:
         has_more = [True]
         total_matches = [0]
         page_loading = [False]
+        page_load_scheduled = [False]
         scan_active = [False]
         home_sections_generation = [0]
         filter_options_loaded = [False]
@@ -517,7 +518,13 @@ class HomeView:
             _start_view_task(coro_factory)
 
         async def load_next_page():
-            await load_library_page(reset=False)
+            if page_load_scheduled[0]:
+                return
+            page_load_scheduled[0] = True
+            try:
+                await load_library_page(reset=False)
+            finally:
+                page_load_scheduled[0] = False
 
         def on_home_scroll(event):
             try:
@@ -527,7 +534,8 @@ class HomeView:
                 return
             if not is_active():
                 return
-            if remaining < 800 and has_more[0] and not page_loading[0]:
+            if remaining < 800 and has_more[0] and not page_loading[0] and not page_load_scheduled[0]:
+                page_load_scheduled[0] = True
                 schedule_background(load_next_page)
         def card(anime):
             available_count = int(anime.get("available_count") or 0)

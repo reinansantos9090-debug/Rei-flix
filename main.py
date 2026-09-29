@@ -1434,15 +1434,19 @@ async def main(page: ft.Page):
                     try:
                         if not isinstance(event, dict):
                             continue
+                        event["receivedAtMs"] = int(time.time() * 1000)
+                        performance.record_native_event(event)
                         event_id = str(event.get('eventId') or '').strip()
                         if not event_id:
                             logger.error("[ANDROID] EVENT_REJECTED reason=missing_event_id type=%s", event.get('type'))
                             continue
                         if event_id in seen_native_event_ids:
+                            performance.counter("android.events.duplicate")
                             logger.warning("[ANDROID] EVENT_DUPLICATE_IN_BATCH eventId=%s", event_id)
                             continue
                         seen_native_event_ids.add(event_id)
                         if store.has_native_event(event_id):
+                            performance.counter("android.events.duplicate")
                             logger.info("[ANDROID] EVENT_DUPLICATE eventId=%s result=already_processed", event_id)
                             continue
                         event_type = event.get('type')
@@ -2492,7 +2496,12 @@ async def main(page: ft.Page):
     # MainActivity publishes the authoritative SAF grant inventory from
     # onResume. There is intentionally no Python -> reiflix://native startup
     # verification call.
+    first_render_started = performance.now()
     render_current()
+    performance.event("startup.first_render", duration_ms=(performance.now()-first_render_started)*1000.0,
+                      screen=navigation.current)
+    performance.event("startup.interactive", duration_ms=(performance.now()-startup_started)*1000.0,
+                      screen=navigation.current)
     persist_navigation_state()
 
 if __name__ == "__main__":

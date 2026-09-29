@@ -46,7 +46,7 @@ class PlaybackContractTests(unittest.TestCase):
         for token in (
             '"timestamp", System.currentTimeMillis()',
             '"mediaId", currentMediaId()',
-            '"episodeId", intent.getStringExtra("episodeId").orEmpty()',
+            '"episodeId", currentEpisodeId()',
             '"playerState", if (::player.isInitialized) player.playbackStateLabel() else "STATE_IDLE"',
             '"isPlaying", if (::player.isInitialized) player.isPlaying else false',
             'private fun publishPlayerError',

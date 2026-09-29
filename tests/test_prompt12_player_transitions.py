@@ -23,7 +23,9 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
 
         reuse = self.player[self.player.index("override fun onNewIntent"):self.player.index("private fun currentEpisodeId")]
         self.assertIn("val transitionPending = episodeChangePending", reuse)
-        self.assertIn("if (transitionPending)", reuse)
+        self.assertIn("val transitionPendingRequestId = transitionSourceRequestId", reuse)
+        self.assertIn("originRequestId == transitionPendingRequestId", reuse)
+        self.assertIn("originTransitionGeneration == transitionPendingGeneration", reuse)
         self.assertIn("episodeChangeTimeoutRequestId = requestId", reuse)
         self.assertIn("episodeChangeTimeoutUri = uri.toString()", reuse)
         self.assertNotIn(
@@ -64,13 +66,16 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
             self.main.index("elif event_type == 'player_error':")
         ]
         self.assertIn("direction = 1 if event_type == 'player_next_request' else -1", block)
-        self.assertIn("await asyncio.to_thread(library.next_episode, current_path)", block)
-        self.assertIn("await asyncio.to_thread(library.previous_episode, current_path)", block)
+        self.assertIn("await asyncio.to_thread(\n                                        library.player_navigation,", block)
+        self.assertIn('player_transition_task["task"]', block)
+        self.assertIn("asyncio.create_task(", block)
         self.assertIn("episode_id=target.get(\"id\")", block)
         self.assertIn("anime_id=target.get(\"anime_id\")", block)
         self.assertIn("target.get('progress')", block)
         self.assertIn("player_transition_inflight[\"value\"] = True", block)
-        self.assertIn("finally:\n                                player_transition_inflight[\"value\"] = False", block)
+        self.assertIn("player_transition_generation[\"value\"] += 1", block)
+        self.assertIn("player_transition_inflight[\"value\"] = False", block)
+        self.assertIn('origin_request_id=event_request_id', block)
 
     def test_autoplay_completion_is_single_transition_source(self):
         playback = self.player[

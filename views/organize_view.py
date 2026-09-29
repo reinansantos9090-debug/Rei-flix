@@ -107,6 +107,34 @@ class OrganizeView:
         scan_active = [False]
         catalog_refresh_scheduled = [False]
         catalog_refresh_dirty = [False]
+        view_tasks: set[object] = set()
+
+        def _discard_view_task(task):
+            view_tasks.discard(task)
+
+        def _start_view_task(handler, *args):
+            task = page.run_task(handler, *args)
+            if task is not None:
+                view_tasks.add(task)
+                add_done_callback = getattr(task, "add_done_callback", None)
+                if callable(add_done_callback):
+                    try:
+                        add_done_callback(_discard_view_task)
+                    except Exception:
+                        logger.debug("Organize task completion hook unavailable", exc_info=True)
+            return task
+
+        def cancel_view_tasks():
+            tasks = tuple(view_tasks)
+            view_tasks.clear()
+            for task in tasks:
+                cancel = getattr(task, "cancel", None)
+                if callable(cancel):
+                    try:
+                        cancel()
+                    except Exception:
+                        logger.debug("Organize task cancellation failed", exc_info=True)
+
 
         def save_view_state():
             view_state.update(
@@ -187,7 +215,7 @@ class OrganizeView:
                 except RuntimeError:
                     asyncio.run(invoke())
                 else:
-                    loop.create_task(invoke())
+                    _start_view_task(invoke)
                 return None
             return handle
 
@@ -623,7 +651,7 @@ class OrganizeView:
             if not is_active():
                 return
             if remaining < 800 and has_more[0] and not page_loading[0] and mode[0] == 'collection':
-                page.run_task(load_next_collection_page)
+                _start_view_task(load_next_collection_page)
         def render_overview(summary, registry_genres):
             if summary is None:
                 content.controls.extend(
@@ -857,20 +885,21 @@ class OrganizeView:
                     if catalog_refresh_dirty[0]:
                         schedule_refresh_from_catalog()
 
-            page.run_task(run_catalog_refreshes)
+            _start_view_task(run_catalog_refreshes)
 
         def invalidate_view_tasks():
             # Generation guards already protect page queries; advance them when
             # the cached control tree is discarded so old tasks cannot render it.
             render_generation[0] += 1
             catalog_refresh_dirty[0] = False
+            cancel_view_tasks()
 
         view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
         view_state['_invalidate_view_tasks'] = invalidate_view_tasks
         save_view_state()
         render_generation[0] += 1
         content.controls.extend([header("Organizar"), status])
-        page.run_task(load_catalog)
+        _start_view_task(load_catalog)
         result = ft.Container(
             content=content,
             padding=ft.Padding(

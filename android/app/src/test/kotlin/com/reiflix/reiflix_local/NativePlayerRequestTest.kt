@@ -17,6 +17,9 @@ class NativePlayerRequestTest {
             "uri" to "content://media/video/1",
             "episode_id" to "42",
             "anime_id" to "7",
+            "origin_request_id" to "req-origin",
+            "origin_created_at" to "1700000000001",
+            "origin_transition_generation" to "17",
             "title" to "Episode 1",
             "position_ms" to "-40",
             "can_next" to "true",
@@ -38,6 +41,9 @@ class NativePlayerRequestTest {
         assertEquals("content://media/video/1", request.episodeUri)
         assertEquals("42", request.episodeId)
         assertEquals("7", request.animeId)
+        assertEquals("req-origin", request.originRequestId)
+        assertEquals(1700000000001L, request.originCreatedAtMs)
+        assertEquals(17L, request.originTransitionGeneration)
         assertEquals("Episode 1", request.title)
         assertEquals(0L, request.positionMs)
         assertTrue(request.canNext)

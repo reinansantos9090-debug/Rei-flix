@@ -742,6 +742,8 @@ class SettingsView:
                 notice("Não foi possível verificar a integridade.", True)
 
         def build_sections():
+            sections_started = performance.now()
+            performance.counter("settings.build_sections")
             items = []
             connected = bool(account.get("email"))
             account_text = account.get("name") or account.get("email") or "Não conectado"
@@ -983,11 +985,14 @@ class SettingsView:
                 ft.Text("Licença do projeto: não declarada no repositório atual.", color=TEXT_MUTED, size=11),
                 ft.Text("Player nativo: Media3. Storage: MediaStore / SAF / scanner nativo.", color=TEXT_MUTED, size=11),
             ], ("sobre","versão","build","licença","media3")))
+            performance.event("settings.build_sections", duration_ms=(performance.now()-sections_started)*1000.0,
+                              screen="settings",
+                              metadata={"sections": len(items), "categories": len(category_meta), "folders": len(folders)})
             return items
 
         rebuild()
         page.run_task(restore_scroll)
-        return ft.Container(
+        result = ft.Container(
             content=ft.Column([
                 ft.Row([back_button, header_title]),
                 search,
@@ -998,3 +1003,7 @@ class SettingsView:
             bgcolor=BACKGROUND,
             expand=True,
         )
+        performance.record_ui_build("settings", (performance.now()-build_started)*1000.0,
+                                    controls=performance.control_count(result),
+                                    sections=len(section_cache), cached=False)
+        return result

@@ -16,8 +16,7 @@ class UiRenderPipelineTests(unittest.TestCase):
         self.assertIn('"dirty": True', source)
         self.assertIn("def _ui_render_signature():", source)
         self.assertIn("ui.render_current.skipped_unchanged", source)
-        self.assertIn('metadata={
-                    "reason": reason,', source)
+        self.assertIn('metadata={\n                    "reason": reason,', source)
 
     def test_page_views_are_reused_when_the_shells_are_unchanged(self):
         source = MAIN.read_text(encoding="utf-8")

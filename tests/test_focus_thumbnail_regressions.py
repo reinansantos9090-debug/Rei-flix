@@ -68,6 +68,24 @@ class FocusAndThumbnailRegressionTests(unittest.TestCase):
         self.assertNotIn("_refresh_from_catalog", update)
 
 
+    def test_thumbnail_cache_hit_releases_request_bookkeeping(self):
+        request_start = MAIN.index("def request_missing_thumbnail")
+        request_end = MAIN.index("def storage_state", request_start)
+        request = MAIN[request_start:request_end]
+        cache_hit = request.index('performance.counter("artwork.thumbnail.cache_hit")')
+        prefix = request[:cache_hit]
+        self.assertIn("thumbnail_requests.discard(key)", prefix)
+        self.assertIn("thumbnail_request_started_at.pop(key, None)", prefix)
+        self.assertIn("thumbnail_latest_key_by_uri.pop(path_ref, None)", prefix)
+
+    def test_thumbnail_ready_captures_native_start_before_cleanup(self):
+        start = MAIN.index("elif event_type == 'thumbnail_ready':")
+        end = MAIN.index("elif event_type == 'thumbnail_error':", start)
+        block = MAIN[start:end]
+        self.assertIn("started_native = thumbnail_request_started_at.pop(thumbnail_key, None)", block)
+        self.assertNotIn("started_native = thumbnail_request_started_at.get(thumbnail_key)", block)
+
+
     def test_thumbnail_generation_maps_remain_bounded_while_latest_version_wins(self):
         request_start = MAIN.index("def request_missing_thumbnail")
         request_end = MAIN.index("def storage_state", request_start)

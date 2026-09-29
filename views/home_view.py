@@ -518,9 +518,6 @@ class HomeView:
             _start_view_task(coro_factory)
 
         async def load_next_page():
-            if page_load_scheduled[0]:
-                return
-            page_load_scheduled[0] = True
             try:
                 await load_library_page(reset=False)
             finally:

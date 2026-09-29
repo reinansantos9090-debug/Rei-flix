@@ -107,10 +107,10 @@ class UiStateTests(unittest.TestCase):
         home = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
         organize = (ROOT / "views" / "organize_view.py").read_text(encoding="utf-8")
         self.assertIn("await asyncio.to_thread(", home)
-        self.assertIn("page.run_task(load_catalog)", home)
+        self.assertIn("_start_view_task(load_catalog)", home)
         self.assertNotIn("page.run_thread(work)", home)
         self.assertIn("await asyncio.to_thread(", organize)
-        self.assertIn("page.run_task(load_catalog)", organize)
+        self.assertIn("_start_view_task(load_catalog)", organize)
         self.assertNotIn("page.run_thread(load_catalog)", organize)
 
     def test_home_filters_are_secondary_and_card_dimensions_are_compact(self):

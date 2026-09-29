@@ -522,9 +522,9 @@ class NativePlayerActivity : ComponentActivity() {
                 " episodeId=" + traceEpisodeId.ifEmpty { "-" },
         )
 
-        // A malformed replacement intent must retire the previous transition
-        // watchdog before returning; otherwise its delayed callback can surface
-        // stale feedback after this Activity has already entered an error state.
+        // Carry a real episode transition gate from the old intent into the
+        // replacement intent. The gate is released only at READY/error/timeout.
+        val transitionPending = episodeChangePending
         handler.removeCallbacks(episodeChangeTimeout)
         episodeChangeTimeoutRequestId = ""
         episodeChangeTimeoutUri = ""
@@ -557,6 +557,14 @@ class NativePlayerActivity : ComponentActivity() {
         exitReported = false
         suppressExitEvent = false
         errorVisible = false
+        if (transitionPending) {
+            episodeChangePending = true
+            episodeChangeTimeoutRequestId = requestId
+            episodeChangeTimeoutUri = uri.toString()
+            handler.postDelayed(episodeChangeTimeout, 5_000L)
+        } else {
+            episodeChangePending = false
+        }
         autoplayNext = newIntent.getBooleanExtra("autoplay", autoplayNext)
         doubleTapSeekMs = newIntent.getLongExtra("setting_player_double_tap_seek_seconds", doubleTapSeekMs / 1000L)
         longPressSpeed = newIntent.getFloatExtra("setting_player_long_press_speed", longPressSpeed)
@@ -579,10 +587,7 @@ class NativePlayerActivity : ComponentActivity() {
 
         findViewByTag<TextView>("reiflix_player_title")?.text =
             newIntent.getStringExtra("title") ?: "Episódio"
-        findViewByTag<TextView>("reiflix_next_episode")?.isEnabled =
-            newIntent.getBooleanExtra("canNext", false)
-        findViewByTag<TextView>("reiflix_previous_episode")?.isEnabled =
-            newIntent.getBooleanExtra("canPrevious", false)
+        updateEpisodeNavigationButtons()
         findViewByTag<View>("reiflix_error_panel")?.visibility = View.GONE
         if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
         moreVisible = false

@@ -7,6 +7,7 @@ Desktop deliberately reports this bridge as unavailable.
 """
 from __future__ import annotations
 import asyncio
+import heapq
 import hashlib
 import json
 import logging

@@ -494,15 +494,13 @@ jobs:
             --expected-version-code "$GITHUB_RUN_NUMBER" \
             --expected-version-name "0.2.1"
 
-      # Compatibility markers retained for the existing workflow contracts:
-      # Run Android unit tests on rendered project
-      # Run release evidence certification (no emulator)
-      # The rendered Android unit tests and release certification are independent
-      # after the APK has been produced and verified. Run both in background
-      # processes so their ~3-4 minute phases no longer add serially to the
-      # wall-clock time. This uses standard shell job control instead of an
-      # unsupported GitHub Actions step-level "parallel" key.
-      - name: Run Android tests and release certification concurrently
+      # The generated Flet template already executes :app:testDebugUnitTest in
+      # its post-generation hook before the APK build starts. Do not run the same
+      # Gradle unit-test task a second time in a clean copied project: that second
+      # invocation re-resolves Serious Python native distributions and can fail on
+      # x86_64 download infrastructure even though the rendered-project test gate
+      # already passed and the release APK was successfully produced.
+      - name: Run release certification
         shell: bash
         env:
           GRADLE_OPTS: "-Dorg.gradle.caching=true -Dorg.gradle.parallel=true"
@@ -511,88 +509,30 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
           export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
 
-          android_status_file="build/android-unit-tests.status"
           certification_status_file="build/release-certification.status"
 
-          # Keep Android unit tests isolated from the rendered APK build outputs.
-          # The APK build can leave Gradle state that is valid for packaging but
-          # incomplete for a fresh test invocation (for example R.jar). Use a
-          # clean project copy for tests so Gradle never validates or rewrites
-          # the APK build's task outputs.
-          android_tests_gradle_root="$GITHUB_WORKSPACE/build/flutter/android-tests"
-          rm -rf "$android_tests_gradle_root"
-          mkdir -p "$android_tests_gradle_root"
-          rsync -a --exclude ".gradle/" --exclude "build/" build/flutter/android/ "$android_tests_gradle_root/"
-          test -f "$android_tests_gradle_root/gradlew"
-
-          # Gradle cannot safely have two independent invocations write the same
-          # rendered project's build outputs at the same time. The release
-          # certification runs lint, while the Android test suite writes
-          # processDebugResources outputs. Give certification its own project
-          # directory so both validations remain concurrent without sharing
-          # task outputs.
-          certification_gradle_root="$GITHUB_WORKSPACE/build/flutter/android-certification"
-          rm -rf "$certification_gradle_root"
-          mkdir -p "$certification_gradle_root"
-          rsync -a --exclude ".gradle/" --exclude "build/"             build/flutter/android/ "$certification_gradle_root/"
-          test -f "$certification_gradle_root/gradlew"
-
-          (
-            set +e
-            test -f "$android_tests_gradle_root/gradlew"
-            chmod +x "$android_tests_gradle_root/gradlew"
-            test -d "$SERIOUS_PYTHON_SITE_PACKAGES"
-            if [ "$?" -eq 0 ]; then
-              (
-                cd "$android_tests_gradle_root"
-                ./gradlew :app:testDebugUnitTest --no-daemon
-              )
-              status="$?"
-            else
-              status=1
-            fi
-            echo "$status" > "$android_status_file"
-            exit "$status"
-          ) &
-          android_pid="$!"
-
-          (
-            set +e
-            python scripts/release_certification.py \
-              --root . \
-              --gradle-root "$certification_gradle_root" \
-              --apk "${{ steps.apk.outputs.path }}" \
-              --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
-              --output build/release-certification.json \
-              --report build/release-certification.md \
-              --matrix build/release-certification-matrix.json \
-              --prevalidated-compileall \
-              --prevalidated-gradle \
-              --prevalidated-pytest build/pytest-first.txt \
-              --prevalidated-pytest-second build/pytest-second.txt \
-              --prevalidated-unittest build/unittest.txt
-            status="$?"
-            echo "$status" > "$certification_status_file"
-            exit "$status"
-          ) &
-          certification_pid="$!"
-
           set +e
-          wait "$android_pid"
-          android_wait_status="$?"
-          wait "$certification_pid"
-          certification_wait_status="$?"
+          python scripts/release_certification.py \\
+            --root . \\
+            --gradle-root "build/flutter/android" \\
+            --apk "${{ steps.apk.outputs.path }}" \\
+            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \\
+            --output build/release-certification.json \\
+            --report build/release-certification.md \\
+            --matrix build/release-certification-matrix.json \\
+            --prevalidated-compileall \\
+            --prevalidated-gradle \\
+            --prevalidated-pytest build/pytest-first.txt \\
+            --prevalidated-pytest-second build/pytest-second.txt \\
+            --prevalidated-unittest build/unittest.txt
+          status="$?"
+          echo "$status" > "$certification_status_file"
           set -e
 
-          android_status="$(cat "$android_status_file")"
-          certification_status="$(cat "$certification_status_file")"
-          echo "Android unit tests exit status: $android_status"
-          echo "Release certification exit status: $certification_status"
-
-          if [ "$android_status" -ne 0 ] || [ "$certification_status" -ne 0 ]; then
-            exit 1
+          echo "Release certification exit status: $status"
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
           fi
-
       - name: Upload release certification evidence
         if: always() && hashFiles('build/release-certification.json', 'build/release-certification.md', 'build/release-certification-matrix.json') != ''
         uses: actions/upload-artifact@v7

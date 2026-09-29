@@ -507,6 +507,8 @@ class NativePlayerActivity : ComponentActivity() {
     override fun onNewIntent(newIntent: Intent) {
         super.onNewIntent(newIntent)
         setIntent(newIntent)
+        val traceEpisodeId = newIntent.getStringExtra("episodeId").orEmpty()
+        val traceAnimeId = newIntent.getStringExtra("animeId").orEmpty()
         PerformanceDiagnostics.attach(this)
         PerformanceDiagnostics.markPlayer(this, "reuse_intent",
             newIntent.getStringExtra("requestId")?.trim().orEmpty(),
@@ -539,8 +541,6 @@ class NativePlayerActivity : ComponentActivity() {
         uri = normalized
         loadLocalMetadata()
         requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
-        val traceEpisodeId = newIntent.getStringExtra("episodeId").orEmpty()
-        val traceAnimeId = newIntent.getStringExtra("animeId").orEmpty()
         commandCreatedAtMs = newIntent.getLongExtra("commandCreatedAtMs", 0L)
         commandReceivedAtMs = newIntent.getLongExtra("commandReceivedAtMs", 0L)
         handoffDispatchedAtMs = newIntent.getLongExtra("handoffDispatchedAtMs", 0L)

@@ -617,12 +617,8 @@ async def main(page: ft.Page):
             )
             return
 
-        if navigation.current == "settings":
-            # Only a real Settings tree replacement invalidates focus tasks.
-            # An unchanged render request must leave active focus work intact.
-            settings_tasks.invalidate()
-
         views = []
+        settings_tree_replaced = False
         for route in navigation.stack:
             if route != "settings":
                 control = _build_screen(
@@ -643,6 +639,9 @@ async def main(page: ft.Page):
             # are derived from the one NavigationController.settings_path.
             # This makes Android/Flet Back consume exactly one Settings level.
             for path in _settings_view_paths():
+                settings_tree_replaced = settings_tree_replaced or (
+                    force and path == navigation.settings_path
+                )
                 control = _build_screen(
                     "settings",
                     force=force and path == navigation.settings_path,
@@ -658,6 +657,11 @@ async def main(page: ft.Page):
                         key=("settings", tuple(path)),
                     )
                 )
+
+        if settings_tree_replaced:
+            # Invalidate only when the Settings control tree was actually rebuilt.
+            # Unchanged renders must not cancel active Settings focus/background work.
+            settings_tasks.invalidate()
 
         previous_view_ids = tuple(id(view) for view in page.views)
         next_view_ids = tuple(id(view) for view in views)

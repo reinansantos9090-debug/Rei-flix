@@ -514,6 +514,18 @@ jobs:
           android_status_file="build/android-unit-tests.status"
           certification_status_file="build/release-certification.status"
 
+          # Gradle cannot safely have two independent invocations write the same
+          # rendered project's build outputs at the same time. The release
+          # certification runs lint, while the Android test suite writes
+          # processDebugResources outputs. Give certification its own project
+          # directory so both validations remain concurrent without sharing
+          # task outputs.
+          certification_gradle_root="$GITHUB_WORKSPACE/build/flutter/android-certification"
+          rm -rf "$certification_gradle_root"
+          mkdir -p "$certification_gradle_root"
+          rsync -a --exclude ".gradle/" --exclude "build/"             build/flutter/android/ "$certification_gradle_root/"
+          test -f "$certification_gradle_root/gradlew"
+
           (
             set +e
             test -f build/flutter/android/gradlew
@@ -537,7 +549,7 @@ jobs:
             set +e
             python scripts/release_certification.py \
               --root . \
-              --gradle-root build/flutter/android \
+              --gradle-root "$certification_gradle_root" \
               --apk "${{ steps.apk.outputs.path }}" \
               --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
               --output build/release-certification.json \

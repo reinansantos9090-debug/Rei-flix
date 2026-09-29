@@ -2479,6 +2479,7 @@ class LibraryStore:
 
     def save_progress(self, path, position, duration, *, event_created_at=None):
         """Persist one normalized playback event with canonical local-media identity."""
+        started = time.perf_counter()
         try:
             position, duration = float(position), float(duration)
             event_time = None if event_created_at is None else float(event_created_at)
@@ -2503,6 +2504,7 @@ class LibraryStore:
                 durable_time = event_time / 1000.0 if event_time > 10_000_000_000 else event_time
                 last_seen = self._last_playback_event_at.get(canonical_path, 0.0)
                 if durable_time <= last_seen:
+                    get_performance_monitor().record_sqlite("save_progress", (time.perf_counter()-started)*1000.0, rows=0, status="stale")
                     return False
                 updated = c.execute(
                     """UPDATE episodes
@@ -2520,11 +2522,15 @@ class LibraryStore:
                         )[:2048]
                         for old_path, _ in oldest:
                             self._last_playback_event_at.pop(old_path, None)
+                get_performance_monitor().record_sqlite("save_progress", (time.perf_counter()-started)*1000.0,
+                                                          rows=int(bool(updated)), status="ok" if updated else "ignored")
                 return bool(updated)
             updated = c.execute(
                 "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
                 (position, duration, watched, durable_time, canonical_path),
             ).rowcount
+        get_performance_monitor().record_sqlite("save_progress", (time.perf_counter()-started)*1000.0,
+                                                  rows=int(bool(updated)), status="ok" if updated else "ignored")
         return bool(updated)
     @staticmethod
     def consumption_state(episode):
@@ -2682,8 +2688,11 @@ class LibraryStore:
         This intentionally owns the continuation policy so the UI does not need
         to reproduce ordering, completion, or missing-file rules.
         """
+        started = time.perf_counter()
         current = self.current_episode(anime_id)
         if current:
+            get_performance_monitor().record_sqlite("playback_target", (time.perf_counter()-started)*1000.0,
+                                                    rows=1, metadata={"source": "current_episode"})
             return current
         with self._conn() as c:
             rows = c.execute(
@@ -2705,10 +2714,14 @@ class LibraryStore:
             dict(row) for row in rows
             if str(row["episode_type"] or "").casefold() in {"special", "ova", "oad", "ona", "extra"}
         ]
-        return sorted(specials, key=self._episode_order_key)[0] if specials else None
+        result = sorted(specials, key=self._episode_order_key)[0] if specials else None
+        get_performance_monitor().record_sqlite("playback_target", (time.perf_counter()-started)*1000.0,
+                                                rows=len(rows), metadata={"source": "projection"})
+        return result
 
     def continue_watching(self, limit=12):
         """Return only the latest resumable episode per anime without loading the full episode table."""
+        started = time.perf_counter()
         try:
             limit = max(1, min(100, int(limit)))
         except (TypeError, ValueError):

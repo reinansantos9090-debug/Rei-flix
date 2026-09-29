@@ -372,22 +372,6 @@ jobs:
           rm -f .reiflix-build-identity.json build/flet-version.txt
           test "$(git status --porcelain -- core/build_identity.py .reiflix-build-identity.json build-flet-version.txt)" = ""
 
-      - name: Run Android unit tests on rendered project
-        shell: bash
-        env:
-          GRADLE_OPTS: "-Dorg.gradle.caching=true -Dorg.gradle.parallel=true"
-          GRADLE_USER_HOME: "${{ runner.temp }}/gradle-home"
-        run: |
-          test -f build/flutter/android/gradlew
-          chmod +x build/flutter/android/gradlew
-          mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
-          export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
-          test -d "$SERIOUS_PYTHON_SITE_PACKAGES"
-          (
-            cd build/flutter/android
-            ./gradlew :app:testDebugUnitTest --no-daemon
-          )
-
       - name: Locate APK
         id: apk
         shell: bash
@@ -491,19 +475,38 @@ jobs:
             --expected-version-code "$GITHUB_RUN_NUMBER" \
             --expected-version-name "0.2.1"
 
-      - name: Run release evidence certification (no emulator)
-        shell: bash
-        run: |
-          python scripts/release_certification.py \
-            --root . \
-            --gradle-root build/flutter/android \
-            --apk "${{ steps.apk.outputs.path }}" \
-            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
-            --output build/release-certification.json \
-            --report build/release-certification.md \
-            --matrix build/release-certification-matrix.json \
-            --prevalidated-compileall \
-            --prevalidated-gradle
+      # The rendered Android unit tests and release certification are independent
+      # after the APK has been produced and verified. Run both concurrently so
+      # their ~3-4 minute phases no longer add serially to the wall-clock time.
+      - parallel:
+          - name: Run Android unit tests on rendered project
+            shell: bash
+            env:
+              GRADLE_OPTS: "-Dorg.gradle.caching=true -Dorg.gradle.parallel=true"
+            run: |
+              test -f build/flutter/android/gradlew
+              chmod +x build/flutter/android/gradlew
+              mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
+              export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
+              test -d "$SERIOUS_PYTHON_SITE_PACKAGES"
+              (
+                cd build/flutter/android
+                ./gradlew :app:testDebugUnitTest --no-daemon
+              )
+
+          - name: Run release evidence certification (no emulator)
+            shell: bash
+            run: |
+              python scripts/release_certification.py \
+                --root . \
+                --gradle-root build/flutter/android \
+                --apk "${{ steps.apk.outputs.path }}" \
+                --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
+                --output build/release-certification.json \
+                --report build/release-certification.md \
+                --matrix build/release-certification-matrix.json \
+                --prevalidated-compileall \
+                --prevalidated-gradle
 
       - name: Upload release certification evidence
         if: always() && hashFiles('build/release-certification.json', 'build/release-certification.md', 'build/release-certification-matrix.json') != ''

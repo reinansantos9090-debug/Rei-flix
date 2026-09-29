@@ -327,8 +327,6 @@ class SettingsView:
                 key,
                 decision.generation,
             )
-            if callable(register_settings_task):
-                register_settings_task(focus_task)
 
         def build_category_tile(label):
             description, icon = category_meta.get(label, ("Configurações ReiAnix", ft.Icons.SETTINGS_OUTLINED))

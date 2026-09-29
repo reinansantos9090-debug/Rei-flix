@@ -43,6 +43,13 @@ class Prompt13NativePlayerLifecycleTests(unittest.TestCase):
         self.assertIn("initialSeekApplied = true", ready)
         self.assertEqual(1, ready.count("seekToSavedPosition(restoredPositionMs ?: savedPosition)"))
 
+    def test_new_intent_cannot_inherit_stale_foreground_resume_state(self):
+        reuse = self.player[
+            self.player.index("override fun onNewIntent"):
+            self.player.index("private fun currentEpisodeId")
+        ]
+        self.assertIn("playbackWasRequestedBeforeStop = false", reuse)
+
     def test_background_lifecycle_pauses_without_affecting_pip(self):
         stop = self.player[
             self.player.index("override fun onStop()"):

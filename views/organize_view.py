@@ -762,8 +762,9 @@ class OrganizeView:
             if mode[0] != 'collection':
                 mode[0] = 'collection'
                 save_view_state()
+            # load_collection_page() performs the single required UI update after
+            # the catalog controls are populated.
             await render_collection(reset=True)
-            page.update()
         async def render():
             if mode[0] == 'overview':
                 render_generation[0] += 1
@@ -771,8 +772,8 @@ class OrganizeView:
                 render_overview()
                 page.update()
                 return
+            # load_collection_page() already commits the catalog UI update.
             await render_collection(reset=True)
-            page.update()
         async def refresh_from_catalog():
             save_view_state()
             if mode[0] == 'collection':

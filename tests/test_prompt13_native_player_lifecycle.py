@@ -94,7 +94,7 @@ class Prompt13NativePlayerLifecycleTests(unittest.TestCase):
         self.assertIn("generation == playerGeneration && sessionState == SessionState.ACTIVE", self.player)
         self.assertIn("events.contains(Player.EVENT_RENDERED_FIRST_FRAME)", self.player)
         self.assertIn("armFirstFrameDiagnostics(generation)", self.player)
-        self.assertIn("cancelFirstFrameDiagnostics("first_frame")", self.player)
+        self.assertIn('cancelFirstFrameDiagnostics("first_frame")', self.player)
 
 
 if __name__ == "__main__":

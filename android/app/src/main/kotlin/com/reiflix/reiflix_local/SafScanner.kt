@@ -149,7 +149,9 @@ object SafScanner {
                     stats.put("successfulQueries",stats.getInt("successfulQueries")+1)
                     if(c.count==0){stats.put("emptyDirectories",stats.getInt("emptyDirectories")+1);return@use}
                     data class Child(val id:String,val name:String,val mime:String,val size:Long?,val modified:Long?)
-                    val children=mutableListOf<Child>(); var hasNoMedia=false
+                    val directoriesToVisit=mutableListOf<Pair<String,String>>()
+                    val videoChildren=mutableListOf<Child>()
+                    var hasNoMedia=false
                     while(c.moveToNext()){
                         val id=c.getString(idCol)?.trim().orEmpty()
                         if(id.isBlank()){stats.put("failedQueries",stats.getInt("failedQueries")+1);errors.put("O provedor SAF retornou um documento sem ID em: "+currentPath);continue}
@@ -158,18 +160,30 @@ object SafScanner {
                         val mime=c.getString(mimeCol)?.trim().takeUnless{it.isNullOrBlank()} ?: "application/octet-stream"
                         val size=if(sizeCol>=0&&!c.isNull(sizeCol))c.getLong(sizeCol)else null
                         val modified=if(modCol>=0&&!c.isNull(modCol))c.getLong(modCol)else null
-                        children.add(Child(id,name,mime,size,modified))
+                        if(mime==DocumentsContract.Document.MIME_TYPE_DIR){
+                            directoriesToVisit.add(id to name)
+                            continue
+                        }
+                        stats.put("files",stats.getInt("files")+1)
+                        val extension=name.substringAfterLast(".", "").lowercase()
+                        val mimeVideo=mime.startsWith("video/")
+                        val extensionVideo=extension in videoExtensions
+                        if(!mimeVideo&&!extensionVideo)continue
+                        videoChildren.add(Child(id,name,mime,size,modified))
                     }
-                    if(hasNoMedia){stats.put("excludedNoMedia",stats.getInt("excludedNoMedia")+1).put("nomediaDirectories",stats.getInt("nomediaDirectories")+1);return@use}
-                    for(child in children){
+                    if(hasNoMedia){
+                        stats.put("excludedNoMedia",stats.getInt("excludedNoMedia")+1).put("nomediaDirectories",stats.getInt("nomediaDirectories")+1)
+                        return@use
+                    }
+                    for((childId,childName) in directoriesToVisit){
+                        val relative=if(currentPath.isEmpty())childName else currentPath+"/"+childName
+                        pending.addLast(childId to relative)
+                    }
+                    for(child in videoChildren){
                         if(shouldCancel()){cancelled=true;break}
                         val relative=if(currentPath.isEmpty())child.name else currentPath+"/"+child.name
                         val childUri=runCatching{DocumentsContract.buildDocumentUriUsingTree(treeUri,child.id)}.getOrElse{stats.put("failedQueries",stats.getInt("failedQueries")+1);errors.put("Não foi possível acessar: "+relative);continue}
-                        if(child.mime==DocumentsContract.Document.MIME_TYPE_DIR){pending.addLast(child.id to relative);continue}
-                        stats.put("files",stats.getInt("files")+1)
-                        val extension=child.name.substringAfterLast(".", "").lowercase(); val mimeVideo=child.mime.startsWith("video/"); val extensionVideo=extension in videoExtensions
-                        if(!mimeVideo&&!extensionVideo)continue
-                        if(!mimeVideo)stats.put("mimeFallbacks",stats.getInt("mimeFallbacks")+1)
+                        if(!child.mime.startsWith("video/"))stats.put("mimeFallbacks",stats.getInt("mimeFallbacks")+1)
                         if(child.size==null)stats.put("metadataMissingSize",stats.getInt("metadataMissingSize")+1)
                         if(child.modified==null)stats.put("metadataMissingModified",stats.getInt("metadataMissingModified")+1)
                         batches.add(JSONObject().put("uri",childUri.toString()).put("treeUri",treeUri.toString()).put("documentId",child.id)

@@ -317,9 +317,11 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "event_type == 'player_autoplay_changed'",
             'settings.set("player.autoplay_next", enabled)',
             "event_type in {'player_next_request', 'player_previous_request'}",
-            "asyncio.to_thread(library.next_episode, current_path)",
-            "asyncio.to_thread(library.previous_episode, current_path)",
+            "asyncio.to_thread(\n                                        library.player_navigation,",
             "await start_native_player(",
+            'origin_request_id=event_request_id',
+            'player_transition_generation["value"]',
+
             "event_type == 'player_exited'",
             "event_created_at=event.get('createdAt') or event.get('timestamp')",
             "exit_updated = await asyncio.to_thread(",

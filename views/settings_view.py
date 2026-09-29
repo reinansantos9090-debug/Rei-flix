@@ -65,57 +65,6 @@ class SettingsView:
         )
         sections_host = ft.Column(spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
 
-        def save_scroll(event):
-            try:
-                view_state["scroll_position"] = float(event.pixels)
-            except (TypeError, ValueError, AttributeError):
-                return
-
-        sections_host.on_scroll = save_scroll
-
-        async def restore_scroll():
-            async with performance.task_scope(
-                "settings.restore_scroll",
-                screen="settings",
-                generation=view_generation,
-            ):
-                if (
-                    not settings_is_active()
-                    or settings_generation_provider() != view_generation
-                ):
-                    performance.counter("settings_stale_tasks")
-                    return
-                stored = view_state.get("scroll_position")
-                if stored is None:
-                    return
-                try:
-                    offset = float(stored)
-                    if abs(offset) < 0.5:
-                        return
-                    if (
-                        not settings_is_active()
-                        or settings_generation_provider() != view_generation
-                    ):
-                        performance.counter("settings_stale_tasks")
-                        return
-                    performance.counter("settings_scroll_requests")
-                    performance.counter("settings_restore_scroll_requests")
-                    result = sections_host.scroll_to(offset=offset, duration=0)
-                    if inspect.isawaitable(result):
-                        await result
-                    if (
-                        settings_is_active()
-                        and settings_generation_provider() == view_generation
-                    ):
-                        performance.counter("settings_scroll_completed")
-                    else:
-                        performance.counter("settings_stale_tasks")
-                except asyncio.CancelledError:
-                    performance.counter("settings_scroll_cancelled")
-                    raise
-                except Exception:
-                    logger.debug("settings scroll restoration unavailable", exc_info=True)
-
         def safe_update():
             try:
                 page.update()
@@ -1090,9 +1039,6 @@ class SettingsView:
             return items
 
         rebuild()
-        restore_task = page.run_task(restore_scroll)
-        if callable(register_settings_task):
-            register_settings_task(restore_task)
         result = ft.Container(
             content=ft.Column([
                 ft.Row([back_button, header_title]),

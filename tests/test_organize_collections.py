@@ -181,7 +181,7 @@ class OrganizeHandlerContractTests(unittest.TestCase):
         source = ORGANIZE.read_text(encoding="utf-8")
         self.assertIn("def make_anime_click_handler(anime):", source)
         self.assertIn("def make_anime_click_handler(anime):", source)
-        self.assertIn("loop.create_task(invoke())", source)
+        self.assertIn("_start_view_task(invoke)", source)
         self.assertIn("return None", source)
 
     def test_collection_render_has_generation_guard_for_rapid_filter_changes(self):

@@ -342,7 +342,7 @@ class SettingsView:
             )
 
         def render_settings(_=None):
-            nonlocal section_cache
+            nonlocal section_cache, initial_render_pending
             render_started = performance.now()
             performance.counter("settings.renders")
             query = (search.value or "").strip().casefold()

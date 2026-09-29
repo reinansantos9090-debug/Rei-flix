@@ -15,6 +15,7 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlencode
+from core.performance import get_performance_monitor
 
 import flet as ft
 
@@ -62,6 +63,7 @@ class AndroidBridge:
 
     def observe_native_event(self, event: dict) -> None:
         """Resolve an in-flight command only after MainActivity emitted COMMAND_RECEIVED."""
+        performance = get_performance_monitor()
         if not isinstance(event, dict) or event.get("type") != "diagnostic":
             return
         payload = event.get("payload")
@@ -75,6 +77,8 @@ class AndroidBridge:
         if waiter is None or waiter.done():
             return
         if event_name == "COMMAND_RECEIVED":
+            performance.event("android.command_received", screen="android_bridge",
+                              metadata={"request_id": request_id, "action": payload.get("action")})
             logger.info(
                 "[ANDROID_BRIDGE] COMMAND_RECEIVED_CONFIRMED request_id=%s action=%s timestamp=%s",
                 request_id,
@@ -92,6 +96,8 @@ class AndroidBridge:
             )
 
     async def _launch(self, action: str, **params):
+        performance = get_performance_monitor()
+        launch_started = performance.now()
         if not self.available:
             raise RuntimeError("A ponte Android está disponível somente no APK ReiFlix.")
         request_id = uuid.uuid4().hex
@@ -134,6 +140,8 @@ class AndroidBridge:
                     "Flet 0.86.5 não expôs UrlLauncher/EXTERNAL_NON_BROWSER_APPLICATION."
                 )
             await launcher.launch_url(url, mode=external_non_browser)
+            performance.event("android.launch_url", duration_ms=(performance.now()-launch_started)*1000.0,
+                              screen="android_bridge", metadata={"action": action, "request_id": request_id})
             logger.info(
                 "[ANDROID_BRIDGE] COMMAND_LAUNCH_ACCEPTED request_id=%s action=%s "
                 "timestamp=%s launcher=UrlLauncher mode=EXTERNAL_NON_BROWSER_APPLICATION",
@@ -159,7 +167,13 @@ class AndroidBridge:
                 asyncio.shield(delivery_waiter),
                 timeout=self._command_delivery_timeout_s,
             )
+            performance.event("android.command_delivery", duration_ms=(performance.now()-launch_started)*1000.0,
+                              screen="android_bridge",
+                              metadata={"action": action, "request_id": request_id, "status": "received"})
         except asyncio.TimeoutError as exc:
+            performance.event("android.command_delivery", duration_ms=(performance.now()-launch_started)*1000.0,
+                              status="timeout", screen="android_bridge",
+                              metadata={"action": action, "request_id": request_id})
             logger.error(
                 "[ANDROID_BRIDGE] COMMAND_DELIVERY_TIMEOUT request_id=%s action=%s "
                 "timeout_s=%s reason=main_activity_not_confirmed",

@@ -56,12 +56,14 @@ class Prompt2StabilizationTests(unittest.TestCase):
         start = PLAYER.index("private fun requestEpisode")
         end = PLAYER.index("private fun seekToSavedPosition", start)
         block = PLAYER[start:end]
+        self.assertIn("playbackWorker.submit", block)
         self.assertIn("val published = NativeMailbox.write(", block)
         self.assertIn("if (!published)", block)
         self.assertIn("episodeChangePending = false", block)
+        self.assertIn("transitionGeneration", block)
         self.assertIn("handler.removeCallbacks(episodeChangeTimeout)", block)
         destroy = PLAYER[PLAYER.index("override fun onDestroy"):PLAYER.index("private fun shouldUseImmersive")]
-        self.assertIn("handler.removeCallbacks(episodeChangeTimeout)", destroy)
+        self.assertIn("playbackWorker.shutdown()", destroy)
 
     def test_player_overlaid_events_do_not_rebuild_flet_under_the_native_activity(self):
         watched_start = MAIN.index("elif event_type == 'player_mark_watched':")

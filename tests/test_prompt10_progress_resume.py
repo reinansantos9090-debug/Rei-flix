@@ -59,6 +59,11 @@ class Prompt10ProgressResumeTests(unittest.TestCase):
         unknown = self.episode(self.anime_a, "content://prompt10/unknown", 5, "prompt10:unknown")
         self.assertTrue(self.store.save_progress(unknown["path"], 25, 0, episode_id=unknown["id"], event_created_at=3))
         row = self.store.physical_row(unknown["path"])
+        known = self.episode(self.anime_a, "content://prompt10/known-duration", 5, "prompt10:known-duration")
+        self.assertTrue(self.store.save_progress(known["path"], 60, 100, episode_id=known["id"], event_created_at=4))
+        self.assertTrue(self.store.save_progress(known["path"], 61, 0, episode_id=known["id"], event_created_at=5))
+        known_row = self.store.physical_row(known["path"])
+        self.assertEqual((61, 100), (known_row["progress"], known_row["duration"]))
         self.assertEqual((25, 0, 0.0), (row["progress"], row["duration"], progress_ratio(row)))
         self.assertEqual("unwatched", consumption_state(row).value)
 

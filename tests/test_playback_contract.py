@@ -152,18 +152,21 @@ class PlaybackContractTests(unittest.TestCase):
         save_end = source.index("    override fun onStart()", save_start)
         save_block = source[save_start:save_end]
         self.assertIn("val durable = force || eventType in setOf", save_block)
-        self.assertIn("NativeMailbox.write(this, event)", save_block)
-        self.assertIn("NativeMailbox.writeBestEffort(this, event)", save_block)
+        self.assertIn("NativeMailbox.write(this@NativePlayerActivity, event)", save_block)
+        self.assertIn("NativeMailbox.writeBestEffort(this@NativePlayerActivity, event)", save_block)
         self.assertIn('"player_paused"', save_block)
         self.assertIn('"player_completed"', save_block)
         exit_idx = source.index('"type", "player_exited"')
-        exit_end = source.index('        logPlayer("player_exit_reported', exit_idx)
+        exit_end = source.index('        logPlayer("player_exit_queued', exit_idx)
         exit_block = source[exit_idx:exit_end]
         self.assertIn("NativeMailbox.write(", exit_block)
         self.assertNotIn("NativeMailbox.writeBestEffort(", exit_block)
-        request_idx = source.index('JSONObject().put("type", eventType)', source.index("private fun requestEpisode"))
-        request_block = source[max(0, request_idx - 180):request_idx]
+        request_start = source.index("private fun requestEpisode")
+        request_end = source.index("private fun seekToSavedPosition", request_start)
+        request_block = source[request_start:request_end]
+        self.assertIn("playbackWorker.submit", request_block)
         self.assertIn("NativeMailbox.write(", request_block)
+        self.assertIn("val published = NativeMailbox.write(", request_block)
         autoplay_idx = source.index('"type", "player_autoplay_changed"')
         autoplay_block = source[max(0, autoplay_idx - 240):autoplay_idx]
         self.assertIn("NativeMailbox.write(", autoplay_block)

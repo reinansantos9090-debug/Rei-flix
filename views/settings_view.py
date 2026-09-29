@@ -482,7 +482,7 @@ class SettingsView:
                 finally:
                     busy["scan"] = False
                     safe_update()
-            page.run_task(run)
+            start_task(run)
 
         def request_permission(_):
             if busy["permission"]:
@@ -498,7 +498,7 @@ class SettingsView:
                 finally:
                     busy["permission"] = False
                     safe_update()
-            page.run_task(run)
+            start_task(run)
 
         def verify_permission(_):
             if busy["permission"]:
@@ -606,7 +606,7 @@ class SettingsView:
                 try:
                     result = on_settings_changed("appearance.theme", settings.get("appearance.theme"))
                     if inspect.isawaitable(result):
-                        page.run_task(result)
+                        start_task(result)
                     return
                 except Exception:
                     logger.exception("settings runtime theme apply failed")

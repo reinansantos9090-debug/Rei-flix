@@ -1162,7 +1162,10 @@ async def main(page: ft.Page):
                 thumbnail_completed_request_by_key.pop(key, None)
 
     def request_missing_thumbnail(item):
+        thumbnail_started = performance.now()
+        performance.counter("artwork.thumbnail.request")
         if not bridge.available or not isinstance(item, dict):
+            performance.counter("artwork.thumbnail.rejected")
             return
         episode = item if item.get("path") else item.get("current_episode") or {}
         path_ref = str(episode.get("path") or "").strip()
@@ -1187,11 +1190,18 @@ async def main(page: ft.Page):
         except Exception:
             resolved = None
         if resolved and resolved.get("local_path") and os.path.isfile(resolved.get("local_path")):
+            performance.counter("artwork.thumbnail.cache_hit")
+            performance.event("artwork.thumbnail", duration_ms=(performance.now()-thumbnail_started)*1000.0,
+                              status="cache_hit", screen=navigation.current, metadata={"path": path_ref})
             return
+        performance.counter("artwork.thumbnail.cache_miss")
         if len(thumbnail_requests) >= 32:
+            performance.counter("artwork.thumbnail.rejected")
             return
         thumbnail_requests.add(key)
         thumbnail_request_started_at[key] = time.monotonic()
+        performance.event("artwork.thumbnail", duration_ms=(performance.now()-thumbnail_started)*1000.0,
+                          status="requested", screen=navigation.current, metadata={"path": path_ref, "media_identity": episode.get("media_identity")})
         async def run():
             try:
                 await bridge.request_thumbnail(path_ref, key[1], key[2], str(episode.get('media_identity') or ''))
@@ -1942,6 +1952,7 @@ async def main(page: ft.Page):
                                 continue
                             latest_key = thumbnail_latest_key_by_uri.get(uri)
                             if latest_key is not None and thumbnail_key != latest_key:
+                                performance.counter("artwork.thumbnail.stale")
                                 # Only the latest requested media version may publish.
                                 # Older requests can finish later and must never
                                 # overwrite the current thumbnail/artwork.
@@ -1977,6 +1988,12 @@ async def main(page: ft.Page):
                                 if request_id:
                                     thumbnail_completed_request_by_key[thumbnail_key] = request_id
                                 if registered:
+                                    started_native = thumbnail_request_started_at.get(thumbnail_key)
+                                    if started_native is not None:
+                                        performance.event("artwork.thumbnail", duration_ms=(time.monotonic()-started_native)*1000.0,
+                                                          status="ready", screen=navigation.current,
+                                                          metadata={"path": uri, "media_identity": media_identity, "update": True})
+                                    performance.counter("artwork.thumbnail.update")
                                     # A generated thumbnail changes one image, not the
                                     # catalog membership or ordering. Keep mounted Home
                                     # controls (and their scroll/focus state) intact.

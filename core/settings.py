@@ -120,6 +120,7 @@ class SettingsStore:
             stored_version = 0
         if stored_version < self.SCHEMA_VERSION:
             self.store.set_preference("settings.schema_version", str(self.SCHEMA_VERSION))
+        self._cache: dict[str, Any] = {}
 
     def _migrate_legacy_keys(self):
         legacy = {
@@ -191,11 +192,24 @@ class SettingsStore:
     def _write(self, key, value):
         self.store.set_preference(key, self._encode(value))
         self.store.set_preference("settings.schema_version", str(self.SCHEMA_VERSION))
+        if hasattr(self, "_cache"):
+            self._cache[key] = value
+
+    def invalidate_cache(self, *keys: str) -> None:
+        """Drop cached preference values after an out-of-band store mutation."""
+        if not keys:
+            self._cache.clear()
+            return
+        for key in keys:
+            self._cache.pop(key, None)
 
     def get(self, key):
         definition = SettingsDefaults.BY_KEY[key]
+        if key in self._cache:
+            return self._cache[key]
         raw = self.store.get_preference(key)
         if raw is None:
+            self._cache[key] = definition.default
             return definition.default
         if key == "player.aspect_ratio" and str(raw).strip().casefold() in {"zoom", "auto", "original"}:
             raw = "fill" if str(raw).strip().casefold() == "zoom" else "fit"
@@ -204,9 +218,12 @@ class SettingsStore:
             except Exception:
                 logger.exception("Could not normalize legacy aspect setting")
         try:
-            return self._coerce(definition, raw)
+            normalized = self._coerce(definition, raw)
+            self._cache[key] = normalized
+            return normalized
         except (ValueError, TypeError, SettingsValidationError):
             # A single corrupt key falls back without resetting unrelated settings.
+            self._cache[key] = definition.default
             return definition.default
 
     def set(self, key, value):
@@ -286,6 +303,7 @@ class SettingsStore:
                    ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
                 ("settings.schema_version", str(self.SCHEMA_VERSION), now),
             )
+        self._cache.update(normalized)
         return {"imported": len(normalized), "unknown": unknown}
 
     def import_json(self, raw: str):

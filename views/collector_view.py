@@ -28,7 +28,10 @@ class CollectorView:
 
     @staticmethod
     def build(page: ft.Page, library, on_back):
-        theme = activate_theme_for_page(page)
+        performance = get_performance_monitor()
+        build_started = performance.now()
+        performance.counter("ui.builds_requested.collector")
+theme = activate_theme_for_page(page)
         background = theme.background
         surface = theme.surface
         text = theme.text
@@ -341,9 +344,12 @@ class CollectorView:
             await reload()
 
         page.run_task(reload)
-        return ft.Container(
+        result = ft.Container(
             content=content,
             padding=ft.Padding(left=PAGE_PADDING, right=PAGE_PADDING, top=14, bottom=18),
             bgcolor=background,
             expand=True,
         )
+        performance.record_ui_build("collector", (performance.now()-build_started)*1000.0,
+                                    controls=performance.control_count(result), cached=False)
+        return result

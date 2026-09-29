@@ -884,7 +884,7 @@ class TestMediaStoreScannerOptimization(unittest.TestCase):
 
     def test_saf_filters_directory_entries_before_building_document_uris(self):
         scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SafScanner.kt").read_text(encoding="utf-8")
-        cursor_block_start = scanner.index("while(c.moveToNext())")
+        cursor_block_start = scanner.index("val directoriesToVisit=mutableListOf<Pair<String,String>>()")
         cursor_block_end = scanner.index("batches.flush()", cursor_block_start)
         block = scanner[cursor_block_start:cursor_block_end]
         self.assertIn("val directoriesToVisit=mutableListOf<Pair<String,String>>()", block)

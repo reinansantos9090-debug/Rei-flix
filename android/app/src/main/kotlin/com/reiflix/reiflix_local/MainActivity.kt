@@ -106,6 +106,9 @@ class MainActivity : FlutterFragmentActivity() {
                         " child ended without a controlled result; inspect NativePlayerActivity logcat for FATAL EXCEPTION/Media3 details.",
                 )
             }
+            if (controlled && requestId != null) {
+                notePlayerExit(requestId)
+            }
             if (requestId != null && activePlayerRequestId == requestId) {
                 activePlayerRequestId = null
                 activePlayerCommandCreatedAtMs = 0L
@@ -143,6 +146,17 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_LAST_OBSERVED_MEDIA_ACCESS = "reiflix.lastObservedMediaAccess"
         private const val STATE_LAST_OBSERVED_BROAD_ACCESS = "reiflix.lastObservedBroadAccess"
         private const val LOG_TAG = "[REIFLIX][ANDROID]"
+        @Volatile
+        private var lastPlayerExitRequestId: String? = null
+        @Volatile
+        private var lastPlayerExitAtMs: Long = 0L
+
+        @JvmStatic
+        fun notePlayerExit(requestId: String, atMs: Long = System.currentTimeMillis()) {
+            lastPlayerExitRequestId = requestId.trim().takeIf { it.isNotEmpty() }
+            lastPlayerExitAtMs = maxOf(lastPlayerExitAtMs, atMs)
+        }
+
         private val safInventoryInFlight = AtomicBoolean(false)
         private const val SAF_PICKER_LAUNCH_TIMEOUT_MS = 5000L
         private const val SAF_PICKER_RETURN_GRACE_MS = 2500L
@@ -1924,6 +1938,39 @@ class MainActivity : FlutterFragmentActivity() {
         val previousActiveRequestId = activePlayerRequestId
         val previousActiveCommandCreatedAtMs = activePlayerCommandCreatedAtMs
         val reusingPlayerActivity = !previousActiveRequestId.isNullOrBlank()
+        val originRequestId = playerRequest.originRequestId
+        val originCreatedAtMs = playerRequest.originCreatedAtMs
+        if (originRequestId.isNotBlank()) {
+            val activeOriginMismatch = !previousActiveRequestId.isNullOrBlank() &&
+                previousActiveRequestId != originRequestId
+            val exitRace = originCreatedAtMs > 0L &&
+                lastPlayerExitAtMs >= originCreatedAtMs
+            if (activeOriginMismatch || exitRace) {
+                nativeRequestState.markOperationState(
+                    requestId,
+                    "play",
+                    NativeRequestState.OperationState.FAILED,
+                )
+                val result = if (exitRace) "stale_after_player_exit" else "stale_origin_session"
+                Log.w(
+                    tag,
+                    "PLAYER_HANDOFF_REJECTED requestId=" + requestId +
+                        " reason=" + result +
+                        " originRequestId=" + originRequestId +
+                        " active=" + (previousActiveRequestId ?: "-") +
+                        " lastPlayerExitAtMs=" + lastPlayerExitAtMs +
+                        " originCreatedAtMs=" + originCreatedAtMs,
+                )
+                publishNativeDiagnostic(
+                    "PLAYER_HANDOFF_REJECTED",
+                    requestId,
+                    "play",
+                    NativeRequestState.OperationState.FAILED.name,
+                    result = result,
+                )
+                return false
+            }
+        }
         if (playerRequest.commandCreatedAtMs > 0L &&
             previousActiveCommandCreatedAtMs > 0L &&
             playerRequest.commandCreatedAtMs <= previousActiveCommandCreatedAtMs
@@ -1981,6 +2028,9 @@ class MainActivity : FlutterFragmentActivity() {
             val intent = playerRequest.toIntent(this, localUri)
                 .putExtra("commandReceivedAtMs", commandReceivedAtMs)
                 .putExtra("handoffDispatchedAtMs", handoffDispatchedAtMs)
+                .putExtra("originRequestId", playerRequest.originRequestId)
+                .putExtra("originCreatedAtMs", playerRequest.originCreatedAtMs)
+                .putExtra("originTransitionGeneration", playerRequest.originTransitionGeneration)
 
             val resolvedActivity = intent.resolveActivity(packageManager)
             if (resolvedActivity == null) {

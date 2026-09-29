@@ -376,7 +376,7 @@ class StorageOnboardingTests(unittest.TestCase):
     def test_native_bridge_orders_events_by_creation_time(self):
         source = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
         self.assertIn("def _event_time(event: dict)", source)
-        self.assertIn("indexed.sort(key=lambda item: (self._event_time(item[1]), item[0]))", source)
+        self.assertIn("events.sort(key=self._event_time)", source)
         self.assertIn('"createdAt"', source)
 
     def test_native_bridge_retains_failed_requeue_events(self):
@@ -388,7 +388,7 @@ class StorageOnboardingTests(unittest.TestCase):
     def test_native_bridge_does_not_delete_claimed_events_on_drain_io_failure(self):
         source = (ROOT / "core/android_bridge.py").read_text(encoding="utf-8")
         block = source[source.index("except OSError as exc:", source.index("def drain")):source.index("    def requeue_event_ids", source.index("def drain"))]
-        self.assertIn("Never discard a claimed event", block)
+        self.assertIn("claimed events will be restored/retried", block)
         self.assertIn('path.replace(path.with_suffix(".json"))', block)
         self.assertNotIn("path.unlink(missing_ok=True)", block)
 

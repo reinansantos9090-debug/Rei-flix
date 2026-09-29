@@ -69,6 +69,8 @@ class AndroidHostVerificationTests(unittest.TestCase):
             "ConcurrentHashMap",
             "mediaIdentity",
             "MAX_CACHE_BYTES",
+            "MAX_FRAME_DIMENSION",
+            "320",
             "durationMs",
             "METADATA_KEY_VIDEO_ROTATION",
             "Matrix().apply",

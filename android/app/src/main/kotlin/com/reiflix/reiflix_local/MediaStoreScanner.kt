@@ -109,6 +109,7 @@ object MediaStoreScanner {
         check(StorageAuthorization.canScanMediaStore(accessState)) { "Permissão de vídeos não concedida." }
         var files=0;var videos=0;var cancelled=false
         var waitingForMediaStore=false
+        val volumeUuidCache = HashMap<String, String>()
         clearChangeNotification()
         onProgress?.invoke(JSONObject().put("phase","started").put("source",SOURCE).put("files",0).put("videos",0))
         for(volumeName in volumeNames){
@@ -120,6 +121,7 @@ object MediaStoreScanner {
                 val generation=if(Build.VERSION.SDK_INT>=30)runCatching{MediaStore.getGeneration(context,volumeName)}.getOrDefault(0L) else 0L
                 var volumeWaitingForMediaStore=false
                 val scopeKey=activeScopeKey
+                val baseVolumeUuid = volumeUuidCache.getOrPut(volumeName) { volumeUuid(context, volumeName) }
                 if(NativeIndex.canReuseMediaStoreVolume(context,volumeName,access,version,generation)){
                     val cachedGeneration=NativeIndex.cachedGeneration(context,scopeKey)
                     val cachedCount=NativeIndex.forEachCachedBatch(context,scopeKey,NativeBatch.DEFAULT_SIZE) { batch,batchNumber ->
@@ -174,8 +176,13 @@ object MediaStoreScanner {
                         val relDir=if(relCol>=0&&!cursor.isNull(relCol))cursor.getString(relCol).orEmpty().trimEnd('/')else ""
                         val rel=if(relDir.isBlank())name else relDir+"/"+name
                         val actualVol=if(volCol>=0&&!cursor.isNull(volCol))cursor.getString(volCol)else volumeName
+                        val actualVolumeUuid = if(actualVol == volumeName) {
+                            baseVolumeUuid
+                        } else {
+                            volumeUuidCache.getOrPut(actualVol) { volumeUuid(context, actualVol) }
+                        }
                         val uri=if(Build.VERSION.SDK_INT>=29)MediaStore.Video.Media.getContentUri(actualVol,id)else android.content.ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI,id)
-                        val item=JSONObject().put("uri",uri.toString()).put("name",name).put("relativePath",rel).put("volumeName",actualVol).put("volumeId",actualVol).put("volumeUuid",volumeUuid(context,actualVol))
+                        val item=JSONObject().put("uri",uri.toString()).put("name",name).put("relativePath",rel).put("volumeName",actualVol).put("volumeId",actualVol).put("volumeUuid",actualVolumeUuid)
                             .put("mediaId",id).put("mimeType",mime).put("size",if(sizeCol>=0&&!cursor.isNull(sizeCol))cursor.getLong(sizeCol)else 0L).put("modifiedAt",if(modCol>=0&&!cursor.isNull(modCol))cursor.getLong(modCol)*1000L else 0L)
                         if(gaCol>=0&&!cursor.isNull(gaCol))item.put("generationAdded",cursor.getLong(gaCol))
                         if(gmCol>=0&&!cursor.isNull(gmCol))item.put("generationModified",cursor.getLong(gmCol))

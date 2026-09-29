@@ -632,14 +632,15 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
             bridge = AndroidBridge(d)
             bridge.mailbox.write_text(json.dumps([{'type': 'unknown'}, 'bad', 3]), encoding='utf-8')
             self.assertEqual([event["type"] for event in bridge.drain()], ["unknown"])
-            consumed = list(bridge.queue_dir.glob('event-*.consumed'))
+            consumed = list(bridge.queue_dir.glob("event-*.consumed"))
             self.assertEqual(len(consumed), 1)
+            self.assertFalse(bridge.mailbox.with_suffix(".consumed").exists())
             self.assertEqual(bridge.drain(), [])
             bridge.acknowledge()
-            self.assertFalse(any(bridge.queue_dir.glob('event-*.consumed')))
-            bridge.mailbox.write_text('{bad json', encoding='utf-8')
+            self.assertFalse(any(bridge.queue_dir.glob("event-*.consumed")))
+            bridge.mailbox.write_text("{bad json", encoding="utf-8")
             self.assertEqual(bridge.drain(), [])
-            self.assertFalse(bridge.mailbox.with_suffix('.consumed').exists())
+            self.assertFalse(bridge.mailbox.with_suffix(".consumed").exists())
 
     def test_native_events_written_while_batch_is_claimed_survive_acknowledgement(self):
         with tempfile.TemporaryDirectory() as d:
@@ -659,12 +660,15 @@ class AndroidBridgeTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as d:
             first = AndroidBridge(d)
             first.mailbox.write_text(json.dumps([{'type': 'saf_scan', 'payload': {'treeUri': 'content://tree/anime'}}]), encoding='utf-8')
-            self.assertEqual(first.drain()[0]['type'], 'saf_scan')
-            self.assertTrue(first.mailbox.with_suffix('.consumed').exists())
+            self.assertEqual(first.drain()[0]["type"], "saf_scan")
+            first_consumed = list(first.queue_dir.glob("event-*.consumed"))
+            self.assertEqual(len(first_consumed), 1)
+            self.assertFalse(first.mailbox.with_suffix(".consumed").exists())
             restarted = AndroidBridge(d)
-            self.assertEqual(restarted.drain()[0]['type'], 'saf_scan')
+            self.assertEqual(restarted.drain()[0]["type"], "saf_scan")
             restarted.acknowledge()
-            self.assertFalse(restarted.mailbox.with_suffix('.consumed').exists())
+            self.assertFalse(any(restarted.queue_dir.glob("event-*.consumed")))
+            self.assertFalse(restarted.mailbox.with_suffix(".consumed").exists())
 
     def test_scalar_only_mailbox_batch_can_be_acknowledged_safely(self):
         with tempfile.TemporaryDirectory() as d:

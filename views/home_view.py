@@ -1029,8 +1029,6 @@ class HomeView:
             intentionally avoids catalog queries and reset=True, which would replace
             the grid and lose its viewport/focus state for a single image change.
             """
-            if not is_active():
-                return False
             uri = str(uri or "").strip()
             thumbnail_path = str(thumbnail_path or "").strip()
             if not show_thumbnails or not uri or not thumbnail_path:

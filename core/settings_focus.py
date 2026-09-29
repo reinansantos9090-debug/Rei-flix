@@ -88,7 +88,7 @@ class SettingsTaskRegistry:
                 try:
                     cancel()
                 except Exception:
-                    pass
+                    logger.debug("unable to cancel Settings task", exc_info=True)
         return self._generation
 
     def _discard(self, task: object) -> None:

@@ -1599,7 +1599,11 @@ async def main(page: ft.Page):
         poll_interval = 0.2
         while ui_alive[0]:
             try:
+                mailbox_started = performance.now()
+                mailbox_backlog_before = bridge.pending_count()
                 events = bridge.drain()
+                performance.gauge("android.mailbox.backlog", mailbox_backlog_before)
+                performance.counter("android.mailbox.events_drained", len(events))
                 failed_event_ids = set()
                 seen_native_event_ids = set()
                 for event in events:
@@ -2665,6 +2669,16 @@ async def main(page: ft.Page):
                 # before acknowledgement replays the complete batch safely.
                 bridge.requeue_event_ids(failed_event_ids)
                 bridge.acknowledge()
+                performance.event(
+                    "android.mailbox.drain",
+                    duration_ms=(performance.now() - mailbox_started) * 1000.0,
+                    metadata={
+                        "backlog_before": mailbox_backlog_before,
+                        "events_drained": len(events),
+                        "events_failed": len(failed_event_ids),
+                        "backlog_after": bridge.pending_count(),
+                    },
+                )
                 poll_interval = 0.2 if events else min(1.0, poll_interval * 1.5)
             except Exception as exc:
                 logger.exception("[ANDROID] NATIVE_MAILBOX_LOOP_FAILED")

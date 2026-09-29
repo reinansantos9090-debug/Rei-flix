@@ -875,6 +875,24 @@ class TestSafScannerHardening(unittest.TestCase):
         self.assertIn("payload.get('directories')", source)
 
 
+class TestMediaStoreScannerOptimization(unittest.TestCase):
+    def test_media_store_caches_volume_uuid_lookup_per_volume(self):
+        scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MediaStoreScanner.kt").read_text(encoding="utf-8")
+        self.assertIn("val volumeUuidCache = HashMap<String, String>()", scanner)
+        self.assertIn("val baseVolumeUuid = volumeUuidCache.getOrPut(volumeName)", scanner)
+        self.assertIn("volumeUuidCache.getOrPut(actualVol)", scanner)
+
+    def test_saf_filters_directory_entries_before_building_document_uris(self):
+        scanner = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/SafScanner.kt").read_text(encoding="utf-8")
+        cursor_block_start = scanner.index("while(c.moveToNext())")
+        cursor_block_end = scanner.index("batches.flush()", cursor_block_start)
+        block = scanner[cursor_block_start:cursor_block_end]
+        self.assertIn("val directoriesToVisit=mutableListOf<Pair<String,String>>()", block)
+        self.assertIn("val videoChildren=mutableListOf<Child>()", block)
+        self.assertLess(block.index("videoChildren.add(Child"), block.index("DocumentsContract.buildDocumentUriUsingTree"))
+        self.assertNotIn("val children=mutableListOf<Child>()", block)
+
+
 class TestNativePlayerHardening(unittest.TestCase):
     def test_native_player_reapplies_immersive_mode_on_resume(self):
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")

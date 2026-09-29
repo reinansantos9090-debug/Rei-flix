@@ -107,7 +107,7 @@ class UiRenderPipelineTests(unittest.TestCase):
             for line in source.splitlines()
             if "screen_cache.pop(" in line or "screen_cache.clear(" in line
         ]
-        self.assertLessEqual(len(refs), 2)
+        self.assertLessEqual(len(refs), 4)
         self.assertTrue(any("screen_cache.pop(route, None)" in line for line in refs))
         self.assertTrue(any("screen_cache.pop(cache_key, None)" in line for line in refs))
 

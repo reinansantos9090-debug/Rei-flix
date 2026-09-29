@@ -2354,64 +2354,163 @@ async def main(page: ft.Page):
                         elif event_type in {'player_next_request', 'player_previous_request'}:
                             transition_started = performance.now()
                             direction_name = "NEXT" if event_type == "player_next_request" else "PREVIOUS"
-                            performance.event(f"player.{direction_name.lower()}.request", screen=navigation.current,
-                                              metadata={"request_id": event_request_id, "media_identity": payload.get("mediaId")})
+                            button_created_at_ms = int(
+                                payload.get("buttonPressedAtMs")
+                                or payload.get("createdAt")
+                                or event.get("createdAt")
+                                or 0
+                            )
+                            mailbox_created_at_ms = int(
+                                event.get("createdAt")
+                                or button_created_at_ms
+                                or int(time.time() * 1000)
+                            )
+                            mailbox_latency_ms = max(
+                                0,
+                                int(time.time() * 1000) - mailbox_created_at_ms,
+                            )
+                            performance.event(
+                                f"player.{direction_name.lower()}.request",
+                                screen=navigation.current,
+                                metadata={
+                                    "request_id": event_request_id,
+                                    "media_identity": payload.get("mediaId"),
+                                    "mailbox_latency_ms": mailbox_latency_ms,
+                                    "button_pressed_at_ms": button_created_at_ms,
+                                },
+                            )
                             if player_transition_inflight["value"]:
                                 diagnostics.record(
-                                    "PLAYER_NEXT_IGNORED" if event_type == 'player_next_request' else 'PLAYER_PREVIOUS_IGNORED',
+                                    "PLAYER_NEXT_IGNORED" if event_type == "player_next_request" else "PLAYER_PREVIOUS_IGNORED",
                                     request_id=event_request_id,
                                     source="native_player",
                                     result="transition_in_progress",
                                 )
                                 continue
-                            player_transition_inflight["value"] = True
-                            try:
-                                current_path = str(payload.get('uri') or '').strip()
-                                direction = 1 if event_type == 'player_next_request' else -1
-                                query_started = performance.now()
-                                target = (
-                                    await asyncio.to_thread(library.next_episode, current_path)
-                                    if direction > 0
-                                    else await asyncio.to_thread(library.previous_episode, current_path)
-                                )
-                                performance.event(f"player.{direction_name.lower()}.query", duration_ms=(performance.now()-query_started)*1000.0,
-                                                  screen=navigation.current,
-                                                  metadata={"request_id": event_request_id, "target": (target or {}).get("path") if isinstance(target, dict) else None})
-                                if not target:
-                                    logger.warning(
-                                        "[PLAYER] adjacent episode not found direction=%s request_id=%s uri=%s",
-                                        direction,
-                                        event_request_id or "-",
-                                        current_path,
-                                    )
-                                    page.snack_bar = ft.SnackBar(ft.Text(
-                                        "Não existe outro episódio local disponível nesta direção."
-                                    ))
-                                    page.snack_bar.open = True
-                                    safe_update()
-                                    continue
-                                target_path = str(target.get('path') or '').strip()
-                                target_title = (
-                                    target.get('episode_title')
-                                    or target.get('file_name')
-                                    or target.get('title')
-                                    or "Episódio local"
-                                )
-                                resume_enabled = settings.get("player.resume")
-                                target_position_ms = (
-                                    max(0.0, float(target.get('progress') or 0.0)) * 1000.0
-                                    if resume_enabled else 0.0
-                                )
+                            active_request = player_active_request_id["value"]
+                            if active_request and event_request_id != active_request:
                                 diagnostics.record(
-                                    "PLAYER_NEXT" if direction > 0 else "PLAYER_PREVIOUS",
+                                    "PLAYER_NEXT_IGNORED" if event_type == "player_next_request" else "PLAYER_PREVIOUS_IGNORED",
                                     request_id=event_request_id,
                                     source="native_player",
-                                    result=target_path,
+                                    result="stale_player_session",
                                 )
+                                continue
+
+                            player_transition_inflight["value"] = True
+                            player_transition_generation["value"] += 1
+                            transition_generation = player_transition_generation["value"]
+                            if player_active_request_id["value"] is None:
+                                player_active_request_id["value"] = event_request_id
+
+                            async def run_player_transition(
+                                direction_name=direction_name,
+                                event_type=event_type,
+                                event_request_id=event_request_id,
+                                payload=dict(payload),
+                                transition_generation=transition_generation,
+                                transition_started=transition_started,
+                                button_created_at_ms=button_created_at_ms,
+                            ):
                                 try:
-                                    performance.event(f"player.{direction_name.lower()}.target", screen=navigation.current,
-                                                      metadata={"request_id": event_request_id, "episode_id": target.get("id"),
-                                                                "media_identity": target.get("media_identity")})
+                                    current_path = str(payload.get("uri") or "").strip()
+                                    direction = 1 if event_type == "player_next_request" else -1
+                                    if not current_path:
+                                        raise RuntimeError("missing_current_uri")
+                                    if not player_transition_is_current(
+                                        transition_generation,
+                                        event_request_id,
+                                    ):
+                                        return
+
+                                    query_started = performance.now()
+                                    navigation_snapshot = await asyncio.to_thread(
+                                        library.player_navigation,
+                                        current_path,
+                                    )
+                                    if not player_transition_is_current(
+                                        transition_generation,
+                                        event_request_id,
+                                    ):
+                                        return
+
+                                    target = (
+                                        navigation_snapshot.get("next")
+                                        if direction > 0
+                                        else navigation_snapshot.get("previous")
+                                    )
+                                    performance.event(
+                                        f"player.{direction_name.lower()}.query",
+                                        duration_ms=(performance.now() - query_started) * 1000.0,
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "target": (target or {}).get("path") if isinstance(target, dict) else None,
+                                            "source": "player_navigation",
+                                        },
+                                    )
+                                    if not target:
+                                        logger.warning(
+                                            "[PLAYER] adjacent episode not found direction=%s request_id=%s uri=%s",
+                                            direction,
+                                            event_request_id or "-",
+                                            current_path,
+                                        )
+                                        page.snack_bar = ft.SnackBar(ft.Text(
+                                            "Não existe outro episódio local disponível nesta direção."
+                                        ))
+                                        page.snack_bar.open = True
+                                        safe_update()
+                                        return
+
+                                    target_path = str(target.get("path") or "").strip()
+                                    target_title = (
+                                        target.get("episode_title")
+                                        or target.get("file_name")
+                                        or target.get("title")
+                                        or "Episódio local"
+                                    )
+                                    resume_enabled = settings.get("player.resume")
+                                    target_position_ms = (
+                                        max(0.0, float(target.get("progress") or 0.0)) * 1000.0
+                                        if resume_enabled else 0.0
+                                    )
+                                    target_navigation = {
+                                        "can_next": bool(
+                                            navigation_snapshot.get(
+                                                "next_can_next" if direction > 0 else "previous_can_next"
+                                            )
+                                        ),
+                                        "can_previous": bool(
+                                            navigation_snapshot.get(
+                                                "next_can_previous" if direction > 0 else "previous_can_previous"
+                                            )
+                                        ),
+                                    }
+                                    if not player_transition_is_current(
+                                        transition_generation,
+                                        event_request_id,
+                                    ):
+                                        return
+
+                                    diagnostics.record(
+                                        "PLAYER_NEXT" if direction > 0 else "PLAYER_PREVIOUS",
+                                        request_id=event_request_id,
+                                        source="native_player",
+                                        result=target_path,
+                                    )
+                                    performance.event(
+                                        f"player.{direction_name.lower()}.target",
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "episode_id": target.get("id"),
+                                            "media_identity": target.get("media_identity"),
+                                            "target_can_next": target_navigation["can_next"],
+                                            "target_can_previous": target_navigation["can_previous"],
+                                        },
+                                    )
+
                                     handoff_started = performance.now()
                                     await start_native_player(
                                         target_path,
@@ -2419,21 +2518,76 @@ async def main(page: ft.Page):
                                         int(target_position_ms),
                                         episode_id=target.get("id"),
                                         anime_id=target.get("anime_id"),
+                                        navigation_snapshot=target_navigation,
+                                        origin_request_id=event_request_id,
+                                        origin_created_at_ms=button_created_at_ms,
+                                        origin_transition_generation=transition_generation,
                                     )
-                                    performance.event(f"player.{direction_name.lower()}.handoff", duration_ms=(performance.now()-handoff_started)*1000.0,
-                                                      screen=navigation.current,
-                                                      metadata={"request_id": event_request_id, "target": target_path})
-                                except Exception:
+                                    performance.event(
+                                        f"player.{direction_name.lower()}.handoff",
+                                        duration_ms=(performance.now() - handoff_started) * 1000.0,
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "target": target_path,
+                                            "mailbox_latency_ms": max(
+                                                0,
+                                                int(time.time() * 1000) - button_created_at_ms,
+                                            ),
+                                        },
+                                    )
+                                except asyncio.CancelledError:
+                                    logger.info(
+                                        "[PLAYER] adjacent episode transition cancelled request_id=%s generation=%s",
+                                        event_request_id or "-",
+                                        transition_generation,
+                                    )
+                                    raise
+                                except Exception as exc:
+                                    if not player_transition_is_current(
+                                        transition_generation,
+                                        event_request_id,
+                                    ):
+                                        return
                                     logger.exception("[PLAYER] adjacent episode launch failed")
                                     page.snack_bar = ft.SnackBar(ft.Text(
                                         "Não foi possível abrir o próximo episódio local."
-                                        if direction > 0
+                                        if direction_name == "NEXT"
                                         else "Não foi possível abrir o episódio anterior local."
                                     ))
                                     page.snack_bar.open = True
                                     safe_update()
-                            finally:
-                                player_transition_inflight["value"] = False
+                                    diagnostics.record(
+                                        "PLAYER_NEXT_FAILED" if direction_name == "NEXT" else "PLAYER_PREVIOUS_FAILED",
+                                        request_id=event_request_id,
+                                        source="native_player",
+                                        result="transition_failed",
+                                        error=str(exc),
+                                    )
+                                finally:
+                                    current_task = player_transition_task["task"]
+                                    if (
+                                        current_task is asyncio.current_task()
+                                        and transition_generation == player_transition_generation["value"]
+                                    ):
+                                        player_transition_task["task"] = None
+                                        player_transition_inflight["value"] = False
+                                        performance.event(
+                                            f"player.{direction_name.lower()}.request_complete",
+                                            duration_ms=(performance.now() - transition_started) * 1000.0,
+                                            screen=navigation.current,
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "button_to_handoff_or_fail_ms": (performance.now() - transition_started) * 1000.0,
+                                                "button_created_at_ms": button_created_at_ms,
+                                            },
+                                        )
+
+                            task = asyncio.create_task(
+                                run_player_transition(),
+                                name=f"reiflix-player-transition-{direction_name.lower()}-{transition_generation}",
+                            )
+                            player_transition_task["task"] = task
                         elif event_type == 'player_error':
                             message = event.get('message', 'Não foi possível reproduzir este arquivo localmente.')
                             diagnostics.record(

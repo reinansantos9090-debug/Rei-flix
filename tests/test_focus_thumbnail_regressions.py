@@ -68,6 +68,18 @@ class FocusAndThumbnailRegressionTests(unittest.TestCase):
         self.assertNotIn("_refresh_from_catalog", update)
 
 
+    def test_thumbnail_rejection_releases_request_bookkeeping(self):
+        request_start = MAIN.index("def request_missing_thumbnail")
+        request_end = MAIN.index("def storage_state", request_start)
+        request = MAIN[request_start:request_end]
+        rejection_start = request.index("if len(thumbnail_requests) >= 32:")
+        rejection_end = request.index("thumbnail_requests.add(key)", rejection_start)
+        rejection = request[rejection_start:rejection_end]
+        self.assertIn("thumbnail_requests.discard(key)", rejection)
+        self.assertIn("thumbnail_request_started_at.pop(key, None)", rejection)
+        self.assertIn("thumbnail_latest_key_by_uri.pop(path_ref, None)", rejection)
+        self.assertIn("thumbnail_latest_at.pop(path_ref, None)", rejection)
+
     def test_thumbnail_cache_hit_releases_request_bookkeeping(self):
         request_start = MAIN.index("def request_missing_thumbnail")
         request_end = MAIN.index("def storage_state", request_start)

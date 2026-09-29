@@ -105,6 +105,7 @@ class HomeView:
         def cancel_view_tasks():
             tasks = tuple(view_tasks)
             view_tasks.clear()
+            page_load_scheduled[0] = False
             for task in tasks:
                 cancel = getattr(task, "cancel", None)
                 if callable(cancel):

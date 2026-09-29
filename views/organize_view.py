@@ -77,6 +77,7 @@ class OrganizeView:
         on_request_video_access=None,
         on_add_folder=None,
         view_state=None,
+        is_active=None,
     ):
         performance = get_performance_monitor()
         build_started = performance.now()
@@ -89,6 +90,7 @@ class OrganizeView:
         ACCENT = theme.primary
         catalog: list[dict] = []
         view_state = view_state if view_state is not None else {}
+        is_active = is_active or (lambda: True)
         selected_genre = [view_state.get("genre", "Todos")]
         selected_state = [view_state.get("state", "Todos")]
         selected_sort = [view_state.get("sort", "Mais recentes")]
@@ -163,6 +165,8 @@ class OrganizeView:
             return progress_ratio(current)
 
         async def select_anime(_event, anime):
+            if not is_active():
+                return
             try:
                 result = on_select_anime(anime)
                 if inspect.isawaitable(result):
@@ -604,8 +608,9 @@ class OrganizeView:
             suffix = ' • '.join(description) if description else 'Todos os itens da biblioteca'
             collection_summary.value = f'{count_label(total_matches[0], "anime")} • {suffix}'
             page_loading[0] = False
-            page.update()
-            await restore_scroll_position()
+            if is_active():
+                page.update()
+                await restore_scroll_position()
 
         def on_collection_scroll(event):
             try:
@@ -613,17 +618,12 @@ class OrganizeView:
                 remaining = float(event.max_scroll_extent - event.pixels)
             except (TypeError, ValueError, AttributeError):
                 return
+            if not is_active():
+                return
             if remaining < 800 and has_more[0] and not page_loading[0] and mode[0] == 'collection':
                 page.run_task(load_next_collection_page)
-        def render_overview():
-            try:
-                bounded_summary = getattr(library, "organize_summary_bounded", None)
-                summary = bounded_summary() if callable(bounded_summary) else library.organize_summary(list(catalog))
-            except Exception:
-                logger.exception(
-                    "Organize summary failed",
-                    extra={"screen": "organize", "library_items": len(catalog)},
-                )
+        def render_overview(summary, registry_genres):
+            if summary is None:
                 content.controls.extend(
                     [
                         header("Organizar"),
@@ -673,16 +673,11 @@ class OrganizeView:
                     ),
                 ]
             )
-            try:
-                registry_genres = library.genre_options(include_unused=False)
-                covers = {str(item.get('id')): item.get('cover', '') for item in (summary.get('genres') or [])}
-                registry_genres = [
-                    {**item, "cover": covers.get(str(item.get("id")), item.get("cover", ""))}
-                    for item in registry_genres
-                ]
-            except Exception:
-                logger.exception("Genre Registry overview failed")
-                registry_genres = summary.get("genres") or []
+            covers = {str(item.get('id')): item.get('cover', '') for item in (summary.get('genres') or [])}
+            registry_genres = [
+                {**item, "cover": covers.get(str(item.get("id")), item.get("cover", ""))}
+                for item in (registry_genres or summary.get("genres") or [])
+            ]
             if registry_genres:
                 content.controls.extend(
                     [
@@ -738,12 +733,15 @@ class OrganizeView:
             content.controls.append(ft.Row([collection_search, clear_button], spacing=8))
             content.controls.append(ft.Row([state_chip(label) for label in OrganizeView._STATE_ORDER], scroll=ft.ScrollMode.AUTO, spacing=8))
 
+            collection_token = render_generation[0]
             try:
                 summary = await asyncio.to_thread(library.organize_summary_bounded)
                 genres = ['Todos'] + [item['name'] for item in summary.get('genres', [])]
             except Exception:
                 logger.exception('Organize bounded summary failed')
                 genres = ['Todos']
+            if collection_token != render_generation[0]:
+                return
             if selected_genre[0] not in genres:
                 selected_genre[0] = 'Todos'
                 save_view_state()
@@ -765,12 +763,38 @@ class OrganizeView:
             # load_collection_page() performs the single required UI update after
             # the catalog controls are populated.
             await render_collection(reset=True)
+        async def load_overview(*, token=None):
+            if token is None:
+                render_generation[0] += 1
+                token = render_generation[0]
+            overview_started = time.perf_counter()
+            try:
+                summary, registry_genres = await asyncio.gather(
+                    asyncio.to_thread(library.organize_summary_bounded),
+                    asyncio.to_thread(library.genre_options, include_unused=False),
+                )
+            except Exception:
+                logger.exception('Organize overview load failed')
+                summary, registry_genres = None, None
+            if token != render_generation[0]:
+                return
+            content.controls.clear()
+            render_overview(summary, registry_genres)
+            if is_active():
+                page.update()
+            performance.event(
+                'organize.overview_load',
+                duration_ms=(time.perf_counter() - overview_started) * 1000.0,
+                screen='organize',
+                metadata={
+                    'collections': len((summary or {}).get('collections') or []),
+                    'genres': len((summary or {}).get('genres') or []),
+                },
+            )
+
         async def render():
             if mode[0] == 'overview':
-                render_generation[0] += 1
-                content.controls.clear()
-                render_overview()
-                page.update()
+                await load_overview()
                 return
             # load_collection_page() already commits the catalog UI update.
             await render_collection(reset=True)
@@ -779,8 +803,7 @@ class OrganizeView:
             if mode[0] == 'collection':
                 await render_collection(reset=True)
             else:
-                render_overview()
-                page.update()
+                await load_overview()
 
         async def load_catalog():
             token = render_generation[0]
@@ -802,7 +825,8 @@ class OrganizeView:
                     ft.Text('Descobrindo vídeos locais…', color=TEXT_MUTED, size=12),
                 ]
             await render()
-            await restore_scroll_position()
+            if is_active():
+                await restore_scroll_position()
         content.on_scroll = on_collection_scroll
         async def restore_scroll_position():
             stored = view_state.get('scroll_position')
@@ -843,7 +867,7 @@ class OrganizeView:
         view_state['_invalidate_view_tasks'] = invalidate_view_tasks
         save_view_state()
         render_generation[0] += 1
-        render_overview()
+        content.controls.extend([header("Organizar"), status])
         page.run_task(load_catalog)
         result = ft.Container(
             content=content,

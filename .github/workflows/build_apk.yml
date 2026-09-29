@@ -123,24 +123,28 @@ jobs:
           done < <(find . -path './.git' -prune -o -path './build' -prune -o -type f -name '*.json' -print0)
 
       - name: Run Python regression suites concurrently
-        parallel:
-          - name: Pytest regression suite
-            shell: bash
-            run: |
-              python -m pytest -q > build/pytest-first.txt 2>&1
-              cat build/pytest-first.txt
+        shell: bash
+        run: |
+          set -o pipefail
+          pids=()
+          python -m pytest -q > build/pytest-first.txt 2>&1 &
+          pids+=("$!")
+          python -m pytest -q > build/pytest-second.txt 2>&1 &
+          pids+=("$!")
+          python -m unittest discover -s tests -v > build/unittest.txt 2>&1 &
+          pids+=("$!")
 
-          - name: Pytest determinism suite
-            shell: bash
-            run: |
-              python -m pytest -q > build/pytest-second.txt 2>&1
-              cat build/pytest-second.txt
+          status=0
+          for pid in "${pids[@]}"; do
+            if ! wait "$pid"; then
+              status=1
+            fi
+          done
 
-          - name: Unittest regression suite
-            shell: bash
-            run: |
-              python -m unittest discover -s tests -v > build/unittest.txt 2>&1
-              cat build/unittest.txt
+          cat build/pytest-first.txt
+          cat build/pytest-second.txt
+          cat build/unittest.txt
+          exit "$status"
 
       - name: Validate Python application
         run: |
@@ -491,40 +495,73 @@ jobs:
             --expected-version-name "0.2.1"
 
       # The rendered Android unit tests and release certification are independent
-      # after the APK has been produced and verified. Run both concurrently so
-      # their ~3-4 minute phases no longer add serially to the wall-clock time.
-      - parallel:
-          - name: Run Android unit tests on rendered project
-            shell: bash
-            env:
-              GRADLE_OPTS: "-Dorg.gradle.caching=true -Dorg.gradle.parallel=true"
-            run: |
-              test -f build/flutter/android/gradlew
-              chmod +x build/flutter/android/gradlew
-              mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
-              export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
-              test -d "$SERIOUS_PYTHON_SITE_PACKAGES"
+      # after the APK has been produced and verified. Run both in background
+      # processes so their ~3-4 minute phases no longer add serially to the
+      # wall-clock time. This uses standard shell job control instead of an
+      # unsupported GitHub Actions step-level "parallel" key.
+      - name: Run Android tests and release certification concurrently
+        shell: bash
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.caching=true -Dorg.gradle.parallel=true"
+        run: |
+          set -o pipefail
+          mkdir -p "$GITHUB_WORKSPACE/build/flutter/site-packages"
+          export SERIOUS_PYTHON_SITE_PACKAGES="$GITHUB_WORKSPACE/build/flutter/site-packages"
+
+          android_status_file="build/android-unit-tests.status"
+          certification_status_file="build/release-certification.status"
+
+          (
+            set +e
+            test -f build/flutter/android/gradlew
+            chmod +x build/flutter/android/gradlew
+            test -d "$SERIOUS_PYTHON_SITE_PACKAGES"
+            if [ "$?" -eq 0 ]; then
               (
                 cd build/flutter/android
                 ./gradlew :app:testDebugUnitTest --no-daemon
               )
+              status="$?"
+            else
+              status=1
+            fi
+            echo "$status" > "$android_status_file"
+            exit "$status"
+          ) &
+          android_pid="$!"
 
-          - name: Run release evidence certification (no emulator)
-            shell: bash
-            run: |
-              python scripts/release_certification.py \
-                --root . \
-                --gradle-root build/flutter/android \
-                --apk "${{ steps.apk.outputs.path }}" \
-                --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
-                --output build/release-certification.json \
-                --report build/release-certification.md \
-                --matrix build/release-certification-matrix.json \
-                --prevalidated-compileall \
-                --prevalidated-gradle \
-                --prevalidated-pytest build/pytest-first.txt \
-                --prevalidated-pytest-second build/pytest-second.txt \
-                --prevalidated-unittest build/unittest.txt
+          (
+            set +e
+            python scripts/release_certification.py \
+              --root . \
+              --gradle-root build/flutter/android \
+              --apk "${{ steps.apk.outputs.path }}" \
+              --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
+              --output build/release-certification.json \
+              --report build/release-certification.md \
+              --matrix build/release-certification-matrix.json \
+              --prevalidated-compileall \
+              --prevalidated-gradle \
+              --prevalidated-pytest build/pytest-first.txt \
+              --prevalidated-pytest-second build/pytest-second.txt \
+              --prevalidated-unittest build/unittest.txt
+            status="$?"
+            echo "$status" > "$certification_status_file"
+            exit "$status"
+          ) &
+          certification_pid="$!"
+
+          wait "$android_pid" || true
+          wait "$certification_pid" || true
+
+          android_status="$(cat "$android_status_file")"
+          certification_status="$(cat "$certification_status_file")"
+          echo "Android unit tests exit status: $android_status"
+          echo "Release certification exit status: $certification_status"
+
+          if [ "$android_status" -ne 0 ] || [ "$certification_status" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Upload release certification evidence
         if: always() && hashFiles('build/release-certification.json', 'build/release-certification.md', 'build/release-certification-matrix.json') != ''

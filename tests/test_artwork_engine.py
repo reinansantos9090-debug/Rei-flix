@@ -2,6 +2,7 @@ import concurrent.futures
 import os
 import tempfile
 import threading
+import io
 import time
 import unittest
 from urllib.error import HTTPError
@@ -14,6 +15,7 @@ from core.artwork import (
     STATUS_RETRY_WAIT,
 )
 from core.library_service import LibraryService
+from PIL import Image
 from core.library_store import LibraryStore
 
 
@@ -413,6 +415,46 @@ class ArtworkEngineTests(unittest.TestCase):
             self.engine.resolve("anime", anime, "poster", allow_network=True)["external_url"],
             "https://example/a.jpg",
         )
+
+
+    def test_large_downloaded_artwork_is_resized_before_cache(self):
+        anime = self._media("Large poster")
+        self._remote(anime)
+        raw = io.BytesIO()
+        Image.new("RGB", (3000, 4500), (24, 48, 72)).save(raw, format="JPEG", quality=92)
+        payload = raw.getvalue()
+        self.engine._downloader = lambda _url: (payload, "image/jpeg", 200)
+
+        result = self.engine.request("anime", anime, "poster", blocking=True)
+        self.assertEqual(result["status"], STATUS_READY)
+        with Image.open(result["local_path"]) as image:
+            cached_size = (image.width, image.height)
+        self.assertLessEqual(cached_size[0], 960)
+        self.assertLessEqual(cached_size[1], 1440)
+        self.assertEqual(result["width"], cached_size[0])
+        self.assertEqual(result["height"], cached_size[1])
+
+    def test_startup_enforces_existing_cache_limit(self):
+        anime = self._media("Cache limit")
+        for index in range(2):
+            path = self.engine.cache_dir / f"oversized-{index}.jpg"
+            path.write_bytes(JPEG + (b"x" * 900))
+            self.engine._upsert(
+                entity_type="anime",
+                entity_id=anime,
+                artwork_type="poster",
+                source="cache",
+                source_ref=f"startup-{index}",
+                local_path=str(path),
+                status=STATUS_READY,
+                byte_size=path.stat().st_size,
+            )
+
+        self.engine.shutdown()
+        reopened_store = LibraryStore(self.tmp.name)
+        self.engine = ArtworkEngine(reopened_store, cache_limit_bytes=1024)
+        stats = self.engine.cache_stats()
+        self.assertLessEqual(stats["bytes"], 1024)
 
 
 if __name__ == "__main__":

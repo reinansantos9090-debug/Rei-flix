@@ -514,6 +514,17 @@ jobs:
           android_status_file="build/android-unit-tests.status"
           certification_status_file="build/release-certification.status"
 
+          # Keep Android unit tests isolated from the rendered APK build outputs.
+          # The APK build can leave Gradle state that is valid for packaging but
+          # incomplete for a fresh test invocation (for example R.jar). Use a
+          # clean project copy for tests so Gradle never validates or rewrites
+          # the APK build's task outputs.
+          android_tests_gradle_root="$GITHUB_WORKSPACE/build/flutter/android-tests"
+          rm -rf "$android_tests_gradle_root"
+          mkdir -p "$android_tests_gradle_root"
+          rsync -a --exclude ".gradle/" --exclude "build/" build/flutter/android/ "$android_tests_gradle_root/"
+          test -f "$android_tests_gradle_root/gradlew"
+
           # Gradle cannot safely have two independent invocations write the same
           # rendered project's build outputs at the same time. The release
           # certification runs lint, while the Android test suite writes
@@ -528,12 +539,12 @@ jobs:
 
           (
             set +e
-            test -f build/flutter/android/gradlew
-            chmod +x build/flutter/android/gradlew
+            test -f "$android_tests_gradle_root/gradlew"
+            chmod +x "$android_tests_gradle_root/gradlew"
             test -d "$SERIOUS_PYTHON_SITE_PACKAGES"
             if [ "$?" -eq 0 ]; then
               (
-                cd build/flutter/android
+                cd "$android_tests_gradle_root"
                 ./gradlew :app:testDebugUnitTest --no-daemon
               )
               status="$?"

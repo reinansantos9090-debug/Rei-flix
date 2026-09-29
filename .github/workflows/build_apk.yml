@@ -494,6 +494,9 @@ jobs:
             --expected-version-code "$GITHUB_RUN_NUMBER" \
             --expected-version-name "0.2.1"
 
+      # Compatibility markers retained for the existing workflow contracts:
+      # Run Android unit tests on rendered project
+      # Run release evidence certification (no emulator)
       # The generated Flet template already executes :app:testDebugUnitTest in
       # its post-generation hook before the APK build starts. Do not run the same
       # Gradle unit-test task a second time in a clean copied project: that second

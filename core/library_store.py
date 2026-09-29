@@ -15,6 +15,7 @@ from urllib.parse import unquote, urlparse
 
 from core.consumption import consumption_state, is_completed, is_in_progress, is_regular_episode
 from core.search_engine import normalize_text
+from core.performance import get_performance_monitor
 
 
 class LibraryStore:
@@ -282,12 +283,15 @@ class LibraryStore:
 
     def database_check(self):
         """Return a real SQLite health check without scanning library contents."""
+        started = time.perf_counter()
         try:
             with self._conn() as con:
                 result = con.execute("PRAGMA quick_check").fetchone()
             value = str(result[0] if result else "").strip().casefold()
+            get_performance_monitor().record_sqlite("database_check", (time.perf_counter()-started)*1000.0, rows=1)
             return value == "ok", value or "unknown"
         except Exception as exc:
+            get_performance_monitor().record_sqlite("database_check", (time.perf_counter()-started)*1000.0, rows=0, status="error")
             return False, str(exc)
 
     def get_preference(self, key, default=None):
@@ -433,13 +437,16 @@ class LibraryStore:
 
     def library_summary(self):
         """Small settings projection; it never loads the full catalog."""
+        started = time.perf_counter()
         with self._conn() as c:
-            return {
+            result = {
                 "folders": c.execute("SELECT COUNT(*) FROM folders").fetchone()[0],
                 "animes": c.execute("SELECT COUNT(*) FROM anime").fetchone()[0],
                 "episodes": c.execute("SELECT COUNT(*) FROM episodes").fetchone()[0],
                 "history": c.execute("SELECT COUNT(*) FROM episodes WHERE last_played_at IS NOT NULL").fetchone()[0],
             }
+        get_performance_monitor().record_sqlite("library_summary", (time.perf_counter()-started)*1000.0, rows=1)
+        return result
 
     def library_statistics(self):
         """Offline aggregate projection for Settings; never opens media or uses network."""
@@ -719,8 +726,11 @@ class LibraryStore:
             c.execute("UPDATE anime SET metadata_updated_at=NULL, cover_cache=''")
 
     def folders(self):
+        started = time.perf_counter()
         with self._conn() as c:
-            return [dict(r) for r in c.execute("SELECT * FROM folders ORDER BY added_at")]
+            rows = [dict(r) for r in c.execute("SELECT * FROM folders ORDER BY added_at")]
+        get_performance_monitor().record_sqlite("folders", (time.perf_counter()-started)*1000.0, rows=len(rows))
+        return rows
 
     def add_folder(self, reference, name=None, kind="path", authorization="granted", account_id=None,
                    saf_authority=None, saf_document_id=None, saf_volume_id=None, saf_identity=None):
@@ -887,9 +897,11 @@ class LibraryStore:
                        json.dumps(summary.get("errors", []), ensure_ascii=False), run_id))
 
     def last_scan(self):
+        started = time.perf_counter()
         with self._conn() as c:
             row = c.execute("SELECT * FROM scan_runs ORDER BY id DESC LIMIT 1").fetchone()
-            return dict(row) if row else None
+        get_performance_monitor().record_sqlite("last_scan", (time.perf_counter()-started)*1000.0, rows=1 if row else 0)
+        return dict(row) if row else None
 
     def scan_by_id(self, scan_id):
         """Return a persisted scan record without materializing the catalog."""
@@ -2578,6 +2590,7 @@ class LibraryStore:
 
     def adjacent_episode(self, path, direction=1):
         """Return the adjacent playable local episode in catalog order."""
+        started = time.perf_counter()
         if direction not in (-1, 1):
             raise ValueError("direction must be -1 or 1")
         with self._conn() as c:
@@ -2591,11 +2604,14 @@ class LibraryStore:
                 (current["anime_id"],),
             ).fetchall()
         current_row = dict(current)
-        return self._adjacent_from_rows(
+        result = self._adjacent_from_rows(
             current_row,
             [dict(row) for row in rows],
             direction,
         )
+        get_performance_monitor().record_sqlite("next_episode" if direction > 0 else "previous_episode",
+                                                (time.perf_counter()-started)*1000.0, rows=len(rows))
+        return result
     def next_episode(self, path):
         return self.adjacent_episode(path, 1)
 
@@ -2642,12 +2658,14 @@ class LibraryStore:
         return available[0]
 
     def current_episode(self, anime_id):
+        started = time.perf_counter()
         with self._conn() as c:
             anime = c.execute("SELECT media_kind FROM anime WHERE id=?", (anime_id,)).fetchone()
             rows = c.execute(
                 "SELECT * FROM episodes WHERE anime_id=? AND missing=0",
                 (anime_id,),
             ).fetchall()
+        get_performance_monitor().record_sqlite("current_episode", (time.perf_counter()-started)*1000.0, rows=len(rows))
         episodes = [dict(row) for row in rows]
         if anime and str(anime["media_kind"] or "series").casefold() == "movie":
             return episodes[0] if episodes else None

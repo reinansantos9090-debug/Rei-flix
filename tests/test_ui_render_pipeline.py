@@ -61,12 +61,14 @@ class UiRenderPipelineTests(unittest.TestCase):
         helper = source[helper_start:helper_end]
         self.assertIn("screen_cache.pop(route, None)", helper)
         self.assertIn("_mark_ui_dirty()", helper)
+        self.assertNotIn("_drop_screen_cache(route)\\n        _mark_ui_dirty()", helper)
 
         clear_start = source.index("def _clear_screen_cache")
         clear_end = source.index("def _view_shell", clear_start)
         clear_helper = source[clear_start:clear_end]
         self.assertIn("screen_cache.clear()", clear_helper)
         self.assertIn("_mark_ui_dirty()", clear_helper)
+        self.assertNotIn("_clear_screen_cache()\\n        _mark_ui_dirty()", clear_helper)
 
     def test_prompt3_settings_auto_scroll_protection_remains(self):
         source = SETTINGS.read_text(encoding="utf-8")

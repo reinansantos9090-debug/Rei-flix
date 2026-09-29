@@ -347,7 +347,7 @@ class SettingsView:
             if active_category is None and query and not section_cache:
                 section_cache = build_sections()
             if active_category is None:
-                labels = [
+                labels = list(category_meta) if not section_cache else [
                     label for label in category_meta
                     if any(
                         f"__category:{label.casefold()}__" in str(getattr(item, "data", ""))
@@ -385,7 +385,12 @@ class SettingsView:
 
         def rebuild(_=None):
             nonlocal section_cache
-            section_cache = build_sections()
+            active_category = current_category()
+            query = (search.value or "").strip()
+            if active_category is None and not query:
+                section_cache = []
+            else:
+                section_cache = build_sections()
             render_settings()
 
         search.on_change = render_settings
@@ -929,7 +934,6 @@ class SettingsView:
                     row("player.auto_hide_seconds", "Auto-hide dos controles", "0 significa nunca.", "enum", (5,10,15,30,0), {5:"5s",10:"10s",15:"15s",30:"30s",0:"Nunca"}),
                     action_row("Restaurar Player", "Volta somente as preferências do Player aos defaults.", "Restaurar", reset_player),
                 ]
-                if should_materialize_section("Player"):
                 items.append(section("Player", ft.Icons.PLAY_CIRCLE_OUTLINE, player, ("player","autoplay","resume","velocidade","aspect","immersive","pip","rotation")))
 
             if should_materialize_section("Gestos"):
@@ -984,26 +988,27 @@ class SettingsView:
                 action_row("Limpar cache AniList", "Remove somente o cache temporário administrado pelo catálogo.", "Limpar", clear_cache),
             ], ("artwork","cache","thumbnail","offline","limite","poster")))
 
-            folder_lines = []
-            folders = get_folders()
-            for folder in folders:
-                name = folder.get("name") or folder.get("path") or "Pasta"
-                path = str(folder.get("path") or "")
-                def remove_folder(_event, ref=path, display_name=name):
-                    confirm(
-                        "Remover pasta da biblioteca?",
-                        f'"{display_name}" será removida somente da configuração da biblioteca. Nenhum arquivo físico será apagado.',
-                        "Remover",
-                        lambda: on_remove_folder(ref),
+            if should_materialize_section("Armazenamento"):
+                folder_lines = []
+                folders = get_folders()
+                for folder in folders:
+                    name = folder.get("name") or folder.get("path") or "Pasta"
+                    path = str(folder.get("path") or "")
+                    def remove_folder(_event, ref=path, display_name=name):
+                        confirm(
+                            "Remover pasta da biblioteca?",
+                            f'"{display_name}" será removida somente da configuração da biblioteca. Nenhum arquivo físico será apagado.',
+                            "Remover",
+                            lambda: on_remove_folder(ref),
+                        )
+                    folder_lines.append(
+                        ft.Row([
+                            ft.Text(f"• {name}", color=TEXT_MUTED, size=11, expand=True),
+                            ft.TextButton("Remover", on_click=remove_folder),
+                        ])
                     )
-                folder_lines.append(
-                    ft.Row([
-                        ft.Text(f"• {name}", color=TEXT_MUTED, size=11, expand=True),
-                        ft.TextButton("Remover", on_click=remove_folder),
-                    ])
-                )
-            media_label = {"full":"Permitida","partial":"Parcial","denied":"Negada"}.get(media_state, "Desconhecida")
-            broad_label = "Disponível" if broad_state == "available" else "Indisponível"
+                media_label = {"full":"Permitida","partial":"Parcial","denied":"Negada"}.get(media_state, "Desconhecida")
+                broad_label = "Disponível" if broad_state == "available" else "Indisponível"
             if should_materialize_section("Armazenamento"):
                 items.append(section("Armazenamento", ft.Icons.STORAGE_OUTLINED, [
                 ft.Text(f"Permissão de vídeos: {media_label}", color=TEXT, size=12),
@@ -1062,9 +1067,8 @@ class SettingsView:
                 ft.Text("Não há analytics, tracking ou upload da biblioteca. Google Login não é requisito para reprodução local.", color=TEXT_MUTED, size=10),
             ], ("privacidade","local","offline","google")))
 
-            database_ok, database_detail = get_database_check()
-            database_label = "OK" if database_ok else f"ERRO ({database_detail})"
             if should_materialize_section("Varredura"):
+
                 items.append(section("Varredura", ft.Icons.REFRESH_OUTLINED, [
                 ft.Text("Varredura em andamento:" if running_scan else "Nenhuma varredura em andamento.", color=TEXT if running_scan else TEXT_MUTED, size=11),
                 ft.Text(f"Status: {runtime_status}", color=TEXT_MUTED, size=11),
@@ -1072,6 +1076,8 @@ class SettingsView:
             ], ("scan", "varredura", "status", "biblioteca")))
 
             if should_materialize_section("Diagnóstico"):
+                database_ok, database_detail = get_database_check()
+                database_label = "OK" if database_ok else f"ERRO ({database_detail})"
                 items.append(section("Diagnóstico", ft.Icons.BUG_REPORT_OUTLINED, [
                 ft.Text(f"Database: {database_label} • Schema SQLite: {getattr(store, 'SCHEMA_VERSION', '—')}", color=TEXT if database_ok else theme.error, size=11),
                 ft.Text(f"Scan: {scan.get('state') or 'IDLE'} • encontrados: {int(scan.get('found') or 0)} • arquivos: {int(scan.get('files') or 0)}", color=TEXT_MUTED, size=11),

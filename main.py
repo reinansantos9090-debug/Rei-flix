@@ -1353,6 +1353,11 @@ async def main(page: ft.Page):
         except Exception:
             resolved = None
         if resolved and resolved.get("local_path") and os.path.isfile(resolved.get("local_path")):
+            thumbnail_requests.discard(key)
+            thumbnail_request_started_at.pop(key, None)
+            if thumbnail_latest_key_by_uri.get(path_ref) == key:
+                thumbnail_latest_key_by_uri.pop(path_ref, None)
+                thumbnail_latest_at.pop(path_ref, None)
             performance.counter("artwork.thumbnail.cache_hit")
             performance.event("artwork.thumbnail", duration_ms=(performance.now()-thumbnail_started)*1000.0,
                               status="cache_hit", screen=navigation.current, metadata={"path": path_ref})
@@ -2149,12 +2154,11 @@ async def main(page: ft.Page):
                                     metadata=metadata,
                                 )
                                 thumbnail_requests.discard(thumbnail_key)
-                                thumbnail_request_started_at.pop(thumbnail_key, None)
+                                started_native = thumbnail_request_started_at.pop(thumbnail_key, None)
                                 thumbnail_latest_at[uri] = time.monotonic()
                                 if request_id:
                                     thumbnail_completed_request_by_key[thumbnail_key] = request_id
                                 if registered:
-                                    started_native = thumbnail_request_started_at.get(thumbnail_key)
                                     if started_native is not None:
                                         performance.event("artwork.thumbnail", duration_ms=(time.monotonic()-started_native)*1000.0,
                                                           status="ready", screen=navigation.current,

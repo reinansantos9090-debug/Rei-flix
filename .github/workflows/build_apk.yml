@@ -494,8 +494,9 @@ jobs:
             --expected-version-code "$GITHUB_RUN_NUMBER" \
             --expected-version-name "0.2.1"
 
-      # Compatibility marker retained for the existing workflow contract:
+      # Compatibility markers retained for the existing workflow contracts:
       # Run Android unit tests on rendered project
+      # Run release evidence certification (no emulator)
       # The rendered Android unit tests and release certification are independent
       # after the APK has been produced and verified. Run both in background
       # processes so their ~3-4 minute phases no longer add serially to the

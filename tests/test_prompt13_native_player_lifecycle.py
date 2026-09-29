@@ -106,6 +106,11 @@ class Prompt13NativePlayerLifecycleTests(unittest.TestCase):
         self.assertIn("buildFeatures", self.gradle)
         self.assertIn("buildConfig = true", self.gradle)
 
+        template_script = (ROOT / "scripts/prepare_flet_template.py").read_text(encoding="utf-8")
+        self.assertIn("ReiAnix BuildConfig generation contract", template_script)
+        self.assertIn("buildConfig = true", template_script)
+        self.assertIn("gradle.write_text(existing, encoding=\"utf-8\")", template_script)
+
     def test_first_frame_is_generation_correlated(self):
         self.assertIn("generation == playerGeneration && sessionState == SessionState.ACTIVE", self.player)
         self.assertIn("events.contains(Player.EVENT_RENDERED_FIRST_FRAME)", self.player)

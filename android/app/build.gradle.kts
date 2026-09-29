@@ -7,6 +7,10 @@ android {
     namespace = "com.reiflix.reiflix_local"
     compileSdk = 36
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "com.reiflix.reiflix_local"
         minSdk = 24

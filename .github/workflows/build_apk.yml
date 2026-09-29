@@ -515,18 +515,18 @@ jobs:
           certification_status_file="build/release-certification.status"
 
           set +e
-          python scripts/release_certification.py \\
-            --root . \\
-            --gradle-root "build/flutter/android" \\
-            --apk "${{ steps.apk.outputs.path }}" \\
-            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \\
-            --output build/release-certification.json \\
-            --report build/release-certification.md \\
-            --matrix build/release-certification-matrix.json \\
-            --prevalidated-compileall \\
-            --prevalidated-gradle \\
-            --prevalidated-pytest build/pytest-first.txt \\
-            --prevalidated-pytest-second build/pytest-second.txt \\
+          python scripts/release_certification.py \
+            --root . \
+            --gradle-root "build/flutter/android" \
+            --apk "${{ steps.apk.outputs.path }}" \
+            --aapt2 "$ANDROID_HOME/build-tools/36.0.0/aapt2" \
+            --output build/release-certification.json \
+            --report build/release-certification.md \
+            --matrix build/release-certification-matrix.json \
+            --prevalidated-compileall \
+            --prevalidated-gradle \
+            --prevalidated-pytest build/pytest-first.txt \
+            --prevalidated-pytest-second build/pytest-second.txt \
             --prevalidated-unittest build/unittest.txt
           status="$?"
           echo "$status" > "$certification_status_file"

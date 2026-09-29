@@ -14,6 +14,7 @@ import flet as ft
 from core.storage_access import normalize_storage_snapshot
 from core.backup import BackupError
 from core.settings import SettingsStore, SettingsValidationError
+from core.performance import get_performance_monitor
 from core.ui import BACKGROUND, PAGE_PADDING, RADIUS, SURFACE, TEXT, TEXT_MUTED, activate_theme_for_page, section_title, focus_button_style
 
 logger = logging.getLogger("reiflix.settings")
@@ -36,6 +37,9 @@ class SettingsView:
         settings_path_provider=lambda: (),
         view_state=None,
     ):
+        performance = get_performance_monitor()
+        build_started = performance.now()
+        performance.counter("settings.builds")
         settings = settings or SettingsStore(store)
         theme = activate_theme_for_page(page)
         BACKGROUND = theme.background
@@ -62,15 +66,21 @@ class SettingsView:
         sections_host.on_scroll = save_scroll
 
         async def restore_scroll():
-            stored = view_state.get("scroll_position")
-            if stored is None:
-                return
-            try:
-                result = sections_host.scroll_to(offset=float(stored), duration=0)
-                if inspect.isawaitable(result):
-                    await result
-            except Exception:
-                logger.debug("settings scroll restoration unavailable", exc_info=True)
+            async with performance.task_scope("settings.restore_scroll", screen="settings", generation=settings_path_provider()):
+                stored = view_state.get("scroll_position")
+                if stored is None:
+                    return
+                try:
+                    performance.counter("settings_scroll_requests")
+                    result = sections_host.scroll_to(offset=float(stored), duration=0)
+                    if inspect.isawaitable(result):
+                        await result
+                    performance.counter("settings_scroll_completed")
+                except asyncio.CancelledError:
+                    performance.counter("settings_scroll_cancelled")
+                    raise
+                except Exception:
+                    logger.debug("settings scroll restoration unavailable", exc_info=True)
 
         def safe_update():
             try:
@@ -250,10 +260,21 @@ class SettingsView:
             on_back()
 
         async def reveal_category_focus(key):
-            try:
-                await sections_host.scroll_to(scroll_key=key, duration=120)
-            except Exception:
-                logger.debug("Settings focus scroll skipped key=%s", key, exc_info=True)
+            performance.counter("settings_focus_events")
+            performance.counter("settings_focus_reveals")
+            performance.counter("settings_scroll_requests")
+            async with performance.task_scope("settings.reveal_category_focus", screen="settings", generation=settings_path_provider()):
+                try:
+                    await sections_host.scroll_to(scroll_key=key, duration=120)
+                    performance.counter("settings_scroll_completed")
+                    performance.event("settings.scroll_to", screen="settings",
+                                      metadata={"origin": "focus", "key": key,
+                                                "settings_path": settings_path_provider()})
+                except asyncio.CancelledError:
+                    performance.counter("settings_scroll_cancelled")
+                    raise
+                except Exception:
+                    logger.debug("Settings focus scroll skipped key=%s", key, exc_info=True)
 
         def build_category_tile(label):
             description, icon = category_meta.get(label, ("Configurações ReiAnix", ft.Icons.SETTINGS_OUTLINED))
@@ -275,6 +296,8 @@ class SettingsView:
             )
 
         def render_settings(_=None):
+            render_started = performance.now()
+            performance.counter("settings.renders")
             query = (search.value or "").strip().casefold()
             active_category = current_category()
             if active_category is None:
@@ -309,6 +332,9 @@ class SettingsView:
             header_title.value = "Configurações" if active_category is None else str(active_category)
             back_button.tooltip = "Voltar ao menu de configurações" if active_category is not None else "Voltar"
             back_button.on_click = (lambda _event: back_to_categories()) if active_category is not None else (lambda _event: on_back())
+            performance.event("settings.render", duration_ms=(performance.now()-render_started)*1000.0,
+                              screen="settings",
+                              metadata={"category": active_category, "query": bool(query), "controls": len(controls)})
             safe_update()
 
         def rebuild(_=None):

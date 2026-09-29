@@ -2648,13 +2648,22 @@ class LibraryStore:
                 if durable_time <= last_seen:
                     get_performance_monitor().record_sqlite("save_progress", (time.perf_counter()-started)*1000.0, rows=0, status="stale")
                     return False
-                updated = c.execute(
-                    """UPDATE episodes
-                       SET progress=?, duration=?, watched=?, last_played_at=?
-                       WHERE path=?
-                         AND (last_played_at IS NULL OR last_played_at < ?)""",
-                    (position, duration, watched, durable_time, canonical_path, durable_time),
-                ).rowcount
+                if parsed_episode_id is not None:
+                    updated = c.execute(
+                        """UPDATE episodes
+                           SET progress=?, duration=?, watched=?, last_played_at=?
+                           WHERE id=?
+                             AND (last_played_at IS NULL OR last_played_at < ?)""",
+                        (position, duration, watched, durable_time, canonical_episode_id, durable_time),
+                    ).rowcount
+                else:
+                    updated = c.execute(
+                        """UPDATE episodes
+                           SET progress=?, duration=?, watched=?, last_played_at=?
+                           WHERE path=?
+                             AND (last_played_at IS NULL OR last_played_at < ?)""",
+                        (position, duration, watched, durable_time, canonical_path, durable_time),
+                    ).rowcount
                 if updated:
                     self._last_playback_event_at[event_key] = durable_time
                     if len(self._last_playback_event_at) > 8192:
@@ -2667,10 +2676,16 @@ class LibraryStore:
                 get_performance_monitor().record_sqlite("save_progress", (time.perf_counter()-started)*1000.0,
                                                           rows=int(bool(updated)), status="ok" if updated else "ignored")
                 return bool(updated)
-            updated = c.execute(
-                "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
-                (position, duration, watched, durable_time, canonical_path),
-            ).rowcount
+            if parsed_episode_id is not None:
+                updated = c.execute(
+                    "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE id=?",
+                    (position, duration, watched, durable_time, canonical_episode_id),
+                ).rowcount
+            else:
+                updated = c.execute(
+                    "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
+                    (position, duration, watched, durable_time, canonical_path),
+                ).rowcount
         get_performance_monitor().record_sqlite("save_progress", (time.perf_counter()-started)*1000.0,
                                                   rows=int(bool(updated)), status="ok" if updated else "ignored")
         return bool(updated)
@@ -2713,8 +2728,8 @@ class LibraryStore:
             duration = float(row["duration"] or 0)
             progress = duration if watched and duration > 0 else (0 if not watched else 0)
             c.execute(
-                "UPDATE episodes SET watched=?,progress=?,last_played_at=? WHERE path=?",
-                (int(bool(watched)), progress, time.time(), canonical_path),
+                "UPDATE episodes SET watched=?,progress=?,last_played_at=? WHERE id=?",
+                (int(bool(watched)), progress, time.time(), int(row["id"])),
             )
         return True
     @staticmethod

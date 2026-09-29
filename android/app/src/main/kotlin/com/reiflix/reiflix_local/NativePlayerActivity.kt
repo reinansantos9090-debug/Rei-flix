@@ -153,6 +153,7 @@ class NativePlayerActivity : ComponentActivity() {
         if (!episodeChangePending) return@Runnable
         if (episodeChangeTimeoutRequestId != requestId || episodeChangeTimeoutUri != uri.toString()) return@Runnable
         episodeChangePending = false
+        updateEpisodeNavigationButtons()
         showFeedback("Não foi possível mudar de episódio.", 1800L)
         logPlayer("EPISODE_CHANGE_TIMEOUT requestId=" + requestId.ifEmpty { "-" } + " uri=" + uri)
     }
@@ -547,7 +548,6 @@ class NativePlayerActivity : ComponentActivity() {
         handoffDispatchedAtMs = newIntent.getLongExtra("handoffDispatchedAtMs", 0L)
         activityStartedAtMs = System.currentTimeMillis()
         sessionState = SessionState.ACTIVE
-        episodeChangePending = false
         lastSavedPosition = -1L
         errorPublishedForGeneration = false
         restoredPositionMs = null
@@ -884,6 +884,19 @@ class NativePlayerActivity : ComponentActivity() {
                         seekToSavedPosition(restoredPositionMs ?: savedPosition)
                         initialSeekApplied = true
                     }
+                    if (episodeChangePending) {
+                        episodeChangePending = false
+                        episodeChangeTimeoutRequestId = ""
+                        episodeChangeTimeoutUri = ""
+                        handler.removeCallbacks(episodeChangeTimeout)
+                        logPlayer(
+                            "EPISODE_CHANGE_COMMITTED requestId=" +
+                                requestId.ifEmpty { "-" } +
+                                " mediaId=" + currentMediaId() +
+                                " episodeId=" + currentEpisodeId(),
+                        )
+                    }
+                    updateEpisodeNavigationButtons()
                     completionReported = false
                     updateTrackButtons()
                     updatePlayPauseButton()
@@ -2237,6 +2250,11 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         category: PlayerMediaPolicy.ErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN,
     ) {
         currentErrorCategory = category
+        episodeChangePending = false
+        episodeChangeTimeoutRequestId = ""
+        episodeChangeTimeoutUri = ""
+        handler.removeCallbacks(episodeChangeTimeout)
+        updateEpisodeNavigationButtons()
         setLocked(false, persist = true, announce = false)
         errorVisible = true
         if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
@@ -2314,6 +2332,10 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     private fun finishPlayer(reason: String) {
         if (sessionState == SessionState.DESTROYED) return
         sessionState = SessionState.EXITING
+        episodeChangePending = false
+        episodeChangeTimeoutRequestId = ""
+        episodeChangeTimeoutUri = ""
+        handler.removeCallbacks(episodeChangeTimeout)
         cancelFirstFrameDiagnostics("finish_player")
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         handler.removeCallbacks(controlsHider)
@@ -2332,10 +2354,19 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         finish()
     }
 
+    private fun updateEpisodeNavigationButtons() {
+        val enabled = !episodeChangePending && !errorVisible
+        findViewByTag<TextView>("reiflix_next_episode")?.isEnabled =
+            enabled && intent.getBooleanExtra("canNext", false)
+        findViewByTag<TextView>("reiflix_previous_episode")?.isEnabled =
+            enabled && intent.getBooleanExtra("canPrevious", false)
+    }
+
     private fun requestEpisode(eventType: String) {
         if (!::player.isInitialized || episodeChangePending || errorVisible) return
         if (!completionReported) saveProgress("player_progress", force = true)
         episodeChangePending = true
+        updateEpisodeNavigationButtons()
         episodeChangeTimeoutRequestId = requestId
         episodeChangeTimeoutUri = uri.toString()
         handler.removeCallbacks(episodeChangeTimeout)
@@ -2354,6 +2385,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         )
         if (!published) {
             episodeChangePending = false
+            updateEpisodeNavigationButtons()
             episodeChangeTimeoutRequestId = ""
             episodeChangeTimeoutUri = ""
             handler.removeCallbacks(episodeChangeTimeout)

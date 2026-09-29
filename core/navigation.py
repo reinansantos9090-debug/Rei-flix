@@ -93,6 +93,8 @@ class NavigationController:
         normalized = str(level or "").strip()
         if not normalized:
             raise ValueError("Settings level must not be empty")
+        if self._settings_path and self._settings_path[-1] == normalized:
+            return
         self._settings_path.append(normalized)
         self._exit_requested_at = None
 

@@ -56,19 +56,7 @@ class Prompt6NavigationLifecycleTests(unittest.TestCase):
         self.assertIn('if dialog is not None:', back)
 
 
-    def test_settings_render_only_invalidates_tasks_when_tree_is_rebuilt(self):
-        source = MAIN.read_text(encoding="utf-8")
-        start = source.index("def render_current")
-        end = source.index("def handle_flet_view_pop", start)
-        render = source[start:end]
-        self.assertIn("settings_tree_replaced = False", render)
-        self.assertIn("settings_tree_replaced = settings_tree_replaced or (", render)
-        self.assertIn("if settings_tree_replaced:", render)
-        invalidate = render.index("settings_tasks.invalidate()")
-        replaced = render.index("if settings_tree_replaced:")
-        self.assertGreater(invalidate, replaced)
-
-    def test_settings_focus_task_has_single_registration_path(self):
+    def test_settings_render_invalidates_tasks_before_rebuilding_settings(self):\n        source = MAIN.read_text(encoding="utf-8")\n        start = source.index("def render_current")\n        end = source.index("def handle_flet_view_pop", start)\n        render = source[start:end]\n        invalidate = render.index("settings_tasks.invalidate()")\n        views = render.index("views = []")\n        self.assertIn('if navigation.current == "settings":', render)\n        self.assertIn("every executed", render)\n        self.assertLess(invalidate, views)\n    def test_settings_focus_task_has_single_registration_path(self):
         source = SETTINGS.read_text(encoding="utf-8")
         start = source.index("def handle_category_focus")
         end = source.index("def build_category_tile", start)

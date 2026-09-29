@@ -779,6 +779,7 @@ async def main(page: ft.Page):
             persist_navigation_state()
     async def refresh_current_details():
         """Reload the durable record after an in-place Details edit."""
+        refresh_started = performance.now()
         anime_id = current[0].get("id") if current[0] else None
         details_token = details_instance_generation[0]
         if navigation.current != "details" or anime_id is None:
@@ -793,8 +794,11 @@ async def main(page: ft.Page):
             return
         current[0] = next((item for item in catalog if item["id"] == anime_id), current[0])
         render_current(force=True)
+        performance.event("details.refresh", duration_ms=(performance.now()-refresh_started)*1000.0,
+                          screen="details", metadata={"anime_id": anime_id})
     async def refresh_current_metadata(e=None):
         """Refresh only editorial metadata; never rescans or mutates playback state."""
+        metadata_started = performance.now()
         anime = current[0] or {}
         anime_id = anime.get("id")
         lookup = (anime.get("meta") or {}).get("lookup_title")
@@ -812,6 +816,8 @@ async def main(page: ft.Page):
                 logger.info("[METADATA] stale refresh result ignored anime_id=%s", anime_id)
                 return
             await refresh_current_details()
+            performance.event("details.metadata_refresh", duration_ms=(performance.now()-metadata_started)*1000.0,
+                              screen="details", status="ok", metadata={"anime_id": anime_id})
             page.snack_bar = ft.SnackBar(ft.Text("Metadata atualizada."))
             page.snack_bar.open = True
             safe_update()
@@ -821,6 +827,7 @@ async def main(page: ft.Page):
             page.snack_bar.open = True
             safe_update()
     def on_catalog_changed(*, refresh_details=True):
+        catalog_started = performance.now()
         diagnostics.record("UI_REFRESHED", result="catalog_changed", source=navigation.current)
         # Home/Organize keep their cached control tree across Details/Player.
         # Refresh their current dataset in place instead of rebuilding the whole
@@ -839,6 +846,8 @@ async def main(page: ft.Page):
             return
         screen_cache.pop(navigation.current, None)
         render_current()
+        performance.event("ui.catalog_changed", duration_ms=(performance.now()-catalog_started)*1000.0,
+                          screen=navigation.current, metadata={"refresh_details": refresh_details})
 
     def apply_settings_runtime(key, _value):
         setting_key = str(key)

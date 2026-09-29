@@ -1948,7 +1948,7 @@ class MainActivity : FlutterFragmentActivity() {
             )
             return false
         }
-        if (requestId.isNotBlank() && !seenPlayerRequestIds.add(requestId)) {
+        if (requestId.isNotBlank() && seenPlayerRequestIds.contains(requestId)) {
             nativeRequestState.markOperationState(
                 requestId,
                 "play",
@@ -1968,9 +1968,12 @@ class MainActivity : FlutterFragmentActivity() {
             )
             return
         }
-        while (seenPlayerRequestIds.size > 256) {
-            val oldest = seenPlayerRequestIds.iterator().next()
-            seenPlayerRequestIds.remove(oldest)
+        if (requestId.isNotBlank()) {
+            seenPlayerRequestIds.add(requestId)
+            while (seenPlayerRequestIds.size > 256) {
+                val oldest = seenPlayerRequestIds.iterator().next()
+                seenPlayerRequestIds.remove(oldest)
+            }
         }
 
         activePlayerRequestId = requestId.takeIf { it.isNotBlank() }

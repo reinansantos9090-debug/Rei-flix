@@ -558,6 +558,7 @@ class NativePlayerActivity : ComponentActivity() {
         exitReported = false
         suppressExitEvent = false
         errorVisible = false
+        playbackWasRequestedBeforeStop = false
         if (transitionPending) {
             episodeChangePending = true
             episodeChangeTimeoutRequestId = requestId

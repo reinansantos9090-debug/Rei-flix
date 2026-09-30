@@ -18,6 +18,7 @@ import android.graphics.Typeface
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ExecutorService
@@ -2460,7 +2461,6 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("reason", reason)
             .put("timestamp", exitCapturedAt)
             .put("playerSessionId", playerSessionId)
-            .put("sequence", commandSequence)
             .put("transitionGeneration", transitionGeneration)
         val exitEvent = JSONObject()
             .put("type", "player_exited")

@@ -1958,6 +1958,9 @@ class MainActivity : FlutterFragmentActivity() {
         val source = data ?: return
         val raw = source.getQueryParameter("uri")?.trim().orEmpty()
         if (raw.isBlank()) return
+        val size = source.getQueryParameter("size")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        val modifiedAt = source.getQueryParameter("modified_at")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        val mediaIdentity = source.getQueryParameter("media_identity")?.trim().orEmpty()
         val localUri = runCatching { Uri.parse(raw) }.getOrNull()
         if (localUri == null || !(
             (localUri.scheme == "content" &&
@@ -1967,13 +1970,15 @@ class MainActivity : FlutterFragmentActivity() {
             NativeMailbox.write(this, JSONObject().put("type", "thumbnail_error")
                 .put("requestId", requestId ?: "")
                 .put("message", "A mídia local não está autorizada para extração de capa.")
-                .put("payload", JSONObject().put("uri", raw).put("status", "UNAUTHORIZED")))
+                .put("payload", JSONObject()
+                    .put("uri", raw)
+                    .put("size", size)
+                    .put("modifiedAt", modifiedAt)
+                    .put("mediaIdentity", mediaIdentity)
+                    .put("status", "UNAUTHORIZED")))
             return
         }
 
-        val size = source.getQueryParameter("size")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
-        val modifiedAt = source.getQueryParameter("modified_at")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
-        val mediaIdentity = source.getQueryParameter("media_identity")?.trim().orEmpty()
         val appContext = applicationContext
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -1982,7 +1987,12 @@ class MainActivity : FlutterFragmentActivity() {
                     NativeMailbox.write(appContext, JSONObject().put("type", "thumbnail_error")
                         .put("requestId", requestId ?: "")
                         .put("message", "Não foi possível extrair uma miniatura deste vídeo.")
-                        .put("payload", JSONObject().put("uri", raw).put("size", size).put("modifiedAt", modifiedAt).put("status", "EXTRACTION_FAILED")))
+                        .put("payload", JSONObject()
+                            .put("uri", raw)
+                            .put("size", size)
+                            .put("modifiedAt", modifiedAt)
+                            .put("mediaIdentity", mediaIdentity)
+                            .put("status", "EXTRACTION_FAILED")))
                     return@launch
                 }
                 NativeMailbox.write(appContext, JSONObject().put("type", "thumbnail_ready")
@@ -2005,7 +2015,13 @@ class MainActivity : FlutterFragmentActivity() {
                 NativeMailbox.write(appContext, JSONObject().put("type", "thumbnail_error")
                     .put("requestId", requestId ?: "")
                     .put("message", "Não foi possível gerar a miniatura do vídeo.")
-                    .put("payload", JSONObject().put("uri", raw).put("status", "EXTRACTION_FAILED").put("error", exception.message ?: "")))
+                    .put("payload", JSONObject()
+                        .put("uri", raw)
+                        .put("size", size)
+                        .put("modifiedAt", modifiedAt)
+                        .put("mediaIdentity", mediaIdentity)
+                        .put("status", "EXTRACTION_FAILED")
+                        .put("error", exception.message ?: "")))
             }
         }
     }

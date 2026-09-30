@@ -2081,7 +2081,7 @@ class MainActivity : FlutterFragmentActivity() {
             NativeMailbox.writeBestEffort(this, JSONObject().put("type", "player_error")
                 .put("requestId", requestId)
                 .put("message", "Este episódio não possui uma referência local válida.")
-                .put("payload", JSONObject().put("stage", "handoff").put("reason", "missing_uri")))
+                .put("payload", JSONObject().put("stage", "handoff").put("failureStage", "OPEN_REQUEST").put("reason", "missing_uri")))
             publishNativeDiagnostic("PLAYER_HANDOFF_FAILED", requestId, "play",
                 NativeRequestState.OperationState.FAILED.name, error = "MISSING_URI")
             return false
@@ -2094,7 +2094,7 @@ class MainActivity : FlutterFragmentActivity() {
             NativeMailbox.writeBestEffort(this, JSONObject().put("type", "player_error")
                 .put("requestId", requestId)
                 .put("message", "O ReiAnix aceita somente mídias locais autorizadas.")
-                .put("payload", JSONObject().put("uri", episodeUri).put("stage", "handoff").put("reason", "unsupported_scheme")))
+                .put("payload", JSONObject().put("uri", episodeUri).put("stage", "handoff").put("failureStage", "OPEN_REQUEST").put("reason", "unsupported_scheme")))
             publishNativeDiagnostic("PLAYER_HANDOFF_FAILED", requestId, "play",
                 NativeRequestState.OperationState.FAILED.name, error = "UNSUPPORTED_SCHEME")
             return false
@@ -2146,6 +2146,7 @@ class MainActivity : FlutterFragmentActivity() {
                         "payload",
                         JSONObject()
                             .put("stage", "handoff")
+                            .put("failureStage", "OPEN_REQUEST")
                             .put("reason", "PLAYER_SESSION_INVALID")
                             .put("errorCode", "PLAYER_SESSION_INVALID"),
                     ),

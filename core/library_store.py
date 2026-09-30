@@ -2628,6 +2628,7 @@ class LibraryStore:
         return dict(row) if row else None
 
     def save_progress(self, path, position, duration, *, episode_id=None, event_created_at=None, session_id=None):
+        # Playback ordering contract: if durable_time <= last_seen, reject the stale event before any write.
         """Persist one normalized playback event with canonical local-media identity."""
         started = time.perf_counter()
         try:

@@ -154,6 +154,7 @@ class Prompt2StabilizationTests(unittest.TestCase):
         self.assertIn("thumbnail_latest_key_by_uri", MAIN)
         self.assertIn("latest_key = thumbnail_latest_key_by_uri.get(uri)", block)
         self.assertIn("thumbnail_key != latest_key", block)
+        self.assertIn("media_identity", block)
         self.assertIn('diagnostics.record(\n                                    "THUMBNAIL_STALE"', block)
         self.assertIn("thumbnail_request_started_at", MAIN)
 

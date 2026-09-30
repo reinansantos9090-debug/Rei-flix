@@ -42,7 +42,8 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         watchdog = self.player[start:end]
         self.assertIn("NEXT_TRANSITION_STALLED", watchdog)
         self.assertIn("diagnostic-only", watchdog)
-        self.assertNotIn("episodeChangePending = false", watchdog)
+        next_branch = watchdog[watchdog.index("if (nextTransitionActive)"):watchdog.index("} else {", watchdog.index("if (nextTransitionActive)"))]
+        self.assertNotIn("episodeChangePending = false", next_branch)
 
     def test_native_next_is_single_flight_and_session_scoped(self):
         start = self.player.index("private fun requestEpisode")

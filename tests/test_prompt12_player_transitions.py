@@ -35,7 +35,7 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
             self.player.index("Player.STATE_READY -> {"):
             self.player.index("Player.STATE_BUFFERING -> {")
         ]
-        self.assertIn("if (episodeChangePending)", ready)
+        self.assertIn("if (episodeChangePending &&", ready)
         self.assertIn("episodeChangePending = false", ready)
         self.assertIn("EPISODE_CHANGE_COMMITTED", ready)
 

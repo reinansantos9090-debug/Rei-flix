@@ -47,6 +47,9 @@ class PlayerGestureUxTests(unittest.TestCase):
 
         self.assertIn("PlayerGesturePolicy.clampZoom", self.player)
         self.assertIn("PlayerGesturePolicy.clampTranslation", self.player)
+        self.assertIn("zoomEnabled", self.player)
+        self.assertIn("MIN_SCALE_FACTOR", self.player)
+        self.assertIn("MAX_SCALE_FACTOR", self.player)
         self.assertIn("PlayerGesturePolicy.seekTarget", self.player)
         self.assertIn("val video = player.videoSize", self.player)
         self.assertIn("video.pixelWidthHeightRatio", self.player)
@@ -65,6 +68,7 @@ class PlayerGestureUxTests(unittest.TestCase):
         self.assertIn("ACTION_POINTER_UP", self.player)
         self.assertIn("MotionEvent.ACTION_UP", self.player)
         self.assertIn("cancelGestureDetector()", self.player)
+        self.assertIn("if (!zoomEnabled ||", self.player)
         self.assertIn("pinchActive = false", self.player)
         self.assertIn("lastPanX = null", self.player)
         self.assertIn("lastPanY = null", self.player)

@@ -932,6 +932,7 @@ class SettingsView:
                     row("player.default_speed", "Velocidade padrão", "Aplicada quando um episódio é aberto.", "enum", (0.5,0.75,1.0,1.25,1.5,1.75,2.0), {x:f"{x:.2f}x" for x in (0.5,0.75,1.0,1.25,1.5,1.75,2.0)}),
                     row("player.aspect_ratio", "Modo de vídeo", "Ajustar preserva toda a imagem; Preencher ocupa a tela cortando somente o excedente, sem esticar o vídeo.", "enum",
                         ("fit","fill"), {"fit":"Ajustar","fill":"Preencher"}),
+                    row("player.zoom_enabled", "Zoom por gesto", "Permitir ampliar e mover o vídeo com gesto de pinça."),
                     row("player.double_tap_seek_seconds", "Salto no double tap", "Define quantos segundos são avançados/retrocedidos pelo double tap.", "enum", (5,10,15,30), {5:"5s",10:"10s",15:"15s",30:"30s"}),
                     row("player.long_press_speed", "Velocidade da pressão longa", "Velocidade temporária aplicada enquanto a pressão longa estiver ativa.", "enum", (1.5,1.75,2.0), {1.5:"1,50x",1.75:"1,75x",2.0:"2,00x"}),
                     row("player.max_video_resolution", "Resolução máxima", "Limita a faixa de vídeo selecionada pelo Media3 quando o arquivo oferece múltiplas tracks.", "enum",
@@ -946,7 +947,7 @@ class SettingsView:
                     row("player.auto_hide_seconds", "Auto-hide dos controles", "0 significa nunca.", "enum", (5,10,15,30,0), {5:"5s",10:"10s",15:"15s",30:"30s",0:"Nunca"}),
                     action_row("Restaurar Player", "Volta somente as preferências do Player aos defaults.", "Restaurar", reset_player),
                 ]
-                items.append(section("Player", ft.Icons.PLAY_CIRCLE_OUTLINE, player, ("player","autoplay","resume","velocidade","aspect","immersive","pip","rotation")))
+                items.append(section("Player", ft.Icons.PLAY_CIRCLE_OUTLINE, player, ("player","autoplay","resume","velocidade","aspect","zoom","immersive","pip","rotation")))
 
             if should_materialize_section("Gestos"):
                 items.append(section("Gestos", ft.Icons.TOUCH_APP_OUTLINED, [

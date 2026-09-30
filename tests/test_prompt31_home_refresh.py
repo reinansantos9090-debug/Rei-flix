@@ -77,6 +77,32 @@ class Prompt31HomeRefreshContractTests(unittest.TestCase):
         ):
             self.assertIn(event_name, source)
 
+    def test_home_refresh_tracks_the_exact_scan_request(self):
+        source = self.read("main.py")
+        start = source.index("async def refresh_home_library")
+        end = source.index("async def login", start)
+        block = source[start:end]
+        self.assertIn('_home_refresh_context=home_refresh_context', block)
+        self.assertIn('_home_refresh_context["request_id"]', source)
+        self.assertIn('snapshot.request_id == home_refresh_context.get("request_id")', source)
+        self.assertIn("ScanState.BLOCKED", source)
+
+    def test_home_refresh_survives_leaving_home_and_refreshes_on_return(self):
+        source = self.read("main.py")
+        self.assertIn('home_state["_manual_refresh_pending"] = True', source)
+        render_start = source.index("def render_current(")
+        render_end = source.index("def handle_flet_view_pop", render_start)
+        render = source[render_start:render_end]
+        self.assertIn('navigation.current == "home"', render)
+        self.assertIn('home_state.get("_manual_refresh_pending")', render)
+        self.assertIn('home_state.get("_refresh_from_catalog")', render)
+
+    def test_home_refresh_state_returns_to_idle_after_terminal_feedback(self):
+        source = self.read("views/home_view.py")
+        self.assertIn("view_state['_reset_refresh_state'] = _schedule_refresh_reset", source)
+        self.assertIn('reset_state', source)
+        self.assertIn('set_refresh_state("IDLE")', source)
+
     def test_source_is_valid_python(self):
         for path in ("main.py", "views/home_view.py"):
             ast.parse(self.read(path), filename=path)

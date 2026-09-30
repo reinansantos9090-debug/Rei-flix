@@ -250,11 +250,15 @@ class AndroidBridge:
                         str(params.get("origin_request_id") or "").strip(),
                         cancel_exc,
                     )
-        except asyncio.TimeoutError as exc:
-            performance.event("android.command_delivery", duration_ms=(performance.now()-launch_started)*1000.0,
-                              status="timeout", screen="android_bridge",
-                              metadata={"action": action, "request_id": request_id,
-                                        "expected_event": expected_event})
+
+            performance.event(
+                "android.command_delivery",
+                duration_ms=(performance.now()-launch_started)*1000.0,
+                status="timeout",
+                screen="android_bridge",
+                metadata={"action": action, "request_id": request_id,
+                          "expected_event": expected_event},
+            )
             performance.event(
                 "NATIVE_COMMAND_DELIVERY_TIMEOUT",
                 duration_ms=(performance.now()-launch_started)*1000.0,

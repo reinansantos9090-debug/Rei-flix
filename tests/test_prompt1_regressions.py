@@ -37,7 +37,7 @@ class Prompt1RegressionTests(unittest.TestCase):
         self.assertIn("player_transition_inflight", MAIN)
         self.assertIn("transition_in_progress", MAIN)
         self.assertIn("episodeChangeTimeout", PLAYER)
-        self.assertIn("EPISODE_CHANGE_TIMEOUT", PLAYER)
+        self.assertIn("EPISODE_CHANGE_WATCHDOG", PLAYER)
         self.assertIn("handler.postDelayed(episodeChangeTimeout, 5_000L)", PLAYER)
 
     def test_details_focus_is_localized_to_primary_button_only(self):

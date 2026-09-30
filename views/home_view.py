@@ -79,9 +79,10 @@ class HomeView:
         home_sections_generation = [0]
         filter_options_loaded = [False]
         artwork_tasks: set[tuple] = set()
+        artwork_pending_items: dict[tuple, dict] = {}
         artwork_bindings: dict[tuple, list] = {}
         catalog_focus_targets: dict[str, object] = {}
-        artwork_concurrency = asyncio.Semaphore(4)
+        artwork_batch_scheduled = [False]
         artwork_ui_update_scheduled = [False]
         catalog_refresh_scheduled = [False]
         catalog_refresh_dirty = [False]
@@ -194,10 +195,12 @@ class HomeView:
 
             async def flush():
                 try:
-                    await asyncio.sleep(0)
+                    # Batch local artwork completions over a short frame window.
+                    await asyncio.sleep(0.05)
                     if not is_active():
                         return
                     update_started = time.perf_counter()
+                    performance.counter("home.page_updates.artwork")
                     page.update()
                     logger.info(
                         "HOME_ARTWORK_UI_UPDATE duration_ms=%s",
@@ -210,6 +213,80 @@ class HomeView:
 
             _start_view_task(flush)
 
+        def _valid_artwork_source(path):
+            if not isinstance(path, str):
+                return False
+            if path.startswith(("content://", "file://")):
+                return True
+            try:
+                return os.path.isfile(path) and os.path.getsize(path) > 0
+            except OSError:
+                return False
+
+        def _apply_artwork(holder, width, height, path):
+            if not _valid_artwork_source(path):
+                return False
+            holder.content = ft.Image(
+                src=path,
+                width=width,
+                height=height,
+                fit=ft.BoxFit.COVER,
+                border_radius=RADIUS,
+            )
+            return True
+
+        async def _flush_artwork_batch():
+            if not is_active() or not artwork_tasks:
+                return
+            generation = render_generation[0]
+            snapshot = tuple(artwork_tasks)
+            grouped: dict[tuple[str, str], list[int]] = {}
+            for entity, item_id, kind in snapshot:
+                grouped.setdefault((entity, kind), []).append(int(item_id))
+
+            try:
+                for (entity, kind), ids in grouped.items():
+                    if generation != render_generation[0] or not is_active():
+                        return
+                    resolved = await asyncio.to_thread(
+                        library.resolve_artwork_batch,
+                        entity,
+                        list(dict.fromkeys(ids)),
+                        (kind,),
+                    )
+                    if generation != render_generation[0] or not is_active():
+                        return
+                    for item_id_raw, row in (resolved or {}).items():
+                        item_id = int(item_id_raw)
+                        key = (entity, item_id, kind)
+                        path = (row or {}).get("local_path")
+                        item = artwork_pending_items.get(key)
+                        if item is not None and _valid_artwork_source(path):
+                            meta = item.setdefault("meta", {})
+                            meta["cover_cache"] = path
+                            item["cover"] = path
+                        for holder, width, height in artwork_bindings.get(key, ()):
+                            if _apply_artwork(holder, width, height, path):
+                                performance.counter("home.artwork.batch_updated")
+                if generation == render_generation[0] and is_active():
+                    schedule_artwork_ui_update()
+            except Exception:
+                logger.exception("Home batched artwork lookup failed", extra={"screen": "home"})
+            finally:
+                for key in snapshot:
+                    artwork_tasks.discard(key)
+                    artwork_pending_items.pop(key, None)
+                performance.gauge("home.artwork.pending", len(artwork_tasks))
+                artwork_batch_scheduled[0] = False
+                if artwork_tasks and generation == render_generation[0] and is_active():
+                    schedule_artwork_batch_prefetch()
+
+        def schedule_artwork_batch_prefetch():
+            if artwork_batch_scheduled[0] or not artwork_tasks or not is_active():
+                return
+            artwork_batch_scheduled[0] = True
+            _start_view_task(_flush_artwork_batch)
+
         def artwork_holder(item, width, height, *, entity="anime", kind="poster", source=None):
             holder = ft.Container(
                 width=width, height=height, border_radius=RADIUS, bgcolor=theme.surface_raised,
@@ -220,62 +297,22 @@ class HomeView:
             if binding_id is not None:
                 artwork_bindings.setdefault((binding_entity, int(binding_id), kind), []).append((holder, width, height))
 
-            def apply_source(path):
-                if not isinstance(path, str):
-                    return False
-                if path.startswith(("content://", "file://")):
-                    valid = True
-                else:
-                    try:
-                        valid = os.path.isfile(path) and os.path.getsize(path) > 0
-                    except OSError:
-                        valid = False
-                if not valid:
-                    return False
-                holder.content = ft.Image(src=path, width=width, height=height, fit=ft.BoxFit.COVER, border_radius=RADIUS)
-                return True
-
             if not show_thumbnails:
                 holder.content = ft.Icon(ft.Icons.MOVIE_OUTLINED, color=TEXT_MUTED, size=28)
                 return holder
-            if apply_source(source):
+            if _apply_artwork(holder, width, height, source):
                 return holder
             meta = item.get("meta") or {}
             candidate_source = item.get("cover") or meta.get("cover_cache")
-            if apply_source(candidate_source):
+            if _apply_artwork(holder, width, height, candidate_source):
                 return holder
 
             item_id = item.get("anime_id") if item.get("anime_id") is not None and entity in {"anime", "movie"} else item.get("id")
             if item_id is not None and library is not None:
-                key = (entity, int(item_id), kind, width, height)
-                if key not in artwork_tasks:
-                    artwork_tasks.add(key)
-                    request_generation = render_generation[0]
-                    async def hydrate():
-                        try:
-                            async with artwork_concurrency:
-                                resolved = await asyncio.to_thread(
-                                    library.resolve_artwork, entity, item_id, kind, allow_network=False
-                                )
-                            if request_generation != render_generation[0]:
-                                return
-                            path = (resolved or {}).get("local_path")
-                            if apply_source(path):
-                                meta = item.setdefault("meta", {})
-                                meta["cover_cache"] = path
-                                item["cover"] = path
-                                try:
-                                    schedule_artwork_ui_update()
-                                except Exception:
-                                    logger.debug("Home artwork UI scheduling skipped", exc_info=True)
-                        except Exception:
-                            logger.exception(
-                                "Artwork render hydration failed",
-                                extra={"screen":"home","requestId":"-","item_id":item_id},
-                            )
-                        finally:
-                            artwork_tasks.discard(key)
-                    _start_view_task(hydrate)
+                key = (binding_entity, int(item_id), kind)
+                artwork_tasks.add(key)
+                artwork_pending_items[key] = item
+                performance.gauge("home.artwork.pending", len(artwork_tasks))
             holder.content = ft.Icon(ft.Icons.MOVIE_OUTLINED, color=TEXT_MUTED, size=28)
             return holder
 
@@ -343,6 +380,7 @@ class HomeView:
                     candidate = next((ep for season_data in item.get("seasons", []) for ep in season_data.get("episodes", []) if ep.get("path") and not ep.get("missing")), None)
                 if candidate:
                     on_request_thumbnail(candidate)
+            performance.counter("home.cards_created")
             return ft.OutlinedButton(
                 width=card_width,
                 height=card_height + 48,
@@ -485,6 +523,8 @@ class HomeView:
             page_items = result.get("items") or []
             if reset:
                 artwork_bindings.clear()
+                artwork_tasks.clear()
+                artwork_pending_items.clear()
                 catalog_focus_targets.clear()
                 catalog.clear()
                 grid.controls.clear()
@@ -519,8 +559,10 @@ class HomeView:
             status.visible = scan_active[0]
             page_loading[0] = False
             if is_active():
+                performance.counter("home.page_updates.catalog")
                 page.update()
                 await restore_scroll_position()
+                schedule_artwork_batch_prefetch()
             if fresh_items:
                 async def run_hydration_batch():
                     started = time.perf_counter()
@@ -1010,8 +1052,8 @@ class HomeView:
                     entity = 'movie' if target.get('media_kind') == 'movie' else 'anime'
                     for holder, width, height in artwork_bindings.get((entity, int(item_id), 'poster'), []):
                         try:
-                            holder.content = ft.Image(src=cover_path, width=width, height=height, fit=ft.BoxFit.COVER, border_radius=RADIUS)
-                            updated += 1
+                            if _apply_artwork(holder, width, height, cover_path):
+                                updated += 1
                         except Exception:
                             logger.exception('Home localized artwork update failed')
                 if updated:
@@ -1075,7 +1117,9 @@ class HomeView:
                 except Exception:
                     logger.exception("Home section render failed", extra={"screen":"home","section":key})
             if changed and is_active():
+                performance.counter("home.page_updates.sections")
                 page.update()
+                schedule_artwork_batch_prefetch()
 
         async def load_filter_options():
             if filter_options_loaded[0]:

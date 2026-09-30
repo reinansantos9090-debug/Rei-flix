@@ -228,6 +228,29 @@ class AndroidBridge:
                               screen="android_bridge",
                               metadata={"action": action, "request_id": request_id, "status": "received"})
         except asyncio.TimeoutError as exc:
+            if action == "play" and str(params.get("origin_request_id") or "").strip():
+                try:
+                    await self._launch(
+                        "cancel_player_transition",
+                        origin_request_id=str(params.get("origin_request_id") or "").strip(),
+                        origin_player_session_id=str(params.get("origin_player_session_id") or "").strip() or None,
+                    )
+                    performance.event(
+                        "NATIVE_PLAYER_TRANSITION_CANCEL_SENT",
+                        screen="android_bridge",
+                        metadata={
+                            "origin_request_id": str(params.get("origin_request_id") or "").strip(),
+                            "origin_player_session_id": str(params.get("origin_player_session_id") or "").strip(),
+                            "reason": "play_delivery_timeout",
+                        },
+                    )
+                except Exception as cancel_exc:
+                    logger.warning(
+                        "[ANDROID_BRIDGE] PLAYER_TRANSITION_CANCEL_FAILED origin_request_id=%s error=%s",
+                        str(params.get("origin_request_id") or "").strip(),
+                        cancel_exc,
+                    )
+        except asyncio.TimeoutError as exc:
             performance.event("android.command_delivery", duration_ms=(performance.now()-launch_started)*1000.0,
                               status="timeout", screen="android_bridge",
                               metadata={"action": action, "request_id": request_id,

@@ -2163,7 +2163,6 @@ class MainActivity : FlutterFragmentActivity() {
             }
             activePlayerSessionId = incomingPlayerSessionId
         }
-        val originPlayerSessionId = playerRequest.originPlayerSessionId
         val staleOriginDiagnosticEvent =
             if (playerRequest.transitionDirection == "PREVIOUS") "PLAYER_PREVIOUS_STALE_REJECTED" else "PLAYER_NEXT_STALE_REJECTED"
         if (originRequestId.isNotBlank() && isPlayerTransitionRevoked(originRequestId, originPlayerSessionId)) {

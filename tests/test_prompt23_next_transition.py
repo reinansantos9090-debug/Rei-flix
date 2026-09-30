@@ -42,9 +42,9 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         end = self.player.index("private var retryCount", start)
         watchdog = self.player[start:end]
         self.assertIn("NEXT_TRANSITION_STALLED", watchdog)
+        self.assertIn("PREVIOUS_TRANSITION_STALLED", watchdog)
         self.assertIn("diagnostic-only", watchdog)
-        next_branch = watchdog[watchdog.index("if (nextTransitionActive)"):watchdog.index("} else {", watchdog.index("if (nextTransitionActive)"))]
-        self.assertNotIn("episodeChangePending = false", next_branch)
+        self.assertNotIn("episodeChangePending = false", watchdog)
 
     def test_native_next_is_single_flight_and_session_scoped(self):
         start = self.player.index("private fun requestEpisode")
@@ -82,18 +82,16 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         ready_start = self.player.index("Player.STATE_READY -> {")
         ready_end = self.player.index("Player.STATE_BUFFERING -> {", ready_start)
         ready = self.player[ready_start:ready_end]
-        next_ready_start = ready.index("nextTransitionActive &&")
-        next_ready_end = ready.index("if (\n                        !nextTransitionActive", next_ready_start)
-        next_ready = ready[next_ready_start:next_ready_end]
-        self.assertIn("NEXT_TRANSITION_READY", next_ready)
-        self.assertNotIn("EPISODE_CHANGE_COMMITTED", next_ready)
+        self.assertIn("NEXT_TRANSITION_READY", ready)
+        self.assertNotIn("EPISODE_CHANGE_COMMITTED", ready)
 
         first_start = self.player.index('if (events.contains(Player.EVENT_RENDERED_FIRST_FRAME))')
         first_end = self.player.index("override fun onMediaItemTransition", first_start)
         first = self.player[first_start:first_end]
         self.assertIn("NEXT_TRANSITION_FIRST_FRAME", first)
         self.assertIn("NEXT_TRANSITION_COMMITTED", first)
-        self.assertIn("EPISODE_CHANGE_COMMITTED", first)
+        self.assertIn("PREVIOUS_TRANSITION_FIRST_FRAME", first)
+        self.assertIn("PREVIOUS_TRANSITION_COMMITTED", first)
 
     def test_python_next_has_pre_sqlite_post_sqlite_and_pre_bridge_guards(self):
         transition = self.main[

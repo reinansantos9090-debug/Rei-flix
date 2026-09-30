@@ -87,6 +87,13 @@ class LibraryIntelligenceTests(unittest.TestCase):
         rows = self.store.continue_watching()
         self.assertEqual(["content://demo/3"], [row["path"] for row in rows])
 
+    def test_next_episode_remains_a_player_navigation_contract(self):
+        self.store.upsert_episode(self.anime, "content://demo/2", "Demo E02.mkv", 1, 2)
+        self.store.save_progress("content://demo/1", 100, 100)
+        next_item = self.store.next_episode("content://demo/1")
+        self.assertIsNotNone(next_item)
+        self.assertEqual("content://demo/2", next_item["path"])
+
     def test_special_and_movie_never_become_regular_next_episode(self):
         self.store.upsert_episode(self.anime, "content://demo/special", "Demo OVA.mkv", 1, 99, episode_type="ova")
         self.store.upsert_episode(self.anime, "content://demo/movie", "Demo Movie.mkv", 1, 100, episode_type="movie")

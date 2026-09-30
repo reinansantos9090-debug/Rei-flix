@@ -359,22 +359,23 @@ class ArtworkEngine:
     def register_generated_thumbnail(self, media_uri, thumbnail_path, *, size=0, modified_at=0, media_identity=None, metadata=None):
         media_uri = str(media_uri or "").strip()
         thumbnail_path = os.path.abspath(os.fspath(thumbnail_path))
-        if not media_uri or not self._is_file(thumbnail_path):
+        if not media_uri or not self._is_valid_image_file(thumbnail_path):
             return False
         if Path(thumbnail_path).suffix.casefold() not in IMAGE_EXTENSIONS:
             return False
+        metadata = metadata if isinstance(metadata, dict) else {}
+        stable_identity = str(media_identity or "").strip() or media_uri
         with self.store._conn() as con:
             rows = con.execute(
                 """SELECT DISTINCT e.id,e.anime_id,a.media_kind
                    FROM episodes e JOIN anime a ON a.id=e.anime_id
                    LEFT JOIN episode_observations o ON o.episode_id=e.id
-                   WHERE e.path=? OR o.uri=?""",
-                (media_uri, media_uri),
+                   WHERE e.path=? OR o.uri=?
+                      OR (? != '' AND e.media_identity=?)""",
+                (media_uri, media_uri, stable_identity, stable_identity),
             ).fetchall()
         if not rows:
             return False
-        metadata = metadata if isinstance(metadata, dict) else {}
-        stable_identity = str(media_identity or "").strip() or media_uri
         source_ref = f"native:{stable_identity}|{int(size or 0)}|{int(modified_at or 0)}"
         for row in rows:
             episode_id = int(row["id"])

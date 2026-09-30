@@ -109,9 +109,10 @@ class Prompt18TransitionHardeningTests(unittest.TestCase):
             self.main.index("elif event_type == 'player_exited':"):
             self.main.index("elif event_type == 'google_sign_in_started':", self.main.index("elif event_type == 'player_exited':"))
         ]
-        self.assertIn("PLAYER_EXIT_IGNORED", exit_block)
-        self.assertIn('cancel_player_transition("player_exited")', exit_block)
-        self.assertIn('player_session_active["value"] = False', exit_block)
+        self.assertIn("PLAYER_CALLBACK_STALE", exit_block)
+        self.assertIn("MAILBOX_STALE_COMMAND_DISCARDED", exit_block)
+        self.assertIn("invalidate_player_session(", exit_block)
+        self.assertIn('player_session_active["value"] = False', self.main)
         self.assertIn('cancel_player_transition("player_activity_result")', self.main)
 
     def test_mailbox_polling_has_a_bounded_low_latency_lane(self):
@@ -184,7 +185,7 @@ class Prompt18TransitionHardeningTests(unittest.TestCase):
             "player_transition_generation",
             "episodeChangeTimeout",
             "PLAYER_TRANSITION_INVALIDATED",
-            "PLAYER_EXIT_IGNORED",
+            "PLAYER_CALLBACK_STALE",
             "PLAYER_OPENED_IGNORED",
             "PLAYER_HANDOFF_REJECTED",
             "stale_after_player_exit",

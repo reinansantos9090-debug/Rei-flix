@@ -1084,6 +1084,21 @@ override fun onCreate(savedInstanceState: Bundle?) {
                             " latencyFromPreflightMs=" + metricDelta(preflightCompletedAtMs, prepareDispatchedAtMs),
                     )
                     try {
+                        NativeMailbox.writeBestEffort(
+                            this@NativePlayerActivity,
+                            JSONObject()
+                                .put("type", "diagnostic")
+                                .put("requestId", requestId)
+                                .put(
+                                    "payload",
+                                    JSONObject()
+                                        .put("event", "PLAYER_PREPARING")
+                                        .put("episodeId", currentEpisodeId())
+                                        .put("playerSessionId", playerSessionId)
+                                        .put("playerGeneration", generation)
+                                        .put("transitionGeneration", transitionGeneration),
+                                ),
+                        )
                         player.prepare()
                     } catch (error: Exception) {
                         logPlayer(
@@ -1270,6 +1285,21 @@ override fun onCreate(savedInstanceState: Bundle?) {
                         if (!opened) {
                             logPlayer("FAILED_TO_PUBLISH player_opened requestId=" + requestId.ifEmpty { "-" })
                         }
+                        NativeMailbox.writeBestEffort(
+                            this@NativePlayerActivity,
+                            JSONObject()
+                                .put("type", "diagnostic")
+                                .put("requestId", requestId)
+                                .put(
+                                    "payload",
+                                    JSONObject()
+                                        .put("event", "PLAYER_READY")
+                                        .put("episodeId", currentEpisodeId())
+                                        .put("playerSessionId", playerSessionId)
+                                        .put("playerGeneration", generation)
+                                        .put("transitionGeneration", transitionGeneration),
+                                ),
+                        )
                     }
                     if (!initialSeekApplied) {
                         val savedPosition = intent.getLongExtra("positionMs", 0L)

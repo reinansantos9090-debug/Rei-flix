@@ -129,6 +129,7 @@ class StorePaginationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)
             self._seed(store, 40)
+            store.toggle_favorite(1)
             with patch.object(store, "catalog", wraps=store.catalog) as catalog:
                 sections = store.home_sections(limit=8)
             self.assertEqual(1, catalog.call_count)

@@ -42,10 +42,11 @@ class Prompt27ContinueResumeTests(unittest.TestCase):
 
     def test_continue_reloads_the_latest_persisted_progress(self):
         play = MAIN[MAIN.index("async def launch_native_player():"):MAIN.index("def open_marathon(", MAIN.index("async def launch_native_player():"))]
-        self.assertIn('raw_progress_seconds = float(fresh_episode.get("progress") or 0.0)', play)
+        self.assertIn('raw_progress = fresh_episode.get("progress")', play)
+        self.assertIn('raw_progress_seconds = float(raw_progress or 0.0)', play)
         self.assertIn('float(fresh_episode.get("progress") or 0.0)', play)
         self.assertIn('duration_seconds = max(', play)
-        self.assertIn('launch_progress_seconds = min(', play)
+        self.assertIn('launch_progress_seconds = raw_progress_seconds', play)
         self.assertIn('"PROGRESS_VALIDATED"', play)
 
     def test_ready_gates_resume_seek_before_playback(self):

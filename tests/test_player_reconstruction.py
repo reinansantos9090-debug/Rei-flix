@@ -52,19 +52,26 @@ class PlayerReconstructionTests(unittest.TestCase):
         self.assertIn("showFeedback(feedbackText)", self.player)
 
     def test_zoom_is_bounded_symmetric_and_pan_is_clamped(self):
-        self.assertIn("private const val MAX_ZOOM = 3f", self.player)
+        self.assertIn("private const val MAX_ZOOM = 2f", self.player)
         self.assertIn("scaleX = zoomScale", self.player)
         self.assertIn("scaleY = zoomScale", self.player)
         self.assertIn("PlayerGesturePolicy.clampZoom", self.player)
         self.assertIn("PlayerGesturePolicy.clampTranslation", self.player)
         self.assertIn("val bounds = calculatePanBounds()", self.player)
         self.assertIn("resetZoomToFit", self.player)
+        self.assertIn("MIN_SCALE_FACTOR = 0.90f", self.player)
+        self.assertIn("MAX_SCALE_FACTOR = 1.10f", self.player)
+        self.assertIn("zoomMatrix", self.player)
 
-    def test_resize_modes_expose_fit_fill_and_zoom_without_stretch(self):
-        self.assertIn('arrayOf("Ajustar", "Preencher", "Zoom")', self.player)
-        self.assertIn('"Preencher", "Zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM', self.player)
+    def test_resize_modes_keep_manual_zoom_separate_from_aspect_mode(self):
+        self.assertIn('arrayOf("Ajustar", "Preencher")', self.player)
+        self.assertIn('"Preencher" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM', self.player)
         self.assertIn('else -> AspectRatioFrameLayout.RESIZE_MODE_FIT', self.player)
-        self.assertIn("enterManualZoomMode()", self.player)
+        self.assertIn("zoomEnabled", self.player)
+        self.assertNotIn("enterManualZoomMode()", self.player)
+        pinch = self.player[self.player.index("override fun onScaleBegin"):self.player.index("override fun onScaleEnd")]
+        self.assertIn("AspectRatioFrameLayout.RESIZE_MODE_FIT", pinch)
+        self.assertNotIn("AspectRatioFrameLayout.RESIZE_MODE_ZOOM", pinch)
         self.assertNotIn("scaleX != scaleY", self.player)
 
     def test_speed_audio_subtitle_and_seekbar_reflect_real_player(self):

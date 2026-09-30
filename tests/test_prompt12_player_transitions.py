@@ -36,15 +36,16 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
             self.player.index("Player.STATE_READY -> {"):
             self.player.index("Player.STATE_BUFFERING -> {")
         ]
-        next_ready_start = ready.index("nextTransitionActive &&")
-        next_ready_end = ready.index("if (\n                        !nextTransitionActive", next_ready_start)
-        next_ready = ready[next_ready_start:next_ready_end]
-        self.assertIn("if (", ready)
-        self.assertIn("episodeChangePending", next_ready)
-        self.assertIn("transitionReadyGeneration", next_ready)
-        self.assertIn("NEXT_TRANSITION_READY", next_ready)
-        self.assertNotIn("episodeChangePending = false", next_ready)
-        self.assertNotIn("EPISODE_CHANGE_COMMITTED", next_ready)
+        self.assertIn("nextTransitionActive &&", ready)
+        self.assertIn("previousTransitionActive &&", ready)
+        self.assertIn("episodeChangePending", ready)
+        self.assertIn("transitionReadyGeneration", ready)
+        self.assertIn("NEXT_TRANSITION_READY", ready)
+        self.assertIn("PREVIOUS_TRANSITION_READY", ready)
+        self.assertNotIn("episodeChangePending = false", ready)
+        self.assertNotIn("EPISODE_CHANGE_COMMITTED", ready)
+        self.assertNotIn("NEXT_TRANSITION_COMMITTED", ready)
+        self.assertNotIn("PREVIOUS_TRANSITION_COMMITTED", ready)
 
         first_frame = self.player[
             self.player.index('if (events.contains(Player.EVENT_RENDERED_FIRST_FRAME))'):

@@ -50,15 +50,15 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
             self.player.index("private fun showPlayerError("):
             self.player.index("private fun publishPlayerError")
         ]
-        self.assertIn("episodeChangePending = false", error)
-        self.assertIn("handler.removeCallbacks(episodeChangeTimeout)", error)
+        self.assertIn('invalidateTransition("player_error")', error)
+        self.assertNotIn("handler.removeCallbacks(episodeChangeTimeout)", error)
 
         finish = self.player[
             self.player.index("private fun finishPlayer("):
             self.player.index("private fun updateEpisodeNavigationButtons")
         ]
-        self.assertIn("episodeChangePending = false", finish)
-        self.assertIn("handler.removeCallbacks(episodeChangeTimeout)", finish)
+        self.assertIn('invalidateTransition("finish_player")', finish)
+        self.assertNotIn("handler.removeCallbacks(episodeChangeTimeout)", finish)
 
     def test_python_transition_uses_canonical_library_direction_and_identity(self):
         block = self.main[
@@ -71,7 +71,7 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
         self.assertIn("asyncio.create_task(", block)
         self.assertIn("episode_id=target.get(\"id\")", block)
         self.assertIn("anime_id=target.get(\"anime_id\")", block)
-        self.assertIn("target.get('progress')", block)
+        self.assertIn('target.get("progress")', block)
         self.assertIn("player_transition_inflight[\"value\"] = True", block)
         self.assertIn("player_transition_generation[\"value\"] += 1", block)
         self.assertIn("player_transition_inflight[\"value\"] = False", block)

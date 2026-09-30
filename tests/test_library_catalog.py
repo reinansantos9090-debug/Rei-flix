@@ -53,7 +53,11 @@ class LibraryCatalogTests(unittest.TestCase):
         service = LibraryService(self.store)
         with patch.object(self.store, "catalog", side_effect=AssertionError("catalog re-read")):
             home = service.media_center_home(catalog=catalog)
-        self.assertEqual("Series", home["series"][0]["main_title"])
+        self.assertEqual(
+            {"continue_watching", "favorites", "pinned", "movies"},
+            set(home),
+        )
+        self.assertEqual([], home["movies"])
 
     def test_organize_summary_uses_catalog_aggregates_and_keeps_state_contract(self):
         self.store.upsert_episode(self.series, "content://p15/e1", "E01.mkv", 1, 1)

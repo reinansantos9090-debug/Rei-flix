@@ -209,6 +209,8 @@ class Prompt36ThumbnailTests(unittest.TestCase):
         self.assertIn("Semaphore(2)", extractor)
         self.assertIn("isValidCachedThumbnail", extractor)
         self.assertIn('put("mediaIdentity", mediaIdentity)', activity)
+        self.assertIn("count < 2", main)
+        self.assertIn("retryable = status == 'EXTRACTION_FAILED'", main)
 
 
 if __name__ == "__main__":

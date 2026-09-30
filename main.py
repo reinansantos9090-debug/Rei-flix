@@ -686,6 +686,7 @@ async def main(page: ft.Page):
                 refresh_current_metadata, library.resolve_artwork, library.resolve_artwork_batch,
                 on_open_marathon=open_marathon,
                 resolve_artwork_palette=library.resolve_artwork_palette,
+                on_request_thumbnail=request_missing_thumbnail,
                 is_active=lambda token=detail_instance_token, anime_id=detail_anime_id: (
                     ui_alive[0]
                     and navigation.current == "details"

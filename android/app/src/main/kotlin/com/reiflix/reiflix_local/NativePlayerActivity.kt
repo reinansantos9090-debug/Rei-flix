@@ -1059,11 +1059,13 @@ override fun onCreate(savedInstanceState: Bundle?) {
                             " subtitleCount=" + subtitleTracks.size +
                             " reason=" + reason,
                     )
+                    // Resume must be applied after READY and before playback starts.
+                    // Setting playWhenReady before prepare can race the initial seek.
                     player.pause()
                     player.setMediaItem(mediaItem)
-                    player.playWhenReady = shouldPlayWhenReady
+                    player.playWhenReady = false
                     logPlayer(
-                        "PLAY_WHEN_READY=" + player.playWhenReady +
+                        "PLAY_WHEN_READY_DEFERRED requested=" + shouldPlayWhenReady +
                             " requestId=" + requestId.ifEmpty { "-" } +
                             " generation=$generation reason=" + reason,
                     )

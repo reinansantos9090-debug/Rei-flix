@@ -150,10 +150,12 @@ class Prompt35ReconciliationTests(unittest.TestCase):
     def test_duplicate_rows_merge_by_existing_media_identity(self):
         anime_id = self.anime("Canonical")
         first_path = "content://com.android.externalstorage.documents/document/primary%3AAnime%2Fep.mp4"
-        second_path = "content://com.android.externalstorage.documents/document/primary%3AAnime%2Fep.mp4?variant=2"
+        second_path = "content://com.android.externalstorage.documents/document/primary%3AAnime%2Fep-alt.mp4"
+        first_id = self.episode(anime_id, first_path, "ep.mp4", source_folder=self.SAF_ROOT, progress=20)
+        second_id = self.episode(anime_id, second_path, "ep-alt.mp4", source_folder=self.SAF_ROOT, progress=35)
         identity = "shared:primary:Anime/ep.mp4"
-        self.episode(anime_id, first_path, "ep.mp4", identity=identity, source_folder=self.SAF_ROOT, progress=20)
-        self.episode(anime_id, second_path, "ep.mp4", identity=identity, source_folder=self.SAF_ROOT, progress=35)
+        with self.store._conn() as con:
+            con.execute("UPDATE episodes SET media_identity=? WHERE id IN (?,?)", (identity, first_id, second_id))
 
         report = self.service.reconcile_existing_library()
         row = self.store.physical_row(first_path)

@@ -3462,7 +3462,6 @@ async def main(page: ft.Page):
                                             )
                                             cancel_player_transition("next_no_target")
                                         else:
-                                        else:
                                             performance.event(
                                                 "PREVIOUS_TRANSITION_FAILED",
                                                 screen=navigation.current,

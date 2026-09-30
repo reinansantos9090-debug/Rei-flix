@@ -141,3 +141,12 @@ class Prompt34ScopePolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_saf_scanner_rejects_outside_directories_before_traversal(self):
+        source = SAF.read_text(encoding="utf-8")
+        self.assertIn("for((childId,childName) in directoriesToVisit)", source)
+        self.assertIn("if(!isDocumentIdWithinTree(identity.documentId, childId))", source)
+
+    def test_media_store_rejects_empty_scope_path(self):
+        source = MEDIA.read_text(encoding="utf-8")
+        self.assertIn("if(root.isBlank()) return false", source)

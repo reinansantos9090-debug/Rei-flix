@@ -200,6 +200,11 @@ object SafScanner {
                     }
                     for((childId,childName) in directoriesToVisit){
                         val relative=if(currentPath.isEmpty())childName else currentPath+"/"+childName
+                        if(!isDocumentIdWithinTree(identity.documentId, childId)){
+                            stats.put("rejectedOutsideSource",stats.getInt("rejectedOutsideSource")+1)
+                            if(Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG,"SCAN_SOURCE_FILE_REJECTED reason=OUTSIDE_SOURCE documentId="+childId)
+                            continue
+                        }
                         pending.addLast(childId to relative)
                     }
                     for(child in videoChildren){

@@ -112,8 +112,9 @@ object MediaStoreScanner {
         if(scope.authority != "com.android.externalstorage.documents") return false
         if(!volumeMatches(scope, volumeName, volumeUuid)) return false
         val root = normalizeScopePath(scope.treeDocumentId)
+        if(root.isBlank()) return false
         val candidate = relativePath.trim().trim('/').replace("\\", "/")
-        return root.isBlank() || candidate == root || candidate.startsWith(root + "/")
+        return candidate == root || candidate.startsWith(root + "/")
     }
     fun scan(context: Context,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false},scanId:String?=null,onBatch:((JSONObject)->Unit)?=null,libraryScopes:Collection<LibraryScope> = emptyList()):JSONObject {
         check(hasReadPermission(context)){"Permissão de vídeos não concedida."}

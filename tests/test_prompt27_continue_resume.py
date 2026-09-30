@@ -53,7 +53,7 @@ class Prompt27ContinueResumeTests(unittest.TestCase):
         self.assertIn("player.playWhenReady = false", prepare)
         self.assertIn("RESUME_SEEK_REQUESTED", PLAYER)
         self.assertIn("RESUME_SEEK_APPLIED", PLAYER)
-        self.assertIn("val appliedResumePositionMs = seekToSavedPosition(resumeRequestedMs)", PLAYER)
+        self.assertIn("val appliedResumePositionMs = seekToSavedPosition(restoredPositionMs ?: savedPosition)", PLAYER)
         self.assertIn("player.playWhenReady = requestedPlayWhenReadyForGeneration", PLAYER)
 
     def test_resume_position_is_clamped_by_existing_policy(self):

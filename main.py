@@ -1349,22 +1349,35 @@ async def main(page: ft.Page):
                     )
                     return
                 if settings.get("player.resume"):
+                    raw_progress = fresh_episode.get("progress")
+                    raw_duration = fresh_episode.get("duration")
                     try:
-                        launch_progress_seconds = max(
-                            0.0,
-                            float(fresh_episode.get("progress") or 0.0),
-                        )
+                        raw_progress_seconds = float(raw_progress or 0.0)
+                        duration_seconds = max(0.0, float(raw_duration or 0.0))
                     except (TypeError, ValueError):
-                        launch_progress_seconds = 0.0
-                    duration_seconds = max(
-                        0.0,
-                        float(fresh_episode.get("duration") or 0.0),
+                        raw_progress_seconds = 0.0
+                        duration_seconds = 0.0
+                    progress_invalid = (
+                        not math.isfinite(raw_progress_seconds)
+                        or raw_progress_seconds < 0.0
+                        or (duration_seconds > 0.0 and raw_progress_seconds > duration_seconds)
                     )
-                    if duration_seconds > 0:
-                        launch_progress_seconds = min(
-                            launch_progress_seconds,
-                            duration_seconds,
+                    if progress_invalid:
+                        performance.event(
+                            "PROGRESS_REJECTED",
+                            screen=navigation.current,
+                            status="rejected",
+                            metadata={
+                                "player_session_id": launch_session_id,
+                                "episode_id": fresh_episode.get("id"),
+                                "raw_progress": raw_progress,
+                                "duration_seconds": duration_seconds,
+                                "reason": "INVALID_PERSISTED_PROGRESS",
+                            },
                         )
+                        launch_progress_seconds = 0.0
+                    else:
+                        launch_progress_seconds = raw_progress_seconds
                 if launch_progress_seconds > 0.0:
                     player_resume_context["value"] = {
                         "session_id": launch_session_id,
@@ -1443,6 +1456,18 @@ async def main(page: ft.Page):
                     },
                 )
                 performance.event(
+                    "CONTINUE_REQUEST_ACCEPTED",
+                    screen=navigation.current,
+                    status="accepted",
+                    metadata={
+                        "request_id": request_id,
+                        "player_session_id": launch_session_id,
+                        "episode_id": fresh_episode.get("id"),
+                        "anime_id": launch_anime_id,
+                        "reason": "native_handoff_confirmed",
+                    },
+                )
+                performance.event(
                     "ASSIST_REQUEST_ACCEPTED",
                     screen=navigation.current,
                     status="accepted",
@@ -1472,6 +1497,18 @@ async def main(page: ft.Page):
                     ft.Text("Não foi possível enviar este episódio ao player Android.")
                 )
                 page.snack_bar.open = True
+                performance.event(
+                    "CONTINUE_FAILED",
+                    screen=navigation.current,
+                    status="failed",
+                    metadata={
+                        "player_session_id": launch_session_id,
+                        "episode_id": episode_id,
+                        "anime_id": anime_id,
+                        "reason": "native_handoff_exception",
+                        "error_type": type(exc).__name__,
+                    },
+                )
                 performance.event(
                     "ASSIST_FAILED",
                     screen=navigation.current,

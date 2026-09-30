@@ -75,7 +75,7 @@ class PlaybackHardeningTests(unittest.TestCase):
             "MAX_RETRY_ATTEMPTS",
         ):
             self.assertIn(token, player + policy)
-        self.assertIn("isRetryable(category)", player)
+        self.assertIn("classification.retryable", player)
         self.assertIn("showTechnicalInfo()", player)
 
     def test_resume_policy_clamps_invalid_positions(self):

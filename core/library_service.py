@@ -1173,14 +1173,7 @@ class LibraryService:
             return sections
 
         catalog = catalog
-        episodes = [e for anime in catalog for season in anime.get("seasons", []) for e in season.get("episodes", [])]
-        specials = [e for anime in catalog for group in anime.get("specials", []) for e in group.get("episodes", [])]
-        all_media = episodes + specials + [e for anime in catalog for e in anime.get("media_files", [])]
-        by_path = {e.get("path"): e for e in all_media if e.get("path")}
         continue_items = self.store.continue_watching(limit=limit)
-        for item in continue_items:
-            if item.get("path") in by_path:
-                item["next_episode"] = by_path[item["path"]]
         favorites = [a for a in catalog if a.get("favorite")]
         pinned = [a for a in catalog if a.get("is_pinned")]
         movies = [a for a in catalog if a.get("media_kind") == "movie"]

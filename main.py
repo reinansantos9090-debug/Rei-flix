@@ -1006,6 +1006,17 @@ async def main(page: ft.Page):
                     "source": "player_navigation",
                 },
             )
+            performance.event(
+                "EPISODE_RESOLVED",
+                screen=navigation.current,
+                metadata={
+                    "episode_id": episode_id,
+                    "anime_id": anime_id,
+                    "can_next": bool(navigation_snapshot.get("can_next")),
+                    "can_previous": bool(navigation_snapshot.get("can_previous")),
+                    "source": "library.player_navigation",
+                },
+            )
             logger.info(
                 "[PLAYER] PLAY_PREPARED path=%s neighbor_resolution_ms=%s source=player_navigation",
                 path,
@@ -1106,6 +1117,17 @@ async def main(page: ft.Page):
             raise asyncio.CancelledError()
 
         performance.event(
+            "URI_VALIDATED",
+            screen=navigation.current,
+            metadata={
+                "request_id": request_id,
+                "player_session_id": player_session_id or origin_player_session_id,
+                "episode_id": episode_id,
+                "anime_id": anime_id,
+                "source": "android_bridge.normalize_local_media_reference",
+            },
+        )
+        performance.event(
             "NATIVE_HANDOFF_ACCEPTED",
             screen=navigation.current,
             metadata={
@@ -1132,6 +1154,16 @@ async def main(page: ft.Page):
             progress_seconds = 0
         if player_launch_inflight["value"]:
             logger.info("[PLAYER] duplicate launch ignored path=%s", path)
+            performance.event(
+                "ASSIST_REQUEST_REJECTED",
+                screen=navigation.current,
+                status="rejected",
+                metadata={
+                    "reason": "OPEN_REQUEST_IN_FLIGHT",
+                    "episode_id": episode_id,
+                    "anime_id": anime_id,
+                },
+            )
             diagnostics.record(
                 "PLAYER_HANDOFF_DUPLICATE_IGNORED",
                 source="android_bridge",
@@ -1141,8 +1173,22 @@ async def main(page: ft.Page):
         player_launch_inflight["value"] = True
         launch_session_id = uuid.uuid4().hex
         player_active_session_id["value"] = launch_session_id
+        player_active_request_id["value"] = None
+        player_active_episode_id["value"] = episode_id
+        player_active_anime_id["value"] = anime_id
+        player_active_uri["value"] = path
         player_active_player_generation["value"] = 0
         player_session_active["value"] = True
+        performance.event(
+            "ASSIST_REQUEST_CREATED",
+            screen=navigation.current,
+            metadata={
+                "player_session_id": launch_session_id,
+                "episode_id": episode_id,
+                "anime_id": anime_id,
+                "origin": "details_or_episode_card",
+            },
+        )
         performance.event(
             "PLAYER_SESSION_CREATED",
             screen=navigation.current,
@@ -1171,9 +1217,26 @@ async def main(page: ft.Page):
                     ),
                 )
                 performance.event(
+                    "ASSIST_REQUEST_ACCEPTED",
+                    screen=navigation.current,
+                    status="accepted",
+                    metadata={
+                        "request_id": request_id,
+                        "player_session_id": launch_session_id,
+                        "episode_id": episode_id,
+                        "anime_id": anime_id,
+                        "reason": "native_handoff_confirmed",
+                    },
+                )
+                performance.event(
                     "player.launch_complete",
                     screen=navigation.current,
-                    metadata={"request_id": request_id, "episode_id": episode_id, "anime_id": anime_id},
+                    metadata={
+                        "request_id": request_id,
+                        "player_session_id": launch_session_id,
+                        "episode_id": episode_id,
+                        "anime_id": anime_id,
+                    },
                 )
             except Exception as exc:
                 if player_active_session_id["value"] == launch_session_id:
@@ -1183,6 +1246,18 @@ async def main(page: ft.Page):
                     ft.Text("Não foi possível enviar este episódio ao player Android.")
                 )
                 page.snack_bar.open = True
+                performance.event(
+                    "ASSIST_FAILED",
+                    screen=navigation.current,
+                    status="failed",
+                    metadata={
+                        "player_session_id": launch_session_id,
+                        "episode_id": episode_id,
+                        "anime_id": anime_id,
+                        "reason": "native_handoff_exception",
+                        "error_type": type(exc).__name__,
+                    },
+                )
                 diagnostics.record(
                     "PLAYER_HANDOFF_PYTHON_FAILED",
                     source="android_bridge",
@@ -2266,6 +2341,39 @@ async def main(page: ft.Page):
                                                 "current_generation": player_transition_generation["value"],
                                             },
                                         )
+                            if (
+                                diagnostic_event == "FIRST_FRAME_RENDERED"
+                                and not isinstance(context, dict)
+                                and player_session_active["value"]
+                                and diagnostic_session
+                                and player_active_session_id["value"] == diagnostic_session
+                                and (
+                                    not event_request_id
+                                    or player_active_request_id["value"] in (None, event_request_id)
+                                )
+                                and (
+                                    not payload.get("episodeId")
+                                    or player_active_episode_id["value"] in (None, payload.get("episodeId"))
+                                )
+                                and frame_generation > 0
+                                and (
+                                    player_active_player_generation["value"] in (0, frame_generation)
+                                )
+                            ):
+                                performance.event(
+                                    "ASSIST_COMPLETED",
+                                    screen=navigation.current,
+                                    status="completed",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "player_session_id": diagnostic_session,
+                                        "episode_id": payload.get("episodeId"),
+                                        "anime_id": payload.get("animeId"),
+                                        "player_generation": frame_generation,
+                                        "transition_generation": frame_transition_generation,
+                                        "completion": "FIRST_FRAME_RENDERED",
+                                    },
+                                )
                             diagnostics.record(
                                 diagnostic_event,
                                 request_id=event_request_id,

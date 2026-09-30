@@ -85,6 +85,7 @@ class SettingsContractTests(unittest.TestCase):
         player_request = self.read(PLAYER_REQUEST)
         home = self.read(HOME)
         for key in (
+            "player.zoom_enabled",
             "player.double_tap_seek_seconds",
             "player.long_press_speed",
             "player.max_video_resolution",
@@ -101,6 +102,7 @@ class SettingsContractTests(unittest.TestCase):
         ):
             self.assertIn(f'"{key}"', settings)
             self.assertIn(key, view)
+        self.assertIn('"player.zoom_enabled": settings.get("player.zoom_enabled")', main)
         self.assertIn('"player.double_tap_seek_seconds": settings.get("player.double_tap_seek_seconds")', main)
         self.assertIn('"player.long_press_speed": settings.get("player.long_press_speed")', main)
         self.assertIn('"player.max_video_resolution": settings.get("player.max_video_resolution")', main)

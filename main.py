@@ -783,6 +783,11 @@ async def main(page: ft.Page):
         performance.counter("ui.render_current")
         performance.counter("ui.render_current.executed")
         performance.counter(f"ui.render_current.execute.{reason_key}")
+        if navigation.current == "home" and home_state.get("_manual_refresh_pending"):
+            refresh = home_state.get("_refresh_from_catalog")
+            if callable(refresh):
+                refresh()
+
         performance.event(
             "ui.render_current",
             duration_ms=(performance.now()-render_started)*1000.0,
@@ -1774,7 +1779,8 @@ async def main(page: ft.Page):
                 home_state["_manual_refresh_pending"] = True
             else:
                 home_refresh_context["active"] = False
-                home_state["_manual_refresh_pending"] = False
+                home_refresh_context["request_id"] = None
+                home_state["_manual_refresh_pending"] = True
                 _publish_home_refresh_state("IDLE")
         if navigation.current == "home":
             refresh = home_state.get("_refresh_from_catalog")

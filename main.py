@@ -3369,14 +3369,16 @@ async def main(page: ft.Page):
                             )
                             player_transition_task["task"] = task
                         elif event_type == 'player_error':
-                            if isinstance(pending_next_transition["value"], dict):
-                                pending = pending_next_transition["value"]
-                                if event_request_id in {
+                            for context_direction, pending in (
+                                ("NEXT", pending_next_transition["value"]),
+                                ("PREVIOUS", pending_previous_transition["value"]),
+                            ):
+                                if isinstance(pending, dict) and event_request_id in {
                                     pending.get("origin_request_id"),
                                     pending.get("target_request_id"),
                                 }:
                                     performance.event(
-                                        "NEXT_TRANSITION_FAILED",
+                                        "NEXT_TRANSITION_FAILED" if context_direction == "NEXT" else "PREVIOUS_TRANSITION_FAILED",
                                         screen=navigation.current,
                                         status="failed",
                                         metadata={
@@ -3388,9 +3390,12 @@ async def main(page: ft.Page):
                                     )
                             if event_request_id and (
                                 event_request_id == player_active_request_id["value"]
-                                or (
-                                    isinstance(pending_next_transition["value"], dict)
-                                    and event_request_id == pending_next_transition["value"].get("target_request_id")
+                                or any(
+                                    isinstance(pending, dict) and event_request_id == pending.get("target_request_id")
+                                    for pending in (
+                                        pending_next_transition["value"],
+                                        pending_previous_transition["value"],
+                                    )
                                 )
                             ):
                                 cancel_player_transition("player_error")

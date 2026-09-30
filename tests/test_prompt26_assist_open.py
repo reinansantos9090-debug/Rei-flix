@@ -73,6 +73,7 @@ class Prompt26AssistOpenTests(unittest.TestCase):
             "MEDIASTORE_ITEM_UNAVAILABLE",
             "FILE_NOT_FOUND",
             "MEDIA_URI_INVALID",
+            "PLAYER_SESSION_INVALID",
         ):
             self.assertIn(code, PLAYER)
         self.assertIn("SourceValidationFailure", PLAYER)
@@ -139,6 +140,7 @@ class Prompt26AssistOpenTests(unittest.TestCase):
             "C_assist_back": ("invalidate_player_session", "reportPlayerExit"),
             "D_activity_recreation": ("pendingPlayIntentData", "player_session_id"),
             "E_previous_player_finishing": ("lastPlayerExitAtMs", "PLAYER_HANDOFF_REJECTED"),
+            "sessionless_handoff": ("PLAYER_SESSION_INVALID", "playerSessionId"),
             "F_episode_a_then_b": ("player_active_session_id", "PLAYER_REQUEST_REPLACED"),
             "G_slow_sqlite": ("asyncio.to_thread(library.player_navigation", "transition_guard"),
             "H_slow_uri_resolution": ("playbackWorker.submit", "isCurrentPreparation"),

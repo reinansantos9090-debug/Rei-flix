@@ -1835,6 +1835,7 @@ async def main(page: ft.Page):
             safe_update()
     def on_catalog_changed(*, refresh_details=True):
         catalog_started = performance.now()
+        schedule_thumbnail_reconciliation("catalog_changed")
         diagnostics.record("UI_REFRESHED", result="catalog_changed", source=navigation.current)
         # Home/Organize keep their cached control tree across Details/Player.
         # Refresh their current dataset in place instead of rebuilding the whole
@@ -3437,29 +3438,19 @@ async def main(page: ft.Page):
                             size = int(payload.get('size') or 0)
                             modified_at = int(payload.get('modifiedAt') or 0)
                             media_identity = str(payload.get('mediaIdentity') or '').strip()
-                            thumbnail_key = (uri, size, modified_at)
+                            thumbnail_key = (uri, size, modified_at, media_identity)
                             _prune_thumbnail_requests()
                             completed_request_id = thumbnail_completed_request_by_key.get(thumbnail_key)
                             if request_id and completed_request_id == request_id and thumbnail_key not in thumbnail_requests:
-                                diagnostics.record(
-                                    "THUMBNAIL_DUPLICATE",
-                                    request_id=request_id,
-                                    result="IGNORED",
-                                )
+                                diagnostics.record("THUMBNAIL_DUPLICATE", request_id=request_id, result="IGNORED")
                                 continue
                             latest_key = thumbnail_latest_key_by_uri.get(uri)
                             if latest_key is not None and thumbnail_key != latest_key:
                                 performance.counter("artwork.thumbnail.stale")
-                                # Only the latest requested media version may publish.
-                                # Older requests can finish later and must never
-                                # overwrite the current thumbnail/artwork.
                                 thumbnail_requests.discard(thumbnail_key)
+                                thumbnail_pending.pop(thumbnail_key, None)
                                 thumbnail_request_started_at.pop(thumbnail_key, None)
-                                diagnostics.record(
-                                    "THUMBNAIL_STALE",
-                                    request_id=request_id,
-                                    result="IGNORED",
-                                )
+                                diagnostics.record("THUMBNAIL_STALE", request_id=request_id, result="IGNORED")
                                 continue
                             metadata = {
                                 "durationMs": float(payload.get('durationMs') or 0),
@@ -3480,41 +3471,78 @@ async def main(page: ft.Page):
                                     metadata=metadata,
                                 )
                                 thumbnail_requests.discard(thumbnail_key)
+                                thumbnail_pending.pop(thumbnail_key, None)
                                 started_native = thumbnail_request_started_at.pop(thumbnail_key, None)
-                                thumbnail_latest_at[uri] = time.monotonic()
                                 if request_id:
                                     thumbnail_completed_request_by_key[thumbnail_key] = request_id
                                 if registered:
+                                    thumbnail_retry_counts.pop(thumbnail_key, None)
+                                    thumbnail_latest_at[uri] = time.monotonic()
                                     if started_native is not None:
-                                        performance.event("artwork.thumbnail", duration_ms=(time.monotonic()-started_native)*1000.0,
-                                                          status="ready", screen=navigation.current,
-                                                          metadata={"path": uri, "media_identity": media_identity, "update": True})
+                                        performance.event(
+                                            "artwork.thumbnail",
+                                            duration_ms=(time.monotonic()-started_native)*1000.0,
+                                            status="ready",
+                                            screen=navigation.current,
+                                            metadata={"path": uri, "media_identity": media_identity, "update": True},
+                                        )
                                     performance.counter("artwork.thumbnail.update")
-                                    # A generated thumbnail changes one image, not the
-                                    # catalog membership or ordering. Keep mounted Home
-                                    # controls (and their scroll/focus state) intact.
-                                    update_thumbnail = home_state.get('_update_thumbnail')
-                                    if callable(update_thumbnail):
-                                        update_thumbnail(uri, thumbnail_path)
+                                    home_update = home_state.get('_update_thumbnail')
+                                    if callable(home_update):
+                                        home_update(uri, thumbnail_path, media_identity)
+                                    details_update = details_state.get('_update_thumbnail')
+                                    if callable(details_update):
+                                        details_update(uri, thumbnail_path, media_identity)
+                                    schedule_thumbnail_reconciliation("thumbnail_ready")
                             diagnostics.record(
                                 "THUMBNAIL_READY",
                                 request_id=request_id,
                                 source=payload.get('source') or "media_metadata_retriever",
-                                result="REGISTERED" if thumbnail_path else "EMPTY",
+                                result="REGISTERED" if registered else "NOT_REGISTERED" if uri and thumbnail_path else "EMPTY",
                             )
                         elif event_type == 'thumbnail_error':
                             uri = str(payload.get('uri') or '').strip()
-                            thumbnail_key = (
-                                uri,
-                                int(payload.get('size') or 0),
-                                int(payload.get('modifiedAt') or 0),
-                            )
+                            size = int(payload.get('size') or 0)
+                            modified_at = int(payload.get('modifiedAt') or 0)
+                            media_identity = str(payload.get('mediaIdentity') or '').strip()
+                            thumbnail_key = (uri, size, modified_at, media_identity)
                             latest_key = thumbnail_latest_key_by_uri.get(uri)
                             thumbnail_requests.discard(thumbnail_key)
+                            thumbnail_pending.pop(thumbnail_key, None)
                             thumbnail_request_started_at.pop(thumbnail_key, None)
                             if latest_key == thumbnail_key:
-                                thumbnail_latest_key_by_uri.pop(uri, None)
-                                thumbnail_latest_at.pop(uri, None)
+                                status = str(payload.get('status') or 'FAILED').upper()
+                                retryable = status == 'EXTRACTION_FAILED'
+                                count = int(thumbnail_retry_counts.get(thumbnail_key, 0))
+                                if retryable and count < 2:
+                                    thumbnail_retry_counts[thumbnail_key] = count + 1
+                                    delay = 1.0 if count == 0 else 5.0
+                                    async def retry_after_error(
+                                        item_uri=uri,
+                                        item_size=size,
+                                        item_modified=modified_at,
+                                        item_identity=media_identity,
+                                        retry_delay=delay,
+                                    ):
+                                        await asyncio.sleep(retry_delay)
+                                        if ui_alive[0]:
+                                            request_missing_thumbnail(
+                                                {
+                                                    "path": item_uri,
+                                                    "file_size": item_size,
+                                                    "modified_at": item_modified,
+                                                    "media_identity": item_identity,
+                                                },
+                                                priority=200,
+                                            )
+                                    asyncio.create_task(retry_after_error())
+                                    performance.counter("artwork.thumbnail.retry_scheduled")
+                                else:
+                                    thumbnail_retry_counts.pop(thumbnail_key, None)
+                                    thumbnail_latest_key_by_uri.pop(uri, None)
+                                    thumbnail_latest_at.pop(uri, None)
+                                    if retryable:
+                                        performance.counter("artwork.thumbnail.retry_exhausted")
                             diagnostics.record(
                                 "THUMBNAIL_ERROR",
                                 request_id=request_id,

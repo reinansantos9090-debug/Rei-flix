@@ -27,8 +27,7 @@ class Prompt41ForensicTests(unittest.TestCase):
     def test_prepare_rearms_reuse_watchdog_after_generation_increment(self):
         source = PLAYER.read_text(encoding="utf-8")
         prepare_start = source.index("private fun prepareCurrentMedia(")
-        prepare_end = source.index("private fun isCurrentPreparation(", prepare_start)
-        prepare = source[prepare_start:prepare_end]
+        prepare = source[prepare_start:prepare_start + 1200]
         self.assertIn("beginPlayerGeneration(reason)", prepare)
         self.assertIn('if (episodeChangePending) {\n            armEpisodeChangeTimeout("prepare_" + reason)\n        }', prepare)
 

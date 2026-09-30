@@ -1080,7 +1080,7 @@ class LibraryService:
 
             relative = str(episode.get("relative_path") or "").strip().strip("/").replace("\\", "/")
             if relative and not os.path.isabs(relative):
-                candidate = os.path.realpath(os.path.join(os.path.dirname(source["root"]), relative))
+                candidate = os.path.realpath(os.path.join(source["root"], relative))
                 if self._filesystem_path_within_source(candidate, source["root"]):
                     return "valid" if os.path.isfile(candidate) else "removed"
 

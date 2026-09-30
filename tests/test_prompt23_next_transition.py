@@ -43,7 +43,7 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         watchdog = self.player[start:end]
         self.assertIn("NEXT_TRANSITION_STALLED", watchdog)
         self.assertIn("PREVIOUS_TRANSITION_STALLED", watchdog)
-        self.assertIn("diagnostic-only", watchdog)
+        self.assertIn("EPISODE_CHANGE_WATCHDOG", watchdog)
         self.assertNotIn("episodeChangePending = false", watchdog)
 
     def test_native_next_is_single_flight_and_session_scoped(self):
@@ -76,7 +76,7 @@ class Prompt23NextTransitionTests(unittest.TestCase):
             self.player.index("autoplayNext =", self.player.index("val expectedSuccessor"))
         ]
         self.assertIn("originPlayerSessionId", reuse)
-        self.assertIn("originPlayerSessionId == playerSessionId", self.player)
+        self.assertIn("incomingOriginPlayerSessionId == playerSessionId", self.player)
 
     def test_ready_does_not_commit_and_first_frame_does(self):
         ready_start = self.player.index("Player.STATE_READY -> {")

@@ -2100,6 +2100,51 @@ class MainActivity : FlutterFragmentActivity() {
         val originRequestId = playerRequest.originRequestId
         val originCreatedAtMs = playerRequest.originCreatedAtMs
         val incomingPlayerSessionId = playerRequest.playerSessionId
+        val originPlayerSessionId = playerRequest.originPlayerSessionId
+        if (incomingPlayerSessionId.isBlank()) {
+            nativeRequestState.markOperationState(
+                requestId,
+                "play",
+                NativeRequestState.OperationState.FAILED,
+            )
+            publishNativeDiagnostic(
+                "PLAYER_HANDOFF_REJECTED",
+                requestId,
+                "play",
+                NativeRequestState.OperationState.FAILED.name,
+                result = "PLAYER_SESSION_INVALID",
+            )
+            NativeMailbox.writeBestEffort(
+                this,
+                JSONObject()
+                    .put("type", "player_error")
+                    .put("requestId", requestId)
+                    .put("message", "A sessão do player não é válida para esta abertura.")
+                    .put(
+                        "payload",
+                        JSONObject()
+                            .put("stage", "handoff")
+                            .put("reason", "PLAYER_SESSION_INVALID")
+                            .put("errorCode", "PLAYER_SESSION_INVALID"),
+                    ),
+            )
+            return false
+        }
+        if (originRequestId.isNotBlank() && originPlayerSessionId.isBlank()) {
+            nativeRequestState.markOperationState(
+                requestId,
+                "play",
+                NativeRequestState.OperationState.FAILED,
+            )
+            publishNativeDiagnostic(
+                "PLAYER_HANDOFF_REJECTED",
+                requestId,
+                "play",
+                NativeRequestState.OperationState.FAILED.name,
+                result = "PLAYER_SESSION_INVALID",
+            )
+            return false
+        }
         if (originRequestId.isBlank() && incomingPlayerSessionId.isNotBlank()) {
             if (activePlayerSessionId != null && activePlayerSessionId != incomingPlayerSessionId) {
                 nativeRequestState.markOperationState(

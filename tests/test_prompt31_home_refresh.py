@@ -27,7 +27,7 @@ class Prompt31HomeRefreshContractTests(unittest.TestCase):
         start = source.index("async def refresh_home_library")
         end = source.index("async def login", start)
         block = source[start:end]
-        self.assertIn("await refresh_library()", block)
+        self.assertIn("await refresh_library(_home_refresh_context=home_refresh_context)", block)
         self.assertIn("HOME_REFRESH_REQUESTED", block)
         self.assertIn("HOME_REFRESH_ACCEPTED", block)
         self.assertIn("HOME_REFRESH_REJECTED", block)

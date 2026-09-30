@@ -2552,7 +2552,6 @@ async def main(page: ft.Page):
                                     )
                                     continue
                                 player_active_session_id["value"] = session_id
-                                player_active_request_id["value"] = event_request_id
                                 player_session_active["value"] = True
                                 player_active_episode_id["value"] = payload.get("episodeId")
                                 player_active_anime_id["value"] = payload.get("animeId")
@@ -2579,6 +2578,7 @@ async def main(page: ft.Page):
                                             "transition_generation": context.get("native_transition_generation"),
                                         },
                                     )
+                                    player_active_request_id["value"] = event_request_id
                                     diagnostics.record(
                                         "PLAYER_OPENED",
                                         request_id=event_request_id,

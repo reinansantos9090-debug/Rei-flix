@@ -2329,17 +2329,25 @@ async def main(page: ft.Page):
             return True
         previous = thumbnail_latest_key_by_uri.get(path_ref)
         if previous is not None and previous != key:
-            thumbnail_pending.pop(previous, None)
+            if thumbnail_pending.pop(previous, None) is not None:
+                thumbnail_requests.discard(previous)
+                thumbnail_request_started_at.pop(previous, None)
             thumbnail_latest_at[path_ref] = time.monotonic()
         thumbnail_latest_key_by_uri[path_ref] = key
         thumbnail_latest_at[path_ref] = time.monotonic()
         try:
-            exact_rows = library.artwork.list_for("episode", episode.get("id"), "episode_thumbnail")
-            exact_ready = any(
-                row.get("status") == "ready"
-                and row.get("local_path")
-                and os.path.isfile(str(row.get("local_path")))
-                for row in exact_rows
+            resolved_exact = library.artwork.get(
+                "episode",
+                episode.get("id"),
+                "episode_thumbnail",
+                allow_network=False,
+            )
+            exact_ready = bool(
+                resolved_exact
+                and resolved_exact.get("artwork_type") == "episode_thumbnail"
+                and not resolved_exact.get("fallback")
+                and resolved_exact.get("local_path")
+                and os.path.isfile(str(resolved_exact.get("local_path")))
             )
         except Exception:
             exact_ready = False
@@ -3460,6 +3468,7 @@ async def main(page: ft.Page):
                                 "title": str(payload.get('title') or ''),
                                 "mimeType": str(payload.get('mimeType') or ''),
                             }
+                            registered = False
                             if uri and thumbnail_path:
                                 registered = await asyncio.to_thread(
                                     library.register_generated_thumbnail,
@@ -3493,7 +3502,6 @@ async def main(page: ft.Page):
                                     details_update = details_state.get('_update_thumbnail')
                                     if callable(details_update):
                                         details_update(uri, thumbnail_path, media_identity)
-                                    schedule_thumbnail_reconciliation("thumbnail_ready")
                             diagnostics.record(
                                 "THUMBNAIL_READY",
                                 request_id=request_id,
@@ -4889,6 +4897,7 @@ async def main(page: ft.Page):
         ))
         page.snack_bar.open = True
         safe_update()
+    schedule_thumbnail_reconciliation("startup")
     # Runtime navigation is deliberately process-local. The NavigationController
     # was initialized at Home and no persisted route is restored here.
     # MainActivity publishes the authoritative SAF grant inventory from

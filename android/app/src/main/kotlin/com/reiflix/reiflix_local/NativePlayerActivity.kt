@@ -179,19 +179,32 @@ class NativePlayerActivity : ComponentActivity() {
             episodeChangeTimeoutGeneration != transitionSourceGeneration ||
             episodeChangeTimeoutGeneration != transitionGeneration
         ) return@Runnable
-        // A slow device is not an abandoned transition. The watchdog is
-        // diagnostic-only; only an explicit invalidation, Media3 error, or
-        // the validated successor/first-frame path may release the gate.
-        publishNextTransitionDiagnostic(
-            "NEXT_TRANSITION_STALLED",
-            "watchdog_elapsed",
-            JSONObject().put("ageMs", transitionStartedAtMs.takeIf { it > 0L }?.let { System.currentTimeMillis() - it } ?: 0L),
-        )
-        logPlayer(
-            "EPISODE_CHANGE_WATCHDOG requestId=" + requestId.ifEmpty { "-" } +
-                " transitionGeneration=" + transitionGeneration +
-                " active=true",
-        )
+        if (nextTransitionActive) {
+            // A slow device is not an abandoned Next transition. The watchdog
+            // is diagnostic-only and never releases the single-flight gate.
+            publishNextTransitionDiagnostic(
+                "NEXT_TRANSITION_STALLED",
+                "watchdog_elapsed",
+                JSONObject().put("ageMs", transitionStartedAtMs.takeIf { it > 0L }?.let { System.currentTimeMillis() - it } ?: 0L),
+            )
+            logPlayer(
+                "EPISODE_CHANGE_WATCHDOG requestId=" + requestId.ifEmpty { "-" } +
+                    " transitionGeneration=" + transitionGeneration +
+                    " active=true direction=NEXT",
+            )
+        } else {
+            episodeChangePending = false
+            transitionPublishFuture = null
+            transitionSourceRequestId = ""
+            transitionSourceUri = ""
+            transitionSourceCreatedAtMs = 0L
+            updateEpisodeNavigationButtons()
+            showFeedback("Não foi possível mudar de episódio.", 1800L)
+            logPlayer(
+                "EPISODE_CHANGE_TIMEOUT requestId=" + requestId.ifEmpty { "-" } +
+                    " uri=" + uri + " direction=PREVIOUS",
+            )
+        }
     }
     private var retryCount = 0
     internal var firstFrameRenderedForTesting = false
@@ -1157,6 +1170,47 @@ override fun onCreate(savedInstanceState: Bundle?) {
                                     " awaitingFirstFrame=true",
                             )
                         }
+                    }
+                    if (
+                        !nextTransitionActive &&
+                        episodeChangePending &&
+                        transitionSourceRequestId == requestId &&
+                        transitionSourceUri == uri.toString()
+                    ) {
+                        episodeChangePending = false
+                        episodeChangeTimeoutRequestId = ""
+                        episodeChangeTimeoutUri = ""
+                        episodeChangeTimeoutGeneration = 0L
+                        transitionSourceRequestId = ""
+                        transitionSourceUri = ""
+                        transitionSourceCreatedAtMs = 0L
+                        transitionReadyGeneration = -1L
+                        handler.removeCallbacks(episodeChangeTimeout)
+                        if (transitionStartedAtMs > 0L) {
+                            val readyAtMs = System.currentTimeMillis()
+                            val transitionLatencyMs = readyAtMs - transitionStartedAtMs
+                            PerformanceDiagnostics.markPlayer(
+                                this@NativePlayerActivity,
+                                "transition_ready",
+                                requestId,
+                                commandCreatedAtMs,
+                                reused = true,
+                            )
+                            logPlayer(
+                                "PLAYER_TRANSITION_READY requestId=" + requestId.ifEmpty { "-" } +
+                                    " transitionLatencyMs=" + transitionLatencyMs +
+                                    " direction=PREVIOUS",
+                            )
+                            transitionStartedAtMs = 0L
+                        }
+                        transitionPublishFuture = null
+                        logPlayer(
+                            "EPISODE_CHANGE_COMMITTED requestId=" +
+                                requestId.ifEmpty { "-" } +
+                                " mediaId=" + currentMediaId() +
+                                " episodeId=" + currentEpisodeId() +
+                                " direction=PREVIOUS",
+                        )
                     }
                     updateEpisodeNavigationButtons()
                     completionReported = false

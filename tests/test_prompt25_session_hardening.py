@@ -163,8 +163,8 @@ class Prompt25SessionHardeningTests(unittest.TestCase):
 
     def test_no_long_sleep_based_tests(self):
         source = Path(__file__).read_text(encoding="utf-8")
-        self.assertNotIn("time.sleep(", source)
-        self.assertNotIn("asyncio.sleep(", source)
+        self.assertNotIn("time" + ".sleep(", source)
+        self.assertNotIn("asyncio" + ".sleep(", source)
 
 
 if __name__ == "__main__":

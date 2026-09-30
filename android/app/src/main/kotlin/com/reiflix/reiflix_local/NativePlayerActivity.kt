@@ -794,10 +794,6 @@ override fun onCreate(savedInstanceState: Bundle?) {
             episodeChangeTimeoutRequestId = requestId
             episodeChangeTimeoutUri = uri.toString()
             episodeChangeTimeoutGeneration = transitionGeneration
-            nextTransitionActive = incomingOriginTransitionDirection == "NEXT"
-            previousTransitionActive = incomingOriginTransitionDirection == "PREVIOUS"
-            transitionSourceDirection = incomingOriginTransitionDirection
-            transitionSourceMonotonicNs = incomingOriginMonotonicNs
             transitionReadyGeneration = -1L
             handler.postDelayed(episodeChangeTimeout, 5_000L)
             logPlayer(
@@ -2762,6 +2758,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("originGeneration", transitionSourceGeneration)
             .put("currentGeneration", transitionGeneration)
             .put("playerSessionId", playerSessionId)
+            .put("originMonotonicNs", originMonotonicNs)
+            .put("transitionDirection", transitionSourceDirection)
         val keys = extra.keys()
         while (keys.hasNext()) {
             val key = keys.next()

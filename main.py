@@ -2757,6 +2757,19 @@ async def main(page: ft.Page):
                                     "player_session_id": source_player_session_id,
                                 },
                             )
+                            if not is_next:
+                                performance.event(
+                                    "PREVIOUS_REQUEST_RECEIVED",
+                                    screen=navigation.current,
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "sequence": command_sequence,
+                                        "command_created_at_ms": button_created_at_ms,
+                                        "command_monotonic_ns": payload.get("monotonicNs"),
+                                        "transition_generation": payload.get("transitionGeneration"),
+                                        "player_session_id": source_player_session_id,
+                                    },
+                                )
                             performance.event(
                                 "PYTHON_MAILBOX_RECEIVED",
                                 screen=navigation.current,

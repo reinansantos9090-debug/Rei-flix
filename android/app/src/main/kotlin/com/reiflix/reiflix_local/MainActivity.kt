@@ -1994,12 +1994,16 @@ class MainActivity : FlutterFragmentActivity() {
         val reusingPlayerActivity = !previousActiveRequestId.isNullOrBlank()
         val originRequestId = playerRequest.originRequestId
         val originCreatedAtMs = playerRequest.originCreatedAtMs
+        val originPlayerSessionId = playerRequest.originPlayerSessionId
         if (originRequestId.isNotBlank()) {
             val activeOriginMismatch = !previousActiveRequestId.isNullOrBlank() &&
                 previousActiveRequestId != originRequestId
+            val sessionMismatch = originPlayerSessionId.isNotBlank() &&
+                !activePlayerSessionId.isNullOrBlank() &&
+                activePlayerSessionId != originPlayerSessionId
             val exitRace = originCreatedAtMs > 0L &&
                 lastPlayerExitAtMs >= originCreatedAtMs
-            if (activeOriginMismatch || exitRace) {
+            if (activeOriginMismatch || sessionMismatch || exitRace) {
                 nativeRequestState.markOperationState(
                     requestId,
                     "play",

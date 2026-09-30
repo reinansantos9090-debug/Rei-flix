@@ -431,6 +431,14 @@ override fun onCreate(savedInstanceState: Bundle?) {
         originTransitionGeneration = intent.getLongExtra("originTransitionGeneration", 0L)
         val originTransitionDirection = intent.getStringExtra("transitionDirection")?.trim()?.uppercase().orEmpty()
         publishPlayerLifecycle("onCreate")
+        publishNavigationTransitionDiagnostic(
+            "PLAYER_SESSION_CREATED",
+            "onCreate",
+            JSONObject()
+                .put("playerSessionId", playerSessionId)
+                .put("playerGeneration", playerGeneration)
+                .put("transitionGeneration", transitionGeneration),
+        )
 
         // A Next handoff always targets the already-active player session.
         // Reaching a brand-new Activity with a non-empty origin is therefore
@@ -2777,6 +2785,15 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     private fun finishPlayer(reason: String) {
         if (sessionState == SessionState.DESTROYED) return
         sessionState = SessionState.EXITING
+        publishNavigationTransitionDiagnostic(
+            "PLAYER_SESSION_INVALIDATED",
+            reason,
+            JSONObject()
+                .put("requestId", requestId)
+                .put("playerSessionId", playerSessionId)
+                .put("playerGeneration", playerGeneration)
+                .put("transitionGeneration", transitionGeneration),
+        )
         invalidateTransition("finish_player")
         pendingPreparation?.cancel(true)
         cancelFirstFrameDiagnostics("finish_player")

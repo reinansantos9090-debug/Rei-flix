@@ -2856,23 +2856,9 @@ async def main(page: ft.Page):
                                 created_at_ms=button_created_at_ms,
                             )
 
-                            if not player_session_active["value"]:
+                            if is_next and not source_player_session_id:
                                 performance.event(
-                                    "NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
-                                    screen=navigation.current,
-                                    status="rejected",
-                                    metadata={"request_id": event_request_id, "reason": "player_session_not_active", "player_session_id": source_player_session_id},
-                                )
-                                performance.event(
-                                    "PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
-                                    screen=navigation.current,
-                                    metadata={"request_id": event_request_id, "reason": "player_session_not_active"},
-                                )
-                                continue
-
-                            if not source_player_session_id:
-                                performance.event(
-                                    "NEXT_REQUEST_REJECTED" if is_next else "PREVIOUS_REQUEST_REJECTED",
+                                    "NEXT_REQUEST_REJECTED",
                                     screen=navigation.current,
                                     status="rejected",
                                     metadata={
@@ -2883,9 +2869,9 @@ async def main(page: ft.Page):
                                 )
                                 continue
 
-                            if player_active_session_id["value"] not in (None, source_player_session_id):
+                            if is_next and player_active_session_id["value"] not in (None, source_player_session_id):
                                 performance.event(
-                                    "NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
+                                    "NEXT_REQUEST_STALE",
                                     screen=navigation.current,
                                     status="rejected",
                                     metadata={
@@ -2899,7 +2885,7 @@ async def main(page: ft.Page):
                                     },
                                 )
                                 performance.event(
-                                    "PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
+                                    "PLAYER_NEXT_STALE_REJECTED",
                                     screen=navigation.current,
                                     metadata={
                                         "request_id": event_request_id,
@@ -2912,20 +2898,36 @@ async def main(page: ft.Page):
                                 continue
 
                             if player_transition_inflight["value"]:
-                                pending_context = pending_next_transition["value"] if is_next else pending_previous_transition["value"]
                                 performance.event(
-                                    "NEXT_REQUEST_DUPLICATE" if is_next and isinstance(pending_context, dict) and
-                                    event_request_id == pending_context.get("origin_request_id")
-                                    else "PREVIOUS_REQUEST_DUPLICATE" if (not is_next and isinstance(pending_context, dict) and
-                                    event_request_id == pending_context.get("origin_request_id"))
-                                    else "NEXT_REQUEST_REJECTED" if is_next else "PREVIOUS_REQUEST_REJECTED",
+                                    "PLAYER_COMMAND_STALE",
                                     screen=navigation.current,
                                     status="rejected",
-                                    metadata={"request_id": event_request_id, "age_ms": mailbox_latency_ms, "reason": "transition_in_progress"},
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "direction": direction_name,
+                                        "age_ms": mailbox_latency_ms,
+                                        "current_request_id": player_active_request_id["value"],
+                                        "current_generation": player_transition_generation["value"],
+                                        "command_generation": payload.get("transitionGeneration"),
+                                        "reason": "transition_in_progress",
+                                    },
                                 )
+                                if is_next:
+                                    performance.event(
+                                        "NEXT_REQUEST_DUPLICATE" if pending_next_transition["value"] and
+                                        event_request_id == pending_next_transition["value"].get("origin_request_id")
+                                        else "NEXT_REQUEST_REJECTED",
+                                        screen=navigation.current,
+                                        status="rejected",
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "age_ms": mailbox_latency_ms,
+                                            "reason": "transition_in_progress",
+                                        },
+                                    )
                                 continue
 
-active_request = player_active_request_id["value"]
+                            active_request = player_active_request_id["value"]
                             if active_request and event_request_id != active_request:
                                 performance.event(
                                     "NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
@@ -3000,41 +3002,70 @@ active_request = player_active_request_id["value"]
                                     current_is_valid = lambda: player_transition_is_current(
                                         transition_generation,
                                         event_request_id,
-                                        source_player_session_id,
+                                        source_player_session_id if is_next else None,
                                     )
                                     if not current_path:
                                         raise RuntimeError("missing_current_uri")
                                     if not current_is_valid():
-                                        performance.event(
-                                            "NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
-                                            screen=navigation.current,
-                                            status="rejected",
-                                            metadata={
-                                                "request_id": event_request_id,
-                                                "age_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
-                                                "reason": "stale_after_sqlite",
-                                                "origin_generation": payload.get("transitionGeneration"),
-                                                "current_generation": player_transition_generation["value"],
-                                            },
-                                        )
-                                        performance.event(
-                                            "PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
-                                            screen=navigation.current,
-                                            status="rejected",
-                                            metadata={
-                                                "request_id": event_request_id,
-                                                "reason": "stale_after_sqlite",
-                                                "origin_generation": payload.get("transitionGeneration"),
-                                                "current_generation": player_transition_generation["value"],
-                                            },
-                                        )
-                                        return                                        return
+                                        if is_next:
+                                            performance.event(
+                                                "NEXT_REQUEST_STALE",
+                                                screen=navigation.current,
+                                                status="rejected",
+                                                metadata={
+                                                    "request_id": event_request_id,
+                                                    "reason": "stale_before_sqlite",
+                                                    "origin_generation": payload.get("transitionGeneration"),
+                                                    "current_generation": player_transition_generation["value"],
+                                                },
+                                            )
+                                        return
+
+                                    query_started = performance.now()
+                                    performance.event(
+                                        "PYTHON_PLAYER_NAVIGATION_STARTED",
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "direction": direction_name,
+                                            "transition_generation": transition_generation,
+                                            "player_session_id": source_player_session_id,
+                                        },
+                                    )
+                                    performance.event(
+                                        "SQLITE_NEIGHBOR_QUERY_STARTED",
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "direction": direction_name,
+                                            "transition_generation": transition_generation,
+                                        },
+                                    )
+                                    navigation_snapshot = await asyncio.to_thread(
+                                        library.player_navigation,
+                                        current_path,
+                                    )
+                                    if not current_is_valid():
+                                        if is_next:
+                                            performance.event(
+                                                "NEXT_REQUEST_STALE",
+                                                screen=navigation.current,
+                                                status="rejected",
+                                                metadata={
+                                                    "request_id": event_request_id,
+                                                    "age_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
+                                                    "reason": "stale_after_sqlite",
+                                                    "origin_generation": payload.get("transitionGeneration"),
+                                                    "current_generation": player_transition_generation["value"],
+                                                },
+                                            )
+                                        return
 
                                     current_row = navigation_snapshot.get("current") or {}
                                     current_row_id = str(current_row.get("id") or "")
                                     current_row_anime = str(current_row.get("anime_id") or "")
                                     current_row_path = str(current_row.get("path") or "").strip()
-                                    if (
+                                    if is_next and (
                                         (payload.get("episodeId") and current_row_id and str(payload.get("episodeId")) != current_row_id)
                                         or (payload.get("animeId") and current_row_anime and str(payload.get("animeId")) != current_row_anime)
                                         or (current_row_path and current_row_path != current_path)

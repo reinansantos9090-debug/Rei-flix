@@ -1005,6 +1005,7 @@ class MainActivity : FlutterFragmentActivity() {
         protocolVersion: Int? = null,
         commandCreatedAt: Long? = null,
         parameterNames: String? = null,
+        playerSessionId: String? = null,
     ) {
         val payload = JSONObject()
             .put("event", event)
@@ -1017,6 +1018,7 @@ class MainActivity : FlutterFragmentActivity() {
         if (protocolVersion != null) payload.put("protocolVersion", protocolVersion)
         if (commandCreatedAt != null) payload.put("commandCreatedAt", commandCreatedAt)
         if (parameterNames != null) payload.put("parameterNames", parameterNames)
+        if (!playerSessionId.isNullOrBlank()) payload.put("playerSessionId", playerSessionId)
         NativeMailbox.write(
             this,
             JSONObject().put("type", "diagnostic").put("requestId", requestId ?: "").put("payload", payload),
@@ -1026,24 +1028,12 @@ class MainActivity : FlutterFragmentActivity() {
     private fun publishPlayerSessionDiagnostic(requestId: String, event: String) {
         val session = activePlayerSessionId ?: return
         publishNativeDiagnostic(
-            event,
-            requestId,
-            "play",
-            NativeRequestState.OperationState.COMPLETED.name,
+            event = event,
+            requestId = requestId,
+            action = "play",
+            state = NativeRequestState.OperationState.COMPLETED.name,
             result = session,
-        )
-        NativeMailbox.writeBestEffort(
-            this,
-            JSONObject()
-                .put("type", "diagnostic")
-                .put("requestId", requestId)
-                .put(
-                    "payload",
-                    JSONObject()
-                        .put("event", event)
-                        .put("requestId", requestId)
-                        .put("playerSessionId", session),
-                ),
+            playerSessionId = session,
         )
     }
 

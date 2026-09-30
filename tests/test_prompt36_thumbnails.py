@@ -204,7 +204,7 @@ class Prompt36ThumbnailTests(unittest.TestCase):
         self.assertIn("media_identity", main)
         self.assertNotIn("len(thumbnail_requests) >= 32", main)
         self.assertIn("details_state.get('_update_thumbnail')", main)
-        self.assertIn("view_state['_update_thumbnail']", details)
+        self.assertIn('view_state["_update_thumbnail"] = update_thumbnail_in_place', details)
         self.assertIn("media_identity and item_identity == media_identity", home)
         self.assertIn("Semaphore(2)", extractor)
         self.assertIn("isValidCachedThumbnail", extractor)

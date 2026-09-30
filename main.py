@@ -2046,7 +2046,30 @@ async def main(page: ft.Page):
                                     payload.get('result') or "-",
                                 )
                             diagnostic_event = str(payload.get('event') or 'NATIVE_DIAGNOSTIC').strip()
-                            if diagnostic_event == "PLAYER_SESSION_CREATED":
+                            if diagnostic_event == "PLAYER_SESSION_INVALIDATED":
+                                invalid_session = str(payload.get("playerSessionId") or "").strip()
+                                if (
+                                    invalid_session
+                                    and player_active_session_id["value"] == invalid_session
+                                ):
+                                    invalidate_player_session(
+                                        str(payload.get("reason") or "native_session_invalidated"),
+                                        expected_session_id=invalid_session,
+                                        expected_request_id=event_request_id or None,
+                                    )
+                                else:
+                                    performance.event(
+                                        "PLAYER_CALLBACK_STALE",
+                                        screen=navigation.current,
+                                        status="ignored",
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "player_session_id": invalid_session,
+                                            "current_player_session_id": player_active_session_id["value"],
+                                            "reason": "stale_session_invalidated",
+                                        },
+                                    )
+                            elif diagnostic_event == "PLAYER_SESSION_CREATED":
                                 session_id = str(payload.get("playerSessionId") or payload.get("result") or "").strip()
                                 if session_id:
                                     if player_session_active["value"] and player_active_session_id["value"] not in (None, session_id):

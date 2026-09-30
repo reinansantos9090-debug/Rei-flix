@@ -1265,6 +1265,11 @@ async def main(page: ft.Page):
             launch_progress_seconds = max(0.0, float(progress_seconds or 0.0))
             continue_lookup_started = performance.now()
             handoff_confirmed = False
+            current_session_guard = lambda: (
+                player_session_active["value"]
+                and player_active_session_id["value"] == launch_session_id
+                and ui_alive[0]
+            )
             try:
                 performance.event(
                     "CONTINUE_REQUEST_CREATED",
@@ -1397,11 +1402,6 @@ async def main(page: ft.Page):
                         "anime_id": fresh_episode.get("anime_id"),
                         "uri_source": "canonical_sqlite_row",
                     },
-                )
-                current_session_guard = lambda: (
-                    player_session_active["value"]
-                    and player_active_session_id["value"] == launch_session_id
-                    and ui_alive[0]
                 )
                 if not current_session_guard():
                     performance.event(

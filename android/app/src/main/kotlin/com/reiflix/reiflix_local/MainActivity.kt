@@ -2020,6 +2020,9 @@ class MainActivity : FlutterFragmentActivity() {
                         .put("source", "media_metadata_retriever")))
             } catch (exception: Exception) {
                 Log.e(LOG_TAG, "Thumbnail extraction failed", exception)
+                val sourceMissing = localUri.scheme == "file" &&
+                    !(localUri.path?.let { File(it).isFile } ?: false)
+                val errorStatus = if (sourceMissing) "SOURCE_MISSING" else "EXTRACTION_FAILED"
                 NativeMailbox.write(appContext, JSONObject().put("type", "thumbnail_error")
                     .put("requestId", requestId ?: "")
                     .put("message", "Não foi possível gerar a miniatura do vídeo.")
@@ -2028,8 +2031,8 @@ class MainActivity : FlutterFragmentActivity() {
                         .put("size", size)
                         .put("modifiedAt", modifiedAt)
                         .put("mediaIdentity", mediaIdentity)
-                        .put("status", "EXTRACTION_FAILED")
-                        .put("error", exception.message ?: "")))
+                        .put("status", errorStatus)
+                        .put("error", exception.message ?: "MediaMetadataRetriever não conseguiu obter um frame válido.")))
             }
         }
     }

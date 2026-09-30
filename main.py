@@ -3041,6 +3041,15 @@ async def main(page: ft.Page):
                                             "transition_generation": transition_generation,
                                         },
                                     )
+                                    performance.event(
+                                        "NEXT_SQLITE_QUERY_STARTED" if is_next else "PREVIOUS_SQLITE_QUERY_STARTED",
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "transition_generation": transition_generation,
+                                            "player_session_id": source_player_session_id,
+                                        },
+                                    )
                                     navigation_snapshot = await asyncio.to_thread(
                                         library.player_navigation,
                                         current_path,
@@ -3103,6 +3112,18 @@ async def main(page: ft.Page):
                                             "request_id": event_request_id,
                                             "direction": direction_name,
                                             "transition_generation": transition_generation,
+                                            "has_target": bool(target),
+                                        },
+                                    )
+                                    performance.event(
+                                        "NEXT_SQLITE_QUERY_FINISHED" if is_next else "PREVIOUS_SQLITE_QUERY_FINISHED",
+                                        duration_ms=sqlite_ms,
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "direction": direction_name,
+                                            "transition_generation": transition_generation,
+                                            "player_session_id": source_player_session_id,
                                             "has_target": bool(target),
                                         },
                                     )

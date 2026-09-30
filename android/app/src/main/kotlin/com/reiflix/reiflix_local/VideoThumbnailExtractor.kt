@@ -2,6 +2,7 @@ package com.reiflix.reiflix_local
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -9,6 +10,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Semaphore
 
 /**
  * Extracts a bounded local video frame and metadata without crossing the
@@ -27,6 +29,7 @@ object VideoThumbnailExtractor {
     )
 
     private val inFlight = ConcurrentHashMap<String, Any>()
+    private val extractionPermits = Semaphore(2)
     private const val MAX_CACHE_BYTES = 128L * 1024L * 1024L
     private const val MAX_FRAME_DIMENSION = 320
     internal fun cacheKey(mediaIdentity: String, size: Long, modifiedAt: Long): String =
@@ -53,7 +56,7 @@ object VideoThumbnailExtractor {
                     .put("requestId", requestId).put("mediaIdentity", identity).put("size", size)
                     .put("modifiedAt", modifiedAt)),
         )
-        if (target.isFile && target.length() > 0L) {
+        if (target.isFile && target.length() > 0L && isValidCachedThumbnail(target)) {
             NativeMailbox.writeBestEffort(
                 context,
                 org.json.JSONObject().put("type", "diagnostic").put("requestId", requestId)
@@ -71,6 +74,13 @@ object VideoThumbnailExtractor {
 
         val lock = inFlight.computeIfAbsent(key) { Any() }
         synchronized(lock) {
+            if (target.isFile && target.length() > 0L && isValidCachedThumbnail(target)) {
+                return Result(target.absolutePath)
+            }
+            runCatching {
+                if (target.exists()) target.delete()
+            }
+            extractionPermits.acquire()
             val startedNs = android.os.SystemClock.elapsedRealtimeNanos()
             NativeMailbox.writeBestEffort(
                 context,
@@ -93,10 +103,17 @@ object VideoThumbnailExtractor {
                 )
                 return result
             } finally {
+                extractionPermits.release()
                 inFlight.remove(key, lock)
             }
         }
     }
+
+    private fun isValidCachedThumbnail(file: File): Boolean = runCatching {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, options)
+        options.outWidth > 0 && options.outHeight > 0
+    }.getOrDefault(false)
 
     private fun extractLocked(
         context: Context,

@@ -640,6 +640,8 @@ override fun onCreate(savedInstanceState: Bundle?) {
         val incomingOriginCreatedAtMs = newIntent.getLongExtra("originCreatedAtMs", 0L)
         val incomingOriginTransitionGeneration = newIntent.getLongExtra("originTransitionGeneration", 0L)
         val incomingOriginPlayerSessionId = newIntent.getStringExtra("originPlayerSessionId")?.trim().orEmpty()
+        val incomingOriginMonotonicNs = newIntent.getLongExtra("originMonotonicNs", 0L)
+        val incomingOriginTransitionDirection = newIntent.getStringExtra("transitionDirection")?.trim()?.uppercase().orEmpty()
 
         // Validate a reused-player transition before mutating the Activity intent
         // or cancelling the currently valid transition. A delayed duplicate must
@@ -656,11 +658,14 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 incomingOriginCreatedAtMs == transitionPendingCreatedAtMs &&
                 incomingOriginTransitionGeneration == transitionPendingGeneration &&
                 incomingOriginPlayerSessionId.isNotBlank() &&
-                incomingOriginPlayerSessionId == playerSessionId
+                incomingOriginPlayerSessionId == playerSessionId &&
+                incomingOriginMonotonicNs > 0L &&
+                incomingOriginMonotonicNs == transitionSourceMonotonicNs &&
+                incomingOriginTransitionDirection == transitionSourceDirection
 
         if (incomingOriginRequestId.isNotBlank() && !expectedSuccessorBeforeMutation) {
-            publishNextTransitionDiagnostic(
-                "NEXT_REQUEST_STALE",
+            publishNavigationTransitionDiagnostic(
+                if (incomingOriginTransitionDirection == "PREVIOUS") "PREVIOUS_REQUEST_STALE" else "NEXT_REQUEST_STALE",
                 "invalid_successor_origin",
                 JSONObject()
                     .put("requestId", incomingRequestId)
@@ -670,8 +675,8 @@ override fun onCreate(savedInstanceState: Bundle?) {
                     .put("originPlayerSessionId", incomingOriginPlayerSessionId)
                     .put("currentPlayerSessionId", playerSessionId),
             )
-            publishNextTransitionDiagnostic(
-                "PLAYER_NEXT_STALE_REJECTED",
+            publishNavigationTransitionDiagnostic(
+                if (incomingOriginTransitionDirection == "PREVIOUS") "PLAYER_PREVIOUS_STALE_REJECTED" else "PLAYER_NEXT_STALE_REJECTED",
                 "invalid_successor_origin",
                 JSONObject()
                     .put("requestId", incomingRequestId)
@@ -700,6 +705,8 @@ override fun onCreate(savedInstanceState: Bundle?) {
         originCreatedAtMs = incomingOriginCreatedAtMs
         originTransitionGeneration = incomingOriginTransitionGeneration
         originPlayerSessionId = incomingOriginPlayerSessionId
+        originMonotonicNs = incomingOriginMonotonicNs
+        transitionSourceDirection = incomingOriginTransitionDirection
         publishPlayerLifecycle("onNewIntent")
         MainActivity.notePlayerSession(requestId, playerSessionId)
         val traceEpisodeId = newIntent.getStringExtra("episodeId").orEmpty()
@@ -732,6 +739,10 @@ override fun onCreate(savedInstanceState: Bundle?) {
         transitionSourceRequestId = ""
         transitionSourceUri = ""
         transitionSourceCreatedAtMs = 0L
+        transitionSourceDirection = ""
+        transitionSourceMonotonicNs = 0L
+        nextTransitionActive = false
+        previousTransitionActive = false
         transitionReadyGeneration = -1L
 
         val rawUri = newIntent.getStringExtra("uri")
@@ -751,6 +762,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
         originRequestId = newIntent.getStringExtra("originRequestId")?.trim().orEmpty()
         originCreatedAtMs = newIntent.getLongExtra("originCreatedAtMs", 0L)
         originTransitionGeneration = newIntent.getLongExtra("originTransitionGeneration", 0L)
+        originMonotonicNs = newIntent.getLongExtra("originMonotonicNs", 0L)
         commandCreatedAtMs = newIntent.getLongExtra("commandCreatedAtMs", 0L)
         commandReceivedAtMs = newIntent.getLongExtra("commandReceivedAtMs", 0L)
         handoffDispatchedAtMs = newIntent.getLongExtra("handoffDispatchedAtMs", 0L)
@@ -775,10 +787,17 @@ override fun onCreate(savedInstanceState: Bundle?) {
             transitionSourceUri = uri.toString()
             transitionSourceCreatedAtMs = originCreatedAtMs
             transitionSourceGeneration = transitionGeneration
+            transitionSourceDirection = incomingOriginTransitionDirection
+            transitionSourceMonotonicNs = incomingOriginMonotonicNs
+            nextTransitionActive = incomingOriginTransitionDirection == "NEXT"
+            previousTransitionActive = incomingOriginTransitionDirection == "PREVIOUS"
             episodeChangeTimeoutRequestId = requestId
             episodeChangeTimeoutUri = uri.toString()
             episodeChangeTimeoutGeneration = transitionGeneration
-            nextTransitionActive = nextTransitionActive || originRequestId.isNotBlank()
+            nextTransitionActive = incomingOriginTransitionDirection == "NEXT"
+            previousTransitionActive = incomingOriginTransitionDirection == "PREVIOUS"
+            transitionSourceDirection = incomingOriginTransitionDirection
+            transitionSourceMonotonicNs = incomingOriginMonotonicNs
             transitionReadyGeneration = -1L
             handler.postDelayed(episodeChangeTimeout, 5_000L)
             logPlayer(
@@ -790,8 +809,8 @@ override fun onCreate(savedInstanceState: Bundle?) {
         } else {
             episodeChangePending = false
             if (originRequestId.isNotBlank()) {
-                publishNextTransitionDiagnostic(
-                    "NEXT_REQUEST_STALE",
+                publishNavigationTransitionDiagnostic(
+                    if (incomingOriginTransitionDirection == "PREVIOUS") "PREVIOUS_REQUEST_STALE" else "NEXT_REQUEST_STALE",
                     "invalid_successor_origin",
                     JSONObject()
                         .put("originRequestId", originRequestId)

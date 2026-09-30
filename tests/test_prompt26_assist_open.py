@@ -73,20 +73,19 @@ class Prompt26AssistOpenTests(unittest.TestCase):
             "MEDIASTORE_ITEM_UNAVAILABLE",
             "FILE_NOT_FOUND",
             "MEDIA_URI_INVALID",
-            "PLAYER_SESSION_INVALID",
-            "EPISODE_NOT_FOUND",
-            "MEDIA_URI_MISSING",
         ):
             self.assertIn(code, PLAYER)
+        for code in ("EPISODE_NOT_FOUND", "MEDIA_URI_MISSING", "FILE_NOT_FOUND"):
+            self.assertIn(code, MAIN_PY)
         self.assertIn("SourceValidationFailure", PLAYER)
-        self.assertIn('.put("errorCode", payload.optString("errorCode").ifBlank { diagnosticErrorCode(reason) })', PLAYER)
+        self.assertIn('validateLocalSource', PLAYER)
 
     def test_media3_failure_classes_are_kept_distinct(self):
         for token in (
-            '"MEDIA3_PREPARE_FAILED"',
-            '"UNSUPPORTED_MEDIA"',
-            '"UNKNOWN_OPEN_FAILURE"',
             "MEDIA3_PREPARE_FAILED",
+            "classifyPlaybackFailure",
+            "PlaybackFailureKind.DECODER",
+            "PlaybackFailureKind.SOURCE",
         ):
             self.assertIn(token, PLAYER)
 
@@ -154,7 +153,7 @@ class Prompt26AssistOpenTests(unittest.TestCase):
             "M_valid_saf": ("SAF_PERMISSION_MISSING", "SafScanner.isAuthorizedDocument"),
             "N_valid_mediastore": ("MEDIASTORE_ITEM_UNAVAILABLE", "MediaStoreScanner.isAuthorizedDocument"),
             "O_media3_prepare_failure": ("MEDIA3_PREPARE_FAILED", "player.prepare()"),
-            "P_unsupported_media": ("UNSUPPORTED_MEDIA", "showPlayerError"),
+            "P_unsupported_media": ("PlaybackFailureKind.DECODER", "showPlayerError"),
             "Q_old_request": ("stale_request", "commandCreatedAtMs"),
             "R_old_mailbox": ("MAILBOX_STALE_COMMAND_DISCARDED", "bridge.drain()"),
             "S_old_callback": ("PLAYER_CALLBACK_STALE", "player_callback_is_current"),

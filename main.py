@@ -2049,6 +2049,25 @@ async def main(page: ft.Page):
                             if diagnostic_event == "PLAYER_SESSION_CREATED":
                                 session_id = str(payload.get("playerSessionId") or payload.get("result") or "").strip()
                                 if session_id:
+                                    if player_session_active["value"] and player_active_session_id["value"] not in (None, session_id):
+                                        performance.event(
+                                            "PLAYER_CALLBACK_STALE",
+                                            screen=navigation.current,
+                                            status="ignored",
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "player_session_id": session_id,
+                                                "current_player_session_id": player_active_session_id["value"],
+                                                "reason": "stale_session_created",
+                                            },
+                                        )
+                                        performance.event(
+                                            "MAILBOX_STALE_COMMAND_DISCARDED",
+                                            screen=navigation.current,
+                                            status="discarded",
+                                            metadata={"request_id": event_request_id, "player_session_id": session_id, "reason": "stale_session_created"},
+                                        )
+                                        continue
                                     player_active_session_id["value"] = session_id
                                     player_active_request_id["value"] = event_request_id or player_active_request_id["value"]
                                     player_session_active["value"] = True
@@ -2065,6 +2084,19 @@ async def main(page: ft.Page):
                             elif diagnostic_event == "PLAYER_HANDOFF_DISPATCHED" and event_request_id:
                                 player_active_request_id["value"] = event_request_id
                                 session_id = str(payload.get("playerSessionId") or "").strip()
+                                if session_id and player_session_active["value"] and player_active_session_id["value"] not in (None, session_id):
+                                    performance.event(
+                                        "PLAYER_CALLBACK_STALE",
+                                        screen=navigation.current,
+                                        status="ignored",
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "player_session_id": session_id,
+                                            "current_player_session_id": player_active_session_id["value"],
+                                            "reason": "stale_handoff_dispatch",
+                                        },
+                                    )
+                                    continue
                                 if session_id:
                                     player_active_session_id["value"] = session_id
                                 player_session_active["value"] = True

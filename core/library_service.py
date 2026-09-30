@@ -875,6 +875,7 @@ class LibraryService:
             if complete:
                 reconciled = self.store.reconcile_scope_generation(tree_uri, source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=generation, complete=True)
                 for anime_id in sorted(self.store.generation_anime_ids(source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=generation)): self.artwork.reindex_entity(anime_id)
+                reconciliation = self.reconcile_existing_library(dry_run=False) if enforce_library_source else None
                 self.store.update_folder_status(tree_uri, "granted")
             row = self.store.scan_by_id(scan_id) or {}
             result = ScanResult(catalog=[], scan_id=scan_id, status=final_status)
@@ -1011,6 +1012,199 @@ class LibraryService:
                 result.status = "error"
                 self.store.finish_scan(run_id, result.__dict__)
                 raise
+
+    def _reconciliation_source_descriptors(self):
+        descriptors = []
+        for folder in self.store.folders():
+            kind = str(folder.get("kind") or "").strip().casefold()
+            reference = str(folder.get("path") or "").strip()
+            authorization = str(folder.get("authorization") or "").strip().casefold()
+            if not reference or kind in {"mediastore", "broad_storage", "broad-storage"}:
+                continue
+
+            if kind == "saf":
+                tree_document_id = (
+                    str(folder.get("saf_document_id") or "").strip()
+                    or self._saf_tree_document_id(reference)
+                )
+                authority = (
+                    str(folder.get("saf_authority") or "").strip()
+                    or str(urlparse(reference).netloc or "").strip()
+                )
+                shared_prefix = identity_from_document(
+                    reference,
+                    "",
+                    str(folder.get("saf_volume_id") or "").strip() or None,
+                    reference,
+                )
+                descriptors.append({
+                    "kind": "saf",
+                    "reference": reference,
+                    "identity": str(folder.get("saf_identity") or "").strip() or saf_source_identity(reference),
+                    "tree_document_id": tree_document_id,
+                    "authority": authority,
+                    "shared_prefix": shared_prefix,
+                    "available": authorization == "granted",
+                })
+                continue
+
+            if kind in {"filesystem", "path"}:
+                root = os.path.realpath(reference)
+                descriptors.append({
+                    "kind": "filesystem",
+                    "reference": reference,
+                    "root": root,
+                    "available": (
+                        authorization == "granted"
+                        and os.path.isdir(reference)
+                        and os.access(reference, os.R_OK)
+                    ),
+                })
+        return descriptors
+
+    @staticmethod
+    def _episode_path_for_filesystem(uri):
+        raw = str(uri or "").strip()
+        if raw.casefold().startswith("file://"):
+            try:
+                return unquote(urlparse(raw).path)
+            except ValueError:
+                return ""
+        return raw if os.path.isabs(raw) else ""
+
+    def _episode_matches_reconciliation_source(self, episode, source):
+        if source["kind"] == "filesystem":
+            candidate = self._episode_path_for_filesystem(episode.get("path"))
+            if candidate and self._filesystem_path_within_source(candidate, source["root"]):
+                return "valid" if os.path.isfile(os.path.realpath(candidate)) else "removed"
+
+            relative = str(episode.get("relative_path") or "").strip().strip("/").replace("\\", "/")
+            if relative and not os.path.isabs(relative):
+                candidate = os.path.realpath(os.path.join(os.path.dirname(source["root"]), relative))
+                if self._filesystem_path_within_source(candidate, source["root"]):
+                    return "valid" if os.path.isfile(candidate) else "removed"
+
+            identity = str(episode.get("media_identity") or "").strip()
+            if identity.startswith("file:"):
+                candidate = identity[5:]
+                if self._filesystem_path_within_source(candidate, source["root"]):
+                    return "valid" if os.path.isfile(os.path.realpath(candidate)) else "removed"
+            return None
+
+        uri = str(episode.get("path") or "").strip()
+        document_id = self._saf_document_id_from_uri(uri) if uri.startswith("content://") else None
+        if document_id and source.get("tree_document_id"):
+            if self._saf_document_id_within_tree(source["tree_document_id"], document_id):
+                return "valid"
+
+        identity = str(episode.get("media_identity") or "").strip()
+        shared_prefix = str(source.get("shared_prefix") or "").strip()
+        if identity and shared_prefix and (
+            identity == shared_prefix or identity.startswith(shared_prefix + "/")
+        ):
+            return "valid"
+        return None
+
+    def reconcile_existing_library(self, *, dry_run=False):
+        """Remove only legacy episode rows proven outside every configured source."""
+        descriptors = self._reconciliation_source_descriptors()
+        available = [source for source in descriptors if source.get("available")]
+        unavailable = [source for source in descriptors if not source.get("available")]
+
+        report = {
+            "dry_run": bool(dry_run),
+            "total": 0,
+            "preserved": 0,
+            "removed": 0,
+            "inaccessible": 0,
+            "duplicates": 0,
+            "unknown": 0,
+            "status": "completed",
+        }
+
+        if not descriptors or not available:
+            report["status"] = "skipped_no_reliable_sources"
+            logger.info(
+                "[RECONCILIATION_COMPLETED] status=%s total=0 preserved=0 removed=0 inaccessible=0 duplicates=0 unknown=0 dry_run=%s",
+                report["status"], report["dry_run"],
+            )
+            return report
+
+        with self.store._conn() as con:
+            rows = [dict(row) for row in con.execute("SELECT * FROM episodes ORDER BY id").fetchall()]
+        report["total"] = len(rows)
+
+        remove_ids = []
+        duplicate_merges = []
+
+        for episode in rows:
+            states = set()
+
+            for source in available:
+                state = self._episode_matches_reconciliation_source(episode, source)
+                if state:
+                    states.add(state)
+
+            for source in unavailable:
+                state = self._episode_matches_reconciliation_source(episode, source)
+                if state:
+                    states.add("inaccessible")
+
+            if "valid" in states:
+                report["preserved"] += 1
+                continue
+            if "inaccessible" in states or "removed" in states:
+                report["inaccessible"] += 1
+                continue
+
+            identity = str(episode.get("media_identity") or "").strip()
+            preserved_duplicate = None
+            if identity:
+                for candidate in rows:
+                    if candidate["id"] == episode["id"] or candidate["id"] in remove_ids:
+                        continue
+                    if str(candidate.get("media_identity") or "").strip() != identity:
+                        continue
+                    candidate_states = {
+                        self._episode_matches_reconciliation_source(candidate, source)
+                        for source in available
+                    }
+                    if "valid" in candidate_states:
+                        preserved_duplicate = int(candidate["id"])
+                        break
+
+            if preserved_duplicate is not None:
+                duplicate_merges.append({
+                    "source_id": int(episode["id"]),
+                    "target_id": preserved_duplicate,
+                })
+                report["duplicates"] += 1
+                report["removed"] += 1
+                continue
+
+            # An old broad/MediaStore row with no match to any configured source
+            # is sufficiently proven external when it retained a URI/path.
+            if str(episode.get("path") or "").strip():
+                remove_ids.append(int(episode["id"]))
+                report["removed"] += 1
+            else:
+                report["unknown"] += 1
+
+        if not dry_run and (remove_ids or duplicate_merges):
+            result = self.store.apply_library_reconciliation(remove_ids, duplicate_merges)
+            report["removed"] = int(result.get("removed") or report["removed"])
+            report["duplicates"] = max(
+                report["duplicates"],
+                int(result.get("duplicates_merged") or 0),
+            )
+
+        logger.info(
+            "[RECONCILIATION_COMPLETED] status=%s total=%s preserved=%s removed=%s inaccessible=%s duplicates=%s unknown=%s dry_run=%s",
+            report["status"], report["total"], report["preserved"],
+            report["removed"], report["inaccessible"],
+            report["duplicates"], report["unknown"], report["dry_run"],
+        )
+        return report
 
     def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *,
                          folder_name=None, scan_errors=None, scan_stats=None, source_kind="saf",
@@ -1158,6 +1352,8 @@ class LibraryService:
                     self.store.update_folder_status(tree_uri, "granted")
                 else:
                     self.store.update_folder_status(tree_uri, "granted", "; ".join(map(str, scan_errors)))
+                if enforce_library_source and not scan_errors and not partial_scan:
+                    self.reconcile_existing_library(dry_run=False)
                 catalog = self.store.catalog()
                 result.catalog = catalog
                 result.folders = 1

@@ -28,7 +28,8 @@ class DetailView:
               on_toggle_favorite, get_playback_target=None, on_set_user_tags=None,
               on_toggle_pinned=None, on_set_personal_note=None, on_set_episode_identification=None,
                on_identification_saved=None, on_refresh_metadata=None, resolve_artwork=None, resolve_artwork_batch=None,
-               on_open_marathon=None, resolve_artwork_palette=None, is_active=None, view_state=None):
+               on_open_marathon=None, resolve_artwork_palette=None, is_active=None, view_state=None,
+               on_request_thumbnail=None):
         performance = get_performance_monitor()
         build_started = performance.now()
         performance.counter("ui.builds_requested.details")
@@ -576,6 +577,16 @@ class DetailView:
                         continue
                     if resolved:
                         episode_artwork[str(item_id)] = resolved
+                if on_request_thumbnail:
+                    for item in items:
+                        if item.get("id") is None or item.get("missing"):
+                            continue
+                        resolved = episode_artwork.get(str(item.get("id")))
+                        if not resolved or resolved.get("artwork_type") != "episode_thumbnail" or resolved.get("fallback"):
+                            try:
+                                on_request_thumbnail(item, priority=400)
+                            except Exception:
+                                DetailView._logger.debug("Episode thumbnail request scheduling failed", exc_info=True)
 
         def episode_item(episode):
             episode_ratio = ratio(episode)

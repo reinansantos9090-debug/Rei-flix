@@ -64,7 +64,8 @@ class Prompt7HomeLibraryOrganizeTests(unittest.TestCase):
         self.assertIn("is_active = is_active or (lambda: True)", organize)
         self.assertIn("async def load_overview(*, token=None):", organize)
         self.assertIn("asyncio.to_thread(library.organize_summary_bounded)", organize)
-        self.assertIn("asyncio.to_thread(library.genre_options, include_unused=False)", organize)
+        self.assertNotIn("asyncio.to_thread(library.genre_options, include_unused=False)", organize)
+        self.assertIn("library.organize_summary_bounded", organize)
         self.assertIn("if token != render_generation[0]:", organize)
         self.assertIn("if is_active():\n                page.update()", organize)
 

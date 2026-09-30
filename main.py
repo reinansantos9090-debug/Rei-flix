@@ -2795,7 +2795,7 @@ async def main(page: ft.Page):
                                 )
                                 if is_next:
                                     performance.event(
-                                        "NEXT_REQUEST_DUPLICATE",
+                                        "NEXT_REQUEST_DUPLICATE" if is_next else "PREVIOUS_REQUEST_DUPLICATE",
                                         screen=navigation.current,
                                         status="rejected",
                                         metadata={
@@ -2825,9 +2825,8 @@ async def main(page: ft.Page):
                                         "previous_request_id": player_last_command.get("request_id"),
                                     },
                                 )
-                                if is_next:
-                                    performance.event(
-                                        "NEXT_REQUEST_STALE",
+                                performance.event(
+                                    "NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
                                         screen=navigation.current,
                                         status="rejected",
                                         metadata={
@@ -2838,8 +2837,8 @@ async def main(page: ft.Page):
                                             "reason": "out_of_order",
                                         },
                                     )
-                                    performance.event(
-                                        "PLAYER_NEXT_STALE_REJECTED",
+                                performance.event(
+                                    "PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
                                         screen=navigation.current,
                                         metadata={
                                             "request_id": event_request_id,

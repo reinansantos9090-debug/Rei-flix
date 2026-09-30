@@ -151,11 +151,46 @@ class MainActivity : FlutterFragmentActivity() {
         private var lastPlayerExitRequestId: String? = null
         @Volatile
         private var lastPlayerExitAtMs: Long = 0L
+        @Volatile
+        private var activePlayerSessionId: String? = null
+        @Volatile
+        private var activePlayerRequestId: String? = null
 
         @JvmStatic
-        fun notePlayerExit(requestId: String, atMs: Long = System.currentTimeMillis()) {
-            lastPlayerExitRequestId = requestId.trim().takeIf { it.isNotEmpty() }
+        fun notePlayerSession(requestId: String, sessionId: String) {
+            val normalizedRequest = requestId.trim().takeIf { it.isNotEmpty() }
+            val normalizedSession = sessionId.trim().takeIf { it.isNotEmpty() }
+            if (normalizedSession == null) return
+            activePlayerRequestId = normalizedRequest
+            activePlayerSessionId = normalizedSession
+            Log.i(
+                LOG_TAG,
+                "PLAYER_SESSION_ACTIVE requestId=" + (normalizedRequest ?: "-") +
+                    " playerSessionId=" + normalizedSession,
+            )
+        }
+
+        @JvmStatic
+        fun notePlayerExit(requestId: String, atMs: Long = System.currentTimeMillis(), sessionId: String? = null) {
+            val normalizedRequest = requestId.trim().takeIf { it.isNotEmpty() }
+            val normalizedSession = sessionId?.trim()?.takeIf { it.isNotEmpty() }
+            lastPlayerExitRequestId = normalizedRequest
             lastPlayerExitAtMs = maxOf(lastPlayerExitAtMs, atMs)
+            if (
+                normalizedRequest == null ||
+                activePlayerRequestId == normalizedRequest ||
+                normalizedSession == null ||
+                activePlayerSessionId == normalizedSession
+            ) {
+                activePlayerRequestId = null
+                activePlayerSessionId = null
+            }
+            Log.i(
+                LOG_TAG,
+                "PLAYER_SESSION_EXIT requestId=" + (normalizedRequest ?: "-") +
+                    " playerSessionId=" + (normalizedSession ?: "-") +
+                    " atMs=" + atMs,
+            )
         }
 
         private val safInventoryInFlight = AtomicBoolean(false)
@@ -1967,7 +2002,11 @@ class MainActivity : FlutterFragmentActivity() {
                     "play",
                     NativeRequestState.OperationState.FAILED,
                 )
-                val result = if (exitRace) "stale_after_player_exit" else "stale_origin_session"
+                val result = when {
+                    exitRace -> "stale_after_player_exit"
+                    sessionMismatch -> "stale_origin_player_session"
+                    else -> "stale_origin_session"
+                }
                 Log.w(
                     tag,
                     "PLAYER_HANDOFF_REJECTED requestId=" + requestId +
@@ -1983,6 +2022,24 @@ class MainActivity : FlutterFragmentActivity() {
                     "play",
                     NativeRequestState.OperationState.FAILED.name,
                     result = result,
+                )
+                NativeMailbox.writeBestEffort(
+                    this,
+                    JSONObject()
+                        .put("type", "diagnostic")
+                        .put("requestId", requestId)
+                        .put(
+                            "payload",
+                            JSONObject()
+                                .put("event", "PLAYER_NEXT_STALE_REJECTED")
+                                .put("requestId", requestId)
+                                .put("originRequestId", originRequestId)
+                                .put("originPlayerSessionId", originPlayerSessionId)
+                                .put("currentPlayerSessionId", activePlayerSessionId ?: "")
+                                .put("originCreatedAtMs", originCreatedAtMs)
+                                .put("lastPlayerExitAtMs", lastPlayerExitAtMs)
+                                .put("reason", result),
+                        ),
                 )
                 return false
             }
@@ -2047,6 +2104,7 @@ class MainActivity : FlutterFragmentActivity() {
                 .putExtra("originRequestId", playerRequest.originRequestId)
                 .putExtra("originCreatedAtMs", playerRequest.originCreatedAtMs)
                 .putExtra("originTransitionGeneration", playerRequest.originTransitionGeneration)
+                .putExtra("originPlayerSessionId", playerRequest.originPlayerSessionId)
 
             val resolvedActivity = intent.resolveActivity(packageManager)
             if (resolvedActivity == null) {

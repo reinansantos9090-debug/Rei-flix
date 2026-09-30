@@ -2475,6 +2475,13 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         category: PlayerMediaPolicy.ErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN,
     ) {
         currentErrorCategory = category
+        if (nextTransitionActive) {
+            publishNextTransitionDiagnostic(
+                "NEXT_TRANSITION_FAILED",
+                "player_error",
+                JSONObject().put("error", reason),
+            )
+        }
         invalidateTransition("player_error")
         setLocked(false, persist = true, announce = false)
         errorVisible = true
@@ -2817,27 +2824,22 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                         if (!isCurrentTransition(generation) || !episodeChangePending) return@post
                         transitionPublishFuture = null
                         if (!published) {
-                            episodeChangePending = false
-                            episodeChangeTimeoutRequestId = ""
-                            episodeChangeTimeoutUri = ""
-                            episodeChangeTimeoutGeneration = 0L
-                            transitionSourceRequestId = ""
-                            transitionSourceUri = ""
-                            transitionSourceCreatedAtMs = 0L
-                            transitionStartedAtMs = 0L
-                            updateEpisodeNavigationButtons()
+                            if (nextTransitionActive) {
+                                publishNextTransitionDiagnostic(
+                                    "NEXT_TRANSITION_FAILED",
+                                    "mailbox_publish_failed",
+                                    JSONObject().put("error", "native_mailbox_write_failed"),
+                                )
+                            }
                             showFeedback("Não foi possível mudar de episódio.", 1800L)
                             logPlayer(
                                 eventType + " PUBLISH_FAILED requestId=" +
                                     requestId.ifEmpty { "-" } + " uri=" + uri,
                             )
+                            invalidateTransition("mailbox_publish_failed")
                             return@post
                         }
-                        if (nextTransitionActive) {
-                            handler.postDelayed(episodeChangeTimeout, 5_000L)
-                        } else {
-                            handler.postDelayed(episodeChangeTimeout, 5_000L)
-                        }
+                        handler.postDelayed(episodeChangeTimeout, 5_000L)
                         logPlayer(
                             eventType + " requestId=" + requestId.ifEmpty { "-" } +
                                 " transitionGeneration=" + generation +
@@ -2854,18 +2856,17 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 } catch (error: Exception) {
                     handler.post {
                         if (!isCurrentTransition(generation)) return@post
-                        episodeChangePending = false
-                        episodeChangeTimeoutRequestId = ""
-                        episodeChangeTimeoutUri = ""
-                        episodeChangeTimeoutGeneration = 0L
-                        transitionSourceRequestId = ""
-                        transitionSourceUri = ""
-                        transitionSourceCreatedAtMs = 0L
-                        transitionStartedAtMs = 0L
+                        if (nextTransitionActive) {
+                            publishNextTransitionDiagnostic(
+                                "NEXT_TRANSITION_FAILED",
+                                "mailbox_publish_exception",
+                                JSONObject().put("error", error.message ?: error::class.java.simpleName),
+                            )
+                        }
                         transitionPublishFuture = null
-                        updateEpisodeNavigationButtons()
                         showFeedback("Não foi possível mudar de episódio.", 1800L)
                         logPlayer(eventType + " PUBLISH_FAILED_ASYNC", error)
+                        invalidateTransition("mailbox_publish_exception")
                     }
                 }
             }

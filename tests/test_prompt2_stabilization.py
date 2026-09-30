@@ -59,7 +59,8 @@ class Prompt2StabilizationTests(unittest.TestCase):
         self.assertIn("playbackWorker.submit", block)
         self.assertIn("val published = NativeMailbox.write(", block)
         self.assertIn("if (!published)", block)
-        self.assertIn("episodeChangePending = false", block)
+        self.assertIn("invalidateTransition(\"mailbox_publish_failed\")", block)
+        self.assertIn("episodeChangePending = false", self.player)
         self.assertIn("transitionGeneration", block)
         self.assertIn("handler.removeCallbacks(episodeChangeTimeout)", block)
         destroy = PLAYER[PLAYER.index("override fun onDestroy"):PLAYER.index("private fun shouldUseImmersive")]

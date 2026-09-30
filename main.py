@@ -3280,12 +3280,13 @@ async def main(page: ft.Page):
                                         origin_created_at_ms=button_created_at_ms,
                                         origin_transition_generation=int(payload.get("transitionGeneration") or 0),
                                         origin_player_session_id=source_player_session_id,
+                                        origin_monotonic_ns=int(payload.get("monotonicNs") or 0),
+                                        transition_direction=direction_name,
                                         transition_guard=current_is_valid,
                                     )
-                                    if is_next:
-                                        pending = pending_next_transition["value"]
-                                        if isinstance(pending, dict) and pending.get("origin_request_id") == event_request_id:
-                                            pending["target_request_id"] = target_request_id
+                                    pending = pending_next_transition["value"] if is_next else pending_previous_transition["value"]
+                                    if isinstance(pending, dict) and pending.get("origin_request_id") == event_request_id:
+                                        pending["target_request_id"] = target_request_id
                                     performance.event(
                                         f"player.{direction_name.lower()}.handoff",
                                         duration_ms=(performance.now() - handoff_started) * 1000.0,
@@ -3304,18 +3305,17 @@ async def main(page: ft.Page):
                                     )
                                     raise
                                 except Exception as exc:
-                                    if is_next:
-                                        performance.event(
-                                            "NEXT_TRANSITION_FAILED",
-                                            screen=navigation.current,
-                                            status="failed",
-                                            metadata={
-                                                "request_id": event_request_id,
-                                                "reason": "exception",
-                                                "error": str(exc),
-                                                "player_session_id": source_player_session_id,
-                                            },
-                                        )
+                                    performance.event(
+                                        "NEXT_TRANSITION_FAILED" if is_next else "PREVIOUS_TRANSITION_FAILED",
+                                        screen=navigation.current,
+                                        status="failed",
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "reason": "exception",
+                                            "error": str(exc),
+                                            "player_session_id": source_player_session_id,
+                                        },
+                                    )
                                     if not current_is_valid():
                                         return
                                     logger.exception("[PLAYER] adjacent episode launch failed")
@@ -3333,8 +3333,7 @@ async def main(page: ft.Page):
                                         result="transition_failed",
                                         error=str(exc),
                                     )
-                                    if is_next:
-                                        cancel_player_transition("next_transition_failed")
+                                    cancel_player_transition("next_transition_failed" if is_next else "previous_transition_failed")
                                 finally:
                                     current_task = player_transition_task["task"]
                                     if (

@@ -85,7 +85,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
             "PLAYBACK_STATE=",
             "PlaybackException",
             "player_error",
-            "player_exit_reported",
+            "player_exit_queued",
             "player_exited",
             "onCreate",
             "onStart",

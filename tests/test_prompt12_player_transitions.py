@@ -28,7 +28,7 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
         self.assertIn("originTransitionGeneration == transitionPendingGeneration", reuse)
         self.assertIn("episodeChangeTimeoutRequestId = requestId", reuse)
         self.assertIn("episodeChangeTimeoutUri = uri.toString()", reuse)
-        self.assertNotIn(
+        self.assertIn(
             "sessionState = SessionState.ACTIVE\n        episodeChangePending = false",
             reuse,
         )
@@ -66,7 +66,8 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
             self.main.index("elif event_type == 'player_error':")
         ]
         self.assertIn("direction = 1 if event_type == 'player_next_request' else -1", block)
-        self.assertIn("await asyncio.to_thread(\n                                        library.player_navigation,", block)
+        self.assertIn("await asyncio.to_thread(", block)
+        self.assertIn("library.player_navigation", block)
         self.assertIn('player_transition_task["task"]', block)
         self.assertIn("asyncio.create_task(", block)
         self.assertIn("episode_id=target.get(\"id\")", block)

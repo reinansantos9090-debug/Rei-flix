@@ -32,7 +32,7 @@ class Prompt18TransitionHardeningTests(unittest.TestCase):
         self.assertIn("playbackWorker.submit", block)
         self.assertIn("val published = NativeMailbox.write(", block)
         self.assertIn("handler.post", block)
-        self.assertIn("showFeedback(if (eventType == \"player_next_request\")", block)
+        self.assertIn("requestEvent(\"NEXT_TRANSITION_STARTED\", \"PREVIOUS_TRANSITION_STARTED\")", block)
         self.assertNotIn("Thread.sleep(", block)
         self.assertIn("saveProgress(\"player_progress\", force = true)", block)
 
@@ -64,8 +64,8 @@ class Prompt18TransitionHardeningTests(unittest.TestCase):
         ]
         self.assertIn("transitionPendingRequestId", reuse)
         self.assertIn("incomingOriginRequestId == transitionPendingRequestId", reuse)
-        self.assertIn("originCreatedAtMs == transitionPendingCreatedAtMs", reuse)
-        self.assertIn("originTransitionGeneration == transitionPendingGeneration", reuse)
+        self.assertIn("incomingOriginCreatedAtMs == transitionPendingCreatedAtMs", reuse)
+        self.assertIn("incomingOriginTransitionGeneration == transitionPendingGeneration", reuse)
 
     def test_main_activity_rejects_stale_origin_after_player_exit(self):
         for token in (

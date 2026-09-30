@@ -3063,7 +3063,7 @@ active_request = player_active_request_id["value"]
                                     current_row_id = str(current_row.get("id") or "")
                                     current_row_anime = str(current_row.get("anime_id") or "")
                                     current_row_path = str(current_row.get("path") or "").strip()
-                                    if is_next and (
+                                    if (
                                         (payload.get("episodeId") and current_row_id and str(payload.get("episodeId")) != current_row_id)
                                         or (payload.get("animeId") and current_row_anime and str(payload.get("animeId")) != current_row_anime)
                                         or (current_row_path and current_row_path != current_path)

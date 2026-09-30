@@ -3204,30 +3204,37 @@ async def main(page: ft.Page):
                                         )
                                         return
 
-                                    if is_next:
-                                        pending = pending_next_transition["value"]
-                                        if not isinstance(pending, dict) or pending.get("origin_request_id") != event_request_id:
-                                            performance.event(
-                                                "NEXT_REQUEST_STALE",
-                                                screen=navigation.current,
-                                                status="rejected",
-                                                metadata={"request_id": event_request_id, "reason": "pending_context_replaced"},
-                                            )
-                                            performance.event(
-                                                "PLAYER_NEXT_STALE_REJECTED",
-                                                screen=navigation.current,
-                                                metadata={
-                                                    "request_id": event_request_id,
-                                                    "age_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
-                                                    "origin_generation": payload.get("transitionGeneration"),
-                                                    "current_generation": player_transition_generation["value"],
-                                                    "reason": "pending_context_replaced",
-                                                },
-                                            )
-                                            return
-                                        pending["target_episode_id"] = target.get("id")
-                                        pending["target_anime_id"] = target.get("anime_id")
-                                        pending["target_uri"] = target_path
+                                    pending = pending_next_transition["value"] if is_next else pending_previous_transition["value"]
+                                    if (
+                                        not isinstance(pending, dict)
+                                        or pending.get("origin_request_id") != event_request_id
+                                        or str(pending.get("player_session_id") or "") != source_player_session_id
+                                        or int(pending.get("python_transition_generation") or 0) != transition_generation
+                                    ):
+                                        performance.event(
+                                            "NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
+                                            screen=navigation.current,
+                                            status="rejected",
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "reason": "pending_context_replaced",
+                                                "origin_generation": payload.get("transitionGeneration"),
+                                                "current_generation": player_transition_generation["value"],
+                                            },
+                                        )
+                                        performance.event(
+                                            "PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
+                                            screen=navigation.current,
+                                            status="rejected",
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "reason": "pending_context_replaced",
+                                            },
+                                        )
+                                        return
+                                    pending["target_episode_id"] = target.get("id")
+                                    pending["target_anime_id"] = target.get("anime_id")
+                                    pending["target_uri"] = target_path
 
                                     performance.event(
                                         "TARGET_EPISODE_RESOLVED",

@@ -70,7 +70,7 @@ class Prompt27ContinueResumeTests(unittest.TestCase):
     def test_progress_writes_are_session_bound(self):
         self.assertIn("activate_playback_session", MAIN)
         self.assertIn("invalidate_playback_session", MAIN)
-        self.assertIn("session_id=payload.get("playerSessionId")", MAIN)
+        self.assertIn('session_id=payload.get("playerSessionId")', MAIN)
         self.assertIn("self._playback_session_lock", STORE_SOURCE)
         self.assertIn('status="stale_session"', STORE_SOURCE)
 
@@ -181,7 +181,7 @@ class Prompt27ContinueResumeTests(unittest.TestCase):
             self.assertEqual([], store.continue_watching())
 
     def test_no_home_file_change_is_required_for_continue_identity_fix(self):
-        self.assertNotIn("episode_id=episode.get("anime_id")", HOME)
+        self.assertNotIn('episode_id=episode.get("anime_id")', HOME)
         self.assertIn('episode_id=episode.get("id")', HOME)
 
 

@@ -1975,6 +1975,46 @@ async def main(page: ft.Page):
                             native_operation_states[str(event_request_id)] = operation_state
                             if len(native_operation_states) > 128:
                                 native_operation_states.pop(next(iter(native_operation_states)))
+                        player_event_types = {
+                            "player_next_request",
+                            "player_previous_request",
+                            "player_opened",
+                            "player_error",
+                            "player_progress",
+                            "player_paused",
+                            "player_completed",
+                            "player_exited",
+                        }
+                        if event_type in player_event_types and event_type != "player_exited":
+                            callback_current, callback_reason = player_callback_is_current(
+                                event_request_id,
+                                payload,
+                                require_active=bool(player_session_active["value"]),
+                                episode_id=payload.get("episodeId") if event_type in {"player_progress", "player_paused", "player_completed"} else None,
+                            )
+                            if not callback_current and player_session_active["value"]:
+                                performance.event(
+                                    "MAILBOX_STALE_COMMAND_DISCARDED",
+                                    screen=navigation.current,
+                                    status="discarded",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "player_session_id": payload.get("playerSessionId") or payload.get("player_session_id"),
+                                        "age_ms": max(
+                                            0,
+                                            int(time.time() * 1000)
+                                            - int(event.get("createdAt") or payload.get("createdAt") or int(time.time() * 1000)),
+                                        ),
+                                        "reason": callback_reason,
+                                    },
+                                )
+                                performance.event(
+                                    "PLAYER_COMMAND_REJECTED",
+                                    screen=navigation.current,
+                                    status="rejected",
+                                    metadata={"request_id": event_request_id, "reason": callback_reason},
+                                )
+                                continue
                         if event_type == 'diagnostic':
                             diagnostic_event = str(payload.get('event') or 'NATIVE_DIAGNOSTIC').strip()
                             if diagnostic_event.startswith(('COMMAND_', 'OPERATION_')):
@@ -3544,19 +3584,10 @@ async def main(page: ft.Page):
                                     )
                                 )
                             ):
-                                cancel_player_transition("player_exited")
-                                player_active_request_id["value"] = None
-                                player_session_active["value"] = False
-                                player_active_session_id["value"] = None
-                                player_active_episode_id["value"] = None
-                                player_active_anime_id["value"] = None
-                                player_active_uri["value"] = None
-                            else:
-                                diagnostics.record(
-                                    "PLAYER_EXIT_IGNORED",
-                                    request_id=event_request_id,
-                                    source="native_player",
-                                    result="stale_player_session",
+                                invalidate_player_session(
+                                    "player_exited",
+                                    expected_session_id=exit_session_id or None,
+                                    expected_request_id=event_request_id or None,
                                 )
                             exit_uri = str(payload.get('uri') or '').strip()
                             exit_updated = False

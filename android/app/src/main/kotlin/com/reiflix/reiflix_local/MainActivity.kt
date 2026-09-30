@@ -179,8 +179,11 @@ class MainActivity : FlutterFragmentActivity() {
             if (
                 normalizedRequest == null ||
                 activePlayerRequestId == normalizedRequest ||
-                normalizedSession == null ||
-                activePlayerSessionId == normalizedSession
+                (
+                    activePlayerRequestId == null &&
+                    normalizedSession != null &&
+                    activePlayerSessionId == normalizedSession
+                )
             ) {
                 activePlayerRequestId = null
                 activePlayerSessionId = null

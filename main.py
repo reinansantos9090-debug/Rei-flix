@@ -3138,21 +3138,13 @@ async def main(page: ft.Page):
                                         },
                                     )
                                     if not target:
-                                        if is_next:
-                                            performance.event(
-                                                "NEXT_TRANSITION_FAILED",
-                                                screen=navigation.current,
-                                                status="failed",
-                                                metadata={"request_id": event_request_id, "reason": "no_target"},
-                                            )
-                                            cancel_player_transition("next_no_target")
-                                        else:
-                                            logger.warning(
-                                                "[PLAYER] adjacent episode not found direction=%s request_id=%s uri=%s",
-                                                direction_name,
-                                                event_request_id or "-",
-                                                current_path,
-                                            )
+                                        performance.event(
+                                            "NEXT_TRANSITION_FAILED" if is_next else "PREVIOUS_TRANSITION_FAILED",
+                                            screen=navigation.current,
+                                            status="failed",
+                                            metadata={"request_id": event_request_id, "reason": "no_target"},
+                                        )
+                                        cancel_player_transition("next_no_target" if is_next else "previous_no_target")
                                         page.snack_bar = ft.SnackBar(ft.Text(
                                             "Não existe outro episódio local disponível nesta direção."
                                         ))

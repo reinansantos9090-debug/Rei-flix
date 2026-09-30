@@ -82,6 +82,7 @@ class HomeView:
         artwork_pending_items: dict[tuple, dict] = {}
         artwork_bindings: dict[tuple, list] = {}
         catalog_focus_targets: dict[str, object] = {}
+        artwork_concurrency = asyncio.Semaphore(1)
         artwork_batch_scheduled = [False]
         artwork_ui_update_scheduled = [False]
         catalog_refresh_scheduled = [False]
@@ -248,12 +249,13 @@ class HomeView:
                 for (entity, kind), ids in grouped.items():
                     if generation != render_generation[0] or not is_active():
                         return
-                    resolved = await asyncio.to_thread(
-                        library.resolve_artwork_batch,
-                        entity,
-                        list(dict.fromkeys(ids)),
-                        (kind,),
-                    )
+                    async with artwork_concurrency:
+                        resolved = await asyncio.to_thread(
+                            library.resolve_artwork_batch,
+                            entity,
+                            list(dict.fromkeys(ids)),
+                            (kind,),
+                        )
                     if generation != render_generation[0] or not is_active():
                         return
                     for item_id_raw, row in (resolved or {}).items():

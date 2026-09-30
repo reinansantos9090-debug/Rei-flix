@@ -52,6 +52,73 @@ class PlayerMediaPolicyTest {
     }
 
     @Test
+    fun preciseFailureClassificationSeparatesLocalAndMedia3Failures() {
+        assertEquals(
+            PlayerMediaPolicy.PlaybackFailureKind.MEDIA_NOT_FOUND,
+            PlayerMediaPolicy.classifyPlaybackFailure(
+                "ERROR_CODE_IO_FILE_NOT_FOUND",
+                listOf("FileNotFoundException"),
+            ).kind,
+        )
+        assertEquals(
+            PlayerMediaPolicy.PlaybackFailureKind.PERMISSION,
+            PlayerMediaPolicy.classifyPlaybackFailure(
+                "ERROR_CODE_IO_UNSPECIFIED",
+                listOf("SecurityException", "SAF_PERMISSION_MISSING"),
+            ).kind,
+        )
+        assertEquals(
+            PlayerMediaPolicy.PlaybackFailureKind.PARSER,
+            PlayerMediaPolicy.classifyPlaybackFailure(
+                "ERROR_CODE_PARSING_CONTAINER_MALFORMED",
+                listOf("UnrecognizedInputFormatException"),
+            ).kind,
+        )
+        assertEquals(
+            PlayerMediaPolicy.PlaybackFailureKind.DECODER,
+            PlayerMediaPolicy.classifyPlaybackFailure(
+                "ERROR_CODE_DECODER_INIT_FAILED",
+                listOf("DecoderInitializationException"),
+            ).kind,
+        )
+        assertEquals(
+            PlayerMediaPolicy.PlaybackFailureKind.RENDERER,
+            PlayerMediaPolicy.classifyPlaybackFailure(
+                "ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED",
+                emptyList(),
+            ).kind,
+        )
+    }
+
+    @Test
+    fun preciseRetryPolicyNeverRetriesDeterministicSourceOrDecoderFailures() {
+        assertFalse(
+            PlayerMediaPolicy.classifyPlaybackFailure(
+                "ERROR_CODE_IO_FILE_NOT_FOUND",
+                listOf("FileNotFoundException"),
+            ).retryable,
+        )
+        assertFalse(
+            PlayerMediaPolicy.classifyPlaybackFailure(
+                "ERROR_CODE_DECODER_INIT_FAILED",
+                listOf("DecoderInitializationException"),
+            ).retryable,
+        )
+        assertTrue(
+            PlayerMediaPolicy.classifyPlaybackFailure(
+                "ERROR_CODE_IO_UNSPECIFIED",
+                emptyList(),
+            ).retryable,
+        )
+        assertTrue(
+            PlayerMediaPolicy.classifyPlaybackFailure(
+                "ERROR_CODE_TIMEOUT",
+                emptyList(),
+            ).retryable,
+        )
+    }
+
+    @Test
     fun errorClassificationDistinguishesDecoderSourceAndTransientFailures() {
         assertEquals(
             PlayerMediaPolicy.ErrorCategory.DECODER_UNSUPPORTED,

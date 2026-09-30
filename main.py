@@ -3699,8 +3699,6 @@ async def main(page: ft.Page):
                                     },
                                 )
                                 continue
-
-                            for context_direction, pending in (
                                 ("NEXT", pending_next_transition["value"]),
                                 ("PREVIOUS", pending_previous_transition["value"]),
                             ):
@@ -3732,22 +3730,6 @@ async def main(page: ft.Page):
                                 cancel_player_transition("player_error")
                             message = event.get('message', 'Não foi possível reproduzir este arquivo localmente.')
                             diagnostics.record(
-                                "PLAYER_ERROR",
-                                request_id=event_request_id,
-                                source="native_player",
-                                result=payload.get('reason') or message,
-                                error=message,
-                            )
-                            logger.error(
-                                "[PLAYER] native_error request_id=%s uri=%s payload=%s",
-                                event_request_id or "-",
-                                payload.get('uri') or "",
-                                payload,
-                            )
-                            page.snack_bar = ft.SnackBar(ft.Text(message))
-                            page.snack_bar.open = True
-                            safe_update()
-                                  diagnostics.record(
                                 "PLAYER_ERROR",
                                 request_id=event_request_id,
                                 source="native_player",

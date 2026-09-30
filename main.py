@@ -3667,6 +3667,19 @@ async def main(page: ft.Page):
                                         performance.event(
                                             f"player.{direction_name.lower()}.request_complete",
                                             duration_ms=(performance.now() - transition_started) * 1000.0,
+                                            screen=navigation.current,
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "button_to_handoff_or_fail_ms": (performance.now() - transition_started) * 1000.0,
+                                                "button_created_at_ms": button_created_at_ms,
+                                            },
+                                        )
+
+                            task = asyncio.create_task(
+                                run_player_transition(),
+                                name=f"reiflix-player-transition-{direction_name.lower()}-{transition_generation}",
+                            )
+                            player_transition_task["task"] = task
             elif event_type == 'player_error':
                             callback_current, callback_reason = player_callback_is_current(
                                 event_request_id,

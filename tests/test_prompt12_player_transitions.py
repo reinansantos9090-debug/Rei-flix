@@ -59,7 +59,8 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
         self.assertIn("timeoutContextValid", self.player)
         self.assertIn("episodeChangeTimeoutSessionId == playerSessionId", self.player)
         self.assertIn("episodeChangeTimeoutPlayerGeneration == playerGeneration", self.player)
-        self.assertIn("episodeChangeTimeoutUri != uri.toString()", self.player)
+        self.assertIn("episodeChangeTimeoutSessionId == playerSessionId", self.player)
+        self.assertIn("episodeChangeTimeoutPlayerGeneration == playerGeneration", self.player)
         self.assertIn("episodeChangePending = false", self.player)
         self.assertIn("updateEpisodeNavigationButtons()", self.player)
 

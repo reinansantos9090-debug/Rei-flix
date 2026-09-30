@@ -748,18 +748,55 @@ async def main(page: ft.Page):
     player_launch_inflight = {"value": False}
     player_transition_generation = {"value": 0}
     player_active_request_id = {"value": None}
+    player_active_session_id = {"value": None}
+    player_active_episode_id = {"value": None}
+    player_active_anime_id = {"value": None}
+    player_active_uri = {"value": None}
     player_session_active = {"value": False}
     player_command_sequence = {"value": 0}
     player_command_seen = set()
     player_last_command = {"sequence": 0, "request_id": None, "direction": None, "created_at_ms": 0}
+    pending_next_transition = {"value": None}
 
     def cancel_player_transition(reason="unknown"):
         player_transition_generation["value"] += 1
         task = player_transition_task["task"]
-        if task is not None and not task.done():
+        current_task = asyncio.current_task()
+        if task is not None and task is not current_task and not task.done():
             task.cancel()
         player_transition_task["task"] = None
         player_transition_inflight["value"] = False
+        next_context = pending_next_transition["value"]
+        if isinstance(next_context, dict):
+            performance.event(
+                "NEXT_TRANSITION_INVALIDATED",
+                screen=navigation.current,
+                metadata={
+                    "request_id": next_context.get("origin_request_id"),
+                    "target_request_id": next_context.get("target_request_id"),
+                    "age_ms": max(0, int(time.time() * 1000) - int(next_context.get("created_at_ms") or 0)),
+                    "origin_generation": next_context.get("native_transition_generation"),
+                    "current_generation": player_transition_generation["value"],
+                    "player_session_id": next_context.get("player_session_id"),
+                    "reason": reason,
+                },
+            )
+            performance.event(
+                "NEXT_REQUEST_CANCELLED",
+                screen=navigation.current,
+                metadata={
+                    "request_id": next_context.get("origin_request_id"),
+                    "reason": reason,
+                    "player_session_id": next_context.get("player_session_id"),
+                },
+            )
+            diagnostics.record(
+                "NEXT_TRANSITION_CANCELLED",
+                request_id=next_context.get("origin_request_id"),
+                source="native_player",
+                result=reason,
+            )
+            pending_next_transition["value"] = None
         performance.event(
             "PLAYER_TRANSITION_INVALIDATED",
             screen=navigation.current,
@@ -779,11 +816,19 @@ async def main(page: ft.Page):
             reason,
         )
 
-    def player_transition_is_current(generation, request_id):
+    def player_transition_is_current(generation, request_id, player_session_id=None):
+        session_matches = (
+            player_session_id is None
+            or (
+                bool(player_active_session_id["value"])
+                and str(player_active_session_id["value"]) == str(player_session_id)
+            )
+        )
         return (
             generation == player_transition_generation["value"]
             and player_active_request_id["value"] in (None, request_id)
             and player_session_active["value"]
+            and session_matches
             and ui_alive[0]
         )
 
@@ -798,7 +843,38 @@ async def main(page: ft.Page):
         origin_request_id=None,
         origin_created_at_ms=0,
         origin_transition_generation=0,
+        origin_player_session_id=None,
+        transition_guard=None,
     ):
+        def transition_is_valid():
+            return transition_guard is None or bool(transition_guard())
+
+        if not transition_is_valid():
+            if origin_request_id:
+                performance.event(
+                    "NEXT_REQUEST_STALE",
+                    screen=navigation.current,
+                    status="rejected",
+                    metadata={
+                        "request_id": origin_request_id,
+                        "reason": "stale_before_native_handoff",
+                        "player_session_id": origin_player_session_id,
+                        "age_ms": max(0, int(time.time() * 1000) - int(origin_created_at_ms or 0)),
+                    },
+                )
+                performance.event(
+                    "PLAYER_NEXT_STALE_REJECTED",
+                    screen=navigation.current,
+                    metadata={
+                        "request_id": origin_request_id,
+                        "age_ms": max(0, int(time.time() * 1000) - int(origin_created_at_ms or 0)),
+                        "origin_generation": origin_transition_generation,
+                        "current_generation": player_transition_generation["value"],
+                        "reason": "stale_before_native_handoff",
+                    },
+                )
+            raise asyncio.CancelledError()
+
         performance.event(
             "NATIVE_PLAY_REQUEST_CREATED",
             screen=navigation.current,
@@ -847,6 +923,31 @@ async def main(page: ft.Page):
             metadata={"request_id": origin_request_id or player_active_request_id["value"],
                       "episode_id": episode_id, "anime_id": anime_id},
         )
+        if not transition_is_valid():
+            if origin_request_id:
+                performance.event(
+                    "NEXT_REQUEST_STALE",
+                    screen=navigation.current,
+                    status="rejected",
+                    metadata={
+                        "request_id": origin_request_id,
+                        "reason": "stale_before_bridge_send",
+                        "player_session_id": origin_player_session_id,
+                    },
+                )
+                performance.event(
+                    "PLAYER_NEXT_STALE_REJECTED",
+                    screen=navigation.current,
+                    metadata={
+                        "request_id": origin_request_id,
+                        "age_ms": max(0, int(time.time() * 1000) - int(origin_created_at_ms or 0)),
+                        "origin_generation": origin_transition_generation,
+                        "current_generation": player_transition_generation["value"],
+                        "reason": "stale_before_bridge_send",
+                    },
+                )
+            raise asyncio.CancelledError()
+
         request_id = await bridge.play(
             path,
             title,
@@ -859,6 +960,7 @@ async def main(page: ft.Page):
             origin_request_id=origin_request_id,
             origin_created_at_ms=origin_created_at_ms,
             origin_transition_generation=origin_transition_generation,
+            origin_player_session_id=origin_player_session_id,
             player_settings={
                 "player.default_speed": settings.get("player.default_speed"),
                 "player.aspect_ratio": settings.get("player.aspect_ratio"),
@@ -884,6 +986,20 @@ async def main(page: ft.Page):
                 "audio.subtitle_embedded_style": settings.get("audio.subtitle_embedded_style"),
             },
         )
+        if not transition_is_valid():
+            if origin_request_id:
+                performance.event(
+                    "NEXT_TRANSITION_INVALIDATED",
+                    screen=navigation.current,
+                    metadata={
+                        "request_id": origin_request_id,
+                        "target_request_id": request_id,
+                        "reason": "session_invalidated_after_bridge",
+                        "player_session_id": origin_player_session_id,
+                    },
+                )
+            raise asyncio.CancelledError()
+
         performance.event(
             "NATIVE_HANDOFF_ACCEPTED",
             screen=navigation.current,

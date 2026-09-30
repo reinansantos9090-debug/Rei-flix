@@ -21,7 +21,8 @@ class HomeView:
 
     @staticmethod
     def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode, on_open_organize=None,
-              view_state=None, on_request_thumbnail=None, on_open_collector=None, is_active=None):
+              view_state=None, on_request_thumbnail=None, on_open_collector=None, on_refresh_library=None,
+              on_refresh_ui_updated=None, on_refresh_ui_failed=None, is_active=None):
         performance = get_performance_monitor()
         build_started = performance.now()
         performance.counter("ui.builds_requested.home")
@@ -87,6 +88,8 @@ class HomeView:
         artwork_ui_update_scheduled = [False]
         catalog_refresh_scheduled = [False]
         catalog_refresh_dirty = [False]
+        refresh_state = [str(view_state.get("_refresh_state") or "IDLE").upper()]
+        refresh_button = [None]
         view_tasks: set[object] = set()
 
         def _discard_view_task(task):
@@ -115,6 +118,79 @@ class HomeView:
                         cancel()
                     except Exception:
                         logger.debug("Home task cancellation failed", exc_info=True)
+
+        def _schedule_refresh_reset(expected_state, delay=0.8):
+            async def reset_state():
+                await asyncio.sleep(delay)
+                if refresh_state[0] == expected_state:
+                    if is_active():
+                        set_refresh_state("IDLE")
+                    else:
+                        view_state["_refresh_state"] = "IDLE"
+                        refresh_state[0] = "IDLE"
+            _start_view_task(reset_state)
+
+        def set_refresh_state(state, *, update=True):
+            normalized = str(state or "IDLE").upper()
+            if normalized not in {"IDLE", "REFRESHING", "SUCCESS", "ERROR"}:
+                normalized = "IDLE"
+            refresh_state[0] = normalized
+            view_state["_refresh_state"] = normalized
+            button = refresh_button[0]
+            if button is not None:
+                if normalized == "REFRESHING":
+                    button.icon = ft.Icons.SYNC
+                    button.tooltip = "Atualizando biblioteca…"
+                    button.disabled = True
+                elif normalized == "SUCCESS":
+                    button.icon = ft.Icons.CHECK_CIRCLE_OUTLINE
+                    button.tooltip = "Biblioteca atualizada"
+                    button.disabled = False
+                elif normalized == "ERROR":
+                    button.icon = ft.Icons.ERROR_OUTLINE
+                    button.tooltip = "Falha ao atualizar • tocar para tentar novamente"
+                    button.disabled = False
+                else:
+                    button.icon = ft.Icons.REFRESH
+                    button.tooltip = "Atualizar biblioteca"
+                    button.disabled = False
+            if update and is_active():
+                performance.counter("home.refresh.page_updates")
+                page.update()
+
+        async def handle_manual_refresh(_event=None):
+            if refresh_state[0] == "REFRESHING":
+                performance.counter("home.refresh.rejected")
+                return
+            if not callable(on_refresh_library):
+                set_refresh_state("ERROR")
+                logger.warning("Home refresh requested without a refresh callback")
+                return
+            set_refresh_state("REFRESHING", update=False)
+            performance.counter("home.refresh.button_tapped")
+            try:
+                result = await on_refresh_library()
+                if isinstance(result, tuple):
+                    message, waiting = result
+                else:
+                    message, waiting = str(result or ""), True
+                if message:
+                    page.snack_bar = ft.SnackBar(ft.Text(str(message)))
+                    page.snack_bar.open = True
+                if not waiting:
+                    set_refresh_state("ERROR", update=False)
+                    _schedule_refresh_reset("ERROR", delay=1.6)
+                if is_active():
+                    page.update()
+            except Exception:
+                logger.exception("Home manual refresh failed")
+                performance.counter("home.refresh.failed")
+                set_refresh_state("ERROR", update=False)
+                page.snack_bar = ft.SnackBar(ft.Text("Não foi possível atualizar a biblioteca agora."))
+                page.snack_bar.open = True
+                _schedule_refresh_reset("ERROR", delay=1.6)
+                if is_active():
+                    page.update()
 
 
         def save_view_state():
@@ -505,7 +581,7 @@ class HomeView:
                     if is_active():
                         page.update()
                 page_loading[0] = False
-                return
+                return False
             finally:
                 performance.event(
                     "HOME_BROWSE_END",
@@ -576,6 +652,7 @@ class HomeView:
                                       screen="home",
                                       metadata={"count": len(fresh_items), "generation": token})
                 schedule_background(run_hydration_batch)
+            return True
 
         def schedule_background(coro_factory):
             try:
@@ -1193,9 +1270,19 @@ class HomeView:
                 return
             save_view_state()
             filter_options_loaded[0] = False
-            await load_library_page(reset=True)
+            loaded = await load_library_page(reset=True)
+            if not loaded:
+                if view_state.get("_manual_refresh_pending"):
+                    view_state["_manual_refresh_pending"] = False
+                    if callable(on_refresh_ui_failed):
+                        on_refresh_ui_failed()
+                return
             home_sections_generation[0] = render_generation[0]
             _start_view_task(refresh_home_sections, render_generation[0])
+            if view_state.get("_manual_refresh_pending"):
+                view_state["_manual_refresh_pending"] = False
+                if callable(on_refresh_ui_updated):
+                    on_refresh_ui_updated()
 
         async def retry_load_catalog(_event=None):
             await load_catalog()
@@ -1231,12 +1318,20 @@ class HomeView:
         search.on_change = on_search
         search.on_submit = on_search
         sort.on_select = on_sort
+        refresh_button[0] = ft.IconButton(
+            icon=ft.Icons.REFRESH,
+            icon_color=TEXT,
+            tooltip="Atualizar biblioteca",
+            on_click=handle_manual_refresh,
+        )
+        set_refresh_state(refresh_state[0], update=False)
         header = ft.Row([
             ft.Row([
                 ft.Container(content=ft.Icon(ft.Icons.PLAY_CIRCLE_FILLED, color=ACCENT, size=29), bgcolor=SURFACE, border_radius=12, padding=5),
                 ft.Text("ReiAnix", size=22, weight=ft.FontWeight.BOLD, color=TEXT),
             ], spacing=8),
             ft.Row([
+                refresh_button[0],
                 ft.IconButton(icon=ft.Icons.SEARCH, icon_color=TEXT, tooltip="Pesquisar", on_click=toggle_search),
                 ft.IconButton(icon=ft.Icons.DASHBOARD_OUTLINED, icon_color=TEXT, tooltip="Organizar", visible=on_open_organize is not None, on_click=lambda _: on_open_organize() if on_open_organize else None),
                 ft.IconButton(icon=ft.Icons.SETTINGS_OUTLINED, icon_color=TEXT, tooltip="Configurações", on_click=lambda _: on_open_settings()),
@@ -1319,6 +1414,8 @@ class HomeView:
         view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog
         view_state['_update_thumbnail'] = update_thumbnail_in_place
         view_state['_invalidate_view_tasks'] = invalidate_view_tasks
+        view_state['_set_refresh_state'] = set_refresh_state
+        view_state['_manual_refresh_pending'] = bool(view_state.get('_manual_refresh_pending', False))
         status.visible = True
         _start_view_task(load_catalog)
         result = ft.Container(

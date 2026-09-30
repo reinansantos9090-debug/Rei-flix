@@ -1999,8 +1999,6 @@ async def main(page: ft.Page):
                             if len(native_operation_states) > 128:
                                 native_operation_states.pop(next(iter(native_operation_states)))
                         player_event_types = {
-                            "player_next_request",
-                            "player_previous_request",
                             "player_progress",
                             "player_paused",
                             "player_completed",

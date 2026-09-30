@@ -384,8 +384,9 @@ class ArtworkEngine:
             with self.store._conn() as con:
                 con.execute(
                     """DELETE FROM artwork WHERE entity_type='episode' AND entity_id=?
-                       AND artwork_type='episode_thumbnail' AND source='generated'""",
-                    (str(episode_id),),
+                       AND artwork_type='episode_thumbnail' AND source='generated'
+                       AND NOT (source_ref=? AND local_path=?)""",
+                    (str(episode_id), source_ref, thumbnail_path),
                 )
             self._upsert(
                 entity_type="episode", entity_id=episode_id,

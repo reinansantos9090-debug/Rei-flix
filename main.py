@@ -2929,44 +2929,25 @@ async def main(page: ft.Page):
 
                             active_request = player_active_request_id["value"]
                             if active_request and event_request_id != active_request:
-                                if is_next:
-                                    performance.event(
-                                        "NEXT_REQUEST_STALE",
-                                        screen=navigation.current,
-                                        status="rejected",
-                                        metadata={
-                                            "request_id": event_request_id,
-                                            "age_ms": mailbox_latency_ms,
-                                            "origin_generation": payload.get("transitionGeneration"),
-                                            "current_generation": player_transition_generation["value"],
-                                            "reason": "stale_player_request",
-                                        },
-                                    )
-                                    performance.event(
-                                        "PLAYER_NEXT_STALE_REJECTED",
-                                        screen=navigation.current,
-                                        metadata={
-                                            "request_id": event_request_id,
-                                            "age_ms": mailbox_latency_ms,
-                                            "origin_generation": payload.get("transitionGeneration"),
-                                            "current_generation": player_transition_generation["value"],
-                                            "reason": "stale_player_request",
-                                        },
-                                    )
+                                performance.event(
+                                    "NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
+                                    screen=navigation.current,
+                                    status="rejected",
+                                    metadata={"request_id": event_request_id, "reason": "stale_player_request"},
+                                )
+                                performance.event(
+                                    "PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
+                                    screen=navigation.current,
+                                    metadata={"request_id": event_request_id, "reason": "stale_player_request"},
+                                )
                                 continue
 
-                            if is_next:
-                                performance.event(
-                                    "NEXT_REQUEST_ACCEPTED",
-                                    screen=navigation.current,
-                                    status="accepted",
-                                    metadata={
-                                        "request_id": event_request_id,
-                                        "age_ms": mailbox_latency_ms,
-                                        "origin_generation": payload.get("transitionGeneration"),
-                                        "player_session_id": source_player_session_id,
-                                    },
-                                )
+                            performance.event(
+                                "NEXT_REQUEST_ACCEPTED" if is_next else "PREVIOUS_REQUEST_ACCEPTED",
+                                screen=navigation.current,
+                                status="accepted",
+                                metadata={"request_id": event_request_id, "age_ms": mailbox_latency_ms, "origin_generation": payload.get("transitionGeneration"), "player_session_id": source_player_session_id, "origin_monotonic_ns": payload.get("monotonicNs")},
+                            )
 
                             player_transition_inflight["value"] = True
                             player_transition_generation["value"] += 1
@@ -2974,35 +2955,35 @@ async def main(page: ft.Page):
                             if player_active_request_id["value"] is None:
                                 player_active_request_id["value"] = event_request_id
                             player_session_active["value"] = True
-                            if is_next and player_active_session_id["value"] is None:
+                            if player_active_session_id["value"] is None:
                                 player_active_session_id["value"] = source_player_session_id
 
+                            transition_context = {
+                                "origin_request_id": event_request_id,
+                                "target_request_id": None,
+                                "player_session_id": source_player_session_id,
+                                "native_transition_generation": int(payload.get("transitionGeneration") or 0),
+                                "python_transition_generation": transition_generation,
+                                "created_at_ms": button_created_at_ms,
+                                "command_monotonic_ns": int(payload.get("monotonicNs") or 0),
+                                "source_episode_id": payload.get("episodeId"),
+                                "source_anime_id": payload.get("animeId"),
+                                "source_uri": str(payload.get("uri") or "").strip(),
+                                "target_episode_id": None,
+                                "target_anime_id": None,
+                                "target_uri": None,
+                                "ready": False,
+                                "direction": direction_name,
+                            }
                             if is_next:
-                                pending_next_transition["value"] = {
-                                    "origin_request_id": event_request_id,
-                                    "target_request_id": None,
-                                    "player_session_id": source_player_session_id,
-                                    "native_transition_generation": int(payload.get("transitionGeneration") or 0),
-                                    "python_transition_generation": transition_generation,
-                                    "created_at_ms": button_created_at_ms,
-                                    "source_episode_id": payload.get("episodeId"),
-                                    "source_anime_id": payload.get("animeId"),
-                                    "source_uri": str(payload.get("uri") or "").strip(),
-                                    "target_episode_id": None,
-                                    "target_anime_id": None,
-                                    "target_uri": None,
-                                    "ready": False,
-                                }
-                                performance.event(
-                                    "NEXT_TRANSITION_STARTED",
-                                    screen=navigation.current,
-                                    metadata={
-                                        "request_id": event_request_id,
-                                        "generation": transition_generation,
-                                        "origin_generation": payload.get("transitionGeneration"),
-                                        "player_session_id": source_player_session_id,
-                                    },
-                                )
+                                pending_next_transition["value"] = transition_context
+                            else:
+                                pending_previous_transition["value"] = transition_context
+                            performance.event(
+                                "NEXT_TRANSITION_STARTED" if is_next else "PREVIOUS_TRANSITION_STARTED",
+                                screen=navigation.current,
+                                metadata={"request_id": event_request_id, "generation": transition_generation, "origin_generation": payload.get("transitionGeneration"), "player_session_id": source_player_session_id, "origin_monotonic_ns": payload.get("monotonicNs")},
+                            )
 
                             async def run_player_transition(
                                 direction_name=direction_name,

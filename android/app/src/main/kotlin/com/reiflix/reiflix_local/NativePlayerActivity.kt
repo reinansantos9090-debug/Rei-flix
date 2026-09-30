@@ -873,6 +873,15 @@ override fun onCreate(savedInstanceState: Bundle?) {
             nextTransitionActive = incomingOriginTransitionDirection == "NEXT"
             previousTransitionActive = incomingOriginTransitionDirection == "PREVIOUS"
             transitionReadyGeneration = -1L
+            // Keep the watchdog identity explicitly synchronized with the
+            // validated successor. prepareCurrentMedia() rebinds it again
+            // after beginPlayerGeneration() with the definitive generation.
+            episodeChangeTimeoutRequestId = requestId
+            episodeChangeTimeoutUri = uri.toString()
+            episodeChangeTimeoutGeneration = transitionGeneration
+            episodeChangeTimeoutSessionId = playerSessionId
+            episodeChangeTimeoutPlayerGeneration = playerGeneration
+            handler.removeCallbacks(episodeChangeTimeout)
             logPlayer(
                 "PLAYER_REUSE_ORIGIN_VALIDATED requestId=" + requestId.ifEmpty { "-" } +
                     " originRequestId=" + originRequestId +
@@ -3440,6 +3449,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 .put("originMonotonicNs", monotonicNs),
         )
 
+        handler.removeCallbacks(episodeChangeTimeout)
         armEpisodeChangeTimeout("request_episode")
         updateEpisodeNavigationButtons()
         showFeedback(if (isNextRequest) "Próximo…" else "Anterior…", 1400L)

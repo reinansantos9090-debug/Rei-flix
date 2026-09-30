@@ -2681,93 +2681,229 @@ async def main(page: ft.Page):
                         elif event_type in {'player_next_request', 'player_previous_request'}:
                             transition_started = performance.now()
                             direction_name = "NEXT" if event_type == "player_next_request" else "PREVIOUS"
+                            is_next = direction_name == "NEXT"
                             player_command_sequence["value"] += 1
                             command_sequence = int(payload.get("sequence") or player_command_sequence["value"])
-                            command_created_at_ms = int(payload.get("buttonPressedAtMs") or payload.get("createdAt") or event.get("createdAt") or 0)
-                            performance.event(
-                                "NEXT_BUTTON_PRESSED" if direction_name == "NEXT" else "PREVIOUS_BUTTON_PRESSED",
-                                screen=navigation.current,
-                                metadata={"request_id": event_request_id, "sequence": command_sequence,
-                                          "episode_id": payload.get("episodeId"), "anime_id": payload.get("animeId"),
-                                          "transition_generation": payload.get("transitionGeneration")},
-                            )
-                            if event_request_id and event_request_id in player_command_seen:
-                                performance.event("PLAYER_COMMAND_DUPLICATE", screen=navigation.current,
-                                                  status="duplicate",
-                                                  metadata={"request_id": event_request_id, "direction": direction_name,
-                                                            "sequence": command_sequence})
-                            elif event_request_id:
-                                player_command_seen.add(event_request_id)
-                                if len(player_command_seen) > 128:
-                                    player_command_seen.pop()
-                            previous_sequence = int(player_last_command.get("sequence") or 0)
-                            if command_sequence < previous_sequence:
-                                performance.event("PLAYER_COMMAND_OUT_OF_ORDER", screen=navigation.current,
-                                                  status="out_of_order",
-                                                  metadata={"request_id": event_request_id, "direction": direction_name,
-                                                            "sequence": command_sequence, "previous_sequence": previous_sequence,
-                                                            "previous_request_id": player_last_command.get("request_id")})
-                            player_last_command.update(sequence=command_sequence, request_id=event_request_id,
-                                                       direction=direction_name, created_at_ms=command_created_at_ms)
                             button_created_at_ms = int(
                                 payload.get("buttonPressedAtMs")
                                 or payload.get("createdAt")
                                 or event.get("createdAt")
                                 or 0
                             )
-                            mailbox_created_at_ms = int(
-                                event.get("createdAt")
-                                or button_created_at_ms
-                                or int(time.time() * 1000)
-                            )
-                            mailbox_latency_ms = max(
-                                0,
-                                int(time.time() * 1000) - mailbox_created_at_ms,
+                            source_player_session_id = str(payload.get("playerSessionId") or "").strip()
+                            mailbox_created_at_ms = int(event.get("createdAt") or button_created_at_ms or int(time.time() * 1000))
+                            mailbox_latency_ms = max(0, int(time.time() * 1000) - mailbox_created_at_ms)
+
+                            performance.event(
+                                "NEXT_BUTTON_PRESSED" if is_next else "PREVIOUS_BUTTON_PRESSED",
+                                screen=navigation.current,
+                                metadata={
+                                    "request_id": event_request_id,
+                                    "sequence": command_sequence,
+                                    "episode_id": payload.get("episodeId"),
+                                    "anime_id": payload.get("animeId"),
+                                    "transition_generation": payload.get("transitionGeneration"),
+                                    "player_session_id": source_player_session_id,
+                                },
                             )
                             performance.event(
                                 "PYTHON_MAILBOX_RECEIVED",
                                 screen=navigation.current,
-                                metadata={"request_id": event_request_id, "direction": direction_name,
-                                          "sequence": command_sequence, "mailbox_age_ms": mailbox_latency_ms,
-                                          "command_created_at_ms": command_created_at_ms,
-                                          "command_generation": payload.get("transitionGeneration"),
-                                          "current_generation": player_transition_generation["value"]},
-                            )
-                            performance.event(
-                                f"player.{direction_name.lower()}.request",
-                                screen=navigation.current,
                                 metadata={
                                     "request_id": event_request_id,
-                                    "media_identity": payload.get("mediaId"),
-                                    "mailbox_latency_ms": mailbox_latency_ms,
-                                    "button_pressed_at_ms": button_created_at_ms,
+                                    "direction": direction_name,
+                                    "sequence": command_sequence,
+                                    "mailbox_age_ms": mailbox_latency_ms,
+                                    "command_created_at_ms": button_created_at_ms,
+                                    "command_generation": payload.get("transitionGeneration"),
+                                    "current_generation": player_transition_generation["value"],
+                                    "player_session_id": source_player_session_id,
                                 },
                             )
-                            if player_transition_inflight["value"]:
-                                performance.event("PLAYER_COMMAND_STALE", screen=navigation.current,
-                                                  status="rejected",
-                                                  metadata={"request_id": event_request_id, "direction": direction_name,
-                                                            "age_ms": mailbox_latency_ms,
-                                                            "current_request_id": player_active_request_id["value"],
-                                                            "current_generation": player_transition_generation["value"],
-                                                            "command_generation": payload.get("transitionGeneration"),
-                                                            "reason": "transition_in_progress"})
-                                diagnostics.record(
-                                    "PLAYER_NEXT_IGNORED" if event_type == "player_next_request" else "PLAYER_PREVIOUS_IGNORED",
-                                    request_id=event_request_id,
-                                    source="native_player",
-                                    result="transition_in_progress",
+
+                            duplicate_request = bool(event_request_id and event_request_id in player_command_seen)
+                            if duplicate_request:
+                                performance.event(
+                                    "PLAYER_COMMAND_DUPLICATE",
+                                    screen=navigation.current,
+                                    status="duplicate",
+                                    metadata={"request_id": event_request_id, "direction": direction_name, "sequence": command_sequence},
+                                )
+                                if is_next:
+                                    performance.event(
+                                        "NEXT_REQUEST_DUPLICATE",
+                                        screen=navigation.current,
+                                        status="rejected",
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "age_ms": mailbox_latency_ms,
+                                            "reason": "same_request_id",
+                                            "player_session_id": source_player_session_id,
+                                        },
+                                    )
+                                    continue
+                            elif event_request_id:
+                                player_command_seen.add(event_request_id)
+                                if len(player_command_seen) > 128:
+                                    player_command_seen.pop()
+
+                            previous_sequence = int(player_last_command.get("sequence") or 0)
+                            if command_sequence < previous_sequence:
+                                performance.event(
+                                    "PLAYER_COMMAND_OUT_OF_ORDER",
+                                    screen=navigation.current,
+                                    status="out_of_order",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "direction": direction_name,
+                                        "sequence": command_sequence,
+                                        "previous_sequence": previous_sequence,
+                                        "previous_request_id": player_last_command.get("request_id"),
+                                    },
+                                )
+                                if is_next:
+                                    performance.event(
+                                        "NEXT_REQUEST_STALE",
+                                        screen=navigation.current,
+                                        status="rejected",
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "age_ms": mailbox_latency_ms,
+                                            "origin_generation": payload.get("transitionGeneration"),
+                                            "current_generation": player_transition_generation["value"],
+                                            "reason": "out_of_order",
+                                        },
+                                    )
+                                    performance.event(
+                                        "PLAYER_NEXT_STALE_REJECTED",
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "age_ms": mailbox_latency_ms,
+                                            "origin_generation": payload.get("transitionGeneration"),
+                                            "current_generation": player_transition_generation["value"],
+                                            "reason": "out_of_order",
+                                        },
+                                    )
+                                    continue
+                            player_last_command.update(
+                                sequence=command_sequence,
+                                request_id=event_request_id,
+                                direction=direction_name,
+                                created_at_ms=button_created_at_ms,
+                            )
+
+                            if is_next and not source_player_session_id:
+                                performance.event(
+                                    "NEXT_REQUEST_REJECTED",
+                                    screen=navigation.current,
+                                    status="rejected",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "reason": "missing_player_session_id",
+                                        "age_ms": mailbox_latency_ms,
+                                    },
                                 )
                                 continue
+
+                            if is_next and player_active_session_id["value"] not in (None, source_player_session_id):
+                                performance.event(
+                                    "NEXT_REQUEST_STALE",
+                                    screen=navigation.current,
+                                    status="rejected",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "age_ms": mailbox_latency_ms,
+                                        "origin_generation": payload.get("transitionGeneration"),
+                                        "current_generation": player_transition_generation["value"],
+                                        "origin_player_session_id": source_player_session_id,
+                                        "current_player_session_id": player_active_session_id["value"],
+                                        "reason": "player_session_mismatch",
+                                    },
+                                )
+                                performance.event(
+                                    "PLAYER_NEXT_STALE_REJECTED",
+                                    screen=navigation.current,
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "age_ms": mailbox_latency_ms,
+                                        "origin_generation": payload.get("transitionGeneration"),
+                                        "current_generation": player_transition_generation["value"],
+                                        "reason": "player_session_mismatch",
+                                    },
+                                )
+                                continue
+
+                            if player_transition_inflight["value"]:
+                                performance.event(
+                                    "PLAYER_COMMAND_STALE",
+                                    screen=navigation.current,
+                                    status="rejected",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "direction": direction_name,
+                                        "age_ms": mailbox_latency_ms,
+                                        "current_request_id": player_active_request_id["value"],
+                                        "current_generation": player_transition_generation["value"],
+                                        "command_generation": payload.get("transitionGeneration"),
+                                        "reason": "transition_in_progress",
+                                    },
+                                )
+                                if is_next:
+                                    performance.event(
+                                        "NEXT_REQUEST_DUPLICATE" if pending_next_transition["value"] and
+                                        event_request_id == pending_next_transition["value"].get("origin_request_id")
+                                        else "NEXT_REQUEST_REJECTED",
+                                        screen=navigation.current,
+                                        status="rejected",
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "age_ms": mailbox_latency_ms,
+                                            "reason": "transition_in_progress",
+                                        },
+                                    )
+                                continue
+
                             active_request = player_active_request_id["value"]
                             if active_request and event_request_id != active_request:
-                                diagnostics.record(
-                                    "PLAYER_NEXT_IGNORED" if event_type == "player_next_request" else "PLAYER_PREVIOUS_IGNORED",
-                                    request_id=event_request_id,
-                                    source="native_player",
-                                    result="stale_player_session",
-                                )
+                                if is_next:
+                                    performance.event(
+                                        "NEXT_REQUEST_STALE",
+                                        screen=navigation.current,
+                                        status="rejected",
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "age_ms": mailbox_latency_ms,
+                                            "origin_generation": payload.get("transitionGeneration"),
+                                            "current_generation": player_transition_generation["value"],
+                                            "reason": "stale_player_request",
+                                        },
+                                    )
+                                    performance.event(
+                                        "PLAYER_NEXT_STALE_REJECTED",
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "age_ms": mailbox_latency_ms,
+                                            "origin_generation": payload.get("transitionGeneration"),
+                                            "current_generation": player_transition_generation["value"],
+                                            "reason": "stale_player_request",
+                                        },
+                                    )
                                 continue
+
+                            if is_next:
+                                performance.event(
+                                    "NEXT_REQUEST_ACCEPTED",
+                                    screen=navigation.current,
+                                    status="accepted",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "age_ms": mailbox_latency_ms,
+                                        "origin_generation": payload.get("transitionGeneration"),
+                                        "player_session_id": source_player_session_id,
+                                    },
+                                )
 
                             player_transition_inflight["value"] = True
                             player_transition_generation["value"] += 1
@@ -2775,6 +2911,35 @@ async def main(page: ft.Page):
                             if player_active_request_id["value"] is None:
                                 player_active_request_id["value"] = event_request_id
                             player_session_active["value"] = True
+                            if is_next and player_active_session_id["value"] is None:
+                                player_active_session_id["value"] = source_player_session_id
+
+                            if is_next:
+                                pending_next_transition["value"] = {
+                                    "origin_request_id": event_request_id,
+                                    "target_request_id": None,
+                                    "player_session_id": source_player_session_id,
+                                    "native_transition_generation": int(payload.get("transitionGeneration") or 0),
+                                    "python_transition_generation": transition_generation,
+                                    "created_at_ms": button_created_at_ms,
+                                    "source_episode_id": payload.get("episodeId"),
+                                    "source_anime_id": payload.get("animeId"),
+                                    "source_uri": str(payload.get("uri") or "").strip(),
+                                    "target_episode_id": None,
+                                    "target_anime_id": None,
+                                    "target_uri": None,
+                                    "ready": False,
+                                }
+                                performance.event(
+                                    "NEXT_TRANSITION_STARTED",
+                                    screen=navigation.current,
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "generation": transition_generation,
+                                        "origin_generation": payload.get("transitionGeneration"),
+                                        "player_session_id": source_player_session_id,
+                                    },
+                                )
 
                             async def run_player_transition(
                                 direction_name=direction_name,
@@ -2784,47 +2949,119 @@ async def main(page: ft.Page):
                                 transition_generation=transition_generation,
                                 transition_started=transition_started,
                                 button_created_at_ms=button_created_at_ms,
+                                source_player_session_id=source_player_session_id,
+                                is_next=is_next,
                             ):
                                 try:
                                     current_path = str(payload.get("uri") or "").strip()
                                     direction = 1 if event_type == "player_next_request" else -1
-                                    if not current_path:
-                                        raise RuntimeError("missing_current_uri")
-                                    if not player_transition_is_current(
+                                    current_is_valid = lambda: player_transition_is_current(
                                         transition_generation,
                                         event_request_id,
-                                    ):
+                                        source_player_session_id if is_next else None,
+                                    )
+                                    if not current_path:
+                                        raise RuntimeError("missing_current_uri")
+                                    if not current_is_valid():
+                                        if is_next:
+                                            performance.event(
+                                                "NEXT_REQUEST_STALE",
+                                                screen=navigation.current,
+                                                status="rejected",
+                                                metadata={
+                                                    "request_id": event_request_id,
+                                                    "reason": "stale_before_sqlite",
+                                                    "origin_generation": payload.get("transitionGeneration"),
+                                                    "current_generation": player_transition_generation["value"],
+                                                },
+                                            )
                                         return
 
                                     query_started = performance.now()
-                                    performance.event("PYTHON_PLAYER_NAVIGATION_STARTED", screen=navigation.current,
-                                                      metadata={"request_id": event_request_id, "direction": direction_name,
-                                                                "sequence": command_sequence,
-                                                                "transition_generation": transition_generation})
-                                    performance.event("SQLITE_NEIGHBOR_QUERY_STARTED", screen=navigation.current,
-                                                      metadata={"request_id": event_request_id, "direction": direction_name,
-                                                                "transition_generation": transition_generation})
+                                    performance.event(
+                                        "PYTHON_PLAYER_NAVIGATION_STARTED",
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "direction": direction_name,
+                                            "transition_generation": transition_generation,
+                                            "player_session_id": source_player_session_id,
+                                        },
+                                    )
+                                    performance.event(
+                                        "SQLITE_NEIGHBOR_QUERY_STARTED",
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "direction": direction_name,
+                                            "transition_generation": transition_generation,
+                                        },
+                                    )
                                     navigation_snapshot = await asyncio.to_thread(
                                         library.player_navigation,
                                         current_path,
                                     )
-                                    if not player_transition_is_current(
-                                        transition_generation,
-                                        event_request_id,
-                                    ):
+                                    if not current_is_valid():
+                                        if is_next:
+                                            performance.event(
+                                                "NEXT_REQUEST_STALE",
+                                                screen=navigation.current,
+                                                status="rejected",
+                                                metadata={
+                                                    "request_id": event_request_id,
+                                                    "age_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
+                                                    "reason": "stale_after_sqlite",
+                                                    "origin_generation": payload.get("transitionGeneration"),
+                                                    "current_generation": player_transition_generation["value"],
+                                                },
+                                            )
                                         return
 
-                                    target = (
-                                        navigation_snapshot.get("next")
-                                        if direction > 0
-                                        else navigation_snapshot.get("previous")
-                                    )
+                                    current_row = navigation_snapshot.get("current") or {}
+                                    current_row_id = str(current_row.get("id") or "")
+                                    current_row_anime = str(current_row.get("anime_id") or "")
+                                    current_row_path = str(current_row.get("path") or "").strip()
+                                    if is_next and (
+                                        (payload.get("episodeId") and current_row_id and str(payload.get("episodeId")) != current_row_id)
+                                        or (payload.get("animeId") and current_row_anime and str(payload.get("animeId")) != current_row_anime)
+                                        or (current_row_path and current_row_path != current_path)
+                                    ):
+                                        performance.event(
+                                            "NEXT_REQUEST_STALE",
+                                            screen=navigation.current,
+                                            status="rejected",
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "age_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
+                                                "reason": "sqlite_current_row_mismatch",
+                                            },
+                                        )
+                                        performance.event(
+                                            "PLAYER_NEXT_STALE_REJECTED",
+                                            screen=navigation.current,
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "age_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
+                                                "origin_generation": payload.get("transitionGeneration"),
+                                                "current_generation": player_transition_generation["value"],
+                                                "reason": "sqlite_current_row_mismatch",
+                                            },
+                                        )
+                                        return
+
+                                    target = navigation_snapshot.get("next") if direction > 0 else navigation_snapshot.get("previous")
                                     sqlite_ms = (performance.now() - query_started) * 1000.0
-                                    performance.event("SQLITE_NEIGHBOR_QUERY_FINISHED", duration_ms=sqlite_ms,
-                                                      screen=navigation.current,
-                                                      metadata={"request_id": event_request_id, "direction": direction_name,
-                                                                "transition_generation": transition_generation,
-                                                                "has_target": bool((navigation_snapshot.get("next") if direction > 0 else navigation_snapshot.get("previous")))})
+                                    performance.event(
+                                        "SQLITE_NEIGHBOR_QUERY_FINISHED",
+                                        duration_ms=sqlite_ms,
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "direction": direction_name,
+                                            "transition_generation": transition_generation,
+                                            "has_target": bool(target),
+                                        },
+                                    )
                                     performance.event(
                                         f"player.{direction_name.lower()}.query",
                                         duration_ms=sqlite_ms,
@@ -2836,12 +3073,21 @@ async def main(page: ft.Page):
                                         },
                                     )
                                     if not target:
-                                        logger.warning(
-                                            "[PLAYER] adjacent episode not found direction=%s request_id=%s uri=%s",
-                                            direction,
-                                            event_request_id or "-",
-                                            current_path,
-                                        )
+                                        if is_next:
+                                            performance.event(
+                                                "NEXT_TRANSITION_FAILED",
+                                                screen=navigation.current,
+                                                status="failed",
+                                                metadata={"request_id": event_request_id, "reason": "no_target"},
+                                            )
+                                            cancel_player_transition("next_no_target")
+                                        else:
+                                            logger.warning(
+                                                "[PLAYER] adjacent episode not found direction=%s request_id=%s uri=%s",
+                                                direction_name,
+                                                event_request_id or "-",
+                                                current_path,
+                                            )
                                         page.snack_bar = ft.SnackBar(ft.Text(
                                             "Não existe outro episódio local disponível nesta direção."
                                         ))
@@ -2862,52 +3108,87 @@ async def main(page: ft.Page):
                                         if resume_enabled else 0.0
                                     )
                                     target_navigation = {
-                                        "can_next": bool(
-                                            navigation_snapshot.get(
-                                                "next_can_next" if direction > 0 else "previous_can_next"
-                                            )
-                                        ),
-                                        "can_previous": bool(
-                                            navigation_snapshot.get(
-                                                "next_can_previous" if direction > 0 else "previous_can_previous"
-                                            )
-                                        ),
+                                        "can_next": bool(navigation_snapshot.get(
+                                            "next_can_next" if direction > 0 else "previous_can_next"
+                                        )),
+                                        "can_previous": bool(navigation_snapshot.get(
+                                            "next_can_previous" if direction > 0 else "previous_can_previous"
+                                        )),
                                     }
-                                    if not player_transition_is_current(
-                                        transition_generation,
-                                        event_request_id,
-                                    ):
+                                    if not current_is_valid():
+                                        if is_next:
+                                            performance.event(
+                                                "NEXT_REQUEST_STALE",
+                                                screen=navigation.current,
+                                                status="rejected",
+                                                metadata={
+                                                    "request_id": event_request_id,
+                                                    "age_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
+                                                    "reason": "stale_after_target_resolution",
+                                                    "origin_generation": payload.get("transitionGeneration"),
+                                                    "current_generation": player_transition_generation["value"],
+                                                },
+                                            )
                                         return
 
-                                    performance.event("TARGET_EPISODE_RESOLVED", screen=navigation.current,
-                                                      metadata={"request_id": event_request_id, "direction": direction_name,
-                                                                "episode_id": target.get("id"), "anime_id": target.get("anime_id"),
-                                                                "transition_generation": transition_generation})
+                                    if is_next:
+                                        pending = pending_next_transition["value"]
+                                        if not isinstance(pending, dict) or pending.get("origin_request_id") != event_request_id:
+                                            performance.event(
+                                                "NEXT_REQUEST_STALE",
+                                                screen=navigation.current,
+                                                status="rejected",
+                                                metadata={"request_id": event_request_id, "reason": "pending_context_replaced"},
+                                            )
+                                            performance.event(
+                                                "PLAYER_NEXT_STALE_REJECTED",
+                                                screen=navigation.current,
+                                                metadata={
+                                                    "request_id": event_request_id,
+                                                    "age_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
+                                                    "origin_generation": payload.get("transitionGeneration"),
+                                                    "current_generation": player_transition_generation["value"],
+                                                    "reason": "pending_context_replaced",
+                                                },
+                                            )
+                                            return
+                                        pending["target_episode_id"] = target.get("id")
+                                        pending["target_anime_id"] = target.get("anime_id")
+                                        pending["target_uri"] = target_path
+
+                                    performance.event(
+                                        "TARGET_EPISODE_RESOLVED",
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "direction": direction_name,
+                                            "episode_id": target.get("id"),
+                                            "anime_id": target.get("anime_id"),
+                                            "transition_generation": transition_generation,
+                                            "player_session_id": source_player_session_id,
+                                        },
+                                    )
                                     diagnostics.record(
-                                        "PLAYER_NEXT" if direction > 0 else "PLAYER_PREVIOUS",
+                                        "PLAYER_NEXT" if is_next else "PLAYER_PREVIOUS",
                                         request_id=event_request_id,
                                         source="native_player",
                                         result=target_path,
                                     )
+                                    handoff_started = performance.now()
                                     performance.event(
-                                        f"player.{direction_name.lower()}.target",
+                                        "NATIVE_PLAY_REQUEST_CREATED",
                                         screen=navigation.current,
                                         metadata={
                                             "request_id": event_request_id,
+                                            "direction": direction_name,
                                             "episode_id": target.get("id"),
-                                            "media_identity": target.get("media_identity"),
-                                            "target_can_next": target_navigation["can_next"],
-                                            "target_can_previous": target_navigation["can_previous"],
+                                            "anime_id": target.get("anime_id"),
+                                            "origin_request_id": event_request_id,
+                                            "origin_created_at_ms": button_created_at_ms,
+                                            "origin_transition_generation": int(payload.get("transitionGeneration") or 0),
+                                            "origin_player_session_id": source_player_session_id,
                                         },
                                     )
-
-                                    handoff_started = performance.now()
-                                    performance.event("NATIVE_PLAY_REQUEST_CREATED", screen=navigation.current,
-                                                      metadata={"request_id": event_request_id, "direction": direction_name,
-                                                                "episode_id": target.get("id"), "anime_id": target.get("anime_id"),
-                                                                "origin_request_id": event_request_id,
-                                                                "origin_created_at_ms": button_created_at_ms,
-                                                                "origin_transition_generation": transition_generation})
                                     await start_native_player(
                                         target_path,
                                         target_title,
@@ -2917,10 +3198,18 @@ async def main(page: ft.Page):
                                         navigation_snapshot=target_navigation,
                                         origin_request_id=event_request_id,
                                         origin_created_at_ms=button_created_at_ms,
-                                        origin_transition_generation=int(
-                                            payload.get("transitionGeneration") or 0
-                                        ),
+                                        origin_transition_generation=int(payload.get("transitionGeneration") or 0),
+                                        origin_player_session_id=source_player_session_id,
+                                        transition_guard=current_is_valid,
                                     )
+                                    if is_next:
+                                        pending = pending_next_transition["value"]
+                                        if isinstance(pending, dict) and pending.get("origin_request_id") == event_request_id:
+                                            pending["target_request_id"] = (
+                                                pending.get("target_request_id")
+                                                or str(target.get("_request_id") or "").strip()
+                                                or player_active_request_id["value"]
+                                            )
                                     performance.event(
                                         f"player.{direction_name.lower()}.handoff",
                                         duration_ms=(performance.now() - handoff_started) * 1000.0,
@@ -2928,10 +3217,7 @@ async def main(page: ft.Page):
                                         metadata={
                                             "request_id": event_request_id,
                                             "target": target_path,
-                                            "mailbox_latency_ms": max(
-                                                0,
-                                                int(time.time() * 1000) - button_created_at_ms,
-                                            ),
+                                            "mailbox_latency_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
                                         },
                                     )
                                 except asyncio.CancelledError:
@@ -2942,10 +3228,19 @@ async def main(page: ft.Page):
                                     )
                                     raise
                                 except Exception as exc:
-                                    if not player_transition_is_current(
-                                        transition_generation,
-                                        event_request_id,
-                                    ):
+                                    if is_next:
+                                        performance.event(
+                                            "NEXT_TRANSITION_FAILED",
+                                            screen=navigation.current,
+                                            status="failed",
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "reason": "exception",
+                                                "error": str(exc),
+                                                "player_session_id": source_player_session_id,
+                                            },
+                                        )
+                                    if not current_is_valid():
                                         return
                                     logger.exception("[PLAYER] adjacent episode launch failed")
                                     page.snack_bar = ft.SnackBar(ft.Text(
@@ -2956,12 +3251,14 @@ async def main(page: ft.Page):
                                     page.snack_bar.open = True
                                     safe_update()
                                     diagnostics.record(
-                                        "PLAYER_NEXT_FAILED" if direction_name == "NEXT" else "PLAYER_PREVIOUS_FAILED",
+                                        "PLAYER_NEXT_FAILED" if is_next else "PLAYER_PREVIOUS_FAILED",
                                         request_id=event_request_id,
                                         source="native_player",
                                         result="transition_failed",
                                         error=str(exc),
                                     )
+                                    if is_next:
+                                        cancel_player_transition("next_transition_failed")
                                 finally:
                                     current_task = player_transition_task["task"]
                                     if (

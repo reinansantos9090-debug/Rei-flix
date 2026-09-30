@@ -61,10 +61,15 @@ class Prompt37SQLiteTests(unittest.TestCase):
 
     def test_d_unused_registry_genres_do_not_enter_organize_summary(self):
         self.add_anime("a", "A", ["Action"])
+        self.registry.register("Drama", source="local", is_custom=False)
+        self.registry.register("Horror", source="local", is_custom=False)
         self.assertNotIn("Drama", self.genre_counts())
         self.assertNotIn("Horror", self.genre_counts())
         self.assertTrue(
             any(item["name"] == "Drama" and item["count"] == 0 for item in self.registry.list_all())
+        )
+        self.assertTrue(
+            any(item["name"] == "Horror" and item["count"] == 0 for item in self.registry.list_all())
         )
 
     def test_e_duplicate_sources_count_an_anime_once(self):

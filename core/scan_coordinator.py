@@ -298,6 +298,12 @@ class ScanCoordinator:
         self._log("SCAN_STARTED", request)
         logger.info("[SCAN] instrumentation monotonic_ns=%s", time.monotonic_ns())
         async with self._lock:
+            if self._exclusive_reason is not None:
+                return ScanTransition(
+                    True,
+                    "blocked",
+                    message=f"exclusive_operation:{self._exclusive_reason}",
+                )
             if self._active_request is not None:
                 if self._request_covers(self._active_request, request):
                     self._log("SCAN_DEDUPED", request, active=self._active_request.request_id)

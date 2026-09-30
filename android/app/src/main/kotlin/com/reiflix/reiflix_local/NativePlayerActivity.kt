@@ -180,13 +180,25 @@ class NativePlayerActivity : ComponentActivity() {
     private var originPlayerSessionId = ""
     private val episodeChangeTimeout = Runnable {
         if (!episodeChangePending) return@Runnable
-        if (episodeChangeTimeoutRequestId != requestId ||
-            episodeChangeTimeoutUri != uri.toString() ||
-            episodeChangeTimeoutGeneration != transitionSourceGeneration ||
-            episodeChangeTimeoutGeneration != transitionGeneration ||
-            episodeChangeTimeoutSessionId != playerSessionId ||
-            episodeChangeTimeoutPlayerGeneration != playerGeneration
-        ) return@Runnable
+        val timeoutContextValid =
+            episodeChangeTimeoutRequestId == requestId &&
+                episodeChangeTimeoutUri == uri.toString() &&
+                episodeChangeTimeoutGeneration == transitionSourceGeneration &&
+                episodeChangeTimeoutGeneration == transitionGeneration &&
+                episodeChangeTimeoutSessionId == playerSessionId &&
+                episodeChangeTimeoutPlayerGeneration == playerGeneration
+        if (!timeoutContextValid) {
+            publishNavigationTransitionDiagnostic(
+                "PLAYER_TIMEOUT_STALE",
+                "context_mismatch",
+                JSONObject()
+                    .put("requestId", requestId)
+                    .put("playerSessionId", playerSessionId)
+                    .put("playerGeneration", playerGeneration)
+                    .put("transitionGeneration", transitionGeneration),
+            )
+            return@Runnable
+        }
 
         val direction = when {
             nextTransitionActive -> "NEXT"
@@ -2970,6 +2982,14 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             return
         }
         if (episodeChangePending) {
+            publishNavigationTransitionDiagnostic(
+                "PLAYER_COMMAND_DUPLICATE",
+                "transition_in_progress",
+                JSONObject()
+                    .put("requestId", requestId)
+                    .put("playerSessionId", playerSessionId)
+                    .put("transitionGeneration", transitionGeneration),
+            )
             publishNavigationTransitionDiagnostic(
                 requestEvent("NEXT_REQUEST_DUPLICATE", "PREVIOUS_REQUEST_DUPLICATE"),
                 "transition_in_progress",

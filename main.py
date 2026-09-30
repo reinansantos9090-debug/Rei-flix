@@ -4,6 +4,7 @@ import asyncio
 import logging
 import json
 import datetime
+import uuid
 import flet as ft
 from flet.auth import OAuthProvider
 from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URL as CONFIG_GOOGLE_REDIRECT_URL, GOOGLE_WEB_CLIENT_ID as CONFIG_GOOGLE_WEB_CLIENT_ID
@@ -752,6 +753,7 @@ async def main(page: ft.Page):
     player_active_episode_id = {"value": None}
     player_active_anime_id = {"value": None}
     player_active_uri = {"value": None}
+    player_active_player_generation = {"value": 0}
     player_session_active = {"value": False}
     player_command_sequence = {"value": 0}
     player_command_seen = set()
@@ -852,6 +854,59 @@ async def main(page: ft.Page):
             player_transition_generation["value"],
             reason,
         )
+
+    def invalidate_player_session(reason="unknown", expected_session_id=None, expected_request_id=None):
+        current_session_id = player_active_session_id["value"]
+        current_request_id = player_active_request_id["value"]
+        if expected_session_id and current_session_id not in (None, expected_session_id):
+            performance.event(
+                "PLAYER_CALLBACK_STALE",
+                screen=navigation.current,
+                status="ignored",
+                metadata={"request_id": expected_request_id or current_request_id, "player_session_id": expected_session_id, "current_player_session_id": current_session_id, "reason": "session_mismatch_on_invalidation"},
+            )
+            return False
+        if expected_request_id and current_request_id not in (None, expected_request_id):
+            performance.event(
+                "PLAYER_CALLBACK_STALE",
+                screen=navigation.current,
+                status="ignored",
+                metadata={"request_id": expected_request_id, "current_request_id": current_request_id, "reason": "request_mismatch_on_invalidation"},
+            )
+            return False
+        if current_session_id:
+            performance.event(
+                "PLAYER_SESSION_INVALIDATED",
+                screen=navigation.current,
+                metadata={"request_id": current_request_id, "player_session_id": current_session_id, "player_generation": player_active_player_generation["value"], "reason": reason},
+            )
+        cancel_player_transition(reason)
+        player_session_active["value"] = False
+        player_active_session_id["value"] = None
+        player_active_request_id["value"] = None
+        player_active_episode_id["value"] = None
+        player_active_anime_id["value"] = None
+        player_active_uri["value"] = None
+        player_active_player_generation["value"] = 0
+        return True
+
+    def player_callback_is_current(event_request_id, payload, *, require_active=True, episode_id=None):
+        session_id = str(payload.get("playerSessionId") or payload.get("player_session_id") or "").strip()
+        generation = int(payload.get("generation") or payload.get("playerGeneration") or 0)
+        transition_gen = int(payload.get("transitionGeneration") or 0)
+        if require_active and not player_session_active["value"]:
+            return False, "stale_session"
+        if session_id and player_active_session_id["value"] not in (None, session_id):
+            return False, "stale_session"
+        if event_request_id and player_active_request_id["value"] not in (None, event_request_id):
+            return False, "stale_request"
+        if generation > 0 and player_active_player_generation["value"] > 0 and generation != player_active_player_generation["value"]:
+            return False, "stale_player_generation"
+        if transition_gen > 0 and player_transition_generation["value"] > 0 and transition_gen < player_transition_generation["value"]:
+            return False, "stale_transition_generation"
+        if episode_id and player_active_episode_id["value"] not in (None, episode_id):
+            return False, "stale_episode"
+        return True, ""
 
     def player_transition_is_current(generation, request_id, player_session_id=None):
         session_matches = (

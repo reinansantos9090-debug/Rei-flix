@@ -103,6 +103,14 @@ class Prompt31HomeRefreshContractTests(unittest.TestCase):
         self.assertIn('reset_state', source)
         self.assertIn('set_refresh_state("IDLE")', source)
 
+    def test_prompt31_keeps_player_and_playback_code_out_of_the_home_refresh_path(self):
+        main = self.read("main.py")
+        home = self.read("views/home_view.py")
+        self.assertNotIn("NativePlayerActivity", home)
+        self.assertNotIn("Media3", home)
+        self.assertIn("play_episode", main)
+        self.assertIn("player_transition_generation", main)
+
     def test_source_is_valid_python(self):
         for path in ("main.py", "views/home_view.py"):
             ast.parse(self.read(path), filename=path)

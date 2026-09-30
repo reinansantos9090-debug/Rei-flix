@@ -85,13 +85,12 @@ object VideoThumbnailExtractor {
                 extractionPermits.acquire()
                 permitAcquired = true
                 val startedNs = android.os.SystemClock.elapsedRealtimeNanos()
-            NativeMailbox.writeBestEffort(
-                context,
-                org.json.JSONObject().put("type", "diagnostic").put("requestId", requestId)
-                    .put("payload", org.json.JSONObject().put("event", "THUMBNAIL_GENERATION_STARTED")
-                        .put("requestId", requestId)),
-            )
-            try {
+                NativeMailbox.writeBestEffort(
+                    context,
+                    org.json.JSONObject().put("type", "diagnostic").put("requestId", requestId)
+                        .put("payload", org.json.JSONObject().put("event", "THUMBNAIL_GENERATION_STARTED")
+                            .put("requestId", requestId)),
+                )
                 if (target.isFile && target.length() > 0L && isValidCachedThumbnail(target)) {
                     return Result(target.absolutePath)
                 }
@@ -110,7 +109,6 @@ object VideoThumbnailExtractor {
                 inFlight.remove(key, lock)
             }
         }
-    }
 
     private fun isValidCachedThumbnail(file: File): Boolean = runCatching {
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }

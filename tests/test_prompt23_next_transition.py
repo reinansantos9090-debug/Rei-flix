@@ -116,6 +116,17 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         self.assertIn("NEXT_TRANSITION_INVALIDATED", block)
         self.assertIn("NEXT_REQUEST_CANCELLED", block)
 
+    def test_new_activity_rejects_nonempty_next_origin(self):
+        start = self.player.index("override fun onCreate(savedInstanceState")
+        end = self.player.index("val traceEpisodeId", start)
+        create = self.player[start:end]
+        self.assertIn("originRequestId.isNotBlank()", create)
+        self.assertIn('NEXT_REQUEST_STALE', create)
+        self.assertIn('PLAYER_NEXT_STALE_REJECTED', create)
+        self.assertIn('origin_on_new_activity', create)
+        self.assertIn("finish()", create)
+        self.assertIn("suppressExitEvent = true", create)
+
     def test_activity_exit_and_recreation_have_native_session_authorization(self):
         for token in (
             "notePlayerSession",

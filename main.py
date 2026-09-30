@@ -1895,6 +1895,93 @@ async def main(page: ft.Page):
                                     cancel_player_transition("player_activity_result")
                                     player_active_request_id["value"] = None
                                     player_session_active["value"] = False
+                            elif diagnostic_event == "PLAYER_LIFECYCLE":
+                                lifecycle = str(payload.get("lifecycle") or "").strip()
+                                lifecycle_session = str(payload.get("playerSessionId") or "").strip() or None
+                                lifecycle_state = str(payload.get("sessionState") or "").strip().upper()
+                                if lifecycle_session:
+                                    if lifecycle in {"onCreate", "onNewIntent", "onStart", "onResume"}:
+                                        player_active_session_id["value"] = lifecycle_session
+                                        player_session_active["value"] = lifecycle_state not in {"EXITING", "DESTROYED"}
+                                    elif lifecycle in {"onPause", "onStop", "onDestroy"} and (
+                                        lifecycle_state in {"EXITING", "DESTROYED"} or lifecycle == "onDestroy"
+                                    ) and player_active_session_id["value"] == lifecycle_session:
+                                        cancel_player_transition(f"player_lifecycle_{lifecycle}")
+                                        player_session_active["value"] = False
+                                        player_active_session_id["value"] = None
+                                        player_active_request_id["value"] = None
+                                        player_active_episode_id["value"] = None
+                                        player_active_anime_id["value"] = None
+                                        player_active_uri["value"] = None
+                            elif diagnostic_event == "FIRST_FRAME_RENDERED":
+                                context = pending_next_transition["value"]
+                                diagnostic_session = str(payload.get("playerSessionId") or "").strip()
+                                if isinstance(context, dict):
+                                    target_request_id = str(context.get("target_request_id") or "").strip()
+                                    origin_request_id = str(context.get("origin_request_id") or "").strip()
+                                    if (
+                                        event_request_id == target_request_id
+                                        and diagnostic_session == str(context.get("player_session_id") or "")
+                                        and player_session_active["value"]
+                                        and player_active_session_id["value"] == diagnostic_session
+                                        and bool(context.get("ready"))
+                                    ):
+                                        performance.event(
+                                            "NEXT_TRANSITION_FIRST_FRAME",
+                                            screen=navigation.current,
+                                            metadata={
+                                                "request_id": origin_request_id,
+                                                "target_request_id": target_request_id,
+                                                "player_session_id": diagnostic_session,
+                                                "episode_id": payload.get("episodeId") or context.get("target_episode_id"),
+                                                "generation": payload.get("generation"),
+                                            },
+                                        )
+                                        performance.event(
+                                            "NEXT_TRANSITION_COMMITTED",
+                                            screen=navigation.current,
+                                            metadata={
+                                                "request_id": origin_request_id,
+                                                "target_request_id": target_request_id,
+                                                "player_session_id": diagnostic_session,
+                                                "episode_id": payload.get("episodeId") or context.get("target_episode_id"),
+                                            },
+                                        )
+                                        performance.event(
+                                            "PLAYER_TRANSITION_COMMITTED",
+                                            screen=navigation.current,
+                                            metadata={
+                                                "request_id": target_request_id,
+                                                "episode_id": payload.get("episodeId") or context.get("target_episode_id"),
+                                                "generation": payload.get("generation"),
+                                                "transition_generation": context.get("native_transition_generation"),
+                                            },
+                                        )
+                                        pending_next_transition["value"] = None
+                                    elif context is not None:
+                                        performance.event(
+                                            "NEXT_REQUEST_STALE",
+                                            screen=navigation.current,
+                                            status="rejected",
+                                            metadata={
+                                                "request_id": origin_request_id,
+                                                "target_request_id": target_request_id,
+                                                "reason": "first_frame_wrong_session_or_request",
+                                                "player_session_id": diagnostic_session,
+                                                "current_session_id": player_active_session_id["value"],
+                                            },
+                                        )
+                                        performance.event(
+                                            "PLAYER_NEXT_STALE_REJECTED",
+                                            screen=navigation.current,
+                                            metadata={
+                                                "request_id": origin_request_id,
+                                                "age_ms": max(0, int(time.time() * 1000) - int(context.get("created_at_ms") or 0)),
+                                                "origin_generation": context.get("native_transition_generation"),
+                                                "current_generation": player_transition_generation["value"],
+                                                "reason": "first_frame_wrong_session_or_request",
+                                            },
+                                        )
                             diagnostics.record(
                                 diagnostic_event,
                                 request_id=event_request_id,

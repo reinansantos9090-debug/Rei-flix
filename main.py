@@ -1275,6 +1275,15 @@ async def main(page: ft.Page):
                         "anime_id": anime_id,
                     },
                 )
+                performance.event(
+                    "PROGRESS_LOOKUP_STARTED",
+                    screen=navigation.current,
+                    metadata={
+                        "player_session_id": launch_session_id,
+                        "episode_id": episode_id,
+                        "anime_id": anime_id,
+                    },
+                )
                 fresh_episode = await asyncio.to_thread(store.episode_by_id, episode_id)
                 performance.event(
                     "PROGRESS_LOOKUP_COMPLETED",
@@ -1379,6 +1388,16 @@ async def main(page: ft.Page):
                         "duration_seconds": max(0.0, float(fresh_episode.get("duration") or 0.0)),
                     },
                 )
+                performance.event(
+                    "MEDIA_RESOLVED",
+                    screen=navigation.current,
+                    metadata={
+                        "player_session_id": launch_session_id,
+                        "episode_id": fresh_episode.get("id"),
+                        "anime_id": fresh_episode.get("anime_id"),
+                        "uri_source": "canonical_sqlite_row",
+                    },
+                )
                 current_session_guard = lambda: (
                     player_session_active["value"]
                     and player_active_session_id["value"] == launch_session_id
@@ -1392,6 +1411,15 @@ async def main(page: ft.Page):
                         metadata={"reason": "STALE_SESSION_BEFORE_HANDOFF", "player_session_id": launch_session_id},
                     )
                     return
+                performance.event(
+                    "PLAYER_HANDOFF_STARTED",
+                    screen=navigation.current,
+                    metadata={
+                        "player_session_id": launch_session_id,
+                        "episode_id": fresh_episode.get("id"),
+                        "anime_id": launch_anime_id,
+                    },
+                )
                 request_id = await start_native_player(
                     launch_path,
                     title,
@@ -1403,6 +1431,16 @@ async def main(page: ft.Page):
                     transition_guard=current_session_guard,
                 )
                 handoff_confirmed = True
+                performance.event(
+                    "PLAYER_HANDOFF_ACCEPTED",
+                    screen=navigation.current,
+                    metadata={
+                        "request_id": request_id,
+                        "player_session_id": launch_session_id,
+                        "episode_id": fresh_episode.get("id"),
+                        "anime_id": launch_anime_id,
+                    },
+                )
                 performance.event(
                     "ASSIST_REQUEST_ACCEPTED",
                     screen=navigation.current,

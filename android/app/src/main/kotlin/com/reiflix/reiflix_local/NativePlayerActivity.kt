@@ -145,6 +145,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var exitProgressPublished = false
     private var initialSeekApplied = false
     private var playbackWasRequestedBeforeStop = false
+    private var requestedPlayWhenReadyForGeneration = true
     private var autoplayNext = true
     private var completionReported = false
     private var controlsVisible = true

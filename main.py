@@ -2940,7 +2940,7 @@ async def main(page: ft.Page):
                                     source=payload.get("source") or "native_player",
                                     result=payload.get("state") or "READY",
                                 )
-elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
+                        elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
                             path_ref = str(payload.get('uri') or '').strip()
                             if path_ref:
                                 try:

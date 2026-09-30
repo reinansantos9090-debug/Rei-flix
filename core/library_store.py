@@ -2143,147 +2143,6 @@ class LibraryStore:
                                                 rows=len(ordered), metadata={"page": page, "page_size": page_size})
         return result
 
-    def next_episode_items(self, limit=12):
-        """Return the bounded Next Episode projection directly from SQLite."""
-        started = time.perf_counter()
-        try:
-            limit = max(1, min(100, int(limit)))
-        except (TypeError, ValueError):
-            limit = 12
-        completed = """(
-            watched=1 OR
-            (duration>0 AND
-             MIN(MAX(COALESCE(progress,0),0),duration) / duration >= 0.90)
-        )"""
-        special_filter = """LOWER(COALESCE(episode_type,'regular'))
-                          NOT IN ('special','ova','oad','ona','extra','movie')"""
-        eligible_order_season = "COALESCE(season, 1000000)"
-        eligible_order_number = "COALESCE(number, 1000000)"
-        eligible_order_absolute = "COALESCE(absolute_number, 1000000)"
-        selected_order_season = "COALESCE(e.season, 1000000)"
-        selected_order_number = "COALESCE(e.number, 1000000)"
-        selected_order_absolute = "COALESCE(e.absolute_number, 1000000)"
-        with self._conn() as c:
-            rows = c.execute(
-                f"""
-                WITH eligible AS (
-                    SELECT
-                        e.*,
-                        a.title AS anime_title,
-                        a.media_kind,
-                        a.cover_cache,
-                        a.cover_url
-                    FROM episodes e
-                    JOIN anime a ON a.id=e.anime_id
-                    WHERE e.missing=0 AND a.media_kind!='movie' AND {special_filter.replace("episode_type","e.episode_type").replace("watched","e.watched").replace("duration","e.duration").replace("progress","e.progress")}
-                ),
-                in_progress_ranked AS (
-                    SELECT eligible.*,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY anime_id
-                               ORDER BY COALESCE(last_played_at,0) DESC, id DESC
-                           ) AS rn
-                    FROM eligible
-                    WHERE COALESCE(progress,0)>0 AND NOT {completed}
-                ),
-                furthest_completed_ranked AS (
-                    SELECT eligible.*,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY anime_id
-                               ORDER BY {eligible_order_season} DESC, {eligible_order_number} DESC,
-                                        {eligible_order_absolute} DESC, id DESC
-                           ) AS rn
-                    FROM eligible
-                    WHERE {completed}
-                ),
-                after_completed_ranked AS (
-                    SELECT e.*,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY e.anime_id
-                               ORDER BY {selected_order_season} ASC, {selected_order_number} ASC,
-                                        {selected_order_absolute} ASC, e.id ASC
-                           ) AS rn
-                    FROM eligible e
-                    JOIN furthest_completed_ranked f
-                      ON f.anime_id=e.anime_id AND f.rn=1
-                    WHERE (
-                        {selected_order_season} > COALESCE(f.season,1000000)
-                        OR ({selected_order_season} = COALESCE(f.season,1000000)
-                            AND {selected_order_number} > COALESCE(f.number,1000000))
-                        OR ({selected_order_season} = COALESCE(f.season,1000000)
-                            AND {selected_order_number} = COALESCE(f.number,1000000)
-                            AND {selected_order_absolute} > COALESCE(f.absolute_number,1000000))
-                        OR ({selected_order_season} = COALESCE(f.season,1000000)
-                            AND {selected_order_number} = COALESCE(f.number,1000000)
-                            AND {selected_order_absolute} = COALESCE(f.absolute_number,1000000)
-                            AND e.id > f.id)
-                    )
-                    AND NOT (
-                        e.watched=1 OR
-                        (e.duration>0 AND
-                         MIN(MAX(COALESCE(e.progress,0),0),e.duration) / e.duration >= 0.90)
-                    )
-                ),
-                unwatched_ranked AS (
-                    SELECT eligible.*,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY anime_id
-                               ORDER BY {eligible_order_season} ASC, {eligible_order_number} ASC,
-                                        {eligible_order_absolute} ASC, id ASC
-                           ) AS rn
-                    FROM eligible
-                    WHERE NOT {completed}
-                ),
-                choices AS (
-                    SELECT anime_id, id, 0 AS priority FROM in_progress_ranked WHERE rn=1
-                    UNION ALL
-                    SELECT anime_id, id, 1 AS priority FROM after_completed_ranked WHERE rn=1
-                    UNION ALL
-                    SELECT anime_id, id, 2 AS priority FROM unwatched_ranked WHERE rn=1
-                ),
-                selected AS (
-                    SELECT choices.*,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY anime_id ORDER BY priority ASC, id ASC
-                           ) AS selected_rank
-                    FROM choices
-                )
-                SELECT e.*, a.title AS anime_title, a.cover_cache, a.cover_url, a.media_kind
-                FROM selected s
-                JOIN episodes e ON e.id=s.id
-                JOIN anime a ON a.id=e.anime_id
-                WHERE s.selected_rank=1
-                ORDER BY COALESCE(e.last_played_at,0) DESC, a.title COLLATE NOCASE ASC, e.anime_id ASC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
-        result = []
-        for row in rows:
-            episode = dict(row)
-            result.append({
-                "id": row["anime_id"],
-                "main_title": row["anime_title"],
-                "meta": {
-                    "title": row["anime_title"],
-                    "cover_cache": row["cover_cache"],
-                    "cover_url": row["cover_url"],
-                    "media_kind": row["media_kind"],
-                },
-                "cover": row["cover_cache"] or row["cover_url"],
-                "media_kind": row["media_kind"] or "series",
-                "current_episode": episode,
-                "next_episode": episode,
-                "last_played_at": row["last_played_at"],
-            })
-        get_performance_monitor().record_sqlite(
-            "next_episode_items",
-            (time.perf_counter()-started)*1000.0,
-            rows=len(result),
-            metadata={"limit": limit},
-        )
-        return result
-
     def search_options(self):
         """Return filter values without projecting the full visual catalog."""
         with self._conn() as c:
@@ -2422,16 +2281,13 @@ class LibraryStore:
         return [dict(row) for row in rows]
 
     def home_sections(self, limit=12):
-        """Build bounded Home sections without materializing the full catalog."""
+        """Build only the bounded projections still displayed on Home."""
         started = time.perf_counter()
         page_limit = min(24, max(1, int(limit)))
         section_filters = {
-            "recently_added": {"sort": "Mais recentes"},
             "favorites": {"state": "Favoritos", "sort": "Mais recentes"},
             "pinned": {"state": "Fixados", "sort": "Mais recentes"},
-            "series": {"media_type": "Série/Anime", "sort": "Mais recentes"},
             "movies": {"media_type": "Filme", "sort": "Mais recentes"},
-            "specials": {"media_type": "Especial", "sort": "Mais recentes"},
         }
         section_ids = {}
         all_ids = set()
@@ -2451,14 +2307,9 @@ class LibraryStore:
         by_id = {int(item["id"]): item for item in hydrated}
         result = {
             "continue_watching": self.continue_watching(limit=page_limit),
-            "next_episode": self.next_episode_items(limit=page_limit),
-            "recently_added": [by_id[anime_id] for anime_id in section_ids["recently_added"] if anime_id in by_id],
-            "recently_watched": self.playback_history(limit=page_limit),
             "favorites": [by_id[anime_id] for anime_id in section_ids["favorites"] if anime_id in by_id],
             "pinned": [by_id[anime_id] for anime_id in section_ids["pinned"] if anime_id in by_id],
-            "series": [by_id[anime_id] for anime_id in section_ids["series"] if anime_id in by_id],
             "movies": [by_id[anime_id] for anime_id in section_ids["movies"] if anime_id in by_id],
-            "specials": [by_id[anime_id] for anime_id in section_ids["specials"] if anime_id in by_id],
         }
         total_rows = sum(len(value or []) for value in result.values())
         get_performance_monitor().record_sqlite(

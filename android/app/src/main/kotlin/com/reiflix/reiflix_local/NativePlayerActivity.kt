@@ -3266,23 +3266,26 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         }
     }
 
-    private fun seekToSavedPosition(savedPositionMs: Long) {
-        if (!::player.isInitialized) return
-        val safePosition = PlayerMediaPolicy.safeResumePosition(savedPositionMs, player.duration)
+    private fun seekToSavedPosition(savedPositionMs: Long): Long {
+        if (!::player.isInitialized) return 0L
+        val normalizedRequested = savedPositionMs.coerceAtLeast(0L)
+        val safePosition = PlayerMediaPolicy.safeResumePosition(normalizedRequested, player.duration)
         if (safePosition > 0L && player.duration > 0L) {
             player.seekTo(safePosition)
             logPlayer(
                 "RESUME_APPLIED positionMs=" + safePosition +
+                    " requestedMs=" + normalizedRequested +
                     " durationMs=" + player.duration +
                     " requestId=" + requestId.ifEmpty { "-" },
             )
-        } else if (savedPositionMs > 0L) {
+        } else if (normalizedRequested > 0L) {
             logPlayer(
-                "RESUME_CLAMPED requestedMs=" + savedPositionMs +
+                "RESUME_CLAMPED requestedMs=" + normalizedRequested +
                     " durationMs=" + player.duration +
                     " requestId=" + requestId.ifEmpty { "-" },
             )
         }
+        return safePosition
     }
 
     private fun buildProgressEvent(eventType: String, force: Boolean): JSONObject? {

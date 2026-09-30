@@ -3000,7 +3000,7 @@ active_request = player_active_request_id["value"]
                                     current_is_valid = lambda: player_transition_is_current(
                                         transition_generation,
                                         event_request_id,
-                                        source_player_session_id if is_next else None,
+                                        source_player_session_id,
                                     )
                                     if not current_path:
                                         raise RuntimeError("missing_current_uri")

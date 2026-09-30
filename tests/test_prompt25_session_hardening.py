@@ -115,7 +115,7 @@ class Prompt25SessionHardeningTests(unittest.TestCase):
     def test_timeout_is_session_and_generation_bound(self):
         self.assertIn("episodeChangeTimeoutSessionId", PLAYER)
         self.assertIn("episodeChangeTimeoutPlayerGeneration", PLAYER)
-        self.assertIn("episodeChangeTimeoutSessionId != playerSessionId", PLAYER)
+        self.assertIn("episodeChangeTimeoutSessionId == playerSessionId", PLAYER)
         self.assertIn("episodeChangeTimeoutPlayerGeneration != playerGeneration", PLAYER)
         self.assertIn("PLAYER_TIMEOUT_STALE", PLAYER)
 

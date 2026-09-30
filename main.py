@@ -881,6 +881,10 @@ async def main(page: ft.Page):
                 metadata={"request_id": current_request_id, "player_session_id": current_session_id, "player_generation": player_active_player_generation["value"], "reason": reason},
             )
         cancel_player_transition(reason)
+        try:
+            store.invalidate_playback_session(current_session_id)
+        except Exception:
+            logger.exception("[PLAYER] failed to invalidate durable playback session")
         player_session_active["value"] = False
         player_active_session_id["value"] = None
         player_active_request_id["value"] = None
@@ -1212,6 +1216,20 @@ async def main(page: ft.Page):
             return
         player_launch_inflight["value"] = True
         launch_session_id = uuid.uuid4().hex
+        if not store.activate_playback_session(launch_session_id):
+            player_launch_inflight["value"] = False
+            performance.event(
+                "CONTINUE_REQUEST_REJECTED",
+                screen=navigation.current,
+                status="rejected",
+                metadata={"reason": "PLAYBACK_SESSION_CREATE_FAILED"},
+            )
+            diagnostics.record(
+                "PLAYER_COMMAND_REJECTED",
+                source="continue_resume",
+                result="PLAYBACK_SESSION_CREATE_FAILED",
+            )
+            return
         player_active_session_id["value"] = launch_session_id
         player_active_request_id["value"] = None
         player_active_episode_id["value"] = episode_id
@@ -1241,20 +1259,126 @@ async def main(page: ft.Page):
         )
 
         async def launch_native_player():
+            launch_path = str(path or "").strip()
+            launch_anime_id = anime_id
+            launch_progress_seconds = max(0.0, float(progress_seconds or 0.0))
+            continue_lookup_started = performance.now()
             try:
+                performance.event(
+                    "CONTINUE_REQUEST_CREATED",
+                    screen=navigation.current,
+                    metadata={
+                        "player_session_id": launch_session_id,
+                        "episode_id": episode_id,
+                        "anime_id": anime_id,
+                    },
+                )
+                fresh_episode = await asyncio.to_thread(store.episode_by_id, episode_id)
+                performance.event(
+                    "PROGRESS_LOOKUP_COMPLETED",
+                    screen=navigation.current,
+                    duration_ms=(performance.now() - continue_lookup_started) * 1000.0,
+                    metadata={
+                        "player_session_id": launch_session_id,
+                        "episode_id": episode_id,
+                        "found": bool(fresh_episode),
+                    },
+                )
+                if not fresh_episode or int(fresh_episode.get("id") or 0) != int(episode_id):
+                    performance.event(
+                        "CONTINUE_REQUEST_REJECTED",
+                        screen=navigation.current,
+                        status="rejected",
+                        metadata={
+                            "reason": "EPISODE_NOT_FOUND",
+                            "episode_id": episode_id,
+                            "player_session_id": launch_session_id,
+                        },
+                    )
+                    diagnostics.record(
+                        "PLAYER_COMMAND_REJECTED",
+                        source="continue_resume",
+                        result="EPISODE_NOT_FOUND",
+                    )
+                    return
+                launch_path = str(fresh_episode.get("path") or "").strip()
+                launch_anime_id = fresh_episode.get("anime_id")
+                if not launch_path or fresh_episode.get("missing"):
+                    performance.event(
+                        "CONTINUE_REQUEST_REJECTED",
+                        screen=navigation.current,
+                        status="rejected",
+                        metadata={
+                            "reason": "MEDIA_URI_MISSING" if not launch_path else "FILE_NOT_FOUND",
+                            "episode_id": episode_id,
+                            "player_session_id": launch_session_id,
+                        },
+                    )
+                    diagnostics.record(
+                        "PLAYER_COMMAND_REJECTED",
+                        source="continue_resume",
+                        result="MEDIA_URI_MISSING" if not launch_path else "FILE_NOT_FOUND",
+                    )
+                    return
+                if settings.get("player.resume"):
+                    try:
+                        launch_progress_seconds = max(
+                            0.0,
+                            float(fresh_episode.get("progress") or 0.0),
+                        )
+                    except (TypeError, ValueError):
+                        launch_progress_seconds = 0.0
+                    duration_seconds = max(
+                        0.0,
+                        float(fresh_episode.get("duration") or 0.0),
+                    )
+                    if duration_seconds > 0:
+                        launch_progress_seconds = min(
+                            launch_progress_seconds,
+                            duration_seconds,
+                        )
+                performance.event(
+                    "EPISODE_RESOLVED",
+                    screen=navigation.current,
+                    metadata={
+                        "player_session_id": launch_session_id,
+                        "episode_id": fresh_episode.get("id"),
+                        "anime_id": fresh_episode.get("anime_id"),
+                        "uri_source": "canonical_sqlite_row",
+                    },
+                )
+                performance.event(
+                    "PROGRESS_VALIDATED",
+                    screen=navigation.current,
+                    metadata={
+                        "player_session_id": launch_session_id,
+                        "episode_id": fresh_episode.get("id"),
+                        "progress_seconds": launch_progress_seconds,
+                        "duration_seconds": max(0.0, float(fresh_episode.get("duration") or 0.0)),
+                    },
+                )
+                current_session_guard = lambda: (
+                    player_session_active["value"]
+                    and player_active_session_id["value"] == launch_session_id
+                    and ui_alive[0]
+                )
+                if not current_session_guard():
+                    performance.event(
+                        "CONTINUE_REQUEST_REJECTED",
+                        screen=navigation.current,
+                        status="rejected",
+                        metadata={"reason": "STALE_SESSION_BEFORE_HANDOFF", "player_session_id": launch_session_id},
+                    )
+                    return
                 request_id = await start_native_player(
-                    path,
+                    launch_path,
                     title,
-                    max(0, int(progress_seconds * 1000)),
-                    episode_id=episode_id,
-                    anime_id=anime_id,
+                    int(max(0.0, launch_progress_seconds) * 1000),
+                    episode_id=fresh_episode.get("id"),
+                    anime_id=launch_anime_id,
                     player_session_id=launch_session_id,
                     origin_player_session_id=launch_session_id,
-                    transition_guard=lambda: (
-                        player_session_active["value"]
-                        and player_active_session_id["value"] == launch_session_id
-                        and ui_alive[0]
-                    ),
+                    transition_guard=current_session_guard,
                 )
                 performance.event(
                     "ASSIST_REQUEST_ACCEPTED",

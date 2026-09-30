@@ -36,14 +36,16 @@ class LibraryIntelligenceTests(unittest.TestCase):
         self.store.toggle_favorite(self.anime)
         self.store.toggle_pinned(self.anime)
         home = self.service.media_center_home()
+        self.assertEqual(
+            {"continue_watching", "favorites", "pinned", "movies"},
+            set(home),
+        )
         self.assertEqual(1, len(home["continue_watching"]))
         self.assertEqual(1, len(home["favorites"]))
         self.assertEqual(1, len(home["pinned"]))
-        self.assertEqual(1, len(home["series"]))
         self.assertEqual(0, len(home["movies"]))
-        self.assertEqual(1, len(home["next_episode"]))
-        self.assertEqual("Demo", home["series"][0]["main_title"])
-        self.assertEqual(1, home["series"][0]["active_count"])
+        self.assertEqual("Demo", home["favorites"][0]["main_title"])
+        self.assertEqual(1, home["favorites"][0]["active_count"])
 
     def test_media_center_home_empty_is_safe(self):
         empty_tmp = tempfile.TemporaryDirectory()

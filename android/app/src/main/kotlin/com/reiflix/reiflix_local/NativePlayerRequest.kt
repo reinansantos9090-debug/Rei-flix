@@ -20,6 +20,7 @@ data class NativePlayerRequest(
     val originRequestId: String,
     val originCreatedAtMs: Long,
     val originTransitionGeneration: Long,
+    val originPlayerSessionId: String,
     val title: String,
     val positionMs: Long,
     val canNext: Boolean,
@@ -59,6 +60,7 @@ data class NativePlayerRequest(
             .putExtra("originRequestId", originRequestId)
             .putExtra("originCreatedAtMs", originCreatedAtMs)
             .putExtra("originTransitionGeneration", originTransitionGeneration)
+            .putExtra("originPlayerSessionId", originPlayerSessionId)
             .putExtra("title", title)
             .putExtra("positionMs", positionMs)
             .putExtra("canNext", canNext)
@@ -105,6 +107,7 @@ data class NativePlayerRequest(
                 originRequestId = get("origin_request_id").orEmpty().trim(),
                 originCreatedAtMs = get("origin_created_at")?.toLongOrNull()?.takeIf { it > 0L } ?: 0L,
                 originTransitionGeneration = get("origin_transition_generation")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
+                originPlayerSessionId = get("origin_player_session_id").orEmpty().trim(),
                 title = get("title") ?: "Episódio",
                 positionMs = get("position_ms")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
                 canNext = get("can_next")?.toBooleanStrictOrNull() ?: false,

@@ -49,6 +49,7 @@ class NativePlayerRequestTest {
         assertTrue(request.canNext)
         assertFalse(request.canPrevious)
         assertFalse(request.autoplay)
+        assertFalse(request.zoomEnabled)
         assertEquals(1f, request.defaultSpeed)
         assertEquals(300, request.autoHideSeconds)
         assertEquals(1L, request.doubleTapSeekSeconds)
@@ -73,6 +74,7 @@ class NativePlayerRequestTest {
                 "autoplay" to "true",
                 "setting_player_default_speed" to "1.5",
                 "setting_player_aspect_ratio" to "fill",
+                "setting_player_zoom_enabled" to "true",
                 "setting_player_immersive" to "always",
                 "setting_player_rotation" to "landscape",
                 "setting_player_pip" to "false",
@@ -105,6 +107,7 @@ class NativePlayerRequestTest {
         assertTrue(request.autoplay)
         assertEquals(1.5f, request.defaultSpeed)
         assertEquals("fill", request.aspectRatio)
+        assertTrue(request.zoomEnabled)
         assertEquals("landscape", request.rotation)
         assertFalse(request.pip)
         assertEquals(8, request.autoHideSeconds)

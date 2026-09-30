@@ -2802,6 +2802,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     private fun invalidateTransition(reason: String) {
         val wasNext = nextTransitionActive
+        val wasPrevious = previousTransitionActive
         val staleAgeMs = transitionStartedAtMs.takeIf { it > 0L }?.let { System.currentTimeMillis() - it } ?: 0L
         transitionGeneration += 1L
         transitionPublishFuture?.cancel(true)
@@ -2822,15 +2823,38 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 JSONObject().put("ageMs", staleAgeMs),
             )
         }
+        if (wasPrevious) {
+            publishPreviousTransitionDiagnostic(
+                "PREVIOUS_TRANSITION_INVALIDATED",
+                reason,
+                JSONObject()
+                    .put("ageMs", staleAgeMs)
+                    .put("originRequestId", transitionSourceRequestId)
+                    .put("originCreatedAtMs", transitionSourceCreatedAtMs)
+                    .put("originGeneration", transitionSourceGeneration)
+                    .put("currentGeneration", transitionGeneration)
+                    .put("originMonotonicNs", transitionSourceMonotonicNs)
+                    .put("playerSessionId", playerSessionId),
+            )
+            publishPreviousTransitionDiagnostic(
+                "PREVIOUS_REQUEST_CANCELLED",
+                reason,
+                JSONObject().put("ageMs", staleAgeMs),
+            )
+        }
         episodeChangePending = false
         episodeChangeTimeoutRequestId = ""
         episodeChangeTimeoutUri = ""
         episodeChangeTimeoutGeneration = 0L
         transitionReadyGeneration = -1L
         nextTransitionActive = false
+        previousTransitionActive = false
+        transitionSourceDirection = ""
         transitionSourceRequestId = ""
         transitionSourceUri = ""
         transitionSourceCreatedAtMs = 0L
+        transitionSourceGeneration = 0L
+        transitionSourceMonotonicNs = 0L
         transitionStartedAtMs = 0L
         logPlayer(
             "PLAYER_TRANSITION_INVALIDATED reason=" + reason +
@@ -2855,45 +2879,43 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             playerSessionId == expectedSessionId
 
     private fun requestEpisode(eventType: String) {
+        val isNextRequest = eventType == "player_next_request"
+        val isPreviousRequest = eventType == "player_previous_request"
+        if (!isNextRequest && !isPreviousRequest) return
+        fun requestEvent(nextEvent: String, previousEvent: String): String =
+            if (isNextRequest) nextEvent else previousEvent
+
         if (!::player.isInitialized) {
-            if (eventType == "player_next_request") {
-                publishNextTransitionDiagnostic("NEXT_REQUEST_REJECTED", "player_unavailable")
-            }
+            publishNavigationTransitionDiagnostic(requestEvent("NEXT_REQUEST_REJECTED", "PREVIOUS_REQUEST_REJECTED"), "player_unavailable")
             return
         }
         if (sessionState != SessionState.ACTIVE) {
-            if (eventType == "player_next_request") {
-                publishNextTransitionDiagnostic("NEXT_REQUEST_STALE", "session_not_active")
-            }
+            publishNavigationTransitionDiagnostic(requestEvent("NEXT_REQUEST_STALE", "PREVIOUS_REQUEST_STALE"), "session_not_active")
             return
         }
         if (episodeChangePending) {
-            if (eventType == "player_next_request") {
-                publishNextTransitionDiagnostic(
-                    "NEXT_REQUEST_DUPLICATE",
-                    "transition_in_progress",
-                    JSONObject().put("transitionGeneration", transitionGeneration),
-                )
-            }
+            publishNavigationTransitionDiagnostic(
+                requestEvent("NEXT_REQUEST_DUPLICATE", "PREVIOUS_REQUEST_DUPLICATE"),
+                "transition_in_progress",
+                JSONObject().put("transitionGeneration", transitionGeneration),
+            )
             return
         }
         if (errorVisible) {
-            if (eventType == "player_next_request") {
-                publishNextTransitionDiagnostic("NEXT_REQUEST_REJECTED", "player_error_visible")
-            }
+            publishNavigationTransitionDiagnostic(requestEvent("NEXT_REQUEST_REJECTED", "PREVIOUS_REQUEST_REJECTED"), "player_error_visible")
             return
         }
-        if (!intent.getBooleanExtra(
-                if (eventType == "player_next_request") "canNext" else "canPrevious",
-                false,
+        val canNavigate = intent.getBooleanExtra(if (isNextRequest) "canNext" else "canPrevious", false)
+        if (!canNavigate) {
+            publishNavigationTransitionDiagnostic(
+                requestEvent("NEXT_REQUEST_REJECTED", "PREVIOUS_REQUEST_REJECTED"),
+                if (isNextRequest) "no_next_episode" else "no_previous_episode",
             )
-        ) {
-            if (eventType == "player_next_request") {
-                publishNextTransitionDiagnostic("NEXT_REQUEST_REJECTED", "no_next_episode")
-            }
             return
         }
+
         val startedAtMs = System.currentTimeMillis()
+        val monotonicNs = SystemClock.elapsedRealtimeNanos()
         transitionGeneration += 1L
         val generation = transitionGeneration
         transitionStartedAtMs = startedAtMs
@@ -2901,30 +2923,40 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         transitionSourceUri = uri.toString()
         transitionSourceCreatedAtMs = startedAtMs
         transitionSourceGeneration = generation
+        transitionSourceDirection = requestEvent("NEXT", "PREVIOUS")
+        transitionSourceMonotonicNs = monotonicNs
         episodeChangePending = true
-        nextTransitionActive = eventType == "player_next_request"
+        nextTransitionActive = isNextRequest
+        previousTransitionActive = isPreviousRequest
         transitionReadyGeneration = -1L
-        if (nextTransitionActive) {
-            publishNextTransitionDiagnostic(
-                "NEXT_REQUEST_ACCEPTED",
-                "single_flight",
-                JSONObject().put("transitionGeneration", generation),
-            )
-            publishNextTransitionDiagnostic(
-                "NEXT_TRANSITION_STARTED",
-                "native_mailbox_publish",
-                JSONObject()
-                    .put("transitionGeneration", generation)
-                    .put("episodeId", currentEpisodeId())
-                    .put("animeId", intent.getStringExtra("animeId").orEmpty()),
-            )
-        }
+
+        publishNavigationTransitionDiagnostic(
+            requestEvent("NEXT_REQUEST_ACCEPTED", "PREVIOUS_REQUEST_ACCEPTED"),
+            "single_flight",
+            JSONObject()
+                .put("transitionGeneration", generation)
+                .put("playerGeneration", playerGeneration)
+                .put("playerSessionId", playerSessionId)
+                .put("originMonotonicNs", monotonicNs),
+        )
+        publishNavigationTransitionDiagnostic(
+            requestEvent("NEXT_TRANSITION_STARTED", "PREVIOUS_TRANSITION_STARTED"),
+            "native_mailbox_publish",
+            JSONObject()
+                .put("transitionGeneration", generation)
+                .put("playerGeneration", playerGeneration)
+                .put("episodeId", currentEpisodeId())
+                .put("animeId", intent.getStringExtra("animeId").orEmpty())
+                .put("playerSessionId", playerSessionId)
+                .put("originMonotonicNs", monotonicNs),
+        )
+
         episodeChangeTimeoutRequestId = requestId
         episodeChangeTimeoutUri = uri.toString()
         episodeChangeTimeoutGeneration = generation
         handler.removeCallbacks(episodeChangeTimeout)
         updateEpisodeNavigationButtons()
-        showFeedback(if (eventType == "player_next_request") "Próximo…" else "Anterior…", 1400L)
+        showFeedback(if (isNextRequest) "Próximo…" else "Anterior…", 1400L)
 
         if (!completionReported) {
             saveProgress("player_progress", force = true)
@@ -2941,35 +2973,55 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("durationMs", player.duration.coerceAtLeast(0L))
             .put("createdAt", startedAtMs)
             .put("buttonPressedAtMs", startedAtMs)
+            .put("monotonicNs", monotonicNs)
+            .put("transitionDirection", transitionSourceDirection)
             .put("transitionGeneration", generation)
+            .put("playerGeneration", playerGeneration)
             .put("playerSessionId", playerSessionId)
 
         if (commandSequence < lastPlayerCommandSequence) {
             NativeMailbox.writeBestEffort(
                 this,
-                JSONObject().put("type", "diagnostic")
+                JSONObject()
+                    .put("type", "diagnostic")
                     .put("requestId", requestId)
-                    .put("payload", JSONObject().put("event", "PLAYER_COMMAND_OUT_OF_ORDER")
-                        .put("requestId", requestId).put("sequence", commandSequence)
-                        .put("previousSequence", lastPlayerCommandSequence)
-                        .put("transitionGeneration", generation)),
+                    .put(
+                        "payload",
+                        JSONObject()
+                            .put("event", "PLAYER_COMMAND_OUT_OF_ORDER")
+                            .put("requestId", requestId)
+                            .put("sequence", commandSequence)
+                            .put("previousSequence", lastPlayerCommandSequence)
+                            .put("transitionGeneration", generation)
+                            .put("transitionDirection", transitionSourceDirection)
+                            .put("reason", requestEvent("NEXT_COMMAND_OUT_OF_ORDER", "PREVIOUS_COMMAND_OUT_OF_ORDER")),
+                    ),
             )
         }
         lastPlayerCommandSequence = commandSequence
+
         NativeMailbox.writeBestEffort(
             this,
-            JSONObject().put("type", "diagnostic")
+            JSONObject()
+                .put("type", "diagnostic")
                 .put("requestId", requestId)
-                .put("payload", JSONObject()
-                    .put("event", if (eventType == "player_next_request") "NEXT_BUTTON_PRESSED" else "PREVIOUS_BUTTON_PRESSED")
-                    .put("requestId", requestId)
-                    .put("sequence", commandSequence)
-                    .put("createdAt", startedAtMs)
-                    .put("playerGeneration", playerGeneration)
-                    .put("transitionGeneration", generation)
-                    .put("episodeId", currentEpisodeId())
-                    .put("playerSessionId", playerSessionId)),
+                .put(
+                    "payload",
+                    JSONObject()
+                        .put("event", if (isNextRequest) "NEXT_BUTTON_PRESSED" else "PREVIOUS_BUTTON_PRESSED")
+                        .put("requestId", requestId)
+                        .put("sequence", commandSequence)
+                        .put("createdAt", startedAtMs)
+                        .put("monotonicNs", monotonicNs)
+                        .put("playerGeneration", playerGeneration)
+                        .put("transitionGeneration", generation)
+                        .put("episodeId", currentEpisodeId())
+                        .put("animeId", intent.getStringExtra("animeId").orEmpty())
+                        .put("playerSessionId", playerSessionId)
+                        .put("transitionDirection", transitionSourceDirection),
+                ),
         )
+
         val transitionEvent = JSONObject()
             .put("type", eventType)
             .put("requestId", requestId)
@@ -2980,26 +3032,17 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             transitionPublishFuture = playbackWorker.submit {
                 try {
                     if (!isCurrentTransition(generation)) return@submit
-                    val published = NativeMailbox.write(
-                        this@NativePlayerActivity,
-                        transitionEvent,
-                    )
+                    val published = NativeMailbox.write(this@NativePlayerActivity, transitionEvent)
                     handler.post {
                         if (!isCurrentTransition(generation) || !episodeChangePending) return@post
                         transitionPublishFuture = null
                         if (!published) {
-                            if (nextTransitionActive) {
-                                publishNextTransitionDiagnostic(
-                                    "NEXT_TRANSITION_FAILED",
-                                    "mailbox_publish_failed",
-                                    JSONObject().put("error", "native_mailbox_write_failed"),
-                                )
-                            }
-                            showFeedback("Não foi possível mudar de episódio.", 1800L)
-                            logPlayer(
-                                eventType + " PUBLISH_FAILED requestId=" +
-                                    requestId.ifEmpty { "-" } + " uri=" + uri,
+                            publishNavigationTransitionDiagnostic(
+                                requestEvent("NEXT_TRANSITION_FAILED", "PREVIOUS_TRANSITION_FAILED"),
+                                "mailbox_publish_failed",
+                                JSONObject().put("error", "native_mailbox_write_failed"),
                             )
+                            showFeedback("Não foi possível mudar de episódio.", 1800L)
                             invalidateTransition("mailbox_publish_failed")
                             return@post
                         }
@@ -3007,11 +3050,12 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                         logPlayer(
                             eventType + " requestId=" + requestId.ifEmpty { "-" } +
                                 " transitionGeneration=" + generation +
+                                " transitionDirection=" + transitionSourceDirection +
                                 " buttonLatencyMs=" + (System.currentTimeMillis() - startedAtMs) +
                                 " keepActivity=true",
                         )
                     }
-                } catch (cancelled: java.util.concurrent.CancellationException) {
+                } catch (_: java.util.concurrent.CancellationException) {
                     logPlayer(
                         eventType + " PUBLISH_CANCELLED requestId=" +
                             requestId.ifEmpty { "-" } +
@@ -3020,31 +3064,22 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 } catch (error: Exception) {
                     handler.post {
                         if (!isCurrentTransition(generation)) return@post
-                        if (nextTransitionActive) {
-                            publishNextTransitionDiagnostic(
-                                "NEXT_TRANSITION_FAILED",
-                                "mailbox_publish_exception",
-                                JSONObject().put("error", error.message ?: error::class.java.simpleName),
-                            )
-                        }
-                        transitionPublishFuture = null
-                        showFeedback("Não foi possível mudar de episódio.", 1800L)
-                        logPlayer(eventType + " PUBLISH_FAILED_ASYNC", error)
+                        publishNavigationTransitionDiagnostic(
+                            requestEvent("NEXT_TRANSITION_FAILED", "PREVIOUS_TRANSITION_FAILED"),
+                            "mailbox_publish_exception",
+                            JSONObject().put("error", error.message ?: error::class.java.simpleName),
+                        )
                         invalidateTransition("mailbox_publish_exception")
                     }
                 }
             }
-        } catch (error: java.util.concurrent.RejectedExecutionException) {
-            if (nextTransitionActive) {
-                publishNextTransitionDiagnostic(
-                    "NEXT_TRANSITION_FAILED",
-                    "mailbox_executor_rejected",
-                    JSONObject().put("error", error.message ?: error::class.java.simpleName),
-                )
-            }
-            showFeedback("Não foi possível mudar de episódio.", 1800L)
-            logPlayer(eventType + " PUBLISH_REJECTED", error)
-            invalidateTransition("mailbox_executor_rejected")
+        } catch (error: Exception) {
+            publishNavigationTransitionDiagnostic(
+                requestEvent("NEXT_TRANSITION_FAILED", "PREVIOUS_TRANSITION_FAILED"),
+                "executor_submit_failed",
+                JSONObject().put("error", error.message ?: error::class.java.simpleName),
+            )
+            invalidateTransition("executor_submit_failed")
         }
     }
 

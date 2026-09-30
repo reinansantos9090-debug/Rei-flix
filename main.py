@@ -754,6 +754,7 @@ async def main(page: ft.Page):
     player_active_anime_id = {"value": None}
     player_active_uri = {"value": None}
     player_active_player_generation = {"value": 0}
+    player_resume_context = {"value": None}
     player_session_active = {"value": False}
     player_command_sequence = {"value": 0}
     player_command_seen = set()
@@ -1349,6 +1350,15 @@ async def main(page: ft.Page):
                             launch_progress_seconds,
                             duration_seconds,
                         )
+                if launch_progress_seconds > 0.0:
+                    player_resume_context["value"] = {
+                        "session_id": launch_session_id,
+                        "episode_id": fresh_episode.get("id"),
+                        "anime_id": fresh_episode.get("anime_id"),
+                        "resume_seconds": launch_progress_seconds,
+                    }
+                else:
+                    player_resume_context["value"] = None
                 performance.event(
                     "EPISODE_RESOLVED",
                     screen=navigation.current,
@@ -2529,6 +2539,27 @@ async def main(page: ft.Page):
                             if (
                                 diagnostic_event == "FIRST_FRAME_RENDERED"
                                 and not isinstance(context, dict)
+                                and isinstance(player_resume_context.get("value"), dict)
+                                and str(player_resume_context["value"].get("session_id") or "") == diagnostic_session
+                                and str(player_resume_context["value"].get("episode_id") or "") == str(payload.get("episodeId") or "")
+                            ):
+                                performance.event(
+                                    "CONTINUE_COMPLETED",
+                                    screen=navigation.current,
+                                    status="completed",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "player_session_id": diagnostic_session,
+                                        "episode_id": payload.get("episodeId"),
+                                        "anime_id": payload.get("animeId"),
+                                        "resume_seconds": player_resume_context["value"].get("resume_seconds"),
+                                        "completion": "FIRST_FRAME_RENDERED",
+                                    },
+                                )
+                                player_resume_context["value"] = None
+                            if (
+                                diagnostic_event == "FIRST_FRAME_RENDERED"
+                                and not isinstance(context, dict)
                                 and player_session_active["value"]
                                 and diagnostic_session
                                 and player_active_session_id["value"] == diagnostic_session
@@ -3253,6 +3284,17 @@ async def main(page: ft.Page):
                                         )
                                         continue
                                     progress_started = performance.now()
+                                    performance.event(
+                                        "PROGRESS_SAVE_STARTED",
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "player_session_id": payload.get("playerSessionId"),
+                                            "episode_id": payload.get("episodeId"),
+                                            "position_ms": position_ms,
+                                            "duration_ms": duration_ms,
+                                        },
+                                    )
                                     updated = await asyncio.to_thread(
                                         store.save_progress,
                                         path_ref,
@@ -3279,6 +3321,19 @@ async def main(page: ft.Page):
                                             },
                                         )
                                         continue
+                                    performance.event(
+                                        "PROGRESS_SAVE_COMPLETED" if updated else "PROGRESS_SAVE_REJECTED",
+                                        screen=navigation.current,
+                                        status="updated" if updated else "rejected",
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "player_session_id": payload.get("playerSessionId"),
+                                            "episode_id": payload.get("episodeId"),
+                                            "position_ms": position_ms,
+                                            "duration_ms": duration_ms,
+                                            "event": event_type,
+                                        },
+                                    )
                                     performance.event("player.progress_persist", duration_ms=(performance.now()-progress_started)*1000.0,
                                                       screen=navigation.current,
                                                       metadata={"episode_id": payload.get("episodeId"), "media_identity": payload.get("mediaId"),
@@ -4024,7 +4079,20 @@ async def main(page: ft.Page):
                                 )
                             ):
                                 cancel_player_transition("player_error")
-                            message = event.get('message', 'Não foi possível reproduzir este arquivo localmente.')
+                            if isinstance(player_resume_context.get("value"), dict) and str(player_resume_context["value"].get("session_id") or "") == str(payload.get("playerSessionId") or ""):
+                                performance.event(
+                                    "CONTINUE_FAILED",
+                                    screen=navigation.current,
+                                    status="failed",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "player_session_id": payload.get("playerSessionId"),
+                                        "episode_id": payload.get("episodeId"),
+                                        "reason": payload.get("reason") or event.get("message") or "player_error",
+                                    },
+                                )
+                                player_resume_context["value"] = None
+                            message = event.get("message", "Não foi possível reproduzir este arquivo localmente.")
                             diagnostics.record(
                                 "PLAYER_ERROR",
                                 request_id=event_request_id,
@@ -4083,7 +4151,10 @@ async def main(page: ft.Page):
                                     },
                                 )
                                 continue
-                            exit_uri = str(payload.get('uri') or '').strip()
+                            resume_context = player_resume_context.get("value")
+                            if isinstance(resume_context, dict) and str(resume_context.get("session_id") or "") == exit_session_id:
+                                player_resume_context["value"] = None
+                            exit_uri = str(payload.get("uri") or "").strip()
                             exit_updated = False
                             if exit_uri and payload.get('positionMs') is not None:
                                 try:

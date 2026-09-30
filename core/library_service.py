@@ -892,6 +892,7 @@ class LibraryService:
             try:
                 parsed = []
                 seen_by_source = {}
+                source_policies = {}
                 folders = self.store.folders()
                 result.folders = len(folders)
                 on_status("Verificando pastas autorizadas…")
@@ -912,6 +913,7 @@ class LibraryService:
                     if not source_policy.get("ok"):
                         result.errors.append(f"{folder['name']}: fonte rejeitada ({source_policy.get('reason')}).")
                         continue
+                    source_policies[reference] = source_policy
                     on_status(f"Encontrando vídeos em {folder['name']}…")
                     try:
                         seen = []
@@ -991,7 +993,7 @@ class LibraryService:
                         result=result,
                         affected_anime_ids=affected_anime_ids,
                         known_paths=seen_by_source.get(source_folder),
-                        source_policy=self._library_source_policy(source_folder, source_kind, source_folder),
+                        source_policy=source_policies.get(source_folder),
                         scope_kind="source",
                         scope_ref=source_folder,
                     )

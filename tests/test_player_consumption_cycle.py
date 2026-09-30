@@ -124,10 +124,8 @@ class PlaybackConsumptionCycleTests(unittest.TestCase):
         service = LibraryService(self.store)
         home = service.media_center_home()
         self.assertFalse(any(item["path"] == first for item in home["continue_watching"]))
-        self.assertTrue(any(
-            item.get("next_episode", {}).get("path") == second
-            for item in home["next_episode"]
-        ))
+        self.assertNotIn("next_episode", home)
+        self.assertEqual(second, self.store.next_episode(first)["path"])
         watched = service.browse_catalog(self.store.catalog(), state="Assistidos")
         active = service.browse_catalog(self.store.catalog(), state="Em andamento")
         self.assertEqual([item["main_title"] for item in watched], ["Cycle"])

@@ -398,16 +398,50 @@ override fun onCreate(savedInstanceState: Bundle?) {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         requestId = savedInstanceState?.getString("session_request_id")?.trim()
             ?: intent.getStringExtra("requestId")?.trim().orEmpty()
+        originRequestId = intent.getStringExtra("originRequestId")?.trim().orEmpty()
+        originCreatedAtMs = intent.getLongExtra("originCreatedAtMs", 0L)
+        originPlayerSessionId = intent.getStringExtra("originPlayerSessionId")?.trim().orEmpty()
+        originTransitionGeneration = intent.getLongExtra("originTransitionGeneration", 0L)
         publishPlayerLifecycle("onCreate")
+
+        // A Next handoff always targets the already-active player session.
+        // Reaching a brand-new Activity with a non-empty origin is therefore
+        // an old/recreated-session command and must never gain control of it.
+        if (originRequestId.isNotBlank()) {
+            publishNextTransitionDiagnostic(
+                "NEXT_REQUEST_STALE",
+                "origin_on_new_activity",
+                JSONObject()
+                    .put("requestId", requestId)
+                    .put("originRequestId", originRequestId)
+                    .put("originCreatedAtMs", originCreatedAtMs)
+                    .put("originGeneration", originTransitionGeneration)
+                    .put("originPlayerSessionId", originPlayerSessionId)
+                    .put("currentPlayerSessionId", playerSessionId),
+            )
+            publishNextTransitionDiagnostic(
+                "PLAYER_NEXT_STALE_REJECTED",
+                "origin_on_new_activity",
+                JSONObject()
+                    .put("requestId", requestId)
+                    .put("originRequestId", originRequestId)
+                    .put("originCreatedAtMs", originCreatedAtMs)
+                    .put("originGeneration", originTransitionGeneration)
+                    .put("currentGeneration", transitionGeneration)
+                    .put("originPlayerSessionId", originPlayerSessionId)
+                    .put("currentPlayerSessionId", playerSessionId),
+            )
+            suppressExitEvent = true
+            sessionState = SessionState.EXITING
+            finish()
+            return
+        }
+
         val traceEpisodeId = intent.getStringExtra("episodeId").orEmpty()
         val traceAnimeId = intent.getStringExtra("animeId").orEmpty()
         PerformanceDiagnostics.attach(this)
         PerformanceDiagnostics.markPlayer(this, "activity_created", requestId,
             intent.getLongExtra("commandCreatedAtMs", 0L), reused = false)
-        originRequestId = intent.getStringExtra("originRequestId")?.trim().orEmpty()
-        originCreatedAtMs = intent.getLongExtra("originCreatedAtMs", 0L)
-        originPlayerSessionId = intent.getStringExtra("originPlayerSessionId")?.trim().orEmpty()
-        originTransitionGeneration = intent.getLongExtra("originTransitionGeneration", 0L)
         commandCreatedAtMs = intent.getLongExtra("commandCreatedAtMs", 0L)
         commandReceivedAtMs = intent.getLongExtra("commandReceivedAtMs", 0L)
         handoffDispatchedAtMs = intent.getLongExtra("handoffDispatchedAtMs", 0L)

@@ -1197,6 +1197,7 @@ async def main(page: ft.Page):
         episode_id = normalized_episode_id
         if not settings.get("player.resume"):
             progress_seconds = 0
+        requested_position_ms = max(0, int(progress_seconds * 1000))
         if player_launch_inflight["value"]:
             logger.info("[PLAYER] duplicate launch ignored path=%s", path)
             performance.event(
@@ -1262,7 +1263,7 @@ async def main(page: ft.Page):
         async def launch_native_player():
             launch_path = str(path or "").strip()
             launch_anime_id = anime_id
-            launch_progress_seconds = max(0.0, float(progress_seconds or 0.0))
+            launch_progress_seconds = requested_position_ms / 1000.0
             continue_lookup_started = performance.now()
             handoff_confirmed = False
             current_session_guard = lambda: (
@@ -1490,6 +1491,7 @@ async def main(page: ft.Page):
                 )
                 safe_update()
             finally:
+                player_launch_inflight["value"] = False
                 if (
                     not handoff_confirmed
                     and player_active_session_id["value"] == launch_session_id
@@ -1498,7 +1500,6 @@ async def main(page: ft.Page):
                         "continue_launch_rejected",
                         expected_session_id=launch_session_id,
                     )
-                player_launch_inflight["value"] = False
 
         # NativePlayerActivity is the only player. Do not push a synthetic Flet
         # route before launching it; the current Details/Home screen remains the

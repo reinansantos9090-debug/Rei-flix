@@ -2010,7 +2010,7 @@ async def main(page: ft.Page):
                                         pending_next_transition["value"] = None
                                     elif context is not None:
                                         performance.event(
-                                            "NEXT_REQUEST_STALE",
+                                            "NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
                                             screen=navigation.current,
                                             status="rejected",
                                             metadata={
@@ -2022,7 +2022,7 @@ async def main(page: ft.Page):
                                             },
                                         )
                                         performance.event(
-                                            "PLAYER_NEXT_STALE_REJECTED",
+                                            "PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
                                             screen=navigation.current,
                                             metadata={
                                                 "request_id": origin_request_id,

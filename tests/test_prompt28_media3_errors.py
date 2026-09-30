@@ -49,6 +49,8 @@ class Prompt28Media3ErrorTests(unittest.TestCase):
             "causeChain",
             "rendererIndex",
             "rendererType",
+            "rendererName",
+            "rendererFormatMimeType",
             "mediaPeriodId",
             "dataSourceUri",
             "lastLoadDataType",

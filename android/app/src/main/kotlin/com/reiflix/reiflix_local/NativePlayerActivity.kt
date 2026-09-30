@@ -624,6 +624,17 @@ override fun onCreate(savedInstanceState: Bundle?) {
                     .put("originPlayerSessionId", incomingOriginPlayerSessionId)
                     .put("currentPlayerSessionId", playerSessionId),
             )
+            publishNextTransitionDiagnostic(
+                "PLAYER_NEXT_STALE_REJECTED",
+                "invalid_successor_origin",
+                JSONObject()
+                    .put("requestId", incomingRequestId)
+                    .put("originRequestId", incomingOriginRequestId)
+                    .put("originGeneration", incomingOriginTransitionGeneration)
+                    .put("currentGeneration", transitionGeneration)
+                    .put("originPlayerSessionId", incomingOriginPlayerSessionId)
+                    .put("currentPlayerSessionId", playerSessionId),
+            )
             logPlayer(
                 "PLAYER_REUSE_ORIGIN_REJECTED requestId=" + incomingRequestId.ifEmpty { "-" } +
                     " originRequestId=" + incomingOriginRequestId +

@@ -119,7 +119,7 @@ class RuntimeAndroidContractTests(unittest.TestCase):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")
         self.assertIn('app:surface_type="texture_view"', layout)
         self.assertIn('R.layout.native_player_view', source)
-        self.assertIn('video.setTransform(matrix)', source)
+        self.assertIn('video.setTransform(zoomMatrix)', source)
 
     def test_native_player_supports_all_local_source_families(self):
         source = PLAYER_ACTIVITY.read_text(encoding="utf-8")

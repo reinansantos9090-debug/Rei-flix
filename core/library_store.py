@@ -9,6 +9,7 @@ import shutil
 import sqlite3
 import tempfile
 import time
+import threading
 import zipfile
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -30,6 +31,8 @@ class LibraryStore:
         os.makedirs(self.cache_dir, exist_ok=True)
         os.makedirs(self.backup_dir, exist_ok=True)
         self._last_playback_event_at = {}
+        self._playback_session_lock = threading.RLock()
+        self._active_playback_session_id = None
         self.recovery_error = None
         try:
             self._init()
@@ -2593,7 +2596,38 @@ class LibraryStore:
                 c.execute("UPDATE episodes SET absolute_number=?,relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE path=?",(absolute_number,relative_path,volume_id,volume_uuid,episode_type,episode_title,identification_source,identification_confidence,path))
             return True
 
-    def save_progress(self, path, position, duration, *, episode_id=None, event_created_at=None):
+    def activate_playback_session(self, session_id):
+        session = str(session_id or "").strip()
+        if not session:
+            return False
+        with self._playback_session_lock:
+            self._active_playback_session_id = session
+        return True
+
+    def invalidate_playback_session(self, session_id):
+        session = str(session_id or "").strip()
+        with self._playback_session_lock:
+            if session and self._active_playback_session_id not in (None, session):
+                return False
+            self._active_playback_session_id = None
+        return True
+
+    def episode_by_id(self, episode_id):
+        try:
+            normalized_id = int(episode_id)
+        except (TypeError, ValueError):
+            return None
+        if normalized_id <= 0:
+            return None
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT e.*, a.title AS anime_title FROM episodes e "
+                "JOIN anime a ON a.id=e.anime_id WHERE e.id=?",
+                (normalized_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def save_progress(self, path, position, duration, *, episode_id=None, event_created_at=None, session_id=None):
         """Persist one normalized playback event with canonical local-media identity."""
         started = time.perf_counter()
         try:
@@ -2610,7 +2644,19 @@ class LibraryStore:
         if duration > 0:
             position = min(position, duration)
         durable_time = time.time()
-        with self._conn() as c:
+        normalized_session_id = str(session_id or "").strip()
+        with self._playback_session_lock:
+            active_session_id = self._active_playback_session_id
+            if normalized_session_id and active_session_id not in (None, normalized_session_id):
+                get_performance_monitor().record_sqlite(
+                    "save_progress",
+                    (time.perf_counter()-started)*1000.0,
+                    rows=0,
+                    status="stale_session",
+                    metadata={"session_id": normalized_session_id, "active_session_id": active_session_id},
+                )
+                return False
+            with self._conn() as c:
             parsed_episode_id = None
             try:
                 if episode_id is not None and str(episode_id).strip():
@@ -2681,16 +2727,16 @@ class LibraryStore:
                 get_performance_monitor().record_sqlite("save_progress", (time.perf_counter()-started)*1000.0,
                                                           rows=int(bool(updated)), status="ok" if updated else "ignored")
                 return bool(updated)
-            if parsed_episode_id is not None:
-                updated = c.execute(
-                    "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE id=?",
-                    (position, duration, watched, durable_time, canonical_episode_id),
-                ).rowcount
-            else:
-                updated = c.execute(
-                    "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
-                    (position, duration, watched, durable_time, canonical_path),
-                ).rowcount
+                if parsed_episode_id is not None:
+                    updated = c.execute(
+                        "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE id=?",
+                        (position, duration, watched, durable_time, canonical_episode_id),
+                    ).rowcount
+                else:
+                    updated = c.execute(
+                        "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
+                        (position, duration, watched, durable_time, canonical_path),
+                    ).rowcount
         get_performance_monitor().record_sqlite("save_progress", (time.perf_counter()-started)*1000.0,
                                                   rows=int(bool(updated)), status="ok" if updated else "ignored")
         return bool(updated)

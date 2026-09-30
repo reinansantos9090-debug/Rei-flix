@@ -127,7 +127,7 @@ class LifecycleContractTests(unittest.TestCase):
             "playerGeneration",
             "beginPlayerGeneration",
             "generation == playerGeneration && sessionState == SessionState.ACTIVE",
-            "isCurrentPreparation(generation, localUri)",
+            "isCurrentPreparation(generation, localUri, preparationTransitionGeneration)",
             "pendingPreparation?.cancel(true)",
             "activePlayerListener?.let { player.removeListener(it) }",
             "activeAnalyticsListener?.let { player.removeAnalyticsListener(it) }",

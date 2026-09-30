@@ -2236,7 +2236,7 @@ async def main(page: ft.Page):
                 if lowest_rank is None or rank < lowest_rank:
                     lowest_rank = rank
                     lowest_key = candidate_key
-            if lowest_key is None:
+            if lowest_key is None or int(priority) <= int(lowest_rank[0]):
                 return False
             thumbnail_pending.pop(lowest_key, None)
             thumbnail_requests.discard(lowest_key)

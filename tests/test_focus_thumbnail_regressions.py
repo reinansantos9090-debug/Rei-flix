@@ -55,7 +55,7 @@ class FocusAndThumbnailRegressionTests(unittest.TestCase):
         start = MAIN.index("elif event_type == 'thumbnail_ready':")
         end = MAIN.index("elif event_type == 'thumbnail_error':", start)
         handler = MAIN[start:end]
-        self.assertIn("thumbnail_key = (uri, size, modified_at)", handler)
+        self.assertIn("thumbnail_key = (uri, size, modified_at, media_identity)", handler)
         self.assertIn("thumbnail_key != latest_key", handler)
         self.assertIn("THUMBNAIL_STALE", handler)
 
@@ -72,13 +72,9 @@ class FocusAndThumbnailRegressionTests(unittest.TestCase):
         request_start = MAIN.index("def request_missing_thumbnail")
         request_end = MAIN.index("def storage_state", request_start)
         request = MAIN[request_start:request_end]
-        rejection_start = request.index("if len(thumbnail_requests) >= 32:")
-        rejection_end = request.index("thumbnail_requests.add(key)", rejection_start)
-        rejection = request[rejection_start:rejection_end]
-        self.assertIn("thumbnail_requests.discard(key)", rejection)
-        self.assertIn("thumbnail_request_started_at.pop(key, None)", rejection)
-        self.assertIn("thumbnail_latest_key_by_uri.pop(path_ref, None)", rejection)
-        self.assertIn("thumbnail_latest_at.pop(path_ref, None)", rejection)
+        self.assertIn("asyncio.PriorityQueue(maxsize=128)", MAIN)
+        self.assertNotIn("len(thumbnail_requests) >= 32", request)
+        self.assertIn("queue_deferred", request)
 
     def test_thumbnail_cache_hit_releases_request_bookkeeping(self):
         request_start = MAIN.index("def request_missing_thumbnail")

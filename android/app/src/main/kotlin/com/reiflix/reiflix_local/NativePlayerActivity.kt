@@ -967,6 +967,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
         val localUri = uri
         val shouldPlayWhenReady = playWhenReadyOverride
             ?: intent.getBooleanExtra("autoplay", true)
+        requestedPlayWhenReadyForGeneration = shouldPlayWhenReady
 
         initialSeekApplied = false
         completionReported = false

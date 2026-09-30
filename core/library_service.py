@@ -1241,6 +1241,22 @@ class LibraryService:
                 provable_external = authority == "com.android.externalstorage.documents"
             if identity.startswith("shared:") or identity.startswith("file:"):
                 provable_external = True
+            elif path.startswith("content://"):
+                authority = str(urlparse(path).netloc or "").strip().casefold()
+                configured_saf_authorities = {
+                    str(source.get("authority") or "").strip().casefold()
+                    for source in available
+                    if source.get("kind") == "saf" and source.get("authority")
+                }
+                if (
+                    authority
+                    and configured_saf_authorities
+                    and authority not in configured_saf_authorities
+                    and authority not in {"com.android.providers.media.documents"}
+                ):
+                    # A content URI from another document provider cannot belong
+                    # to any configured SAF library root.
+                    provable_external = True
 
             if provable_external:
                 remove_ids.append(int(episode["id"]))

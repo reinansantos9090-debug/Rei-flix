@@ -908,8 +908,13 @@ override fun onCreate(savedInstanceState: Bundle?) {
         return mediaItemBuilder.build()
     }
 
-    private fun isCurrentPreparation(generation: Long, localUri: Uri): Boolean =
+    private fun isCurrentPreparation(
+        generation: Long,
+        localUri: Uri,
+        expectedTransitionGeneration: Long,
+    ): Boolean =
         generation == playerGeneration &&
+            transitionGeneration == expectedTransitionGeneration &&
             sessionState == SessionState.ACTIVE &&
             ::uri.isInitialized &&
             uri == localUri
@@ -918,6 +923,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
         if (!::player.isInitialized || sessionState == SessionState.DESTROYED) return
         beginPlayerGeneration(reason)
         val generation = playerGeneration
+        val preparationTransitionGeneration = transitionGeneration
         val localUri = uri
         val shouldPlayWhenReady = playWhenReadyOverride
             ?: intent.getBooleanExtra("autoplay", true)
@@ -954,7 +960,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 val preflightError = validateLocalSource(localUri)
                 if (preflightError != null) {
                     handler.post {
-                        if (!isCurrentPreparation(generation, localUri)) return@post
+                        if (!isCurrentPreparation(generation, localUri, preparationTransitionGeneration)) return@post
                         logPlayer("PREFLIGHT_ASYNC_FAILED requestId=" + requestId.ifEmpty { "-" } +
                             " generation=" + generation + " error=" + preflightError)
                         showPlayerError(preflightError, "unauthorized_or_unreadable")
@@ -978,7 +984,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 }
 
                 handler.post {
-                    if (!isCurrentPreparation(generation, localUri)) return@post
+                    if (!isCurrentPreparation(generation, localUri, preparationTransitionGeneration)) return@post
 
                     contentMimeType = resolvedMime
                     mediaDisplayName = displayName
@@ -1054,7 +1060,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 logPlayer("PREPARE_ASYNC_CANCELLED generation=$generation reason=$reason")
             } catch (error: Exception) {
                 handler.post {
-                    if (!isCurrentPreparation(generation, localUri)) return@post
+                    if (!isCurrentPreparation(generation, localUri, preparationTransitionGeneration)) return@post
                     logPlayer("PREPARE_ASYNC_FAILED generation=$generation reason=$reason", error)
                     val category = PlayerMediaPolicy.classifyError(
                         error::class.java.simpleName,
@@ -1103,6 +1109,8 @@ override fun onCreate(savedInstanceState: Bundle?) {
                     .put("generation", generation)
                     .put("playerSessionId", playerSessionId)
                     .put("transitionGeneration", transitionGeneration)
+                    .put("originMonotonicNs", originMonotonicNs)
+                    .put("transitionDirection", transitionSourceDirection)
                     .put("timing", timing)
                 if (!NativeMailbox.writeBestEffort(
                         this@NativePlayerActivity,
@@ -1116,20 +1124,23 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 }
             }
                 if (
-                    nextTransitionActive &&
+                    (nextTransitionActive || previousTransitionActive) &&
                     episodeChangePending &&
                     transitionReadyGeneration == generation &&
                     transitionSourceRequestId == requestId &&
                     transitionSourceUri == uri.toString() &&
                     sessionState == SessionState.ACTIVE
                 ) {
-                    publishNextTransitionDiagnostic(
-                        "NEXT_TRANSITION_FIRST_FRAME",
+                    val direction = if (nextTransitionActive) "NEXT" else "PREVIOUS"
+                    publishNavigationTransitionDiagnostic(
+                        if (nextTransitionActive) "NEXT_TRANSITION_FIRST_FRAME" else "PREVIOUS_TRANSITION_FIRST_FRAME",
                         "media3_first_frame",
                         JSONObject()
                             .put("episodeId", currentEpisodeId())
                             .put("generation", generation)
-                            .put("playerSessionId", playerSessionId),
+                            .put("transitionGeneration", transitionGeneration)
+                            .put("playerSessionId", playerSessionId)
+                            .put("originMonotonicNs", transitionSourceMonotonicNs),
                     )
                     episodeChangePending = false
                     episodeChangeTimeoutRequestId = ""
@@ -1139,12 +1150,16 @@ override fun onCreate(savedInstanceState: Bundle?) {
                     transitionSourceRequestId = ""
                     transitionSourceUri = ""
                     transitionSourceCreatedAtMs = 0L
+                    transitionSourceGeneration = 0L
+                    transitionSourceDirection = ""
+                    transitionSourceMonotonicNs = 0L
                     transitionPublishFuture = null
                     handler.removeCallbacks(episodeChangeTimeout)
                     nextTransitionActive = false
+                    previousTransitionActive = false
                     updateEpisodeNavigationButtons()
-                    publishNextTransitionDiagnostic(
-                        "NEXT_TRANSITION_COMMITTED",
+                    publishNavigationTransitionDiagnostic(
+                        if (direction == "NEXT") "NEXT_TRANSITION_COMMITTED" else "PREVIOUS_TRANSITION_COMMITTED",
                         "first_frame_rendered",
                         JSONObject()
                             .put("episodeId", currentEpisodeId())
@@ -1155,7 +1170,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
                         "EPISODE_CHANGE_COMMITTED requestId=" + requestId.ifEmpty { "-" } +
                             " mediaId=" + currentMediaId() +
                             " episodeId=" + currentEpisodeId() +
-                            " reason=FIRST_FRAME_RENDERED",
+                            " reason=FIRST_FRAME_RENDERED direction=" + direction,
                     )
                     transitionStartedAtMs = 0L
                 }
@@ -1164,8 +1179,10 @@ override fun onCreate(savedInstanceState: Bundle?) {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             if (!isCurrent()) return
             logPlayer(
-                "MEDIA_ITEM_TRANSITION generation=$generation reason=$reason mediaId=" +
-                    mediaItem?.mediaId.orEmpty(),
+                "MEDIA_ITEM_TRANSITION generation=$generation transitionGeneration=$transitionGeneration " +
+                    "direction=$transitionSourceDirection reason=$reason mediaId=" +
+                    mediaItem?.mediaId.orEmpty() +
+                    " requestId=" + requestId.ifEmpty { "-" },
             )
         }
 
@@ -1212,7 +1229,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
                         initialSeekApplied = true
                     }
                     if (
-                        nextTransitionActive &&
+                        (nextTransitionActive || previousTransitionActive) &&
                         episodeChangePending &&
                         transitionSourceRequestId == requestId &&
                         transitionSourceUri == uri.toString() &&
@@ -1229,8 +1246,8 @@ override fun onCreate(savedInstanceState: Bundle?) {
                                 commandCreatedAtMs,
                                 reused = true,
                             )
-                            publishNextTransitionDiagnostic(
-                                "NEXT_TRANSITION_READY",
+                            publishNavigationTransitionDiagnostic(
+                                if (nextTransitionActive) "NEXT_TRANSITION_READY" else "PREVIOUS_TRANSITION_READY",
                                 "media3_ready",
                                 JSONObject()
                                     .put("episodeId", currentEpisodeId())
@@ -1246,47 +1263,6 @@ override fun onCreate(savedInstanceState: Bundle?) {
                                     " awaitingFirstFrame=true",
                             )
                         }
-                    }
-                    if (
-                        !nextTransitionActive &&
-                        episodeChangePending &&
-                        transitionSourceRequestId == requestId &&
-                        transitionSourceUri == uri.toString()
-                    ) {
-                        episodeChangePending = false
-                        episodeChangeTimeoutRequestId = ""
-                        episodeChangeTimeoutUri = ""
-                        episodeChangeTimeoutGeneration = 0L
-                        transitionSourceRequestId = ""
-                        transitionSourceUri = ""
-                        transitionSourceCreatedAtMs = 0L
-                        transitionReadyGeneration = -1L
-                        handler.removeCallbacks(episodeChangeTimeout)
-                        if (transitionStartedAtMs > 0L) {
-                            val readyAtMs = System.currentTimeMillis()
-                            val transitionLatencyMs = readyAtMs - transitionStartedAtMs
-                            PerformanceDiagnostics.markPlayer(
-                                this@NativePlayerActivity,
-                                "transition_ready",
-                                requestId,
-                                commandCreatedAtMs,
-                                reused = true,
-                            )
-                            logPlayer(
-                                "PLAYER_TRANSITION_READY requestId=" + requestId.ifEmpty { "-" } +
-                                    " transitionLatencyMs=" + transitionLatencyMs +
-                                    " direction=PREVIOUS",
-                            )
-                            transitionStartedAtMs = 0L
-                        }
-                        transitionPublishFuture = null
-                        logPlayer(
-                            "EPISODE_CHANGE_COMMITTED requestId=" +
-                                requestId.ifEmpty { "-" } +
-                                " mediaId=" + currentMediaId() +
-                                " episodeId=" + currentEpisodeId() +
-                                " direction=PREVIOUS",
-                        )
                     }
                     updateEpisodeNavigationButtons()
                     completionReported = false

@@ -147,22 +147,21 @@ class Prompt35ReconciliationTests(unittest.TestCase):
         self.assertEqual("skipped_no_reliable_sources", report["status"])
         self.assertIsNotNone(store.physical_row(path))
 
-    def test_duplicate_rows_merge_by_existing_media_identity(self):
+    def test_duplicate_merge_preserves_best_progress_and_canonical_row(self):
         anime_id = self.anime("Canonical")
-        first_path = "content://com.android.externalstorage.documents/document/primary%3AAnime%2Fep.mp4"
-        second_path = "content://com.android.externalstorage.documents/document/primary%3AAnime%2Fep-alt.mp4"
-        first_id = self.episode(anime_id, first_path, "ep.mp4", source_folder=self.SAF_ROOT, progress=20)
-        second_id = self.episode(anime_id, second_path, "ep-alt.mp4", source_folder=self.SAF_ROOT, progress=35)
-        identity = "shared:primary:Anime/ep.mp4"
-        with self.store._conn() as con:
-            con.execute("UPDATE episodes SET media_identity=? WHERE id IN (?,?)", (identity, first_id, second_id))
+        target_path = "content://com.android.externalstorage.documents/document/primary%3AAnime%2Fep.mp4"
+        source_path = "content://com.android.externalstorage.documents/document/primary%3AAnime%2Fep-alt.mp4"
+        target_id = self.episode(anime_id, target_path, "ep.mp4", source_folder=self.SAF_ROOT, progress=20)
+        source_id = self.episode(anime_id, source_path, "ep-alt.mp4", source_folder=self.SAF_ROOT, progress=35)
 
-        report = self.service.reconcile_existing_library()
-        row = self.store.physical_row(first_path)
-        self.assertGreaterEqual(report["duplicates"], 1)
-        self.assertIsNotNone(row)
-        self.assertIsNone(self.store.physical_row(second_path))
+        result = self.store.apply_library_reconciliation(
+            [source_id],
+            [{"source_id": source_id, "target_id": target_id}],
+        )
+        row = self.store.physical_row(target_path)
+        self.assertEqual(1, result["duplicates_merged"])
         self.assertEqual(35, row["progress"])
+        self.assertIsNone(self.store.physical_row(source_path))
 
     def test_favorite_and_pinned_anime_survive_invalid_episode_removal(self):
         valid_anime = self.anime("Pinned")

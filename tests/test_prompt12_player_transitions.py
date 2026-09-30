@@ -25,8 +25,8 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
         reuse = self.player[self.player.index("override fun onNewIntent"):self.player.index("private fun currentEpisodeId")]
         self.assertIn("val transitionPending = episodeChangePending", reuse)
         self.assertIn("val transitionPendingRequestId = transitionSourceRequestId", reuse)
-        self.assertIn("originRequestId == transitionPendingRequestId", reuse)
-        self.assertIn("originTransitionGeneration == transitionPendingGeneration", reuse)
+        self.assertIn("incomingOriginRequestId == transitionPendingRequestId", reuse)
+        self.assertIn("incomingOriginTransitionGeneration == transitionPendingGeneration", reuse)
         self.assertIn("episodeChangeTimeoutRequestId = requestId", reuse)
         self.assertIn("episodeChangeTimeoutUri = uri.toString()", reuse)
         self.assertIn("sessionState = SessionState.ACTIVE", reuse)

@@ -128,7 +128,7 @@ class Prompt27ContinueResumeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)
             anime = store.upsert_anime("prompt27-b", {"title": "Prompt 27 B", "genres": "[]"})
-            episode = store.upsert_episode(
+            store.upsert_episode(
                 anime,
                 "content://prompt27/e02",
                 "E02.mkv",
@@ -136,6 +136,7 @@ class Prompt27ContinueResumeTests(unittest.TestCase):
                 2,
                 media_identity="prompt27:e02",
             )
+            episode = store.physical_row("content://prompt27/e02")
             self.assertTrue(store.activate_playback_session("same"))
             self.assertTrue(
                 store.save_progress(
@@ -167,7 +168,7 @@ class Prompt27ContinueResumeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)
             anime = store.upsert_anime("prompt27-c", {"title": "Prompt 27 C", "genres": "[]"})
-            episode = store.upsert_episode(
+            store.upsert_episode(
                 anime,
                 "content://prompt27/e03",
                 "E03.mkv",
@@ -175,6 +176,7 @@ class Prompt27ContinueResumeTests(unittest.TestCase):
                 3,
                 media_identity="prompt27:e03",
             )
+            episode = store.physical_row("content://prompt27/e03")
             self.assertTrue(store.save_progress(episode["path"], 899, 1000, episode_id=episode["id"], event_created_at=1_000))
             self.assertEqual(1, len(store.continue_watching()))
             self.assertTrue(store.save_progress(episode["path"], 900, 1000, episode_id=episode["id"], event_created_at=2_000))

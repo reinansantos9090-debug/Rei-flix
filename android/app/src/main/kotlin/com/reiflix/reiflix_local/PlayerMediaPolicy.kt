@@ -77,11 +77,28 @@ internal object PlayerMediaPolicy {
      * Compatibility classifier kept for the earlier Prompt 1-27 tests/contracts.
      * Prompt 28 uses classifyPlaybackFailure for the more precise reason.
      */
-    fun classifyError(errorCodeName: String?, causeNames: List<String> = emptyList()): ErrorCategory =
-        classifyPlaybackFailure(
-            errorCodeName = errorCodeName,
-            causeNames = causeNames,
-        ).legacyCategory
+    fun classifyError(errorCodeName: String?, causeNames: List<String> = emptyList()): ErrorCategory {
+        val code = errorCodeName.orEmpty().uppercase(Locale.ROOT)
+        val causes = causeNames.joinToString(" ").uppercase(Locale.ROOT)
+        val combined = "$code $causes"
+        return when {
+            combined.contains("DECODER") ||
+                combined.contains("MEDIACODEC") -> ErrorCategory.DECODER_UNSUPPORTED
+            combined.contains("SOURCE") &&
+                (combined.contains("NOT_FOUND") || combined.contains("UNAVAILABLE")) -> ErrorCategory.SOURCE_UNAVAILABLE
+            combined.contains("SECURITY") ||
+                combined.contains("PERMISSION") ||
+                combined.contains("FILE_NOT_FOUND") ||
+                combined.contains("NO_PERMISSION") -> ErrorCategory.SOURCE_UNAVAILABLE
+            code.startsWith("ERROR_CODE_IO_") ||
+                combined.contains("IOEXCEPTION") ||
+                combined.contains("TIMEOUT") -> ErrorCategory.TRANSIENT
+            combined.contains("MALFORMED") ||
+                combined.contains("UNSUPPORTED_FORMAT") ||
+                combined.contains("PARSER") -> ErrorCategory.NON_RECOVERABLE
+            else -> ErrorCategory.UNKNOWN
+        }
+    }
 
     fun classifyPlaybackFailure(
         errorCodeName: String?,

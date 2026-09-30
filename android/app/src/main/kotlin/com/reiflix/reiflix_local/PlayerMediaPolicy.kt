@@ -158,7 +158,9 @@ internal object PlayerMediaPolicy {
                 combined.contains("UNSUPPORTED_FORMAT") ->
                 PlaybackFailureKind.PARSER
 
-            code.startsWith("ERROR_CODE_IO_") ||
+            combined.contains("MEDIA_URI_INVALID") ||
+                combined.contains("PROVIDER_UNAVAILABLE") ||
+                code.startsWith("ERROR_CODE_IO_") ||
                 combined.contains("IOEXCEPTION") ||
                 combined.contains("DATASOURCE") ||
                 combined.contains("DATA_SOURCE") ||

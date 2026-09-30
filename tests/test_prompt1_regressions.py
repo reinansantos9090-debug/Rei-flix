@@ -65,7 +65,11 @@ class Prompt1RegressionTests(unittest.TestCase):
     def test_next_repeat_is_serialized(self):
         self.assertIn('if player_transition_inflight["value"]:', MAIN)
         self.assertIn('player_transition_inflight["value"] = True', MAIN)
-        self.assertIn('finally:\n                                player_transition_inflight["value"] = False', MAIN)
+        transition_start = MAIN.index("elif event_type in {'player_next_request', 'player_previous_request'}:")
+        transition_end = MAIN.index("elif event_type == 'player_error':", transition_start)
+        transition_block = MAIN[transition_start:transition_end]
+        self.assertIn("finally:", transition_block)
+        self.assertIn('player_transition_inflight["value"] = False', transition_block)
 
     def test_system_ui_policy_is_reapplied_and_player_setting_is_respected(self):
         self.assertIn("show(WindowInsetsCompat.Type.systemBars())", SYSTEM_UI)

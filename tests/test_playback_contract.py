@@ -157,7 +157,7 @@ class PlaybackContractTests(unittest.TestCase):
         self.assertIn('"player_paused"', save_block)
         self.assertIn('"player_completed"', save_block)
         exit_idx = source.index('"type", "player_exited"')
-        exit_end = source.index('        logPlayer("player_exit_queued', exit_idx)
+        exit_end = source.index('"player_exit_queued reason="', exit_idx)
         exit_block = source[exit_idx:exit_end]
         self.assertIn("NativeMailbox.write(", exit_block)
         self.assertNotIn("NativeMailbox.writeBestEffort(", exit_block)

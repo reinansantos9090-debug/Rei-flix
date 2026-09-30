@@ -154,6 +154,37 @@ class Prompt36ThumbnailTests(unittest.TestCase):
             candidates = service.thumbnail_candidates()
             self.assertEqual([episode_id], [item["id"] for item in candidates])
 
+    def test_thumbnail_candidate_pagination_covers_all_eligible_episodes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            service = LibraryService(store)
+            anime_id = store.upsert_anime(
+                "prompt36-many",
+                {"title": "Prompt 36 Many", "genres": "[]", "media_kind": "series"},
+            )
+            for number in range(1, 131):
+                store.upsert_episode(
+                    anime_id,
+                    f"file:///tmp/prompt36-many-e{number:03d}.mkv",
+                    f"E{number:03d}.mkv",
+                    1,
+                    number,
+                    media_identity=f"prompt36-many-{number}",
+                )
+
+            first = service.thumbnail_candidates(after_id=0, limit=128)
+            second = service.thumbnail_candidates(
+                after_id=first[-1]["id"],
+                limit=128,
+            )
+
+            self.assertEqual(128, len(first))
+            self.assertEqual(2, len(second))
+            self.assertEqual(
+                130,
+                len({item["id"] for item in first + second}),
+            )
+
     def test_prompt36_static_pipeline_contract(self):
         main = (ROOT / "main.py").read_text(encoding="utf-8")
         home = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")

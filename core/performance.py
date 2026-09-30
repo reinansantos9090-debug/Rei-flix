@@ -182,7 +182,7 @@ class PerformanceMonitor:
                        status=status, screen=target, metadata=payload)
             self.counter("interactions.completed")
         finally:
-            task_meta = self._active_task_meta.pop(task_id, None)
+            task_meta = self._active_task_meta.pop(interaction_id, None)
             if task_meta:
                 owner, operation = task_meta
                 key = f"{owner}:{operation}"

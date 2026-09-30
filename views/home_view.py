@@ -141,6 +141,8 @@ class HomeView:
             normalized = str(state or "IDLE").upper()
             if normalized not in {"IDLE", "REFRESHING", "SUCCESS", "ERROR"}:
                 normalized = "IDLE"
+            if normalized in {"IDLE", "SUCCESS", "ERROR"}:
+                pull_refresh_active[0] = False
             refresh_state[0] = normalized
             view_state["_refresh_state"] = normalized
             indicator = pull_refresh_indicator[0]

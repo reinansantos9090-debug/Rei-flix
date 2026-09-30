@@ -2055,6 +2055,7 @@ class MainActivity : FlutterFragmentActivity() {
             " source=" + mediaSource + " activityResumed=" + activityResumed + " task=" + taskId)
 
         val previousActiveRequestId = activePlayerRequestId
+        val previousActiveSessionId = activePlayerSessionId
         val previousActiveCommandCreatedAtMs = activePlayerCommandCreatedAtMs
         val reusingPlayerActivity = !previousActiveRequestId.isNullOrBlank()
         val originRequestId = playerRequest.originRequestId
@@ -2242,6 +2243,7 @@ class MainActivity : FlutterFragmentActivity() {
             val resolvedActivity = intent.resolveActivity(packageManager)
             if (resolvedActivity == null) {
                 activePlayerRequestId = previousActiveRequestId
+                activePlayerSessionId = previousActiveSessionId
                 activePlayerCommandCreatedAtMs = previousActiveCommandCreatedAtMs
                 nativeRequestState.markOperationState(requestId, "play", NativeRequestState.OperationState.FAILED)
                 publishNativeDiagnostic("PLAYER_HANDOFF_FAILED", requestId, "play",
@@ -2342,6 +2344,7 @@ class MainActivity : FlutterFragmentActivity() {
             }
         } catch (exception: Exception) {
             activePlayerRequestId = previousActiveRequestId
+            activePlayerSessionId = previousActiveSessionId
             activePlayerCommandCreatedAtMs = previousActiveCommandCreatedAtMs
             nativeRequestState.markOperationState(requestId, "play", NativeRequestState.OperationState.FAILED)
             publishNativeDiagnostic(

@@ -172,6 +172,8 @@ class NativePlayerActivity : ComponentActivity() {
     private var episodeChangeTimeoutRequestId = ""
     private var episodeChangeTimeoutUri = ""
     private var episodeChangeTimeoutGeneration = 0L
+    private var episodeChangeTimeoutSessionId = ""
+    private var episodeChangeTimeoutPlayerGeneration = 0L
     private var transitionReadyGeneration = -1L
     private var nextTransitionActive = false
     private var previousTransitionActive = false
@@ -181,7 +183,9 @@ class NativePlayerActivity : ComponentActivity() {
         if (episodeChangeTimeoutRequestId != requestId ||
             episodeChangeTimeoutUri != uri.toString() ||
             episodeChangeTimeoutGeneration != transitionSourceGeneration ||
-            episodeChangeTimeoutGeneration != transitionGeneration
+            episodeChangeTimeoutGeneration != transitionGeneration ||
+            episodeChangeTimeoutSessionId != playerSessionId ||
+            episodeChangeTimeoutPlayerGeneration != playerGeneration
         ) return@Runnable
 
         val direction = when {
@@ -218,6 +222,9 @@ class NativePlayerActivity : ComponentActivity() {
     internal var firstFrameRenderedForTesting = false
         private set
     private var feedbackHideAt = 0L
+    private var feedbackSessionId = ""
+    private var feedbackRequestId = ""
+    private var feedbackPlayerGeneration = 0L
     private var controlsRestoredFromState = false
     private var isTelevision = false
     private var cinemaMode = false
@@ -272,7 +279,14 @@ class NativePlayerActivity : ComponentActivity() {
         override fun run() {
             if (feedbackHideAt > 0L && System.currentTimeMillis() >= feedbackHideAt) {
                 feedbackHideAt = 0L
-                if (::feedback.isInitialized) feedback.visibility = View.GONE
+                if (::feedback.isInitialized) {
+                    feedback.visibility = if (
+                        sessionState == SessionState.ACTIVE &&
+                        feedbackSessionId == playerSessionId &&
+                        feedbackRequestId == requestId &&
+                        feedbackPlayerGeneration == playerGeneration
+                    ) View.GONE else View.GONE
+                }
             } else if (feedbackHideAt > 0L) {
                 handler.postDelayed(this, 120L)
             }
@@ -404,6 +418,10 @@ class NativePlayerActivity : ComponentActivity() {
 override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        playerSessionId = savedInstanceState?.getString("player_session_id")?.trim()?.takeIf { it.isNotEmpty() }
+            ?: intent.getStringExtra("playerSessionId")?.trim()?.takeIf { it.isNotEmpty() }
+            ?: playerSessionId
+        playerGeneration = savedInstanceState?.getLong("player_generation", playerGeneration) ?: playerGeneration
         requestId = savedInstanceState?.getString("session_request_id")?.trim()
             ?: intent.getStringExtra("requestId")?.trim().orEmpty()
         originRequestId = intent.getStringExtra("originRequestId")?.trim().orEmpty()
@@ -635,6 +653,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
             )
             return
         }
+        val incomingPlayerSessionId = newIntent.getStringExtra("playerSessionId")?.trim().orEmpty()
         val incomingRequestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
         val incomingOriginRequestId = newIntent.getStringExtra("originRequestId")?.trim().orEmpty()
         val incomingOriginCreatedAtMs = newIntent.getLongExtra("originCreatedAtMs", 0L)
@@ -659,6 +678,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 incomingOriginTransitionGeneration == transitionPendingGeneration &&
                 incomingOriginPlayerSessionId.isNotBlank() &&
                 incomingOriginPlayerSessionId == playerSessionId &&
+                incomingPlayerSessionId == playerSessionId &&
                 incomingOriginMonotonicNs > 0L &&
                 incomingOriginMonotonicNs == transitionSourceMonotonicNs &&
                 incomingOriginTransitionDirection == transitionSourceDirection
@@ -1387,6 +1407,12 @@ override fun onCreate(savedInstanceState: Bundle?) {
                     .put("errorCode", technicalCode)
                     .put("detail", detail)
                     .put("cause", error.cause?.javaClass?.simpleName ?: ""),
+                JSONObject()
+                    .put("requestId", requestId)
+                    .put("playerSessionId", playerSessionId)
+                    .put("playerGeneration", generation)
+                    .put("transitionGeneration", transitionGeneration)
+                    .put("episodeId", currentEpisodeId()),
                 category,
             )
         }
@@ -2427,6 +2453,9 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         if (!::feedback.isInitialized) return
         feedback.text = message
         feedback.visibility = View.VISIBLE
+        feedbackSessionId = playerSessionId
+        feedbackRequestId = requestId
+        feedbackPlayerGeneration = playerGeneration
         feedbackHideAt = System.currentTimeMillis() + durationMs
         handler.removeCallbacks(feedbackHider)
         handler.post(feedbackHider)
@@ -2615,6 +2644,35 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         payload: JSONObject = JSONObject(),
         category: PlayerMediaPolicy.ErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN,
     ) {
+        val suppliedSession = payload.optString("playerSessionId").trim()
+        val suppliedRequest = payload.optString("requestId").trim()
+        val suppliedPlayerGeneration = payload.optLong("playerGeneration", 0L)
+        val suppliedTransitionGeneration = payload.optLong("transitionGeneration", 0L)
+        val errorContextCurrent =
+            sessionState == SessionState.ACTIVE &&
+                (suppliedSession.isBlank() || suppliedSession == playerSessionId) &&
+                (suppliedRequest.isBlank() || suppliedRequest == requestId) &&
+                (suppliedPlayerGeneration <= 0L || suppliedPlayerGeneration == playerGeneration) &&
+                (suppliedTransitionGeneration <= 0L || suppliedTransitionGeneration == transitionGeneration)
+        if (!errorContextCurrent) {
+            publishNavigationTransitionDiagnostic(
+                "PLAYER_ERROR_STALE_IGNORED",
+                reason,
+                JSONObject()
+                    .put("requestId", suppliedRequest.ifBlank { requestId })
+                    .put("playerSessionId", suppliedSession.ifBlank { playerSessionId })
+                    .put("playerGeneration", suppliedPlayerGeneration)
+                    .put("transitionGeneration", suppliedTransitionGeneration)
+                    .put("currentPlayerGeneration", playerGeneration)
+                    .put("currentTransitionGeneration", transitionGeneration),
+            )
+            logPlayer(
+                "PLAYER_ERROR_STALE_IGNORED requestId=" + suppliedRequest.ifBlank { requestId } +
+                    " reason=" + reason,
+            )
+            return
+        }
+
         currentErrorCategory = category
         if (nextTransitionActive) {
             publishNextTransitionDiagnostic(
@@ -2645,6 +2703,11 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         }
         effectivePayload
             .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
+            .put("requestId", requestId)
+            .put("playerSessionId", playerSessionId)
+            .put("playerGeneration", playerGeneration)
+            .put("transitionGeneration", transitionGeneration)
+            .put("episodeId", currentEpisodeId())
             .put("reason", reason)
             .put("category", category.name)
         publishPlayerError(message, effectivePayload)
@@ -2839,7 +2902,11 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         episodeChangeTimeoutRequestId = ""
         episodeChangeTimeoutUri = ""
         episodeChangeTimeoutGeneration = 0L
+        episodeChangeTimeoutSessionId = ""
+        episodeChangeTimeoutPlayerGeneration = 0L
         transitionReadyGeneration = -1L
+        feedbackHideAt = 0L
+        if (::feedback.isInitialized) feedback.visibility = View.GONE
         nextTransitionActive = false
         previousTransitionActive = false
         transitionSourceDirection = ""
@@ -2947,6 +3014,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         episodeChangeTimeoutRequestId = requestId
         episodeChangeTimeoutUri = uri.toString()
         episodeChangeTimeoutGeneration = generation
+        episodeChangeTimeoutSessionId = playerSessionId
+        episodeChangeTimeoutPlayerGeneration = playerGeneration
         handler.removeCallbacks(episodeChangeTimeout)
         updateEpisodeNavigationButtons()
         showFeedback(if (isNextRequest) "Próximo…" else "Anterior…", 1400L)
@@ -3267,6 +3336,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putLong("player_generation", playerGeneration)
+        outState.putString("player_session_id", playerSessionId)
+        outState.putLong("transition_generation", transitionGeneration)
         outState.putString("session_request_id", requestId)
         if (::uri.isInitialized) outState.putString("session_uri", uri.toString())
         if (::player.isInitialized) {

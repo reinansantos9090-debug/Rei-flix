@@ -106,6 +106,7 @@ async def main(page: ft.Page):
     }]
     ui_alive = [True]
     native_poll_task = [None]
+    player_transition_task = {"task": None}
     settings_tasks = SettingsTaskRegistry()
 
     def _handle_page_disconnect(_event=None):
@@ -116,6 +117,13 @@ async def main(page: ft.Page):
                 task.cancel()
             except Exception as exc:
                 logger.debug("[FLET] mailbox poll task cancellation failed: %s", exc)
+        transition_task = player_transition_task.get("task")
+        if transition_task is not None and not transition_task.done():
+            try:
+                transition_task.cancel()
+            except Exception as exc:
+                logger.debug("[FLET] player transition task cancellation failed: %s", exc)
+        player_transition_task["task"] = None
         settings_tasks.invalidate()
 
     try:
@@ -738,7 +746,6 @@ async def main(page: ft.Page):
             persist_navigation_state()
     player_transition_inflight = {"value": False}
     player_launch_inflight = {"value": False}
-    player_transition_task = {"task": None}
     player_transition_generation = {"value": 0}
     player_active_request_id = {"value": None}
     player_session_active = {"value": False}

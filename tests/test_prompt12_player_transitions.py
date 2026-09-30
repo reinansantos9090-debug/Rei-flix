@@ -35,9 +35,21 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
             self.player.index("Player.STATE_READY -> {"):
             self.player.index("Player.STATE_BUFFERING -> {")
         ]
-        self.assertIn("if (episodeChangePending &&", ready)
-        self.assertIn("episodeChangePending = false", ready)
-        self.assertIn("EPISODE_CHANGE_COMMITTED", ready)
+        self.assertIn("if (", ready)
+        self.assertIn("episodeChangePending", ready)
+        self.assertIn("transitionReadyGeneration", ready)
+        self.assertIn("NEXT_TRANSITION_READY", ready)
+        self.assertNotIn("episodeChangePending = false", ready)
+        self.assertNotIn("EPISODE_CHANGE_COMMITTED", ready)
+
+        first_frame = self.player[
+            self.player.index('if (events.contains(Player.EVENT_RENDERED_FIRST_FRAME))'):
+            self.player.index("override fun onMediaItemTransition", self.player.index('if (events.contains(Player.EVENT_RENDERED_FIRST_FRAME))'))
+        ]
+        self.assertIn("NEXT_TRANSITION_FIRST_FRAME", first_frame)
+        self.assertIn("NEXT_TRANSITION_COMMITTED", first_frame)
+        self.assertIn("EPISODE_CHANGE_COMMITTED", first_frame)
+        self.assertIn("episodeChangePending = false", first_frame)
 
     def test_transition_watchdog_and_error_paths_release_gate(self):
         self.assertIn("episodeChangeTimeoutRequestId != requestId", self.player)

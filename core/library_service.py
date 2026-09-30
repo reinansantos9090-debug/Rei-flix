@@ -1093,9 +1093,14 @@ class LibraryService:
 
         uri = str(episode.get("path") or "").strip()
         document_id = self._saf_document_id_from_uri(uri) if uri.startswith("content://") else None
-        if document_id and source.get("tree_document_id"):
-            if self._saf_document_id_within_tree(source["tree_document_id"], document_id):
-                return "valid"
+        authority = str(urlparse(uri).netloc or "").strip() if uri.startswith("content://") else ""
+        if (
+            document_id
+            and source.get("tree_document_id")
+            and authority.casefold() == str(source.get("authority") or "").casefold()
+            and self._saf_document_id_within_tree(source["tree_document_id"], document_id)
+        ):
+            return "valid"
 
         identity = str(episode.get("media_identity") or "").strip()
         shared_prefix = str(source.get("shared_prefix") or "").strip()
@@ -1107,6 +1112,7 @@ class LibraryService:
 
     def reconcile_existing_library(self, *, dry_run=False):
         """Remove only legacy episode rows proven outside every configured source."""
+        logger.info("[RECONCILIATION_STARTED] dry_run=%s", bool(dry_run))
         descriptors = self._reconciliation_source_descriptors()
         available = [source for source in descriptors if source.get("available")]
         unavailable = [source for source in descriptors if not source.get("available")]
@@ -1124,6 +1130,10 @@ class LibraryService:
 
         if not descriptors or not available:
             report["status"] = "skipped_no_reliable_sources"
+            logger.info(
+                "[RECONCILIATION_SKIPPED] reason=no_reliable_sources dry_run=%s",
+                report["dry_run"],
+            )
             logger.info(
                 "[RECONCILIATION_COMPLETED] status=%s total=0 preserved=0 removed=0 inaccessible=0 duplicates=0 unknown=0 dry_run=%s",
                 report["status"], report["dry_run"],
@@ -1190,12 +1200,21 @@ class LibraryService:
             else:
                 report["unknown"] += 1
 
+        logger.info(
+            "[RECONCILIATION_CLASSIFIED] total=%s preserved=%s removed=%s inaccessible=%s duplicates=%s unknown=%s dry_run=%s",
+            report["total"], report["preserved"], report["removed"],
+            report["inaccessible"], report["duplicates"], report["unknown"], report["dry_run"],
+        )
         if not dry_run and (remove_ids or duplicate_merges):
             result = self.store.apply_library_reconciliation(remove_ids, duplicate_merges)
             report["removed"] = int(result.get("removed") or report["removed"])
             report["duplicates"] = max(
                 report["duplicates"],
                 int(result.get("duplicates_merged") or 0),
+            )
+            logger.info(
+                "[RECONCILIATION_REMOVED] removed=%s duplicates=%s",
+                report["removed"], report["duplicates"],
             )
 
         logger.info(

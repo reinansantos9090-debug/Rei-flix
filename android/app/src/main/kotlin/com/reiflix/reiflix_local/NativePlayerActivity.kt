@@ -1265,11 +1265,19 @@ override fun onCreate(savedInstanceState: Bundle?) {
                         initialSeekApplied = true
                     }
                     if (
-                        (nextTransitionActive || previousTransitionActive) &&
-                        episodeChangePending &&
-                        transitionSourceRequestId == requestId &&
-                        transitionSourceUri == uri.toString() &&
-                        transitionReadyGeneration != generation
+                        (
+                            nextTransitionActive &&
+                            episodeChangePending &&
+                            transitionSourceRequestId == requestId &&
+                            transitionSourceUri == uri.toString() &&
+                            transitionReadyGeneration != generation
+                        ) || (
+                            previousTransitionActive &&
+                            episodeChangePending &&
+                            transitionSourceRequestId == requestId &&
+                            transitionSourceUri == uri.toString() &&
+                            transitionReadyGeneration != generation
+                        )
                     ) {
                         transitionReadyGeneration = generation
                         if (transitionStartedAtMs > 0L) {

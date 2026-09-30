@@ -1322,7 +1322,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
                                     ),
                             )
                         }
-                        val appliedResumePositionMs = seekToSavedPosition(resumeRequestedMs)
+                        val appliedResumePositionMs = seekToSavedPosition(restoredPositionMs ?: savedPosition)
                         if (resumeRequestedMs > 0L) {
                             NativeMailbox.writeBestEffort(
                                 this@NativePlayerActivity,
@@ -2831,6 +2831,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     private fun diagnosticErrorCode(reason: String): String = when (reason) {
         "missing_uri", "missing_uri_on_reuse", "invalid_uri_on_reuse" -> "MEDIA_URI_INVALID"
+        "episode_not_found" -> "EPISODE_NOT_FOUND"
+        "media_uri_missing" -> "MEDIA_URI_MISSING"
         "unauthorized_or_unreadable", "source_preflight" -> "MEDIA_URI_INVALID"
         "media3_prepare" -> "MEDIA3_PREPARE_FAILED"
         "unsupported_format", "unsupported_media" -> "UNSUPPORTED_MEDIA"

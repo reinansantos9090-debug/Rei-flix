@@ -1978,8 +1978,6 @@ async def main(page: ft.Page):
                         player_event_types = {
                             "player_next_request",
                             "player_previous_request",
-                            "player_opened",
-                            "player_error",
                             "player_progress",
                             "player_paused",
                             "player_completed",
@@ -2117,16 +2115,28 @@ async def main(page: ft.Page):
                                         context = candidate_context
                                         break
                                 diagnostic_session = str(payload.get("playerSessionId") or "").strip()
+                                frame_generation = int(payload.get("generation") or 0)
+                                frame_transition_generation = int(payload.get("transitionGeneration") or 0)
                                 if isinstance(context, dict):
                                     target_request_id = str(context.get("target_request_id") or "").strip()
                                     origin_request_id = str(context.get("origin_request_id") or "").strip()
-                                    if (
+                                    valid_context = (
                                         event_request_id == target_request_id
                                         and diagnostic_session == str(context.get("player_session_id") or "")
                                         and player_session_active["value"]
                                         and player_active_session_id["value"] == diagnostic_session
                                         and bool(context.get("ready"))
-                                    ):
+                                        and player_transition_generation["value"] == int(context.get("python_transition_generation") or 0)
+                                        and (
+                                            not context.get("target_transition_generation")
+                                            or frame_transition_generation == int(context.get("target_transition_generation") or 0)
+                                        )
+                                        and (
+                                            not context.get("target_player_generation")
+                                            or frame_generation == int(context.get("target_player_generation") or 0)
+                                        )
+                                    )
+                                    if valid_context:
                                         performance.event(
                                             "NEXT_TRANSITION_FIRST_FRAME" if context_direction == "NEXT" else "PREVIOUS_TRANSITION_FIRST_FRAME",
                                             screen=navigation.current,
@@ -2135,7 +2145,8 @@ async def main(page: ft.Page):
                                                 "target_request_id": target_request_id,
                                                 "player_session_id": diagnostic_session,
                                                 "episode_id": payload.get("episodeId") or context.get("target_episode_id"),
-                                                "generation": payload.get("generation"),
+                                                "player_generation": frame_generation,
+                                                "transition_generation": frame_transition_generation,
                                             },
                                         )
                                         performance.event(
@@ -2146,6 +2157,7 @@ async def main(page: ft.Page):
                                                 "target_request_id": target_request_id,
                                                 "player_session_id": diagnostic_session,
                                                 "episode_id": payload.get("episodeId") or context.get("target_episode_id"),
+                                                "transition_generation": frame_transition_generation,
                                             },
                                         )
                                         performance.event(
@@ -2154,33 +2166,26 @@ async def main(page: ft.Page):
                                             metadata={
                                                 "request_id": target_request_id,
                                                 "episode_id": payload.get("episodeId") or context.get("target_episode_id"),
-                                                "generation": payload.get("generation"),
-                                                "transition_generation": context.get("native_transition_generation"),
+                                                "player_generation": frame_generation,
+                                                "transition_generation": frame_transition_generation,
+                                                "direction": context_direction,
                                             },
                                         )
-                                        pending_next_transition["value"] = None
+                                        if context_direction == "NEXT":
+                                            pending_next_transition["value"] = None
+                                        else:
+                                            pending_previous_transition["value"] = None
                                     elif context is not None:
                                         performance.event(
-                                            "NEXT_REQUEST_STALE" if context_direction == "NEXT" else "PREVIOUS_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
+                                            "PLAYER_CALLBACK_STALE",
                                             screen=navigation.current,
-                                            status="rejected",
+                                            status="ignored",
                                             metadata={
                                                 "request_id": origin_request_id,
                                                 "target_request_id": target_request_id,
-                                                "reason": "first_frame_wrong_session_or_request",
                                                 "player_session_id": diagnostic_session,
-                                                "current_session_id": player_active_session_id["value"],
-                                            },
-                                        )
-                                        performance.event(
-                                            "PLAYER_NEXT_STALE_REJECTED" if context_direction == "NEXT" else "PLAYER_PREVIOUS_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
-                                            screen=navigation.current,
-                                            metadata={
-                                                "request_id": origin_request_id,
-                                                "age_ms": max(0, int(time.time() * 1000) - int(context.get("created_at_ms") or 0)),
-                                                "origin_generation": context.get("native_transition_generation"),
+                                                "reason": "first_frame_wrong_session_request_or_generation",
                                                 "current_generation": player_transition_generation["value"],
-                                                "reason": "first_frame_wrong_session_or_request",
                                             },
                                         )
                             diagnostics.record(
@@ -2741,40 +2746,71 @@ async def main(page: ft.Page):
                             continue
                         elif event_type == 'player_opened':
                             session_id = str(payload.get("playerSessionId") or "").strip()
-                            if session_id:
-                                if player_active_session_id["value"] not in (None, session_id):
-                                    diagnostics.record(
-                                        "PLAYER_OPENED_IGNORED",
-                                        request_id=event_request_id,
-                                        source="native_player",
-                                        result="stale_player_session",
-                                    )
-                                    continue
-                                player_active_session_id["value"] = session_id
-                                player_session_active["value"] = True
-                                player_active_episode_id["value"] = payload.get("episodeId")
-                                player_active_anime_id["value"] = payload.get("animeId")
-                                player_active_uri["value"] = payload.get("uri")
+                            if session_id and player_active_session_id["value"] not in (None, session_id):
+                                performance.event(
+                                    "PLAYER_CALLBACK_STALE",
+                                    screen=navigation.current,
+                                    status="ignored",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "player_session_id": session_id,
+                                        "current_player_session_id": player_active_session_id["value"],
+                                        "reason": "player_opened_session_mismatch",
+                                    },
+                                )
+                                diagnostics.record(
+                                    "PLAYER_OPENED_IGNORED",
+                                    request_id=event_request_id,
+                                    source="native_player",
+                                    result="stale_player_session",
+                                )
+                                continue
 
-                            context = pending_next_transition["value"]
+                            if session_id:
+                                player_active_session_id["value"] = session_id
+                            player_session_active["value"] = True
+                            player_active_player_generation["value"] = int(payload.get("generation") or player_active_player_generation["value"])
+                            player_active_episode_id["value"] = payload.get("episodeId")
+                            player_active_anime_id["value"] = payload.get("animeId")
+                            player_active_uri["value"] = payload.get("uri")
+
+                            pending_candidates = (
+                                ("NEXT", pending_next_transition["value"]),
+                                ("PREVIOUS", pending_previous_transition["value"]),
+                            )
+                            context_direction = None
+                            context = None
+                            for candidate_direction, candidate_context in pending_candidates:
+                                if isinstance(candidate_context, dict) and event_request_id == str(candidate_context.get("target_request_id") or "").strip():
+                                    context_direction = candidate_direction
+                                    context = candidate_context
+                                    break
+
                             if isinstance(context, dict):
                                 target_request_id = str(context.get("target_request_id") or "").strip()
-                                if (
+                                valid_context = (
                                     event_request_id == target_request_id
-                                    and session_id
+                                    and bool(session_id)
                                     and session_id == str(context.get("player_session_id") or "")
                                     and str(payload.get("episodeId") or "") == str(context.get("target_episode_id") or "")
-                                ):
+                                    and player_session_active["value"]
+                                    and player_active_session_id["value"] == session_id
+                                    and player_transition_generation["value"] == int(context.get("python_transition_generation") or 0)
+                                )
+                                if valid_context:
                                     context["ready"] = True
+                                    context["target_player_generation"] = payload.get("generation")
+                                    context["target_transition_generation"] = payload.get("transitionGeneration")
                                     performance.event(
-                                        "NEXT_TRANSITION_READY",
+                                        "NEXT_TRANSITION_READY" if context_direction == "NEXT" else "PREVIOUS_TRANSITION_READY",
                                         screen=navigation.current,
                                         metadata={
                                             "request_id": context.get("origin_request_id"),
                                             "target_request_id": target_request_id,
                                             "player_session_id": session_id,
                                             "episode_id": payload.get("episodeId"),
-                                            "transition_generation": context.get("native_transition_generation"),
+                                            "player_generation": payload.get("generation"),
+                                            "transition_generation": payload.get("transitionGeneration"),
                                         },
                                     )
                                     player_active_request_id["value"] = event_request_id
@@ -2786,26 +2822,26 @@ async def main(page: ft.Page):
                                     )
                                 else:
                                     performance.event(
-                                        "NEXT_REQUEST_STALE",
+                                        "PLAYER_CALLBACK_STALE",
                                         screen=navigation.current,
-                                        status="rejected",
+                                        status="ignored",
                                         metadata={
-                                            "request_id": context.get("origin_request_id"),
-                                            "target_request_id": target_request_id,
-                                            "reason": "player_opened_wrong_target",
+                                            "request_id": event_request_id,
+                                            "player_session_id": session_id,
+                                            "reason": "player_opened_wrong_target_or_generation",
                                         },
                                     )
+                                    continue
                             else:
                                 player_active_request_id["value"] = event_request_id
-                                player_session_active["value"] = True
                                 performance.event(
-                                    "PLAYER_TRANSITION_COMMITTED",
+                                    "PLAYER_COMMAND_ACCEPTED",
                                     screen=navigation.current,
                                     metadata={
                                         "request_id": event_request_id,
-                                        "episode_id": payload.get("episodeId"),
-                                        "generation": payload.get("generation"),
-                                        "transition_generation": payload.get("transitionGeneration"),
+                                        "player_session_id": session_id,
+                                        "player_generation": player_active_player_generation["value"],
+                                        "reason": "player_opened",
                                     },
                                 )
                                 diagnostics.record(
@@ -2814,7 +2850,7 @@ async def main(page: ft.Page):
                                     source=payload.get("source") or "native_player",
                                     result=payload.get("state") or "READY",
                                 )
-                        elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
+elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
                             path_ref = str(payload.get('uri') or '').strip()
                             if path_ref:
                                 try:

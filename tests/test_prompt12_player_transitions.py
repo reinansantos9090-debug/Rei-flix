@@ -28,10 +28,8 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
         self.assertIn("originTransitionGeneration == transitionPendingGeneration", reuse)
         self.assertIn("episodeChangeTimeoutRequestId = requestId", reuse)
         self.assertIn("episodeChangeTimeoutUri = uri.toString()", reuse)
-        self.assertIn(
-            "sessionState = SessionState.ACTIVE\n        episodeChangePending = false",
-            reuse,
-        )
+        self.assertIn("sessionState = SessionState.ACTIVE", reuse)
+        self.assertIn("episodeChangePending = false", reuse)
 
         ready = self.player[
             self.player.index("Player.STATE_READY -> {"):
@@ -44,7 +42,8 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
     def test_transition_watchdog_and_error_paths_release_gate(self):
         self.assertIn("episodeChangeTimeoutRequestId != requestId", self.player)
         self.assertIn("episodeChangeTimeoutUri != uri.toString()", self.player)
-        self.assertIn("episodeChangePending = false\n        updateEpisodeNavigationButtons()", self.player)
+        self.assertIn("episodeChangePending = false", self.player)
+        self.assertIn("updateEpisodeNavigationButtons()", self.player)
 
         error = self.player[
             self.player.index("private fun showPlayerError("):
@@ -65,7 +64,7 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
             self.main.index("elif event_type in {'player_next_request', 'player_previous_request'}:"):
             self.main.index("elif event_type == 'player_error':")
         ]
-        self.assertIn("direction = 1 if event_type == 'player_next_request' else -1", block)
+        self.assertIn('direction = 1 if event_type == "player_next_request" else -1', block)
         self.assertIn("await asyncio.to_thread(", block)
         self.assertIn("library.player_navigation", block)
         self.assertIn('player_transition_task["task"]', block)

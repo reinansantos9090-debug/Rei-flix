@@ -91,6 +91,12 @@ class HomeView:
         refresh_after_load_pending = [bool(view_state.get("_manual_refresh_pending"))]
         refresh_state = [str(view_state.get("_refresh_state") or "IDLE").upper()]
         refresh_button = [None]
+        pull_refresh_indicator = [None]
+        pull_refresh_active = [False]
+        pull_gesture_active = [False]
+        pull_gesture_at_top = [False]
+        pull_overscroll = [0.0]
+        pull_threshold = 72.0
         view_tasks: set[object] = set()
 
         def _discard_view_task(task):
@@ -137,6 +143,13 @@ class HomeView:
                 normalized = "IDLE"
             refresh_state[0] = normalized
             view_state["_refresh_state"] = normalized
+            indicator = pull_refresh_indicator[0]
+            if indicator is not None:
+                indicator.visible = bool(
+                    pull_refresh_active[0]
+                    and normalized == "REFRESHING"
+                    and is_active()
+                )
             button = refresh_button[0]
             if button is not None:
                 if normalized == "REFRESHING":
@@ -159,16 +172,22 @@ class HomeView:
                 performance.counter("home.refresh.page_updates")
                 page.update()
 
-        async def handle_manual_refresh(_event=None):
+        async def handle_manual_refresh(_event=None, *, source="button"):
             if refresh_state[0] == "REFRESHING":
                 performance.counter("home.refresh.rejected")
+                if source == "pull":
+                    pull_refresh_active[0] = False
                 return
             if not callable(on_refresh_library):
                 set_refresh_state("ERROR")
                 logger.warning("Home refresh requested without a refresh callback")
                 return
+            if source == "pull":
+                pull_refresh_active[0] = True
+                performance.counter("home.pull_refresh.triggered")
+            else:
+                performance.counter("home.refresh.button_tapped")
             set_refresh_state("REFRESHING", update=False)
-            performance.counter("home.refresh.button_tapped")
             try:
                 result = await on_refresh_library()
                 if isinstance(result, tuple):
@@ -180,12 +199,16 @@ class HomeView:
                     page.snack_bar.open = True
                 if not waiting:
                     set_refresh_state("ERROR", update=False)
+                    if source == "pull":
+                        pull_refresh_active[0] = False
                     _schedule_refresh_reset("ERROR", delay=1.6)
                 if is_active():
                     page.update()
             except Exception:
                 logger.exception("Home manual refresh failed")
                 performance.counter("home.refresh.failed")
+                if source == "pull":
+                    pull_refresh_active[0] = False
                 set_refresh_state("ERROR", update=False)
                 page.snack_bar = ft.SnackBar(ft.Text("Não foi possível atualizar a biblioteca agora."))
                 page.snack_bar.open = True
@@ -677,14 +700,80 @@ class HomeView:
             finally:
                 page_load_scheduled[0] = False
 
+        def _scroll_event_name(event):
+            value = getattr(event, "event_type", None)
+            name = getattr(value, "name", None)
+            if name:
+                return str(name).upper()
+            raw = str(value or "")
+            return raw.rsplit(".", 1)[-1].upper()
+
+        async def _trigger_pull_refresh():
+            if not is_active():
+                pull_refresh_active[0] = False
+                return
+            if refresh_state[0] == "REFRESHING":
+                performance.counter("home.pull_refresh.rejected")
+                pull_refresh_active[0] = False
+                return
+            await handle_manual_refresh(None, source="pull")
+
         def on_home_scroll(event):
             try:
                 view_state["scroll_position"] = float(event.pixels)
                 remaining = float(event.max_scroll_extent - event.pixels)
+                pixels = float(event.pixels)
+                min_extent = float(event.min_scroll_extent)
+                extent_before = float(event.extent_before)
+                event_type = _scroll_event_name(event)
             except (TypeError, ValueError, AttributeError):
                 return
             if not is_active():
                 return
+
+            # Pull-to-refresh only participates in the vertical Home scroll.
+            # Nested horizontal Rows have their own scrollables and therefore do
+            # not invoke this handler. We only arm when the gesture begins at the
+            # vertical start edge and accumulate negative overscroll until END.
+            if event_type == "START":
+                pull_gesture_active[0] = True
+                pull_gesture_at_top[0] = (
+                    extent_before <= 1.0
+                    and pixels <= min_extent + 1.0
+                    and not page_loading[0]
+                )
+                pull_overscroll[0] = 0.0
+            elif event_type == "OVERSCROLL":
+                overscroll = float(getattr(event, "overscroll", 0.0) or 0.0)
+                at_top = (
+                    extent_before <= 1.0
+                    and pixels <= min_extent + 1.0
+                )
+                if pull_gesture_active[0] and pull_gesture_at_top[0] and at_top and overscroll < 0.0:
+                    pull_overscroll[0] += -overscroll
+                    performance.gauge("home.pull_refresh.overscroll", pull_overscroll[0])
+            elif event_type == "END":
+                should_refresh = (
+                    pull_gesture_active[0]
+                    and pull_gesture_at_top[0]
+                    and pull_overscroll[0] >= pull_threshold
+                    and not page_loading[0]
+                    and refresh_state[0] != "REFRESHING"
+                )
+                pull_gesture_active[0] = False
+                pull_gesture_at_top[0] = False
+                pull_overscroll[0] = 0.0
+                if should_refresh:
+                    performance.counter("home.pull_refresh.armed")
+                    _start_view_task(_trigger_pull_refresh)
+            elif event_type == "USER":
+                # A normal in-range scroll after leaving the top cancels the
+                # candidate gesture. This prevents a later diagonal/fast swipe
+                # from inheriting overscroll from an unrelated scroll.
+                if pixels > min_extent + 1.0 or extent_before > 1.0:
+                    pull_gesture_at_top[0] = False
+                    pull_overscroll[0] = 0.0
+
             if remaining < 800 and has_more[0] and not page_loading[0] and not page_load_scheduled[0]:
                 page_load_scheduled[0] = True
                 schedule_background(load_next_page)
@@ -1333,6 +1422,15 @@ class HomeView:
             tooltip="Atualizar biblioteca",
             on_click=handle_manual_refresh,
         )
+        pull_refresh_indicator[0] = ft.Row(
+            [
+                ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
+                ft.Text("Atualizando biblioteca…", size=11, color=TEXT_MUTED),
+            ],
+            spacing=8,
+            alignment=ft.MainAxisAlignment.CENTER,
+            visible=False,
+        )
         set_refresh_state(refresh_state[0], update=False)
         header = ft.Row([
             ft.Row([
@@ -1380,7 +1478,7 @@ class HomeView:
         # use the stable Row+pagination architecture, with a bounded page size,
         # instead of a blind GridView migration.
         layout = ft.Column([
-            header, search, ft.Text("Sua biblioteca local, conteúdo primeiro.", size=12, color=TEXT_MUTED),
+            header, pull_refresh_indicator[0], search, ft.Text("Sua biblioteca local, conteúdo primeiro.", size=12, color=TEXT_MUTED),
             status, hydration_status, continuation_section, main_library_bar, feedback, grid, sections_column, ft.Container(height=24),
         ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=12, scroll_interval=60, on_scroll=on_home_scroll)
         async def restore_scroll_position():

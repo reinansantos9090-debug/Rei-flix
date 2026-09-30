@@ -88,6 +88,7 @@ class HomeView:
         artwork_ui_update_scheduled = [False]
         catalog_refresh_scheduled = [False]
         catalog_refresh_dirty = [False]
+        refresh_after_load_pending = [bool(view_state.get("_manual_refresh_pending"))]
         refresh_state = [str(view_state.get("_refresh_state") or "IDLE").upper()]
         refresh_button = [None]
         view_tasks: set[object] = set()
@@ -555,8 +556,12 @@ class HomeView:
             )
 
         async def load_library_page(*, reset=False):
-            if page_loading[0] or (not reset and not has_more[0]):
-                return
+            if page_loading[0]:
+                if reset:
+                    refresh_after_load_pending[0] = True
+                return True
+            if not reset and not has_more[0]:
+                return True
             performance.event("HOME_BROWSE_START", screen="home",
                               metadata={"reset": reset, "generation": render_generation[0]})
             if reset:
@@ -641,6 +646,10 @@ class HomeView:
                 page.update()
                 await restore_scroll_position()
                 schedule_artwork_batch_prefetch()
+            pending_refresh = refresh_after_load_pending[0]
+            refresh_after_load_pending[0] = False
+            if pending_refresh and is_active():
+                _start_view_task(schedule_refresh_from_catalog)
             if fresh_items:
                 async def run_hydration_batch():
                     started = time.perf_counter()
@@ -1415,6 +1424,7 @@ class HomeView:
         view_state['_update_thumbnail'] = update_thumbnail_in_place
         view_state['_invalidate_view_tasks'] = invalidate_view_tasks
         view_state['_set_refresh_state'] = set_refresh_state
+        view_state['_reset_refresh_state'] = _schedule_refresh_reset
         view_state['_manual_refresh_pending'] = bool(view_state.get('_manual_refresh_pending', False))
         status.visible = True
         _start_view_task(load_catalog)

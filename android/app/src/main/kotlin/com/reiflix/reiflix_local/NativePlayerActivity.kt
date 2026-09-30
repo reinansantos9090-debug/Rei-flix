@@ -122,6 +122,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var preferredAudioLanguage = ""
     private var preferredSubtitleLanguage = ""
     private var subtitleMode = "auto"
+    private var zoomEnabled = false
     private var doubleTapSeekMs = 10_000L
     private var longPressSpeed = 2f
     private var maxVideoResolution = "auto"
@@ -389,6 +390,7 @@ class NativePlayerActivity : ComponentActivity() {
         preferredAudioLanguage = intent.getStringExtra("setting_audio_preferred_language")?.trim().orEmpty()
         preferredSubtitleLanguage = intent.getStringExtra("setting_audio_preferred_subtitle_language")?.trim().orEmpty()
         subtitleMode = intent.getStringExtra("setting_audio_subtitles") ?: "auto"
+        zoomEnabled = intent.getBooleanExtra("setting_player_zoom_enabled", false)
         doubleTapSeekMs = intent.getLongExtra("setting_player_double_tap_seek_seconds", 10L)
             .coerceIn(1L, 120L) * 1000L
         longPressSpeed = intent.getFloatExtra("setting_player_long_press_speed", 2f)
@@ -665,7 +667,14 @@ class NativePlayerActivity : ComponentActivity() {
         applyGlobalTrackPreferences()
         applyAdvancedTrackConstraints()
         applySubtitlePreferences()
-        aspectModeLabel = findViewByTag<TextView>("reiflix_aspect_button")?.text?.toString() ?: aspectModeLabel
+        zoomEnabled = newIntent.getBooleanExtra("setting_player_zoom_enabled", false)
+        findViewByTag<GestureLayer>("reiflix_gesture_layer")?.resetZoomToFit()
+        playerView.resizeMode = resizeModeFromSetting(newIntent.getStringExtra("setting_player_aspect_ratio"))
+        aspectModeLabel = aspectLabelFromSetting(newIntent.getStringExtra("setting_player_aspect_ratio"))
+        findViewByTag<TextView>("reiflix_aspect_button")?.apply {
+            text = aspectModeLabel
+            isSelected = aspectModeLabel == "Preencher"
+        }
 
         findViewByTag<TextView>("reiflix_player_title")?.text =
             newIntent.getStringExtra("title") ?: "Episódio"
@@ -1898,7 +1907,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     private fun showAspectSelection(button: TextView) {
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
-        val labels = arrayOf("Ajustar", "Preencher", "Zoom")
+        val labels = arrayOf("Ajustar", "Preencher")
         val current = when (button.text.toString()) {
             in labels -> button.text.toString()
             "Original", "Auto" -> "Ajustar"
@@ -1920,15 +1929,12 @@ class NativePlayerActivity : ComponentActivity() {
         if (!::playerView.isInitialized) return
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.resetZoomToFit()
         playerView.resizeMode = when (mode) {
-            "Preencher", "Zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            "Preencher" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
-        button.text = mode
-        button.isSelected = mode != "Ajustar"
-        if (mode == "Zoom") {
-            findViewByTag<GestureLayer>("reiflix_gesture_layer")?.enterManualZoomMode()
-        }
-        showFeedback(mode)
+        button.text = if (mode == "Preencher") "Preencher" else "Ajustar"
+        button.isSelected = mode == "Preencher"
+        showFeedback(button.text.toString())
         touchControls()
         playerView.requestLayout()
     }
@@ -3310,7 +3316,11 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             context,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-                    if (!gestureInteractionAllowed() || !::playerView.isInitialized || !::player.isInitialized) {
+                    if (!zoomEnabled ||
+                        !gestureInteractionAllowed() ||
+                        !::playerView.isInitialized ||
+                        !::player.isInitialized
+                    ) {
                         return false
                     }
                     pinchActive = true
@@ -3330,9 +3340,13 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                     val rawFactor = detector.scaleFactor
                     if (!rawFactor.isFinite() || rawFactor <= 0f) return true
 
+                    // ScaleGestureDetector already reports a relative scale. Do not
+                    // amplify it again. A per-callback cap keeps large span changes
+                    // from jumping directly to the ceiling.
+                    val effectiveRawFactor = rawFactor.coerceIn(MIN_SCALE_FACTOR, MAX_SCALE_FACTOR)
                     val previousScale = zoomScale
                     val nextScale = PlayerGesturePolicy.clampZoom(
-                        previousScale * rawFactor,
+                        previousScale * effectiveRawFactor,
                         MIN_ZOOM,
                         MAX_ZOOM,
                     )
@@ -3361,16 +3375,24 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                     zoomTranslationX = nextTranslationX
                     zoomTranslationY = nextTranslationY
 
-                    playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    // Manual zoom always uses FIT as its base. FILL remains an
+                    // independent aspect preference and is restored when zoom resets.
+                    if (playerView.resizeMode != AspectRatioFrameLayout.RESIZE_MODE_FIT) {
+                        playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    }
                     applyZoomTransform()
                     updateAspectButtonFromZoom()
 
-                    val label = if (zoomScale <= ZOOM_SNAP_THRESHOLD) {
-                        "FIT"
-                    } else {
-                        "ZOOM " + String.format(java.util.Locale.US, "%.1fx", zoomScale)
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastZoomFeedbackAtMs >= ZOOM_FEEDBACK_INTERVAL_MS) {
+                        lastZoomFeedbackAtMs = now
+                        val label = if (zoomScale <= ZOOM_SNAP_THRESHOLD) {
+                            "FIT"
+                        } else {
+                            "ZOOM " + String.format(java.util.Locale.US, "%.2fx", zoomScale)
+                        }
+                        showFeedback(label, 300L)
                     }
-                    showFeedback(label, 250L)
                     return true
                 }
 
@@ -3447,6 +3469,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         private var zoomTranslationX = 0f
         private var zoomTranslationY = 0f
         private var zoomAnimator: ValueAnimator? = null
+        private var lastZoomFeedbackAtMs = 0L
+        private val zoomMatrix = Matrix()
         private var longPressActive = false
         private var previousSpeedForLongPress = 1f
         private var gestureMode = GestureMode.IDLE
@@ -3455,7 +3479,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             if (inPictureInPicture) return true
             scaleDetector.onTouchEvent(event)
 
-            if (event.pointerCount > 1 || pinchActive || gestureMode == GestureMode.PINCH) {
+            if (zoomEnabled && (event.pointerCount > 1 || pinchActive || gestureMode == GestureMode.PINCH)) {
                 when (event.actionMasked) {
                     MotionEvent.ACTION_POINTER_DOWN -> {
                         gestureConsumed = true
@@ -3692,17 +3716,6 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             logPlayer("PLAYER_LONG_PRESS_END speed=" + restore + " requestId=" + requestId.ifEmpty { "-" })
         }
 
-        fun enterManualZoomMode() {
-            zoomAnimator?.cancel()
-            zoomAnimator = null
-            zoomScale = 1.15f
-            zoomTranslationX = 0f
-            zoomTranslationY = 0f
-            playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-            applyZoomTransform()
-            updateAspectButtonFromZoom()
-        }
-
         fun refreshZoomForLayout() {
             if (zoomScale > 1.01f) {
                 applyZoomTransform()
@@ -3779,11 +3792,11 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 if (zoomScale <= ZOOM_SNAP_THRESHOLD) {
                     animateZoomToFit()
                 } else {
-                    playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     updateAspectButtonFromZoom()
                     applyZoomTransform()
                     showFeedback(
-                        "ZOOM " + String.format(java.util.Locale.US, "%.1fx", zoomScale),
+                        "ZOOM " + String.format(java.util.Locale.US, "%.2fx", zoomScale),
                         900L,
                     )
                 }
@@ -3812,11 +3825,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                         zoomScale = 1f
                         zoomTranslationX = 0f
                         zoomTranslationY = 0f
-                        playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        findViewByTag<TextView>("reiflix_aspect_button")?.apply {
-                            text = "Ajustar"
-                            isSelected = false
-                        }
+                        restoreConfiguredAspectMode()
                         applyZoomTransform()
                         showFeedback("FIT", 900L)
                         zoomAnimator = null
@@ -3889,33 +3898,33 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 viewportWidth / contentWidth,
                 viewportHeight / contentHeight,
             )
-            val zoomedScale = max(
-                viewportWidth / contentWidth,
-                viewportHeight / contentHeight,
-            )
-            val baseScale = if (
-                playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-            ) {
-                zoomedScale
-            } else {
-                fitScale
-            }
+            // Manual zoom bounds are always measured from the FIT frame. This is
+            // the single base scale for GestureLayer transforms.
             return Pair(
-                contentWidth * baseScale,
-                contentHeight * baseScale,
+                contentWidth * fitScale,
+                contentHeight * fitScale,
             )
         }
 
         private fun updateAspectButtonFromZoom() {
             val button = findViewByTag<TextView>("reiflix_aspect_button") ?: return
             if (zoomScale <= ZOOM_SNAP_THRESHOLD) {
-                if (button.text.toString() == "Zoom") {
-                    button.text = "Ajustar"
-                    button.isSelected = false
-                }
+                val label = aspectLabelFromSetting(intent.getStringExtra("setting_player_aspect_ratio"))
+                button.text = label
+                button.isSelected = label == "Preencher"
             } else {
-                button.text = "Zoom"
+                button.text = "Zoom " + String.format(java.util.Locale.US, "%.2fx", zoomScale)
                 button.isSelected = true
+            }
+        }
+
+        private fun restoreConfiguredAspectMode() {
+            val value = intent.getStringExtra("setting_player_aspect_ratio")
+            val label = aspectLabelFromSetting(value)
+            playerView.resizeMode = resizeModeFromSetting(value)
+            findViewByTag<TextView>("reiflix_aspect_button")?.apply {
+                text = label
+                isSelected = label == "Preencher"
             }
         }
 
@@ -3939,20 +3948,18 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             zoomTranslationY = clamped.second
 
             if (video is TextureView) {
-                val matrix = Matrix()
+                zoomMatrix.reset()
                 if (video.width > 1 && video.height > 1 && width > 1 && height > 1) {
-                    matrix.setScale(
+                    zoomMatrix.setScale(
                         zoomScale,
                         zoomScale,
                         video.width * 0.5f,
                         video.height * 0.5f,
                     )
-                    matrix.postTranslate(zoomTranslationX, zoomTranslationY)
-                } else {
-                    matrix.reset()
+                    zoomMatrix.postTranslate(zoomTranslationX, zoomTranslationY)
                 }
                 video.isOpaque = false
-                video.setTransform(matrix)
+                video.setTransform(zoomMatrix)
             } else {
                 if (video.width <= 1 || video.height <= 1 || width <= 1 || height <= 1) {
                     video.post { applyZoomTransform() }
@@ -4062,8 +4069,12 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         private const val CONTROL_TIMEOUT_MS = 3_500L
         private const val SEEK_PROGRESS_MAX = 1000
         private const val MIN_ZOOM = 1f
-        private const val MAX_ZOOM = 3f
-        private const val ZOOM_SNAP_THRESHOLD = 1.07f
+        // 2.0x keeps anime readable while avoiding the aggressive 3.0x ceiling.
+        private const val MAX_ZOOM = 2f
+        private const val MIN_SCALE_FACTOR = 0.90f
+        private const val MAX_SCALE_FACTOR = 1.10f
+        private const val ZOOM_SNAP_THRESHOLD = 1.05f
+        private const val ZOOM_FEEDBACK_INTERVAL_MS = 80L
         private const val MAX_RETRY_ATTEMPTS = 2
         private const val LOCK_AFFORDANCE_TIMEOUT_MS = 2_200L
     }

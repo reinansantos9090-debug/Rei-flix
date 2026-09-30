@@ -60,9 +60,10 @@ class Prompt33SourceIdentityTests(unittest.TestCase):
     def test_scope_matching_is_canonical(self):
         self.assertEqual((self.URI_A,), library_saf_roots([self.URI_A, self.URI_OTHER], scope_ref=self.URI_DUPLICATE_ENCODING))
 
-    def test_capabilities_normalize_saf_roots(self):
+    def test_capabilities_preserve_authoritative_saf_roots(self):
         caps = StorageCapabilities.from_native({"safRoots": [self.URI_A, self.URI_DUPLICATE_ENCODING], "api": 35})
-        self.assertEqual((self.URI_A,), caps.saf_roots)
+        self.assertEqual((self.URI_A, self.URI_DUPLICATE_ENCODING), caps.saf_roots)
+        self.assertEqual((self.URI_A,), dedupe_saf_roots(caps.saf_roots))
 
 
 class Prompt33CoordinatorTests(unittest.IsolatedAsyncioTestCase):

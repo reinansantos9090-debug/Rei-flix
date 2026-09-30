@@ -3189,7 +3189,7 @@ async def main(page: ft.Page):
                                             "origin_player_session_id": source_player_session_id,
                                         },
                                     )
-                                    await start_native_player(
+                                    target_request_id = await start_native_player(
                                         target_path,
                                         target_title,
                                         int(target_position_ms),
@@ -3205,11 +3205,7 @@ async def main(page: ft.Page):
                                     if is_next:
                                         pending = pending_next_transition["value"]
                                         if isinstance(pending, dict) and pending.get("origin_request_id") == event_request_id:
-                                            pending["target_request_id"] = (
-                                                pending.get("target_request_id")
-                                                or str(target.get("_request_id") or "").strip()
-                                                or player_active_request_id["value"]
-                                            )
+                                            pending["target_request_id"] = target_request_id
                                     performance.event(
                                         f"player.{direction_name.lower()}.handoff",
                                         duration_ms=(performance.now() - handoff_started) * 1000.0,
@@ -3284,7 +3280,30 @@ async def main(page: ft.Page):
                             )
                             player_transition_task["task"] = task
                         elif event_type == 'player_error':
-                            if event_request_id and event_request_id == player_active_request_id["value"]:
+                            if isinstance(pending_next_transition["value"], dict):
+                                pending = pending_next_transition["value"]
+                                if event_request_id in {
+                                    pending.get("origin_request_id"),
+                                    pending.get("target_request_id"),
+                                }:
+                                    performance.event(
+                                        "NEXT_TRANSITION_FAILED",
+                                        screen=navigation.current,
+                                        status="failed",
+                                        metadata={
+                                            "request_id": pending.get("origin_request_id"),
+                                            "target_request_id": pending.get("target_request_id"),
+                                            "reason": payload.get("reason") or event.get("message") or "player_error",
+                                            "player_session_id": pending.get("player_session_id"),
+                                        },
+                                    )
+                            if event_request_id and (
+                                event_request_id == player_active_request_id["value"]
+                                or (
+                                    isinstance(pending_next_transition["value"], dict)
+                                    and event_request_id == pending_next_transition["value"].get("target_request_id")
+                                )
+                            ):
                                 cancel_player_transition("player_error")
                             message = event.get('message', 'Não foi possível reproduzir este arquivo localmente.')
                             diagnostics.record(
@@ -3304,10 +3323,21 @@ async def main(page: ft.Page):
                             page.snack_bar.open = True
                             safe_update()
                         elif event_type == 'player_exited':
-                            if player_active_request_id["value"] in (None, event_request_id):
+                            exit_session_id = str(payload.get("playerSessionId") or "").strip()
+                            if (
+                                player_active_request_id["value"] in (None, event_request_id)
+                                and (
+                                    not exit_session_id
+                                    or player_active_session_id["value"] in (None, exit_session_id)
+                                )
+                            ):
                                 cancel_player_transition("player_exited")
                                 player_active_request_id["value"] = None
                                 player_session_active["value"] = False
+                                player_active_session_id["value"] = None
+                                player_active_episode_id["value"] = None
+                                player_active_anime_id["value"] = None
+                                player_active_uri["value"] = None
                             else:
                                 diagnostics.record(
                                     "PLAYER_EXIT_IGNORED",

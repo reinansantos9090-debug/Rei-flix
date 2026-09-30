@@ -74,7 +74,7 @@ class Prompt28Media3ErrorTests(unittest.TestCase):
     def test_open_handoff_and_media3_prepare_are_separate_stages(self):
         self.assertIn("PLAYER_HANDOFF_FAILED", MAIN_ACTIVITY)
         self.assertIn("PLAYER_HANDOFF_REJECTED", MAIN_ACTIVITY)
-        self.assertIn("stage=handoff", MAIN_ACTIVITY)
+        self.assertIn('.put("stage", "handoff")', MAIN_ACTIVITY)
         self.assertIn("MEDIA3_PREPARE_DISPATCHED", PLAYER)
         self.assertIn("player.prepare()", PLAYER)
         self.assertIn("PLAYER_ERROR_BEFORE_READY", PLAYER)

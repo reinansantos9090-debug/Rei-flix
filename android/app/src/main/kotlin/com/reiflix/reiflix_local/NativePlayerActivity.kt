@@ -1406,8 +1406,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
                     .put("uri", uri.toString())
                     .put("errorCode", technicalCode)
                     .put("detail", detail)
-                    .put("cause", error.cause?.javaClass?.simpleName ?: ""),
-                JSONObject()
+                    .put("cause", error.cause?.javaClass?.simpleName ?: "")
                     .put("requestId", requestId)
                     .put("playerSessionId", playerSessionId)
                     .put("playerGeneration", generation)

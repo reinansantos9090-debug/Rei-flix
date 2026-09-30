@@ -589,16 +589,16 @@ class DetailView:
                         continue
                     if resolved:
                         episode_artwork[str(item_id)] = resolved
-                if on_request_thumbnail:
-                    for item in items:
-                        if item.get("id") is None or item.get("missing"):
-                            continue
-                        resolved = episode_artwork.get(str(item.get("id")))
-                        if not resolved or resolved.get("artwork_type") != "episode_thumbnail" or resolved.get("fallback"):
-                            try:
-                                on_request_thumbnail(item, priority=400)
-                            except Exception:
-                                DetailView._logger.debug("Episode thumbnail request scheduling failed", exc_info=True)
+            if on_request_thumbnail:
+                for item in items:
+                    if item.get("id") is None or item.get("missing"):
+                        continue
+                    resolved = episode_artwork.get(str(item.get("id")))
+                    if not resolved or resolved.get("artwork_type") != "episode_thumbnail" or resolved.get("fallback"):
+                        try:
+                            on_request_thumbnail(item, priority=400)
+                        except Exception:
+                            DetailView._logger.debug("Episode thumbnail request scheduling failed", exc_info=True)
 
         def episode_item(episode):
             episode_ratio = ratio(episode)

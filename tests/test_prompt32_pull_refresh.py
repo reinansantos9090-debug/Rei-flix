@@ -12,17 +12,17 @@ class Prompt32PullRefreshContractTests(unittest.TestCase):
 
     def test_pull_to_refresh_uses_the_existing_manual_refresh_handler(self):
         source = self.read("views/home_view.py")
-        self.assertIn("async def handle_manual_refresh(_event=None, *, source="button")", source)
+        self.assertIn('async def handle_manual_refresh(_event=None, *, source="button")', source)
         self.assertIn('await handle_manual_refresh(None, source="pull")', source)
         self.assertNotIn("async def pull_refresh_library", source)
         self.assertNotIn("async def refresh_pull_library", source)
 
     def test_pull_refresh_uses_scroll_overscroll_and_end_notifications(self):
         source = self.read("views/home_view.py")
-        self.assertIn("event_type == "START"", source)
-        self.assertIn("event_type == "OVERSCROLL"", source)
-        self.assertIn("event_type == "END"", source)
-        self.assertIn("getattr(event, "overscroll"", source)
+        self.assertIn('event_type == "START"', source)
+        self.assertIn('event_type == "OVERSCROLL"', source)
+        self.assertIn('event_type == "END"', source)
+        self.assertIn('getattr(event, "overscroll"', source)
         self.assertIn("pull_gesture_at_top", source)
         self.assertIn("extent_before <= 1.0", source)
         self.assertIn("pull_overscroll[0] >= pull_threshold", source)

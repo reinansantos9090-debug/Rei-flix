@@ -793,7 +793,7 @@ E: manifest
         end = player.index("private fun configureWindow", error)
         block = player[error:end]
         self.assertIn('put("errorCode", technicalCode)', block)
-        self.assertIn('put("detail", detail)', block)
+        self.assertIn('put("errorMessage", detail)', block)
         self.assertIn("showPlayerError(", block)
         self.assertNotIn("finishPlayer(", block)
 

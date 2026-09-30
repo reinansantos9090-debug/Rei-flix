@@ -1098,23 +1098,18 @@ class HomeView:
                 limit = settings.get("library.continue_watching_limit")
                 continuing.extend(home_data.get("continue_watching", [])[:limit])
             changed = render_continue()
-            for title, key, is_episode in (
-                ("PRÓXIMO EPISÓDIO", "next_episode", False),
-                ("RECENTEMENTE ADICIONADOS", "recently_added", False),
-                ("RECENTEMENTE ASSISTIDOS", "recently_watched", True),
-                ("FAVORITOS", "favorites", False),
-                ("PINADOS", "pinned", False),
-                ("SÉRIES / ANIMES", "series", False),
-                ("FILMES", "movies", False),
-                ("ESPECIAIS", "specials", False),
+            for title, key in (
+                ("FAVORITOS", "favorites"),
+                ("PINADOS", "pinned"),
+                ("FILMES", "movies"),
             ):
                 try:
                     changed = render_section(
                         title,
                         key,
                         home_data.get(key),
-                        action=None if is_episode else on_select_anime,
-                        episode=is_episode,
+                        action=on_select_anime,
+                        episode=False,
                     ) or changed
                 except Exception:
                     logger.exception("Home section render failed", extra={"screen":"home","section":key})
@@ -1264,11 +1259,14 @@ class HomeView:
             run_spacing=8,
         )
         sections_column = ft.Column(
-            [section_cards.setdefault(key, ft.Container(content=ft.Column([ft.Text(title, size=15, weight=ft.FontWeight.BOLD, color=TEXT), section_rows.setdefault(key, ft.Row(scroll=ft.ScrollMode.AUTO, spacing=10))], spacing=9), visible=False))
+            [section_cards.setdefault(key, ft.Container(content=ft.Column([
+                ft.Text(title, size=15, weight=ft.FontWeight.BOLD, color=TEXT),
+                section_rows.setdefault(key, ft.Row(scroll=ft.ScrollMode.AUTO, spacing=10)),
+            ], spacing=9), visible=False))
              for title, key in (
-                ("PRÓXIMO EPISÓDIO", "next_episode"), ("RECENTEMENTE ADICIONADOS", "recently_added"),
-                ("RECENTEMENTE ASSISTIDOS", "recently_watched"), ("FAVORITOS", "favorites"),
-                ("PINADOS", "pinned"), ("SÉRIES / ANIMES", "series"), ("FILMES", "movies"), ("ESPECIAIS", "specials"),
+                ("FAVORITOS", "favorites"),
+                ("PINADOS", "pinned"),
+                ("FILMES", "movies"),
              )],
             spacing=14,
         )

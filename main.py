@@ -1137,6 +1137,20 @@ async def main(page: ft.Page):
             )
             return
         player_launch_inflight["value"] = True
+        launch_session_id = uuid.uuid4().hex
+        player_active_session_id["value"] = launch_session_id
+        player_active_player_generation["value"] = 0
+        player_session_active["value"] = True
+        performance.event(
+            "PLAYER_SESSION_CREATED",
+            screen=navigation.current,
+            metadata={
+                "player_session_id": launch_session_id,
+                "episode_id": episode_id,
+                "anime_id": anime_id,
+                "origin": "python_launch",
+            },
+        )
 
         async def launch_native_player():
             try:
@@ -1146,6 +1160,13 @@ async def main(page: ft.Page):
                     max(0, int(progress_seconds * 1000)),
                     episode_id=episode_id,
                     anime_id=anime_id,
+                    player_session_id=launch_session_id,
+                    origin_player_session_id=launch_session_id,
+                    transition_guard=lambda: (
+                        player_session_active["value"]
+                        and player_active_session_id["value"] == launch_session_id
+                        and ui_alive[0]
+                    ),
                 )
                 performance.event(
                     "player.launch_complete",
@@ -2865,6 +2886,23 @@ elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
                                         episode_id=payload.get("episodeId"),
                                         event_created_at=event.get('createdAt') or event.get('timestamp'),
                                     )
+                                    callback_current, callback_reason = player_callback_is_current(
+                                        event_request_id,
+                                        payload,
+                                        episode_id=payload.get("episodeId"),
+                                    )
+                                    if not callback_current:
+                                        performance.event(
+                                            "PLAYER_TASK_STALE",
+                                            screen=navigation.current,
+                                            status="ignored",
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "reason": callback_reason,
+                                                "episode_id": payload.get("episodeId"),
+                                            },
+                                        )
+                                        continue
                                     performance.event("player.progress_persist", duration_ms=(performance.now()-progress_started)*1000.0,
                                                       screen=navigation.current,
                                                       metadata={"episode_id": payload.get("episodeId"), "media_identity": payload.get("mediaId"),
@@ -3592,6 +3630,24 @@ elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
                                 )
                             ):
                                 cancel_player_transition("player_error")
+                            callback_current, callback_reason = player_callback_is_current(
+                                event_request_id,
+                                payload,
+                                episode_id=payload.get("episodeId"),
+                            )
+                            if not callback_current:
+                                performance.event(
+                                    "PLAYER_ERROR_STALE_IGNORED",
+                                    screen=navigation.current,
+                                    status="ignored",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "reason": callback_reason,
+                                        "player_session_id": payload.get("playerSessionId"),
+                                        "episode_id": payload.get("episodeId"),
+                                    },
+                                )
+                                continue
                             message = event.get('message', 'Não foi possível reproduzir este arquivo localmente.')
                             diagnostics.record(
                                 "PLAYER_ERROR",

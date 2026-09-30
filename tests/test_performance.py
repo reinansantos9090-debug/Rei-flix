@@ -313,7 +313,8 @@ class ServiceAndSourceTests(unittest.TestCase):
         self.assertIn("page_size = settings.get(\"library.page_size\")", home)
         self.assertIn("catalog.extend(fresh_items)", home)
         self.assertIn("if remaining < 800", home)
-        self.assertIn("poll_interval = 0.2 if events else min(1.0, poll_interval * 1.5)", main)
+        self.assertIn('poll_interval = 0.08 if player_session_active["value"] else 0.2', main)
+        self.assertIn('poll_interval = min(1.0, max(0.2, poll_interval * 1.5))', main)
         self.assertNotIn("while True:\n            bridge.drain()", main)
 
     def test_async_stale_generation_contracts_are_present(self):

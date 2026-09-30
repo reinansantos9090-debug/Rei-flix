@@ -1263,6 +1263,7 @@ async def main(page: ft.Page):
             launch_anime_id = anime_id
             launch_progress_seconds = max(0.0, float(progress_seconds or 0.0))
             continue_lookup_started = performance.now()
+            handoff_confirmed = False
             try:
                 performance.event(
                     "CONTINUE_REQUEST_CREATED",
@@ -1284,6 +1285,14 @@ async def main(page: ft.Page):
                         "found": bool(fresh_episode),
                     },
                 )
+                if not current_session_guard():
+                    performance.event(
+                        "CONTINUE_REQUEST_REJECTED",
+                        screen=navigation.current,
+                        status="rejected",
+                        metadata={"reason": "STALE_SESSION_AFTER_PROGRESS_LOOKUP", "player_session_id": launch_session_id},
+                    )
+                    return
                 if not fresh_episode or int(fresh_episode.get("id") or 0) != int(episode_id):
                     performance.event(
                         "CONTINUE_REQUEST_REJECTED",
@@ -1303,6 +1312,9 @@ async def main(page: ft.Page):
                     return
                 launch_path = str(fresh_episode.get("path") or "").strip()
                 launch_anime_id = fresh_episode.get("anime_id")
+                player_active_episode_id["value"] = fresh_episode.get("id")
+                player_active_anime_id["value"] = launch_anime_id
+                player_active_uri["value"] = launch_path
                 if not launch_path or fresh_episode.get("missing"):
                     performance.event(
                         "CONTINUE_REQUEST_REJECTED",
@@ -1380,6 +1392,7 @@ async def main(page: ft.Page):
                     origin_player_session_id=launch_session_id,
                     transition_guard=current_session_guard,
                 )
+                handoff_confirmed = True
                 performance.event(
                     "ASSIST_REQUEST_ACCEPTED",
                     screen=navigation.current,
@@ -1429,6 +1442,14 @@ async def main(page: ft.Page):
                 )
                 safe_update()
             finally:
+                if (
+                    not handoff_confirmed
+                    and player_active_session_id["value"] == launch_session_id
+                ):
+                    invalidate_player_session(
+                        "continue_launch_rejected",
+                        expected_session_id=launch_session_id,
+                    )
                 player_launch_inflight["value"] = False
 
         # NativePlayerActivity is the only player. Do not push a synthetic Flet

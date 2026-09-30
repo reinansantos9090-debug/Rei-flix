@@ -17,6 +17,7 @@ data class NativePlayerRequest(
     val episodeUri: String,
     val episodeId: String,
     val animeId: String,
+    val playerSessionId: String,
     val originRequestId: String,
     val originCreatedAtMs: Long,
     val originTransitionGeneration: Long,
@@ -59,6 +60,7 @@ data class NativePlayerRequest(
             .putExtra("mediaId", normalizedUri.toString())
             .putExtra("episodeId", episodeId)
             .putExtra("animeId", animeId)
+            .putExtra("playerSessionId", playerSessionId)
             .putExtra("originRequestId", originRequestId)
             .putExtra("originCreatedAtMs", originCreatedAtMs)
             .putExtra("originTransitionGeneration", originTransitionGeneration)
@@ -108,6 +110,7 @@ data class NativePlayerRequest(
                 episodeUri = get("uri").orEmpty().trim(),
                 episodeId = get("episode_id").orEmpty().trim(),
                 animeId = get("anime_id").orEmpty().trim(),
+                playerSessionId = get("player_session_id").orEmpty().trim(),
                 originRequestId = get("origin_request_id").orEmpty().trim(),
                 originCreatedAtMs = get("origin_created_at")?.toLongOrNull()?.takeIf { it > 0L } ?: 0L,
                 originTransitionGeneration = get("origin_transition_generation")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,

@@ -3149,6 +3149,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                                 JSONObject().put("error", "native_mailbox_write_failed"),
                             )
                             showFeedback("Não foi possível mudar de episódio.", 1800L)
+                            episodeChangePending = false
                             invalidateTransition("mailbox_publish_failed")
                             return@post
                         }
@@ -3175,6 +3176,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                             "mailbox_publish_exception",
                             JSONObject().put("error", error.message ?: error::class.java.simpleName),
                         )
+                        episodeChangePending = false
                         invalidateTransition("mailbox_publish_exception")
                     }
                 }
@@ -3185,6 +3187,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 "executor_submit_failed",
                 JSONObject().put("error", error.message ?: error::class.java.simpleName),
             )
+            episodeChangePending = false
             invalidateTransition("executor_submit_failed")
         }
     }

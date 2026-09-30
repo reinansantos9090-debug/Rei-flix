@@ -1435,59 +1435,61 @@ class LibraryStore:
             )
             return cur.lastrowid
 
+    def _merge_duplicate_media_identities_locked(self, c):
+        duplicate_keys = [row[0] for row in c.execute(
+            "SELECT media_identity FROM episodes WHERE media_identity IS NOT NULL GROUP BY media_identity HAVING COUNT(*) > 1"
+        )]
+        merged = 0
+        for identity in duplicate_keys:
+            rows = c.execute(
+                """SELECT * FROM episodes WHERE media_identity=?
+                   ORDER BY CASE WHEN last_played_at IS NULL THEN 0 ELSE 1 END DESC,
+                            last_played_at DESC, watched DESC, id ASC""",
+                (identity,),
+            ).fetchall()
+            if len(rows) < 2:
+                continue
+            survivor = rows[0]
+            best_progress = max(float(row["progress"] or 0) for row in rows)
+            best_watched = max(int(row["watched"] or 0) for row in rows)
+            best_played = max((float(row["last_played_at"] or 0) for row in rows), default=0)
+            c.execute(
+                "UPDATE episodes SET progress=?,watched=?,last_played_at=?,missing=? WHERE id=?",
+                (best_progress, best_watched, best_played or None, min(int(row["missing"] or 1) for row in rows), survivor["id"]),
+            )
+            survivor_id = survivor["id"]
+            for row in rows[1:]:
+                progress_value = max(best_progress, float(row["progress"] or 0))
+                watched_value = max(best_watched, int(row["watched"] or 0))
+                c.execute(
+                    """INSERT OR IGNORE INTO episode_observations(
+                         episode_id,source_kind,scope_kind,scope_ref,uri,volume_id,native_generation,
+                         fingerprint,first_seen,last_seen,last_checked_at,state,error)
+                       SELECT ?,source_kind,scope_kind,scope_ref,uri,volume_id,native_generation,
+                         fingerprint,first_seen,last_seen,last_checked_at,state,error
+                       FROM episode_observations WHERE episode_id=?""",
+                    (survivor_id, row["id"]),
+                )
+                if row["manual_override"] and not survivor["manual_override"]:
+                    c.execute(
+                        """UPDATE episodes SET season=?,number=?,episode_type=?,episode_title=?,
+                           identification_source=?,identification_confidence=?,manual_override=1 WHERE id=?""",
+                        (row["season"],row["number"],row["episode_type"],row["episode_title"],
+                         row["identification_source"],row["identification_confidence"],survivor_id),
+                    )
+                c.execute(
+                    "UPDATE episodes SET progress=?,watched=?,last_played_at=? WHERE id=?",
+                    (progress_value,watched_value,max(best_played,float(row["last_played_at"] or 0)) or None,survivor_id),
+                )
+                c.execute("DELETE FROM episodes WHERE id=?", (row["id"],))
+                merged += 1
+            self._recompute_episode_availability_locked(c, survivor_id)
+        return merged
+
     def merge_duplicate_media_identities(self):
         """Merge legacy duplicate rows that now resolve to one media identity."""
         with self._conn() as c:
-            duplicate_keys = [row[0] for row in c.execute(
-                "SELECT media_identity FROM episodes WHERE media_identity IS NOT NULL GROUP BY media_identity HAVING COUNT(*) > 1"
-            )]
-            merged = 0
-            for identity in duplicate_keys:
-                rows = c.execute(
-                    """SELECT * FROM episodes WHERE media_identity=?
-                       ORDER BY CASE WHEN last_played_at IS NULL THEN 0 ELSE 1 END DESC,
-                                last_played_at DESC, watched DESC, id ASC""",
-                    (identity,),
-                ).fetchall()
-                if len(rows) < 2:
-                    continue
-                survivor = rows[0]
-                best_progress = max(float(row["progress"] or 0) for row in rows)
-                best_watched = max(int(row["watched"] or 0) for row in rows)
-                best_played = max((float(row["last_played_at"] or 0) for row in rows), default=0)
-                c.execute(
-                    "UPDATE episodes SET progress=?,watched=?,last_played_at=?,missing=? WHERE id=?",
-                    (best_progress, best_watched, best_played or None, min(int(row["missing"] or 1) for row in rows), survivor["id"]),
-                )
-                survivor_id = survivor["id"]
-                for row in rows[1:]:
-                    progress_value = max(best_progress, float(row["progress"] or 0))
-                    watched_value = max(best_watched, int(row["watched"] or 0))
-                    c.execute(
-                        """INSERT OR IGNORE INTO episode_observations(
-                             episode_id,source_kind,scope_kind,scope_ref,uri,volume_id,native_generation,
-                             fingerprint,first_seen,last_seen,last_checked_at,state,error)
-                           SELECT ?,source_kind,scope_kind,scope_ref,uri,volume_id,native_generation,
-                             fingerprint,first_seen,last_seen,last_checked_at,state,error
-                           FROM episode_observations WHERE episode_id=?""",
-                        (survivor_id, row["id"]),
-                    )
-                    if row["manual_override"] and not survivor["manual_override"]:
-                        c.execute(
-                            """UPDATE episodes SET season=?,number=?,episode_type=?,episode_title=?,
-                               identification_source=?,identification_confidence=?,manual_override=1 WHERE id=?""",
-                            (row["season"],row["number"],row["episode_type"],row["episode_title"],
-                             row["identification_source"],row["identification_confidence"],survivor_id),
-                        )
-                    c.execute(
-                        """UPDATE episodes SET progress=?,watched=?,last_played_at=?
-                           WHERE id=?""",
-                        (progress_value,watched_value,max(best_played,float(row["last_played_at"] or 0)) or None,survivor_id),
-                    )
-                    c.execute("DELETE FROM episodes WHERE id=?", (row["id"],))
-                    merged += 1
-                self._recompute_episode_availability_locked(c, survivor_id)
-            return merged
+            return self._merge_duplicate_media_identities_locked(c)
 
     def physical_row(self, path):
         with self._conn() as c:
@@ -1557,6 +1559,8 @@ class LibraryStore:
 
             for episode_id in remove_ids:
                 removed += c.execute("DELETE FROM episodes WHERE id=?", (episode_id,)).rowcount
+
+            merged += self._merge_duplicate_media_identities_locked(c)
 
         return {"removed": removed, "duplicates_merged": merged}
     def missing_candidate(self, anime_id, source_folder, file_size, modified_at, volume_id=None, *, excluded_paths=None):

@@ -14,6 +14,7 @@ from core.consumption import consumption_state
 from core.artwork import ArtworkEngine
 from core.library_parser import VIDEO_EXTENSIONS, parse_video_path
 from core.media_identity import identity_from_document
+from core.storage_access import saf_source_identity
 from core.organizer_ai import AnimeOrganizer, MatchContext
 from core.search_engine import LibrarySearchEngine, normalize_text
 from core.genre_classifier import GenreClassifier
@@ -508,6 +509,152 @@ class LibraryService:
         return self.artwork.clear_manual(entity_type, entity_id, artwork_type)
 
     @staticmethod
+    def _saf_tree_document_id(reference):
+        raw = str(reference or "").strip()
+        if not raw:
+            return None
+        try:
+            parsed = urlparse(raw)
+        except ValueError:
+            return None
+        if parsed.scheme.casefold() != "content" or not parsed.path:
+            return None
+        marker = "/tree/"
+        if marker not in parsed.path:
+            return None
+        encoded = parsed.path.split(marker, 1)[1].split("/", 1)[0]
+        document_id = unquote(encoded).strip().strip("/")
+        return document_id or None
+
+    @staticmethod
+    def _saf_document_id_from_uri(uri):
+        raw = str(uri or "").strip()
+        if not raw:
+            return None
+        try:
+            parsed = urlparse(raw)
+        except ValueError:
+            return None
+        path = parsed.path or ""
+        marker = "/document/"
+        if marker not in path:
+            return None
+        encoded = path.rsplit(marker, 1)[1].split("/", 1)[0]
+        document_id = unquote(encoded).strip().strip("/")
+        return document_id or None
+
+    @staticmethod
+    def _saf_document_id_within_tree(tree_document_id, document_id):
+        root = unquote(str(tree_document_id or "")).strip().strip("/")
+        child = unquote(str(document_id or "")).strip().strip("/")
+        return bool(root and child and (child == root or child.startswith(root + "/")))
+
+    @staticmethod
+    def _filesystem_path_within_source(path, source_root):
+        try:
+            candidate = os.path.realpath(str(path or "").strip())
+            root = os.path.realpath(str(source_root or "").strip())
+        except (OSError, TypeError):
+            return False
+        if not candidate or not root:
+            return False
+        try:
+            return os.path.commonpath((candidate, root)) == root
+        except ValueError:
+            return False
+
+    def _library_source_policy(self, source_reference, source_kind, scope_ref=None):
+        kind = str(source_kind or "").strip().casefold()
+        reference = str(scope_ref or source_reference or "").strip()
+        if not reference:
+            return {"ok": False, "reason": "SOURCE_REFERENCE_MISSING"}
+        folders = self.store.folders()
+        if kind == "saf":
+            requested_identity = saf_source_identity(reference) or saf_source_identity(source_reference)
+            if not requested_identity:
+                return {"ok": False, "reason": "INVALID_SOURCE_URI"}
+            for folder in folders:
+                if str(folder.get("kind") or "").casefold() != "saf":
+                    continue
+                folder_reference = str(folder.get("path") or "").strip()
+                folder_identity = str(folder.get("saf_identity") or "").strip() or saf_source_identity(folder_reference)
+                if folder_identity != requested_identity:
+                    continue
+                if str(folder.get("authorization") or "").casefold() != "granted":
+                    return {"ok": False, "reason": "SOURCE_PERMISSION_LOST", "identity": requested_identity}
+                tree_document_id = str(folder.get("saf_document_id") or "").strip() or self._saf_tree_document_id(folder_reference)
+                if not tree_document_id:
+                    return {"ok": False, "reason": "INVALID_SOURCE_URI", "identity": requested_identity}
+                return {"ok": True, "kind": "saf", "reference": folder_reference, "identity": requested_identity, "tree_document_id": tree_document_id}
+            return {"ok": False, "reason": "SOURCE_NOT_CONFIGURED", "identity": requested_identity}
+        if kind in {"filesystem", "path"}:
+            for folder in folders:
+                folder_kind = str(folder.get("kind") or "path").casefold()
+                folder_reference = str(folder.get("path") or "").strip()
+                if folder_kind not in {"filesystem", "path"} or not folder_reference:
+                    continue
+                if str(folder.get("authorization") or "").casefold() != "granted":
+                    continue
+                if os.path.realpath(folder_reference) != os.path.realpath(reference):
+                    continue
+                return {"ok": True, "kind": "filesystem", "reference": folder_reference, "root": os.path.realpath(folder_reference)}
+            return {"ok": False, "reason": "SOURCE_NOT_CONFIGURED"}
+        return {"ok": False, "reason": "NON_LIBRARY_SCANNER"}
+
+    def _validate_library_document_scope(self, document, source_policy):
+        policy = source_policy or {}
+        if not policy.get("ok"):
+            return False, str(policy.get("reason") or "SOURCE_NOT_CONFIGURED")
+        item = document if isinstance(document, dict) else {}
+        uri = str(item.get("uri") or "").strip()
+        if not uri:
+            return False, "INVALID_URI"
+        if policy.get("kind") == "saf":
+            expected_identity = str(policy.get("identity") or "").strip()
+            tree_uri = str(item.get("treeUri") or "").strip()
+            if tree_uri and saf_source_identity(tree_uri) != expected_identity:
+                return False, "OUTSIDE_SOURCE"
+            document_scope = str(item.get("scope") or "").strip()
+            if document_scope and document_scope != expected_identity:
+                return False, "OUTSIDE_SOURCE"
+            try:
+                parsed = urlparse(uri)
+            except ValueError:
+                return False, "INVALID_URI"
+            if parsed.scheme.casefold() != "content" or not parsed.netloc:
+                return False, "INVALID_URI"
+            configured_parsed = urlparse(str(policy.get("reference") or ""))
+            if parsed.netloc.casefold() != str(configured_parsed.netloc or "").casefold():
+                return False, "OUTSIDE_SOURCE"
+            document_id = str(item.get("documentId") or "").strip()
+            document_id = unquote(document_id) if document_id else self._saf_document_id_from_uri(uri)
+            if not self._saf_document_id_within_tree(policy.get("tree_document_id"), document_id):
+                return False, "OUTSIDE_SOURCE"
+            uri_document_id = self._saf_document_id_from_uri(uri)
+            if uri_document_id and unquote(uri_document_id) != unquote(document_id or ""):
+                return False, "INVALID_URI"
+            return True, "ACCEPTED"
+        if policy.get("kind") == "filesystem":
+            if uri.casefold().startswith("file://"):
+                try:
+                    candidate = unquote(urlparse(uri).path)
+                except ValueError:
+                    return False, "INVALID_URI"
+            elif os.path.isabs(uri):
+                candidate = uri
+            else:
+                candidate = str(item.get("path") or "").strip()
+            if not candidate:
+                return False, "INVALID_PATH"
+            real_candidate = os.path.realpath(candidate)
+            if not self._filesystem_path_within_source(real_candidate, policy.get("root")):
+                return False, "OUTSIDE_SOURCE"
+            if not os.path.isfile(real_candidate):
+                return False, "INVALID_FILE"
+            return True, "ACCEPTED"
+        return False, "NON_LIBRARY_SCANNER"
+
+    @staticmethod
     def _document_relative_path(document, name, uri):
         relative_path = document.get("relativePath") or document.get("path") or name
         if uri.startswith("file://") and not document.get("relativePath") and not document.get("path"):
@@ -526,13 +673,22 @@ class LibraryService:
             and (existing.get("volume_id") or "") == (volume_id or "")
         )
 
-    def _record_document(self, *, document, source_folder, source_kind, metadata, result, affected_anime_ids=None, known_paths=None, scope_kind="source", scope_ref=None, native_generation=None):
+    def _record_document(self, *, document, source_folder, source_kind, metadata, result, affected_anime_ids=None, known_paths=None, scope_kind="source", scope_ref=None, native_generation=None, source_policy=None):
         uri = document.get("uri")
         name = document.get("name")
         if not isinstance(uri, str) or not uri or not isinstance(name, str) or not name.strip():
             result.ignored += 1
             result.errors.append("Documento local incompleto recebido da ponte Android.")
             return None
+
+        if source_policy is not None:
+            allowed, reason = self._validate_library_document_scope(document, source_policy)
+            if not allowed:
+                result.ignored += 1
+                result.errors.append(f"{name}: fonte rejeitada ({reason}).")
+                logger.debug("[LIBRARY_SOURCE] SCAN_SOURCE_FILE_REJECTED source=%s reason=%s uri=%s", source_kind, reason, uri)
+                return None
+            logger.debug("[LIBRARY_SOURCE] SCAN_SOURCE_FILE_ACCEPTED source=%s uri=%s", source_kind, uri)
 
         relative_path = self._document_relative_path(document, name, uri)
         is_local_reference = (
@@ -646,11 +802,17 @@ class LibraryService:
     def ingest_documents_batch(self, tree_uri: str, documents: list[dict], *,
                                source_kind="saf", scan_id=None, scope_kind="global", scope_ref=None,
                                scan_generation=None, generation_id=None, request_id=None,
-                               batch_id=None, batch_number=0, batch_size=None, folder_name=None, scan_errors=None):
+                               batch_id=None, batch_number=0, batch_size=None, folder_name=None, scan_errors=None,
+                               enforce_library_source=False):
         """Ingest one bounded native batch without destructive reconciliation."""
         with self._scan_lock:
             scan_id = scan_id or str(uuid.uuid4())
             scope_ref = scope_ref or tree_uri
+            source_policy = self._library_source_policy(tree_uri, source_kind, scope_ref) if enforce_library_source else None
+            if enforce_library_source and not source_policy.get("ok"):
+                reason = str(source_policy.get("reason") or "SOURCE_NOT_CONFIGURED")
+                logger.warning("[LIBRARY_SOURCE] SCAN_SOURCE_REJECTED source=%s scope_ref=%s reason=%s", source_kind, scope_ref, reason)
+                return {"scan_id": scan_id, "ignored": True, "reason": reason, "files": 0, "videos": 0, "discovered": len(documents or []), "processed": 0, "inserted": 0, "new": 0, "updated": 0, "unchanged": 0, "duplicates": 0, "ignored": len(documents or []), "unknown": 0, "errors": [reason], "elapsed_ms": 0, "elapsedMs": 0}
             existing = self.store.scan_by_id(scan_id)
             if existing and str(existing.get("status") or "").casefold() in {"completed","partial","cancelled","error","failed"}:
                 return {"scan_id": scan_id, "ignored": True, "reason": "scan_already_finalized"}
@@ -663,7 +825,8 @@ class LibraryService:
                 latest = self.store.latest_completed_native_generation(source_kind, scope_kind, scope_ref)
                 if latest is not None and generation < latest:
                     return {"scan_id": scan_id, "ignored": True, "reason": "stale_generation"}
-            self.store.add_folder(tree_uri, name=folder_name or tree_uri.rsplit("/",1)[-1], kind=source_kind, authorization="granted", account_id=self.store.account().get("id"))
+            if not enforce_library_source:
+                self.store.add_folder(tree_uri, name=folder_name or tree_uri.rsplit("/",1)[-1], kind=source_kind, authorization="granted", account_id=self.store.account().get("id"))
             result = ScanResult(catalog=[], scan_id=scan_id)
             metadata, affected_anime_ids, seen = {}, set(), set()
             started = time.time()
@@ -678,17 +841,23 @@ class LibraryService:
                 seen.add(uri)
                 if generation is not None and self.store.has_observation_for_generation(uri, source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=generation):
                     result.duplicates += 1; continue
-                accepted = self._record_document(document=document, source_folder=tree_uri, source_kind=source_kind, metadata=metadata, result=result, affected_anime_ids=affected_anime_ids, known_paths=seen, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=generation)
+                accepted = self._record_document(document=document, source_folder=tree_uri, source_kind=source_kind, metadata=metadata, result=result, affected_anime_ids=affected_anime_ids, known_paths=seen, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=generation, source_policy=source_policy)
                 if accepted: result.videos += 1
             result.errors.extend(str(e) for e in (scan_errors or []))
             elapsed_ms = int((time.time()-started)*1000)
             self.store.update_scan_progress(run_id, result.__dict__, request_id=request_id, source=source_kind, volume_id=scope_ref if scope_kind=="volume" else None, scope=scope_ref, batch_id=batch_id, batch_number=batch_number, batch_size=batch_size if batch_size is not None else len(documents or []), discovered=len(documents or []), processed=result.files, inserted=result.new, elapsed_ms=elapsed_ms, errors=result.errors)
             return {"scan_id":scan_id,"request_id":request_id,"generation_id":generation_id or scan_id,"batch_id":batch_id,"batch_number":batch_number,"batch_size":batch_size if batch_size is not None else len(documents or []),"files":result.files,"videos":result.videos,"processed":result.files,"discovered":len(documents or []),"inserted":result.new,"new":result.new,"updated":result.updated,"unchanged":result.unchanged,"duplicates":result.duplicates,"removed":0,"ignored":result.ignored,"unknown":result.unknown,"errors":result.errors,"elapsed_ms":elapsed_ms,"elapsedMs":elapsed_ms}
 
-    def finish_ingest_documents(self, tree_uri: str, *, source_kind="saf", scan_id=None, scope_kind="global", scope_ref=None, scan_generation=None, generation_id=None, status="completed", folder_name=None, scan_errors=None, scan_stats=None):
+    def finish_ingest_documents(self, tree_uri: str, *, source_kind="saf", scan_id=None, scope_kind="global", scope_ref=None, scan_generation=None, generation_id=None, status="completed", folder_name=None, scan_errors=None, scan_stats=None, enforce_library_source=False):
         """Finalize a native scan; only a trusted COMPLETE generation reconciles."""
         with self._scan_lock:
             scan_id = scan_id or str(uuid.uuid4()); scope_ref = scope_ref or tree_uri
+            if enforce_library_source:
+                source_policy = self._library_source_policy(tree_uri, source_kind, scope_ref)
+                if not source_policy.get("ok"):
+                    reason = str(source_policy.get("reason") or "SOURCE_NOT_CONFIGURED")
+                    logger.warning("[LIBRARY_SOURCE] SCAN_SOURCE_REJECTED source=%s scope_ref=%s reason=%s", source_kind, scope_ref, reason)
+                    return ScanResult(catalog=self.store.catalog(), scan_id=scan_id, status="blocked", errors=[reason])
             row = self.store.scan_by_id(scan_id)
             run_id = int(row["id"]) if row else self.store.begin_scan(scan_id=scan_id, source_kind=source_kind, scope_kind=scope_kind, scope_ref=scope_ref, native_generation=scan_generation, generation_id=str(generation_id or scan_id))
             final_status = str(status or "completed").casefold(); errors = [str(e) for e in (scan_errors or [])]; stats = scan_stats or {}
@@ -739,6 +908,10 @@ class LibraryService:
                         continue
                     self.store.update_folder_status(reference, "granted")
                     self.store.restore_source(reference)
+                    source_policy = self._library_source_policy(reference, "filesystem", reference)
+                    if not source_policy.get("ok"):
+                        result.errors.append(f"{folder['name']}: fonte rejeitada ({source_policy.get('reason')}).")
+                        continue
                     on_status(f"Encontrando vídeos em {folder['name']}…")
                     try:
                         seen = []
@@ -818,6 +991,7 @@ class LibraryService:
                         result=result,
                         affected_anime_ids=affected_anime_ids,
                         known_paths=seen_by_source.get(source_folder),
+                        source_policy=self._library_source_policy(source_folder, source_kind, source_folder),
                         scope_kind="source",
                         scope_ref=source_folder,
                     )
@@ -839,11 +1013,16 @@ class LibraryService:
     def ingest_documents(self, tree_uri: str, documents: list[dict], on_status=lambda _: None, *,
                          folder_name=None, scan_errors=None, scan_stats=None, source_kind="saf",
                          scan_id=None, scope_kind="global", scope_ref=None, scan_generation=None,
-                         scope_scans=None):
+                         scope_scans=None, enforce_library_source=False):
         """Index one native source without destructive reconciliation on partial scans."""
         with self._scan_lock:
             scan_id = scan_id or str(uuid.uuid4())
             scope_ref = scope_ref or tree_uri
+            source_policy = self._library_source_policy(tree_uri, source_kind, scope_ref) if enforce_library_source else None
+            if enforce_library_source and not source_policy.get("ok"):
+                reason = str(source_policy.get("reason") or "SOURCE_NOT_CONFIGURED")
+                logger.warning("[LIBRARY_SOURCE] SCAN_SOURCE_REJECTED source=%s scope_ref=%s reason=%s", source_kind, scope_ref, reason)
+                return self.store.catalog()
             previous = self.store.scan_by_id(scan_id)
             if previous and previous.get("status") in {"completed", "partial", "cancelled", "error", "failed"}:
                 return self.store.catalog()
@@ -873,13 +1052,14 @@ class LibraryService:
                 or native_scan_state in {"partial", "failed", "cancelled", "canceled", "error", "unavailable", "revoked"}
             )
             try:
-                self.store.add_folder(
-                    tree_uri,
-                    name=folder_name or tree_uri.rsplit("/", 1)[-1],
-                    kind=source_kind,
-                    authorization="granted",
-                    account_id=self.store.account().get("id"),
-                )
+                if not enforce_library_source:
+                    self.store.add_folder(
+                        tree_uri,
+                        name=folder_name or tree_uri.rsplit("/", 1)[-1],
+                        kind=source_kind,
+                        authorization="granted",
+                        account_id=self.store.account().get("id"),
+                    )
                 metadata = {}
                 affected_anime_ids = set()
                 seen = set()
@@ -913,6 +1093,7 @@ class LibraryService:
                         scope_kind=scope_kind,
                         scope_ref=scope_ref,
                         native_generation=native_generation,
+                        source_policy=source_policy,
                     )
                     if accepted:
                         result.videos += 1

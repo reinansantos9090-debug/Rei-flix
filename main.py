@@ -2508,6 +2508,7 @@ async def main(page: ft.Page):
                 batch_number=payload.get("batchNumber") or 0,
                 batch_size=payload.get("batchSize"),
                 folder_name=payload.get("name") or None,
+                enforce_library_source=True,
             )
             diagnostics.record(
                 "SCAN_BATCH",
@@ -3070,7 +3071,7 @@ async def main(page: ft.Page):
                                     raise ValueError('Resultado SAF sem pasta de origem.')
                                 diagnostics.record("PYTHON_INGEST_FINAL", request_id=request_id, scan_id=payload.get('scanId'), source="saf")
                                 if payload.get('documents'):
-                                    catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats, scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'root', scope_ref=payload.get('scopeRef') or None, scan_generation=payload.get('scanGeneration'))
+                                    catalog=await asyncio.to_thread(library.ingest_documents, tree_uri, payload.get('documents', []), folder_name=payload.get('name'), scan_errors=stats.get('errors', []), scan_stats=stats, scan_id=payload.get('scanId'), scope_kind=payload.get('scopeKind') or 'root', scope_ref=payload.get('scopeRef') or None, scan_generation=payload.get('scanGeneration'), enforce_library_source=True)
                                 else:
                                     final_result=await asyncio.to_thread(
                                         library.finish_ingest_documents,
@@ -3085,6 +3086,7 @@ async def main(page: ft.Page):
                                         folder_name=payload.get('name'),
                                         scan_errors=stats.get('errors', []),
                                         scan_stats=stats,
+                                        enforce_library_source=True,
                                     )
                                     catalog=final_result.catalog
                                 videos = int(stats.get('videos') or 0)

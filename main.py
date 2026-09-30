@@ -218,6 +218,17 @@ async def main(page: ft.Page):
                 diagnostics.record("HOME_REFRESH_STARTED", refreshId=home_refresh_context["refresh_id"], requestId=snapshot.request_id, source=snapshot.source or "all")
                 diagnostics.record("HOME_REFRESH_SCAN_STARTED", refreshId=home_refresh_context["refresh_id"], requestId=snapshot.request_id, source=snapshot.source or "all")
                 performance.counter("home.refresh.started")
+            if state == ScanState.BLOCKED and not home_refresh_context["scan_terminal"]:
+                home_refresh_context["scan_terminal"] = True
+                home_refresh_context["active"] = False
+                home_refresh_context["db_updated"] = False
+                home_refresh_context["request_id"] = None
+                diagnostics.record("HOME_REFRESH_FAILED", refreshId=home_refresh_context["refresh_id"], requestId=snapshot.request_id, source=snapshot.source or "all", reason="no_authorized_scan_source")
+                performance.counter("home.refresh.failed")
+                _publish_home_refresh_state("ERROR")
+                resetter = home_state.get("_reset_refresh_state")
+                if callable(resetter):
+                    resetter("ERROR", 1.6)
             if state in {ScanState.COMPLETED, ScanState.PARTIAL, ScanState.FAILED, ScanState.CANCELLED} and not home_refresh_context["scan_terminal"]:
                 home_refresh_context["scan_terminal"] = True
                 terminal_success = state in {ScanState.COMPLETED, ScanState.PARTIAL}
@@ -2351,11 +2362,17 @@ async def main(page: ft.Page):
         if waiting:
             diagnostics.record("HOME_REFRESH_ACCEPTED", refreshId=refresh_id, reason="scan_coordinator_acceptance")
             performance.counter("home.refresh.accepted")
-            if scan_coordinator.active and not home_refresh_context["scan_started"]:
+            snapshot = scan_coordinator.snapshot
+            if (
+                scan_coordinator.active
+                and not home_refresh_context["scan_started"]
+                and snapshot.request_id == home_refresh_context.get("request_id")
+                and snapshot.state in {ScanState.RUNNING, ScanState.CANCELLING}
+            ):
                 home_refresh_context["scan_started"] = True
                 home_refresh_context["scan_started_at"] = time.monotonic()
-                diagnostics.record("HOME_REFRESH_STARTED", refreshId=refresh_id, source="all")
-                diagnostics.record("HOME_REFRESH_SCAN_STARTED", refreshId=refresh_id, source="all")
+                diagnostics.record("HOME_REFRESH_STARTED", refreshId=refresh_id, requestId=snapshot.request_id, source=snapshot.source or "all")
+                diagnostics.record("HOME_REFRESH_SCAN_STARTED", refreshId=refresh_id, requestId=snapshot.request_id, source=snapshot.source or "all")
                 performance.counter("home.refresh.started")
             return message, True
         diagnostics.record("HOME_REFRESH_REJECTED", refreshId=refresh_id, reason=message or "coordinator_rejected")

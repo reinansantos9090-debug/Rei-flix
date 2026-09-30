@@ -3680,7 +3680,7 @@ async def main(page: ft.Page):
                                 name=f"reiflix-player-transition-{direction_name.lower()}-{transition_generation}",
                             )
                             player_transition_task["task"] = task
-            elif event_type == 'player_error':
+                        elif event_type == 'player_error':
                             callback_current, callback_reason = player_callback_is_current(
                                 event_request_id,
                                 payload,

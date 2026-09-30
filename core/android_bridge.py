@@ -322,8 +322,8 @@ class AndroidBridge:
 
     async def play(self, uri: str, title: str, position_ms: int = 0, *, can_next=False,
                    can_previous=False, autoplay=False, player_settings=None,
-                   episode_id=None, anime_id=None, origin_request_id=None,
-                   origin_created_at_ms=0, origin_transition_generation=0,
+                   episode_id=None, anime_id=None, player_session_id=None,
+                   origin_request_id=None, origin_created_at_ms=0, origin_transition_generation=0,
                    origin_player_session_id=None, origin_monotonic_ns=0, transition_direction=None):
         normalized_uri = self.normalize_local_media_reference(uri)
         if normalized_uri is None:
@@ -346,6 +346,7 @@ class AndroidBridge:
             autoplay=str(bool(autoplay)).lower(),
             episode_id=str(episode_id) if episode_id is not None else None,
             anime_id=str(anime_id) if anime_id is not None else None,
+            player_session_id=str(player_session_id).strip() if player_session_id else None,
             origin_request_id=str(origin_request_id).strip() if origin_request_id else None,
             origin_created_at=max(0, int(origin_created_at_ms or 0)) if origin_created_at_ms else None,
             origin_transition_generation=max(0, int(origin_transition_generation or 0)),

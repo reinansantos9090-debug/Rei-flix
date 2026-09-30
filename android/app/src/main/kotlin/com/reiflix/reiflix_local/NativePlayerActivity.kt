@@ -183,6 +183,29 @@ class NativePlayerActivity : ComponentActivity() {
     private var nextTransitionActive = false
     private var previousTransitionActive = false
     private var originPlayerSessionId = ""
+    private fun armEpisodeChangeTimeout(reason: String) {
+        if (!episodeChangePending ||
+            sessionState != SessionState.ACTIVE ||
+            !::uri.isInitialized
+        ) {
+            return
+        }
+        episodeChangeTimeoutRequestId = requestId
+        episodeChangeTimeoutUri = uri.toString()
+        episodeChangeTimeoutGeneration = transitionGeneration
+        episodeChangeTimeoutSessionId = playerSessionId
+        episodeChangeTimeoutPlayerGeneration = playerGeneration
+        handler.removeCallbacks(episodeChangeTimeout)
+        handler.postDelayed(episodeChangeTimeout, 5_000L)
+        logPlayer(
+            "EPISODE_CHANGE_WATCHDOG_ARMED requestId=" + requestId.ifEmpty { "-" } +
+                " transitionGeneration=" + transitionGeneration +
+                " playerGeneration=" + playerGeneration +
+                " playerSessionId=" + playerSessionId +
+                " reason=" + reason,
+        )
+    }
+
     private val episodeChangeTimeout = Runnable {
         if (!episodeChangePending) return@Runnable
         val timeoutContextValid =
@@ -849,11 +872,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
             transitionSourceMonotonicNs = incomingOriginMonotonicNs
             nextTransitionActive = incomingOriginTransitionDirection == "NEXT"
             previousTransitionActive = incomingOriginTransitionDirection == "PREVIOUS"
-            episodeChangeTimeoutRequestId = requestId
-            episodeChangeTimeoutUri = uri.toString()
-            episodeChangeTimeoutGeneration = transitionGeneration
             transitionReadyGeneration = -1L
-            handler.postDelayed(episodeChangeTimeout, 5_000L)
             logPlayer(
                 "PLAYER_REUSE_ORIGIN_VALIDATED requestId=" + requestId.ifEmpty { "-" } +
                     " originRequestId=" + originRequestId +
@@ -979,6 +998,9 @@ override fun onCreate(savedInstanceState: Bundle?) {
     private fun prepareCurrentMedia(reason: String, playWhenReadyOverride: Boolean? = null) {
         if (!::player.isInitialized || sessionState == SessionState.DESTROYED) return
         beginPlayerGeneration(reason)
+        if (episodeChangePending) {
+            armEpisodeChangeTimeout("prepare_" + reason)
+        }
         val generation = playerGeneration
         val preparationTransitionGeneration = transitionGeneration
         val localUri = uri
@@ -3418,12 +3440,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 .put("originMonotonicNs", monotonicNs),
         )
 
-        episodeChangeTimeoutRequestId = requestId
-        episodeChangeTimeoutUri = uri.toString()
-        episodeChangeTimeoutGeneration = generation
-        episodeChangeTimeoutSessionId = playerSessionId
-        episodeChangeTimeoutPlayerGeneration = playerGeneration
-        handler.removeCallbacks(episodeChangeTimeout)
+        armEpisodeChangeTimeout("request_episode")
         updateEpisodeNavigationButtons()
         showFeedback(if (isNextRequest) "Próximo…" else "Anterior…", 1400L)
 

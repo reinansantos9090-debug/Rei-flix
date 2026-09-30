@@ -56,7 +56,9 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
         self.assertIn("episodeChangePending = false", first_frame)
 
     def test_transition_watchdog_and_error_paths_release_gate(self):
-        self.assertIn("episodeChangeTimeoutRequestId != requestId", self.player)
+        self.assertIn("timeoutContextValid", self.player)
+        self.assertIn("episodeChangeTimeoutSessionId == playerSessionId", self.player)
+        self.assertIn("episodeChangeTimeoutPlayerGeneration == playerGeneration", self.player)
         self.assertIn("episodeChangeTimeoutUri != uri.toString()", self.player)
         self.assertIn("episodeChangePending = false", self.player)
         self.assertIn("updateEpisodeNavigationButtons()", self.player)

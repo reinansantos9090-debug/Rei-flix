@@ -1167,8 +1167,23 @@ class LibraryService:
         """
         if catalog is None:
             sections = self.store.home_sections(limit=limit)
-            for key in ("next_episode", "recently_added", "favorites", "pinned", "series", "movies", "specials"):
-                sections[key] = self.genre_registry.enrich_catalog(sections.get(key) or [])
+            # Enrich every secondary projection with one shared genre lookup.
+            # The previous implementation executed one SQLite genre query per
+            # section, even when the same anime appeared in several sections.
+            enrich_keys = (
+                "next_episode",
+                "recently_added",
+                "favorites",
+                "pinned",
+                "series",
+                "movies",
+                "specials",
+            )
+            enrich_items = []
+            for key in enrich_keys:
+                enrich_items.extend(sections.get(key) or [])
+            if enrich_items:
+                self.genre_registry.enrich_catalog(enrich_items)
             return sections
         catalog = catalog
         episodes = [e for anime in catalog for season in anime.get("seasons", [])

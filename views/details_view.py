@@ -561,10 +561,22 @@ class DetailView:
                             ("episode_thumbnail", "poster"),
                         ) or {}
                     )
-                    return
                 except Exception:
                     DetailView._logger.exception("Batched episode artwork lookup failed")
-            if resolve_artwork:
+                    if resolve_artwork:
+                        for item_id in ids:
+                            try:
+                                resolved = resolve_artwork(
+                                    "episode",
+                                    item_id,
+                                    "episode_thumbnail",
+                                    allow_network=False,
+                                )
+                            except Exception:
+                                continue
+                            if resolved:
+                                episode_artwork[str(item_id)] = resolved
+            elif resolve_artwork:
                 for item_id in ids:
                     try:
                         resolved = resolve_artwork(

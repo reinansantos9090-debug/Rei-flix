@@ -604,18 +604,12 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 "NEXT_REQUEST_STALE",
                 "invalid_successor_origin",
                 JSONObject()
+                    .put("requestId", incomingRequestId)
                     .put("originRequestId", incomingOriginRequestId)
                     .put("originCreatedAtMs", incomingOriginCreatedAtMs)
                     .put("originGeneration", incomingOriginTransitionGeneration)
                     .put("originPlayerSessionId", incomingOriginPlayerSessionId)
                     .put("currentPlayerSessionId", playerSessionId),
-            )
-            publishNextTransitionDiagnostic(
-                "NEXT_TRANSITION_INVALIDATED",
-                "invalid_successor_origin",
-                JSONObject()
-                    .put("originRequestId", incomingOriginRequestId)
-                    .put("originGeneration", incomingOriginTransitionGeneration),
             )
             logPlayer(
                 "PLAYER_REUSE_ORIGIN_REJECTED requestId=" + incomingRequestId.ifEmpty { "-" } +

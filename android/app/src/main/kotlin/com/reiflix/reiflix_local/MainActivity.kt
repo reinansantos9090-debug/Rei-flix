@@ -56,6 +56,8 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingBroadRequestId: String? = null
     private var pendingSafRequestId: String? = null
     private var pendingPlayUri: String? = null
+    /** Original play deep-link preserved while MainActivity is paused. */
+    private var pendingPlayIntentData: String? = null
     private var pendingPlayTitle: String? = null
     private var pendingPlayPositionMs: Long = 0L
     private var pendingPlayCanNext = false
@@ -126,6 +128,7 @@ class MainActivity : FlutterFragmentActivity() {
         private const val STATE_PENDING_BROAD_REQUEST_ID = "reiflix.pendingBroadRequestId"
         private const val STATE_PENDING_SAF_REQUEST_ID = "reiflix.pendingSafRequestId"
         private const val STATE_PENDING_PLAY_URI = "reiflix.pendingPlayUri"
+        private const val STATE_PENDING_PLAY_INTENT_DATA = "reiflix.pendingPlayIntentData"
         private const val STATE_PENDING_PLAY_TITLE = "reiflix.pendingPlayTitle"
         private const val STATE_PENDING_PLAY_POSITION_MS = "reiflix.pendingPlayPositionMs"
         private const val STATE_PENDING_PLAY_CAN_NEXT = "reiflix.pendingPlayCanNext"
@@ -633,6 +636,7 @@ class MainActivity : FlutterFragmentActivity() {
         pendingBroadRequestId = savedInstanceState?.getString(STATE_PENDING_BROAD_REQUEST_ID)
         pendingSafRequestId = savedInstanceState?.getString(STATE_PENDING_SAF_REQUEST_ID)
         pendingPlayUri = savedInstanceState?.getString(STATE_PENDING_PLAY_URI)
+        pendingPlayIntentData = savedInstanceState?.getString(STATE_PENDING_PLAY_INTENT_DATA)
         pendingPlayTitle = savedInstanceState?.getString(STATE_PENDING_PLAY_TITLE)
         pendingPlayPositionMs = savedInstanceState?.getLong(STATE_PENDING_PLAY_POSITION_MS, 0L) ?: 0L
         pendingPlayCanNext = savedInstanceState?.getBoolean(STATE_PENDING_PLAY_CAN_NEXT) ?: false
@@ -777,7 +781,15 @@ class MainActivity : FlutterFragmentActivity() {
                             "play",
                             NativeRequestState.OperationState.RUNNING.name,
                         )
-                        val playData = Uri.parse("reiflix://native").buildUpon()
+
+                        // Reuse the exact command that arrived from Python whenever possible.
+                        // This preserves playerSessionId, origin request/generation fencing,
+                        // monotonic correlation and all player settings across onResume.
+                        val preservedPlayData = pendingPlayIntentData
+                            ?.trim()
+                            ?.takeIf { it.isNotEmpty() }
+                            ?.let { raw -> runCatching { Uri.parse(raw) }.getOrNull() }
+                        val playData = preservedPlayData ?: Uri.parse("reiflix://native").buildUpon()
                             .appendQueryParameter("action", "play")
                             .appendQueryParameter("request_id", pendingRequestId.orEmpty())
                             .appendQueryParameter("uri", uri)
@@ -797,7 +809,7 @@ class MainActivity : FlutterFragmentActivity() {
                                 pendingRequestId,
                                 "play",
                                 nativeRequestState.operationState(pendingRequestId)?.name,
-                                result = "dispatched",
+                                result = if (preservedPlayData != null) "dispatched_preserved_request" else "dispatched_legacy_restore",
                             )
                         }
                     } else {
@@ -890,6 +902,7 @@ class MainActivity : FlutterFragmentActivity() {
         outState.putString(STATE_PENDING_BROAD_REQUEST_ID, pendingBroadRequestId)
         outState.putString(STATE_PENDING_SAF_REQUEST_ID, pendingSafRequestId)
         outState.putString(STATE_PENDING_PLAY_URI, pendingPlayUri)
+        outState.putString(STATE_PENDING_PLAY_INTENT_DATA, pendingPlayIntentData)
         outState.putString(STATE_PENDING_PLAY_TITLE, pendingPlayTitle)
         outState.putLong(STATE_PENDING_PLAY_POSITION_MS, pendingPlayPositionMs)
         outState.putBoolean(STATE_PENDING_PLAY_CAN_NEXT, pendingPlayCanNext)
@@ -1282,6 +1295,10 @@ class MainActivity : FlutterFragmentActivity() {
                             nativeRequestState.consumeLifecycleRequest()
                             clearPendingPlay()
                         }
+                        // Preserve the complete original command. Reconstructing a play URI here
+                        // used to drop session/generation/origin metadata and could turn a valid
+                        // Assistir request into an unscoped native-player launch after resume.
+                        pendingPlayIntentData = data.toString()
                         pendingPlayUri = data.getQueryParameter("uri")
                         pendingPlayEpisodeId = data.getQueryParameter("episode_id")?.trim()?.takeIf { it.isNotEmpty() }
                         pendingPlayAnimeId = data.getQueryParameter("anime_id")?.trim()?.takeIf { it.isNotEmpty() }
@@ -2390,6 +2407,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun clearPendingPlay() {
         pendingPlayUri = null
+        pendingPlayIntentData = null
         pendingPlayTitle = null
         pendingPlayPositionMs = 0L
         pendingPlayCanNext = false

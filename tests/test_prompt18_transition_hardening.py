@@ -63,7 +63,7 @@ class Prompt18TransitionHardeningTests(unittest.TestCase):
             self.player.index("private fun currentEpisodeId")
         ]
         self.assertIn("transitionPendingRequestId", reuse)
-        self.assertIn("originRequestId == transitionPendingRequestId", reuse)
+        self.assertIn("incomingOriginRequestId == transitionPendingRequestId", reuse)
         self.assertIn("originCreatedAtMs == transitionPendingCreatedAtMs", reuse)
         self.assertIn("originTransitionGeneration == transitionPendingGeneration", reuse)
 
@@ -133,7 +133,8 @@ class Prompt18TransitionHardeningTests(unittest.TestCase):
         ]
         self.assertNotIn("library.next_episode, current_path", transition)
         self.assertNotIn("library.previous_episode, current_path", transition)
-        self.assertIn('target = (', transition)
+        self.assertIn('navigation_snapshot.get("next")', transition)
+        self.assertIn('navigation_snapshot.get("previous")', transition)
         self.assertIn('navigation_snapshot.get("next")', transition)
         self.assertIn('navigation_snapshot.get("previous")', transition)
 

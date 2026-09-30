@@ -3477,7 +3477,17 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (inPictureInPicture) return true
-            scaleDetector.onTouchEvent(event)
+            if (zoomEnabled) {
+                scaleDetector.onTouchEvent(event)
+            } else if (event.pointerCount > 1) {
+                // Multi-touch is intentionally consumed while zoom is disabled so
+                // it cannot fall through to the vertical/seek gesture classifier.
+                gestureConsumed = true
+                gestureMode = GestureMode.IDLE
+                restoreLongPressSpeed()
+                cancelGestureDetector(event)
+                return true
+            }
 
             if (zoomEnabled && (event.pointerCount > 1 || pinchActive || gestureMode == GestureMode.PINCH)) {
                 when (event.actionMasked) {

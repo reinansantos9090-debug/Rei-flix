@@ -2011,7 +2011,7 @@ async def main(page: ft.Page):
                                 require_active=bool(player_session_active["value"]),
                                 episode_id=payload.get("episodeId") if event_type in {"player_progress", "player_paused", "player_completed"} else None,
                             )
-                            if not callback_current and player_session_active["value"]:
+                            if not callback_current:
                                 performance.event(
                                     "MAILBOX_STALE_COMMAND_DISCARDED",
                                     screen=navigation.current,
@@ -3667,20 +3667,46 @@ elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
                             safe_update()
                         elif event_type == 'player_exited':
                             exit_session_id = str(payload.get("playerSessionId") or "").strip()
-                            if (
-                                (
-                                    player_active_request_id["value"] in (None, event_request_id)
-                                    or (
-                                        exit_session_id
-                                        and player_active_session_id["value"] == exit_session_id
-                                    )
+                            exit_is_current = (
+                                player_session_active["value"]
+                                and (
+                                    not exit_session_id
+                                    or player_active_session_id["value"] in (None, exit_session_id)
                                 )
-                            ):
+                                and (
+                                    not event_request_id
+                                    or player_active_request_id["value"] in (None, event_request_id)
+                                )
+                            )
+                            if exit_is_current:
                                 invalidate_player_session(
                                     "player_exited",
                                     expected_session_id=exit_session_id or None,
                                     expected_request_id=event_request_id or None,
                                 )
+                            else:
+                                performance.event(
+                                    "PLAYER_CALLBACK_STALE",
+                                    screen=navigation.current,
+                                    status="ignored",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "player_session_id": exit_session_id,
+                                        "current_player_session_id": player_active_session_id["value"],
+                                        "reason": "stale_player_exit",
+                                    },
+                                )
+                                performance.event(
+                                    "MAILBOX_STALE_COMMAND_DISCARDED",
+                                    screen=navigation.current,
+                                    status="discarded",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "player_session_id": exit_session_id,
+                                        "reason": "stale_player_exit",
+                                    },
+                                )
+                                continue
                             exit_uri = str(payload.get('uri') or '').strip()
                             exit_updated = False
                             if exit_uri and payload.get('positionMs') is not None:

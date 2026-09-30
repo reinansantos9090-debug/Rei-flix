@@ -1839,7 +1839,8 @@ class MainActivity : FlutterFragmentActivity() {
                         batch.optLong("generation", 0L),
                         batch,
                     )
-                }
+                    }
+                )
                 val partial = result.optBoolean("partial")
                 result.put("requestId", requestId ?: "")
                     .put("scanId", scanId).put("scopeKind", "global").put("scopeRef", "broad-storage")
@@ -1915,7 +1916,8 @@ class MainActivity : FlutterFragmentActivity() {
                         batch.optLong("generation", NativeIndex.cachedGeneration(appContext, "mediastore:" + volume)),
                         batch,
                     )
-                }
+                    }
+                )
                 result.put("requestId", requestId ?: "").put("scanId", scanId)
                     .put("scopeKind", "global").put("scopeRef", MediaStoreScanner.SOURCE)
                 val finalStatus = result.optJSONObject("stats")?.optString("status").orEmpty().uppercase()

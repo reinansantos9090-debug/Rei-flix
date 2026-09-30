@@ -109,6 +109,7 @@ object VideoThumbnailExtractor {
                 inFlight.remove(key, lock)
             }
         }
+    }
 
     private fun isValidCachedThumbnail(file: File): Boolean = runCatching {
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }

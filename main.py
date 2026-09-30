@@ -110,6 +110,16 @@ async def main(page: ft.Page):
     native_poll_task = [None]
     player_transition_task = {"task": None}
     settings_tasks = SettingsTaskRegistry()
+    home_refresh_context = {
+        "active": False,
+        "state": "IDLE",
+        "refresh_id": None,
+        "started_at": None,
+        "scan_started": False,
+        "scan_started_at": None,
+        "scan_terminal": False,
+        "db_updated": False,
+    }
 
     def _handle_page_disconnect(_event=None):
         ui_alive[0] = False
@@ -194,6 +204,35 @@ async def main(page: ft.Page):
             scan_id=snapshot.request_id,
             error=snapshot.last_result if state in {ScanState.FAILED, ScanState.PARTIAL} else None,
         )
+        if home_refresh_context["active"]:
+            if state in {ScanState.RUNNING, ScanState.CANCELLING} and not home_refresh_context["scan_started"]:
+                home_refresh_context["scan_started"] = True
+                home_refresh_context["scan_started_at"] = time.monotonic()
+                diagnostics.record("HOME_REFRESH_STARTED", refreshId=home_refresh_context["refresh_id"], requestId=snapshot.request_id, source=snapshot.source or "all")
+                diagnostics.record("HOME_REFRESH_SCAN_STARTED", refreshId=home_refresh_context["refresh_id"], requestId=snapshot.request_id, source=snapshot.source or "all")
+                performance.counter("home.refresh.started")
+            if state in {ScanState.COMPLETED, ScanState.PARTIAL, ScanState.FAILED, ScanState.CANCELLED} and not home_refresh_context["scan_terminal"]:
+                home_refresh_context["scan_terminal"] = True
+                terminal_success = state in {ScanState.COMPLETED, ScanState.PARTIAL}
+                scan_started = home_refresh_context.get("scan_started_at")
+                diagnostics.record(
+                    "HOME_REFRESH_SCAN_COMPLETED" if terminal_success else "HOME_REFRESH_FAILED",
+                    refreshId=home_refresh_context["refresh_id"],
+                    requestId=snapshot.request_id,
+                    status=state.value,
+                    source=snapshot.source or "all",
+                    durationMs=int((time.monotonic() - scan_started) * 1000) if scan_started else None,
+                )
+                performance.counter("home.refresh.completed" if terminal_success else "home.refresh.failed")
+                if not terminal_success:
+                    home_refresh_context["active"] = False
+                    home_refresh_context["db_updated"] = False
+                    _publish_home_refresh_state("ERROR")
+                elif navigation.current != "home":
+                    home_refresh_context["active"] = False
+                    home_refresh_context["db_updated"] = True
+                    home_state["_manual_refresh_pending"] = False
+                    _publish_home_refresh_state("IDLE")
         safe_update()
 
     # Resolve the callback and its runtime capability state before constructing
@@ -234,6 +273,44 @@ async def main(page: ft.Page):
     # View-local query/filter state survives Details/Player round-trips while
     # the catalog itself is still read afresh from SQLite on each view entry.
     home_state = {}
+
+    def _publish_home_refresh_state(state):
+        normalized = str(state or "IDLE").upper()
+        home_refresh_context["state"] = normalized
+        home_state["_refresh_state"] = normalized
+        setter = home_state.get("_set_refresh_state")
+        if callable(setter):
+            try:
+                setter(normalized)
+            except Exception:
+                logger.debug("[HOME_REFRESH] stale refresh state callback ignored", exc_info=True)
+
+    def _fail_home_refresh(reason, *, request_id=None, source=None):
+        if not home_refresh_context["active"]:
+            return
+        refresh_id = home_refresh_context.get("refresh_id")
+        diagnostics.record("HOME_REFRESH_FAILED", refreshId=refresh_id, requestId=request_id, source=source or "all", reason=str(reason))
+        performance.counter("home.refresh.failed")
+        home_refresh_context["active"] = False
+        home_refresh_context["db_updated"] = False
+        home_state["_manual_refresh_pending"] = False
+        _publish_home_refresh_state("ERROR")
+
+    def _home_refresh_ui_updated():
+        if not home_refresh_context["active"]:
+            return
+        if not (home_refresh_context["scan_terminal"] and home_refresh_context["db_updated"]):
+            return
+        refresh_id = home_refresh_context.get("refresh_id")
+        total_started = home_refresh_context.get("started_at") or time.monotonic()
+        duration_ms = int((time.monotonic() - total_started) * 1000)
+        diagnostics.record("HOME_REFRESH_UI_UPDATED", refreshId=refresh_id, durationMs=duration_ms)
+        diagnostics.record("HOME_REFRESH_COMPLETED", refreshId=refresh_id, durationMs=duration_ms)
+        performance.counter("home.refresh.ui_updated")
+        performance.event("home.refresh", duration_ms=(time.monotonic() - total_started) * 1000.0, screen="home", metadata={"refresh_id": refresh_id, "rebuild": False, "db_updated": True})
+        home_refresh_context["active"] = False
+        home_state["_manual_refresh_pending"] = False
+        _publish_home_refresh_state("SUCCESS")
     organize_state = {}
     settings_state = {}
     device_interaction_profile = {}
@@ -497,6 +574,9 @@ async def main(page: ft.Page):
                 navigate_organize, view_state=home_state,
                 on_request_thumbnail=request_missing_thumbnail,
                 on_open_collector=navigate_collector,
+                on_refresh_library=refresh_home_library,
+                on_refresh_ui_updated=_home_refresh_ui_updated,
+                on_refresh_ui_failed=lambda: _fail_home_refresh("home_ui_refresh_failed"),
                 is_active=lambda: ui_alive[0] and navigation.current == "home",
             )
         elif route == "organize":
@@ -1670,6 +1750,16 @@ async def main(page: ft.Page):
         # Home/Organize keep their cached control tree across Details/Player.
         # Refresh their current dataset in place instead of rebuilding the whole
         # screen and losing its viewport/window state.
+        if home_refresh_context["active"] and home_refresh_context["scan_terminal"]:
+            refresh_id = home_refresh_context.get("refresh_id")
+            diagnostics.record("HOME_REFRESH_DB_UPDATED", refreshId=refresh_id, source=navigation.current)
+            home_refresh_context["db_updated"] = True
+            if navigation.current == "home":
+                home_state["_manual_refresh_pending"] = True
+            else:
+                home_refresh_context["active"] = False
+                home_state["_manual_refresh_pending"] = False
+                _publish_home_refresh_state("IDLE")
         if navigation.current == "home":
             refresh = home_state.get("_refresh_from_catalog")
             if callable(refresh):
@@ -2206,6 +2296,49 @@ async def main(page: ft.Page):
         if transition.kind == "queued":
             return "Atualização enfileirada; a varredura atual será concluída primeiro.", True
         return "Atualização iniciada. Verificando as fontes locais…", True
+
+    async def refresh_home_library(_=None):
+        if home_refresh_context["active"]:
+            diagnostics.record("HOME_REFRESH_REJECTED", refreshId=home_refresh_context.get("refresh_id"), reason="already_refreshing")
+            performance.counter("home.refresh.rejected")
+            return "Uma atualização da biblioteca já está em andamento.", True
+        refresh_id = uuid.uuid4().hex
+        home_refresh_context.update({
+            "active": True,
+            "state": "REFRESHING",
+            "refresh_id": refresh_id,
+            "started_at": time.monotonic(),
+            "scan_started": False,
+            "scan_started_at": None,
+            "scan_terminal": False,
+            "db_updated": False,
+        })
+        home_state["_manual_refresh_pending"] = False
+        _publish_home_refresh_state("REFRESHING")
+        diagnostics.record("HOME_REFRESH_REQUESTED", refreshId=refresh_id, source="home")
+        performance.counter("home.refresh.requested")
+        try:
+            message, waiting = await refresh_library()
+        except Exception:
+            logger.exception("[HOME_REFRESH] request failed refreshId=%s", refresh_id)
+            _fail_home_refresh("request_exception")
+            return "Não foi possível atualizar a biblioteca agora.", False
+        if waiting:
+            diagnostics.record("HOME_REFRESH_ACCEPTED", refreshId=refresh_id, reason="scan_coordinator_acceptance")
+            performance.counter("home.refresh.accepted")
+            if scan_coordinator.active and not home_refresh_context["scan_started"]:
+                home_refresh_context["scan_started"] = True
+                home_refresh_context["scan_started_at"] = time.monotonic()
+                diagnostics.record("HOME_REFRESH_STARTED", refreshId=refresh_id, source="all")
+                diagnostics.record("HOME_REFRESH_SCAN_STARTED", refreshId=refresh_id, source="all")
+                performance.counter("home.refresh.started")
+            return message, True
+        diagnostics.record("HOME_REFRESH_REJECTED", refreshId=refresh_id, reason=message or "coordinator_rejected")
+        performance.counter("home.refresh.rejected")
+        home_refresh_context["active"] = False
+        _publish_home_refresh_state("ERROR")
+        return message, False
+
     async def login(_=None):
         if bridge.available:
             if not GOOGLE_WEB_CLIENT_ID:
@@ -2881,6 +3014,7 @@ async def main(page: ft.Page):
                                     message += f"Encontramos {videos} vídeo(s) em {len(catalog)} anime(s)." if videos else "Não encontramos vídeos compatíveis nesta pasta."
                                 page.snack_bar=ft.SnackBar(ft.Text(message)); page.snack_bar.open=True; safe_update()
                             except Exception:
+                                _fail_home_refresh("saf_ingest_or_sqlite_error", request_id=request_id, source="saf")
                                 page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar a atualização da biblioteca.')); page.snack_bar.open=True; safe_update()
                         elif event_type == 'broad_storage_scan_progress':
                             files = int(payload.get('files') or 0)
@@ -2960,9 +3094,8 @@ async def main(page: ft.Page):
                                 message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
                                 page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; safe_update()
                             except Exception:
+                                _fail_home_refresh("broad_ingest_or_sqlite_error", request_id=request_id, source="broad_storage")
                                 page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; safe_update()
-                            finally:
-                                on_catalog_changed()
                         elif event_type == 'broad_storage_status':
                             granted = bool(payload.get('hasAccess'))
                             apply_storage_capabilities(payload)
@@ -3090,6 +3223,7 @@ async def main(page: ft.Page):
                                     message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
                                 page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; safe_update()
                             except Exception:
+                                _fail_home_refresh("mediastore_ingest_or_sqlite_error", request_id=request_id, source="mediastore")
                                 page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar os vídeos do dispositivo.')); page.snack_bar.open=True; safe_update()
                         elif event_type == 'mediastore_permission':
                             source = payload.get('source') or 'mediastore:external:video'

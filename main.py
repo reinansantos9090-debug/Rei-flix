@@ -3055,19 +3055,27 @@ async def main(page: ft.Page):
                                         current_path,
                                     )
                                     if not current_is_valid():
-                                        if is_next:
-                                            performance.event(
-                                                "NEXT_REQUEST_STALE",
-                                                screen=navigation.current,
-                                                status="rejected",
-                                                metadata={
-                                                    "request_id": event_request_id,
-                                                    "age_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
-                                                    "reason": "stale_after_sqlite",
-                                                    "origin_generation": payload.get("transitionGeneration"),
-                                                    "current_generation": player_transition_generation["value"],
-                                                },
-                                            )
+                                        performance.event(
+                                            "NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
+                                            screen=navigation.current,
+                                            status="rejected",
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "age_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
+                                                "reason": "stale_after_sqlite",
+                                                "origin_generation": payload.get("transitionGeneration"),
+                                                "current_generation": player_transition_generation["value"],
+                                            },
+                                        )
+                                        performance.event(
+                                            "PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
+                                            screen=navigation.current,
+                                            status="rejected",
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "reason": "stale_after_sqlite",
+                                            },
+                                        )
                                         return
 
                                     current_row = navigation_snapshot.get("current") or {}
@@ -3173,19 +3181,27 @@ async def main(page: ft.Page):
                                         )),
                                     }
                                     if not current_is_valid():
-                                        if is_next:
-                                            performance.event(
-                                                "NEXT_REQUEST_STALE",
-                                                screen=navigation.current,
-                                                status="rejected",
-                                                metadata={
-                                                    "request_id": event_request_id,
-                                                    "age_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
-                                                    "reason": "stale_after_target_resolution",
-                                                    "origin_generation": payload.get("transitionGeneration"),
-                                                    "current_generation": player_transition_generation["value"],
-                                                },
-                                            )
+                                        performance.event(
+                                            "NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
+                                            screen=navigation.current,
+                                            status="rejected",
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "age_ms": max(0, int(time.time() * 1000) - button_created_at_ms),
+                                                "reason": "stale_after_target_resolution",
+                                                "origin_generation": payload.get("transitionGeneration"),
+                                                "current_generation": player_transition_generation["value"],
+                                            },
+                                        )
+                                        performance.event(
+                                            "PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
+                                            screen=navigation.current,
+                                            status="rejected",
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "reason": "stale_after_target_resolution",
+                                            },
+                                        )
                                         return
 
                                     if is_next:

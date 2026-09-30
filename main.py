@@ -1964,7 +1964,17 @@ async def main(page: ft.Page):
                                         player_active_anime_id["value"] = None
                                         player_active_uri["value"] = None
                             elif diagnostic_event == "FIRST_FRAME_RENDERED":
-                                context = pending_next_transition["value"]
+                                pending_candidates = (
+                                    ("NEXT", pending_next_transition["value"]),
+                                    ("PREVIOUS", pending_previous_transition["value"]),
+                                )
+                                context_direction = None
+                                context = None
+                                for candidate_direction, candidate_context in pending_candidates:
+                                    if isinstance(candidate_context, dict) and event_request_id == str(candidate_context.get("target_request_id") or "").strip():
+                                        context_direction = candidate_direction
+                                        context = candidate_context
+                                        break
                                 diagnostic_session = str(payload.get("playerSessionId") or "").strip()
                                 if isinstance(context, dict):
                                     target_request_id = str(context.get("target_request_id") or "").strip()
@@ -1977,7 +1987,7 @@ async def main(page: ft.Page):
                                         and bool(context.get("ready"))
                                     ):
                                         performance.event(
-                                            "NEXT_TRANSITION_FIRST_FRAME",
+                                            "NEXT_TRANSITION_FIRST_FRAME" if context_direction == "NEXT" else "PREVIOUS_TRANSITION_FIRST_FRAME",
                                             screen=navigation.current,
                                             metadata={
                                                 "request_id": origin_request_id,
@@ -1988,7 +1998,7 @@ async def main(page: ft.Page):
                                             },
                                         )
                                         performance.event(
-                                            "NEXT_TRANSITION_COMMITTED",
+                                            "NEXT_TRANSITION_COMMITTED" if context_direction == "NEXT" else "PREVIOUS_TRANSITION_COMMITTED",
                                             screen=navigation.current,
                                             metadata={
                                                 "request_id": origin_request_id,
@@ -2010,7 +2020,7 @@ async def main(page: ft.Page):
                                         pending_next_transition["value"] = None
                                     elif context is not None:
                                         performance.event(
-                                            "NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
+                                            "NEXT_REQUEST_STALE" if context_direction == "NEXT" else "PREVIOUS_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
                                             screen=navigation.current,
                                             status="rejected",
                                             metadata={
@@ -2022,7 +2032,7 @@ async def main(page: ft.Page):
                                             },
                                         )
                                         performance.event(
-                                            "PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
+                                            "PLAYER_NEXT_STALE_REJECTED" if context_direction == "NEXT" else "PLAYER_PREVIOUS_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
                                             screen=navigation.current,
                                             metadata={
                                                 "request_id": origin_request_id,

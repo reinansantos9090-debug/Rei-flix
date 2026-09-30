@@ -649,7 +649,7 @@ class HomeView:
             pending_refresh = refresh_after_load_pending[0]
             refresh_after_load_pending[0] = False
             if pending_refresh and is_active():
-                _start_view_task(schedule_refresh_from_catalog)
+                schedule_refresh_from_catalog()
             if fresh_items:
                 async def run_hydration_batch():
                     started = time.perf_counter()

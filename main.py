@@ -316,8 +316,12 @@ async def main(page: ft.Page):
         performance.counter("home.refresh.failed")
         home_refresh_context["active"] = False
         home_refresh_context["db_updated"] = False
+        home_refresh_context["request_id"] = None
         home_state["_manual_refresh_pending"] = False
         _publish_home_refresh_state("ERROR")
+        resetter = home_state.get("_reset_refresh_state")
+        if callable(resetter):
+            resetter("ERROR", 1.6)
 
     def _home_refresh_ui_updated():
         if not home_refresh_context["active"]:

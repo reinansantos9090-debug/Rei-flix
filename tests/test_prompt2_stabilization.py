@@ -141,9 +141,9 @@ class Prompt2StabilizationTests(unittest.TestCase):
         request_start = MAIN.index("def request_missing_thumbnail")
         request_end = MAIN.index("def storage_state", request_start)
         block = MAIN[request_start:request_end]
-        self.assertIn("existing_latest = thumbnail_latest_key_by_uri.get(path_ref)", block)
-        self.assertIn("thumbnail_requests.discard(existing_latest)", block)
-        self.assertIn("thumbnail_request_started_at.pop(existing_latest, None)", block)
+        self.assertIn("previous = thumbnail_latest_key_by_uri.get(path_ref)", block)
+        self.assertIn("thumbnail_pending.pop(previous, None)", block)
+        self.assertIn("thumbnail_requests.discard(previous)", block)
         self.assertIn("thumbnail_latest_key_by_uri[path_ref] = key", block)
         self.assertIn("Only the latest requested media version may publish.", MAIN)
 

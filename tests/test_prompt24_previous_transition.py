@@ -224,12 +224,12 @@ class Prompt24PreviousTransitionTests(unittest.TestCase):
         self.assertIn("player_session_not_active", self.main)
         self.assertIn("player_session_mismatch", self.main)
         self.assertIn("PLAYER_PREVIOUS_STALE_REJECTED", self.main_activity + self.player + self.main)
-        self.assertIn("originOnNewActivity", self.player) if "originOnNewActivity" in self.player else self.assertIn("origin_on_new_activity", self.player)
+        self.assertIn("origin_on_new_activity", self.player)
 
     def test_previous_and_next_interactions_are_direction_fenced(self):
         block = self.previous_transition_block()
         self.assertIn("direction_name", block)
-        self.assertIn("NEXT_REQUEST_REJECTED" if True else "", block)
+        self.assertIn("NEXT_REQUEST_REJECTED", block)
         self.assertIn("PREVIOUS_REQUEST_REJECTED", block)
         self.assertIn("NEXT_REQUEST_STALE", block)
         self.assertIn("PREVIOUS_REQUEST_STALE", block)

@@ -757,6 +757,7 @@ async def main(page: ft.Page):
     player_command_seen = set()
     player_last_command = {"sequence": 0, "request_id": None, "direction": None, "created_at_ms": 0}
     pending_next_transition = {"value": None}
+    pending_previous_transition = {"value": None}
 
     def cancel_player_transition(reason="unknown"):
         player_transition_generation["value"] += 1
@@ -778,6 +779,7 @@ async def main(page: ft.Page):
                     "origin_generation": next_context.get("native_transition_generation"),
                     "current_generation": player_transition_generation["value"],
                     "player_session_id": next_context.get("player_session_id"),
+                    "origin_monotonic_ns": next_context.get("command_monotonic_ns"),
                     "reason": reason,
                 },
             )
@@ -788,6 +790,7 @@ async def main(page: ft.Page):
                     "request_id": next_context.get("origin_request_id"),
                     "reason": reason,
                     "player_session_id": next_context.get("player_session_id"),
+                    "origin_monotonic_ns": next_context.get("command_monotonic_ns"),
                 },
             )
             diagnostics.record(
@@ -797,6 +800,40 @@ async def main(page: ft.Page):
                 result=reason,
             )
             pending_next_transition["value"] = None
+
+        previous_context = pending_previous_transition["value"]
+        if isinstance(previous_context, dict):
+            performance.event(
+                "PREVIOUS_TRANSITION_INVALIDATED",
+                screen=navigation.current,
+                metadata={
+                    "request_id": previous_context.get("origin_request_id"),
+                    "target_request_id": previous_context.get("target_request_id"),
+                    "age_ms": max(0, int(time.time() * 1000) - int(previous_context.get("created_at_ms") or 0)),
+                    "origin_generation": previous_context.get("native_transition_generation"),
+                    "current_generation": player_transition_generation["value"],
+                    "player_session_id": previous_context.get("player_session_id"),
+                    "origin_monotonic_ns": previous_context.get("command_monotonic_ns"),
+                    "reason": reason,
+                },
+            )
+            performance.event(
+                "PREVIOUS_REQUEST_CANCELLED",
+                screen=navigation.current,
+                metadata={
+                    "request_id": previous_context.get("origin_request_id"),
+                    "reason": reason,
+                    "player_session_id": previous_context.get("player_session_id"),
+                    "origin_monotonic_ns": previous_context.get("command_monotonic_ns"),
+                },
+            )
+            diagnostics.record(
+                "PREVIOUS_TRANSITION_CANCELLED",
+                request_id=previous_context.get("origin_request_id"),
+                source="native_player",
+                result=reason,
+            )
+            pending_previous_transition["value"] = None
         performance.event(
             "PLAYER_TRANSITION_INVALIDATED",
             screen=navigation.current,

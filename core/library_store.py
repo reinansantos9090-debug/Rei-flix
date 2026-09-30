@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import re
@@ -17,6 +18,9 @@ from urllib.parse import unquote, urlparse
 from core.consumption import consumption_state, is_completed, is_in_progress, is_regular_episode
 from core.search_engine import normalize_text
 from core.performance import get_performance_monitor
+
+
+logger = logging.getLogger(__name__)
 
 
 class LibraryStore:
@@ -2414,6 +2418,7 @@ class LibraryStore:
     def organize_summary(self):
         """Return bounded Organize counters and genre summaries from SQLite."""
         started = time.perf_counter()
+        logger.info("ORGANIZE_QUERY_START")
         with self._conn() as c:
             completed_sql = """(
                 e.watched=1 OR
@@ -2467,7 +2472,10 @@ class LibraryStore:
                 FROM genres g
                 JOIN anime_genres ag ON ag.genre_id=g.id
                 JOIN anime a ON a.id=ag.anime_id
-                JOIN episodes e ON e.anime_id=a.id
+                JOIN episodes e
+                  ON e.anime_id=a.id
+                 AND e.missing=0
+                 AND COALESCE(e.availability_state,'available')='available'
                 GROUP BY g.id, g.canonical_name, g.normalized_name
                 ORDER BY g.normalized_name
             """).fetchall()
@@ -2476,11 +2484,20 @@ class LibraryStore:
             "states": [item for item in collections if item["name"] in {"Todos","Favoritos","Em andamento","Concluídos"}],
             "genres": [{"id": str(row["id"]), "name": str(row["canonical_name"]), "count": int(row["count"] or 0), "cover": row["cover"] or ""} for row in genre_rows],
         }
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        logger.info(
+            "ORGANIZE_QUERY_DONE collections=%s genres=%s duration_ms=%.2f",
+            len(collections), len(result["genres"]), elapsed_ms,
+        )
         get_performance_monitor().record_sqlite(
             "organize_summary",
-            (time.perf_counter() - started) * 1000.0,
+            elapsed_ms,
             rows=len(result["genres"]),
-            metadata={"collections": len(collections), "genres": len(result["genres"]), "state_queries": 1},
+            metadata={
+                "collections": len(collections),
+                "genres": len(result["genres"]),
+                "state_queries": 1,
+            },
         )
         return result
 

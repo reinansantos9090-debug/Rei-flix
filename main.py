@@ -2384,13 +2384,15 @@ async def main(page: ft.Page):
         nonlocal thumbnail_reconciliation_pending, thumbnail_reconciliation_task
         thumbnail_reconciliation_pending = False
         try:
+            if not bridge.available:
+                return
             cursor = 0
             while ui_alive[0]:
                 rows = await asyncio.to_thread(library.thumbnail_candidates, after_id=cursor, limit=128)
                 if not rows:
                     break
                 for item in rows:
-                    while ui_alive[0] and not request_missing_thumbnail(item, priority=100):
+                    while ui_alive[0] and bridge.available and not request_missing_thumbnail(item, priority=100):
                         await asyncio.sleep(0.10)
                     cursor = max(cursor, int(item.get("id") or 0))
                 if len(rows) < 128:

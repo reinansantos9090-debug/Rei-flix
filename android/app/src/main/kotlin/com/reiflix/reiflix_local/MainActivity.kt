@@ -2046,6 +2046,8 @@ class MainActivity : FlutterFragmentActivity() {
         val originRequestId = playerRequest.originRequestId
         val originCreatedAtMs = playerRequest.originCreatedAtMs
         val originPlayerSessionId = playerRequest.originPlayerSessionId
+        val staleOriginDiagnosticEvent =
+            if (playerRequest.transitionDirection == "PREVIOUS") "PLAYER_PREVIOUS_STALE_REJECTED" else "PLAYER_NEXT_STALE_REJECTED"
         if (originRequestId.isNotBlank() && isPlayerTransitionRevoked(originRequestId, originPlayerSessionId)) {
             nativeRequestState.markOperationState(
                 requestId,
@@ -2072,7 +2074,7 @@ class MainActivity : FlutterFragmentActivity() {
                     .put(
                         "payload",
                         JSONObject()
-                            .put("event", "PLAYER_NEXT_STALE_REJECTED")
+                            .put("event", staleOriginDiagnosticEvent)
                             .put("requestId", requestId)
                             .put("originRequestId", originRequestId)
                             .put("originPlayerSessionId", originPlayerSessionId)
@@ -2125,7 +2127,7 @@ class MainActivity : FlutterFragmentActivity() {
                         .put(
                             "payload",
                             JSONObject()
-                                .put("event", "PLAYER_NEXT_STALE_REJECTED")
+                                .put("event", staleOriginDiagnosticEvent)
                                 .put("requestId", requestId)
                                 .put("originRequestId", originRequestId)
                                 .put("originPlayerSessionId", originPlayerSessionId)
@@ -2199,6 +2201,8 @@ class MainActivity : FlutterFragmentActivity() {
                 .putExtra("originCreatedAtMs", playerRequest.originCreatedAtMs)
                 .putExtra("originTransitionGeneration", playerRequest.originTransitionGeneration)
                 .putExtra("originPlayerSessionId", playerRequest.originPlayerSessionId)
+                .putExtra("originMonotonicNs", playerRequest.originMonotonicNs)
+                .putExtra("transitionDirection", playerRequest.transitionDirection)
 
             val resolvedActivity = intent.resolveActivity(packageManager)
             if (resolvedActivity == null) {

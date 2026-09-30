@@ -145,7 +145,7 @@ class Prompt2StabilizationTests(unittest.TestCase):
         self.assertIn("thumbnail_pending.pop(previous, None)", block)
         self.assertIn("thumbnail_requests.discard(previous)", block)
         self.assertIn("thumbnail_latest_key_by_uri[path_ref] = key", block)
-        self.assertIn("Only the latest requested media version may publish.", MAIN)
+        self.assertIn("thumbnail_key != latest_key", MAIN)
 
     def test_thumbnail_ready_only_accepts_latest_generation(self):
         start = MAIN.index("elif event_type == 'thumbnail_ready':")

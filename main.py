@@ -2174,88 +2174,230 @@ async def main(page: ft.Page):
     thumbnail_latest_key_by_uri = {}
     thumbnail_latest_at = {}
     thumbnail_completed_request_by_key = {}
+    thumbnail_retry_counts = {}
+    thumbnail_pending = {}
+    thumbnail_queue = asyncio.PriorityQueue(maxsize=128)
+    thumbnail_queue_sequence = 0
+    thumbnail_dispatch_task = None
+    thumbnail_reconciliation_task = None
+    thumbnail_reconciliation_pending = False
+    thumbnail_dispatch_slots = asyncio.Semaphore(4)
 
     def _prune_thumbnail_requests():
         now = time.monotonic()
         for key, started_at in list(thumbnail_request_started_at.items()):
-            if now - started_at > 60.0:
+            if now - started_at > 180.0:
                 thumbnail_request_started_at.pop(key, None)
                 thumbnail_requests.discard(key)
+                thumbnail_pending.pop(key, None)
                 uri = key[0]
                 if thumbnail_latest_key_by_uri.get(uri) == key:
                     thumbnail_latest_key_by_uri.pop(uri, None)
                     thumbnail_latest_at.pop(uri, None)
-        if len(thumbnail_latest_at) > 1024:
-            oldest = sorted(thumbnail_latest_at.items(), key=lambda item: item[1])[:256]
+        if len(thumbnail_latest_at) > 2048:
+            oldest = sorted(thumbnail_latest_at.items(), key=lambda item: item[1])[:512]
             for uri, _ in oldest:
                 thumbnail_latest_at.pop(uri, None)
                 thumbnail_latest_key_by_uri.pop(uri, None)
-        if len(thumbnail_completed_request_by_key) > 1024:
-            for key in list(thumbnail_completed_request_by_key)[:256]:
+        if len(thumbnail_completed_request_by_key) > 2048:
+            for key in list(thumbnail_completed_request_by_key)[:512]:
                 thumbnail_completed_request_by_key.pop(key, None)
+        if len(thumbnail_retry_counts) > 2048:
+            for key in list(thumbnail_retry_counts)[:512]:
+                thumbnail_retry_counts.pop(key, None)
 
-    def request_missing_thumbnail(item):
+    def _thumbnail_key(episode):
+        return (
+            str(episode.get("path") or "").strip(),
+            int(episode.get("file_size") or 0),
+            int(episode.get("modified_at") or 0),
+            str(episode.get("media_identity") or "").strip(),
+        )
+
+    def _thumbnail_priority(item, requested_priority):
+        if requested_priority is not None:
+            return int(requested_priority)
+        return 150 if float(item.get("last_played_at") or 0) > 0 else 100
+
+    def _enqueue_thumbnail_item(key, item, priority):
+        nonlocal thumbnail_queue_sequence
+        existing = thumbnail_pending.get(key)
+        if existing is not None and priority <= existing["priority"]:
+            return True
+        if existing is not None:
+            thumbnail_pending.pop(key, None)
+        while thumbnail_queue.full():
+            lowest_key = None
+            lowest_rank = None
+            for candidate_key, pending in thumbnail_pending.items():
+                rank = (pending["priority"], pending["sequence"])
+                if lowest_rank is None or rank < lowest_rank:
+                    lowest_rank = rank
+                    lowest_key = candidate_key
+            if lowest_key is None:
+                return False
+            thumbnail_pending.pop(lowest_key, None)
+            thumbnail_requests.discard(lowest_key)
+            thumbnail_request_started_at.pop(lowest_key, None)
+            if thumbnail_latest_key_by_uri.get(lowest_key[0]) == lowest_key:
+                thumbnail_latest_key_by_uri.pop(lowest_key[0], None)
+                thumbnail_latest_at.pop(lowest_key[0], None)
+            performance.counter("artwork.thumbnail.queue_evicted")
+        thumbnail_queue_sequence += 1
+        entry = {"priority": int(priority), "sequence": thumbnail_queue_sequence}
+        thumbnail_pending[key] = entry
+        thumbnail_requests.add(key)
+        thumbnail_request_started_at[key] = time.monotonic()
+        thumbnail_queue.put_nowait((-int(priority), thumbnail_queue_sequence, key, dict(item)))
+        performance.gauge("artwork.thumbnail.queue_depth", thumbnail_queue.qsize())
+        return True
+
+    async def _thumbnail_dispatcher():
+        nonlocal thumbnail_dispatch_task
+        try:
+            while ui_alive[0]:
+                _, sequence, key, item = await thumbnail_queue.get()
+                try:
+                    current = thumbnail_pending.get(key)
+                    if current is None or current["sequence"] != sequence:
+                        continue
+                    thumbnail_pending.pop(key, None)
+                    if thumbnail_latest_key_by_uri.get(key[0]) not in (None, key):
+                        thumbnail_requests.discard(key)
+                        thumbnail_request_started_at.pop(key, None)
+                        continue
+                    await thumbnail_dispatch_slots.acquire()
+
+                    async def send(item=item, key=key):
+                        try:
+                            await bridge.request_thumbnail(
+                                str(item.get("path") or ""),
+                                key[1],
+                                key[2],
+                                key[3],
+                            )
+                            performance.counter("artwork.thumbnail.dispatched")
+                        except Exception as exc:
+                            thumbnail_requests.discard(key)
+                            thumbnail_request_started_at.pop(key, None)
+                            if thumbnail_latest_key_by_uri.get(key[0]) == key:
+                                count = int(thumbnail_retry_counts.get(key, 0))
+                                if count < 2:
+                                    thumbnail_retry_counts[key] = count + 1
+                                    delay = 1.0 if count == 0 else 5.0
+                                    async def retry_later():
+                                        await asyncio.sleep(delay)
+                                        if ui_alive[0]:
+                                            request_missing_thumbnail(item, priority=200)
+                                    asyncio.create_task(retry_later())
+                                    performance.counter("artwork.thumbnail.retry_scheduled")
+                                else:
+                                    thumbnail_retry_counts.pop(key, None)
+                                    diagnostics.record("THUMBNAIL_ERROR", request_id="-", result="COMMAND_FAILED_TERMINAL", error=str(exc))
+                            logger.debug("[ARTWORK] native thumbnail request failed: %s", exc)
+                        finally:
+                            thumbnail_dispatch_slots.release()
+
+                    asyncio.create_task(send())
+                finally:
+                    thumbnail_queue.task_done()
+                    performance.gauge("artwork.thumbnail.queue_depth", thumbnail_queue.qsize())
+        except asyncio.CancelledError:
+            pass
+        finally:
+            thumbnail_dispatch_task = None
+
+    def _ensure_thumbnail_dispatcher():
+        nonlocal thumbnail_dispatch_task
+        if thumbnail_dispatch_task is None or thumbnail_dispatch_task.done():
+            thumbnail_dispatch_task = asyncio.create_task(_thumbnail_dispatcher())
+
+    def request_missing_thumbnail(item, *, priority=None):
         thumbnail_started = performance.now()
         performance.counter("artwork.thumbnail.request")
         if not bridge.available or not isinstance(item, dict):
             performance.counter("artwork.thumbnail.rejected")
-            return
+            return False
         episode = item if item.get("path") else item.get("current_episode") or {}
         path_ref = str(episode.get("path") or "").strip()
         if not path_ref or episode.get("missing"):
-            return
+            return False
         _prune_thumbnail_requests()
-        key = (path_ref, int(episode.get("file_size") or 0), int(episode.get("modified_at") or 0))
-        if key in thumbnail_requests:
-            return
-        existing_latest = thumbnail_latest_key_by_uri.get(path_ref)
-        if existing_latest is not None and existing_latest != key:
-            # A newer media generation supersedes the previous request immediately.
-            # The older native request may still finish later, but its callback will
-            # be rejected by the latest-generation check. Do not block the newer
-            # request merely because the older generation is still in flight.
-            thumbnail_requests.discard(existing_latest)
-            thumbnail_request_started_at.pop(existing_latest, None)
+        key = _thumbnail_key(episode)
+        if key in thumbnail_requests and key not in thumbnail_pending:
+            return True
+        previous = thumbnail_latest_key_by_uri.get(path_ref)
+        if previous is not None and previous != key:
+            thumbnail_pending.pop(previous, None)
+            thumbnail_latest_at[path_ref] = time.monotonic()
         thumbnail_latest_key_by_uri[path_ref] = key
         thumbnail_latest_at[path_ref] = time.monotonic()
         try:
-            resolved = library.resolve_artwork("episode", episode.get("id"), "episode_thumbnail", allow_network=False)
+            exact_rows = library.artwork.list_for("episode", episode.get("id"), "episode_thumbnail")
+            exact_ready = any(
+                row.get("status") == "ready"
+                and row.get("local_path")
+                and os.path.isfile(str(row.get("local_path")))
+                for row in exact_rows
+            )
         except Exception:
-            resolved = None
-        if resolved and resolved.get("local_path") and os.path.isfile(resolved.get("local_path")):
+            exact_ready = False
+        if exact_ready:
             thumbnail_requests.discard(key)
+            thumbnail_pending.pop(key, None)
             thumbnail_request_started_at.pop(key, None)
-            if thumbnail_latest_key_by_uri.get(path_ref) == key:
-                thumbnail_latest_key_by_uri.pop(path_ref, None)
-                thumbnail_latest_at.pop(path_ref, None)
+            thumbnail_retry_counts.pop(key, None)
+            thumbnail_latest_key_by_uri.pop(path_ref, None)
+            thumbnail_latest_at.pop(path_ref, None)
             performance.counter("artwork.thumbnail.cache_hit")
-            performance.event("artwork.thumbnail", duration_ms=(performance.now()-thumbnail_started)*1000.0,
-                              status="cache_hit", screen=navigation.current, metadata={"path": path_ref})
-            return
-        performance.counter("artwork.thumbnail.cache_miss")
-        if len(thumbnail_requests) >= 32:
-            thumbnail_requests.discard(key)
-            thumbnail_request_started_at.pop(key, None)
-            if thumbnail_latest_key_by_uri.get(path_ref) == key:
-                thumbnail_latest_key_by_uri.pop(path_ref, None)
-                thumbnail_latest_at.pop(path_ref, None)
-            performance.counter("artwork.thumbnail.rejected")
-            return
-        thumbnail_requests.add(key)
-        thumbnail_request_started_at[key] = time.monotonic()
-        performance.event("artwork.thumbnail", duration_ms=(performance.now()-thumbnail_started)*1000.0,
-                          status="requested", screen=navigation.current, metadata={"path": path_ref, "media_identity": episode.get("media_identity")})
-        async def run():
-            try:
-                await bridge.request_thumbnail(path_ref, key[1], key[2], str(episode.get('media_identity') or ''))
-            except Exception as exc:
-                thumbnail_requests.discard(key)
-                thumbnail_request_started_at.pop(key, None)
-                if thumbnail_latest_key_by_uri.get(path_ref) == key:
-                    thumbnail_latest_key_by_uri.pop(path_ref, None)
-                    thumbnail_latest_at.pop(path_ref, None)
-                logger.debug("[ARTWORK] native thumbnail request failed: %s", exc)
-        page.run_task(run)
+            return True
+        if key in thumbnail_pending:
+            return True
+        priority_value = _thumbnail_priority(episode, priority)
+        try:
+            accepted = _enqueue_thumbnail_item(key, episode, priority_value)
+        except (asyncio.QueueFull, RuntimeError):
+            accepted = False
+        if not accepted:
+            performance.counter("artwork.thumbnail.queue_deferred")
+            return False
+        performance.event(
+            "artwork.thumbnail",
+            duration_ms=(performance.now()-thumbnail_started)*1000.0,
+            status="queued",
+            screen=navigation.current,
+            metadata={"path": path_ref, "media_identity": key[3], "priority": priority_value},
+        )
+        _ensure_thumbnail_dispatcher()
+        return True
+
+    async def reconcile_missing_thumbnails(reason="catalog_changed"):
+        nonlocal thumbnail_reconciliation_pending, thumbnail_reconciliation_task
+        thumbnail_reconciliation_pending = False
+        try:
+            cursor = 0
+            while ui_alive[0]:
+                rows = await asyncio.to_thread(library.thumbnail_candidates, after_id=cursor, limit=128)
+                if not rows:
+                    break
+                for item in rows:
+                    while ui_alive[0] and not request_missing_thumbnail(item, priority=100):
+                        await asyncio.sleep(0.10)
+                    cursor = max(cursor, int(item.get("id") or 0))
+                if len(rows) < 128:
+                    break
+        except Exception:
+            logger.exception("[ARTWORK] thumbnail reconciliation failed reason=%s", reason)
+        finally:
+            thumbnail_reconciliation_task = None
+            if thumbnail_reconciliation_pending and ui_alive[0]:
+                schedule_thumbnail_reconciliation("pending")
+
+    def schedule_thumbnail_reconciliation(reason="catalog_changed"):
+        nonlocal thumbnail_reconciliation_pending, thumbnail_reconciliation_task
+        thumbnail_reconciliation_pending = True
+        if thumbnail_reconciliation_task is None or thumbnail_reconciliation_task.done():
+            thumbnail_reconciliation_task = asyncio.create_task(reconcile_missing_thumbnails(reason))
 
     def storage_state():
         caps = storage_capabilities[0]

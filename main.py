@@ -881,15 +881,22 @@ async def main(page: ft.Page):
         origin_created_at_ms=0,
         origin_transition_generation=0,
         origin_player_session_id=None,
+        origin_monotonic_ns=0,
+        transition_direction=None,
         transition_guard=None,
     ):
+        direction_label = str(transition_direction or "").strip().upper()
+        stale_event = {"NEXT": "NEXT_REQUEST_STALE", "PREVIOUS": "PREVIOUS_REQUEST_STALE"}.get(direction_label, "NEXT_REQUEST_STALE")
+        stale_rejected_event = {"NEXT": "PLAYER_NEXT_STALE_REJECTED", "PREVIOUS": "PLAYER_PREVIOUS_STALE_REJECTED"}.get(direction_label, "PLAYER_NEXT_STALE_REJECTED")
+        invalidated_event = {"NEXT": "NEXT_TRANSITION_INVALIDATED", "PREVIOUS": "PREVIOUS_TRANSITION_INVALIDATED"}.get(direction_label, "PLAYER_TRANSITION_INVALIDATED")
+
         def transition_is_valid():
             return transition_guard is None or bool(transition_guard())
 
         if not transition_is_valid():
             if origin_request_id:
                 performance.event(
-                    "NEXT_REQUEST_STALE",
+                    stale_event,
                     screen=navigation.current,
                     status="rejected",
                     metadata={
@@ -900,7 +907,7 @@ async def main(page: ft.Page):
                     },
                 )
                 performance.event(
-                    "PLAYER_NEXT_STALE_REJECTED",
+                    stale_rejected_event,
                     screen=navigation.current,
                     metadata={
                         "request_id": origin_request_id,
@@ -923,6 +930,8 @@ async def main(page: ft.Page):
                 "origin_request_id": origin_request_id,
                 "origin_created_at_ms": origin_created_at_ms,
                 "origin_transition_generation": origin_transition_generation,
+                "origin_monotonic_ns": origin_monotonic_ns,
+                "transition_direction": direction_label,
             },
         )
 
@@ -998,6 +1007,8 @@ async def main(page: ft.Page):
             origin_created_at_ms=origin_created_at_ms,
             origin_transition_generation=origin_transition_generation,
             origin_player_session_id=origin_player_session_id,
+            origin_monotonic_ns=origin_monotonic_ns,
+            transition_direction=direction_label or None,
             player_settings={
                 "player.default_speed": settings.get("player.default_speed"),
                 "player.aspect_ratio": settings.get("player.aspect_ratio"),
@@ -1026,7 +1037,7 @@ async def main(page: ft.Page):
         if not transition_is_valid():
             if origin_request_id:
                 performance.event(
-                    "NEXT_TRANSITION_INVALIDATED",
+                    invalidated_event,
                     screen=navigation.current,
                     metadata={
                         "request_id": origin_request_id,

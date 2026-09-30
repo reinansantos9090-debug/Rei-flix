@@ -27,6 +27,7 @@ data class NativePlayerRequest(
     val autoplay: Boolean,
     val defaultSpeed: Float,
     val aspectRatio: String,
+    val zoomEnabled: Boolean,
     val immersive: String,
     val rotation: String,
     val pip: Boolean,
@@ -65,6 +66,7 @@ data class NativePlayerRequest(
             .putExtra("autoplay", autoplay)
             .putExtra("setting_player_default_speed", defaultSpeed)
             .putExtra("setting_player_aspect_ratio", aspectRatio)
+            .putExtra("setting_player_zoom_enabled", zoomEnabled)
             .putExtra("setting_player_immersive", immersive)
             .putExtra("setting_player_rotation", rotation)
             .putExtra("setting_player_pip", pip)
@@ -110,6 +112,7 @@ data class NativePlayerRequest(
                 autoplay = get("autoplay")?.toBooleanStrictOrNull() ?: true,
                 defaultSpeed = get("setting_player_default_speed")?.toFloatOrNull()?.takeIf { it > 0f } ?: 1f,
                 aspectRatio = get("setting_player_aspect_ratio") ?: "fit",
+                zoomEnabled = get("setting_player_zoom_enabled")?.toBooleanStrictOrNull() ?: false,
                 immersive = get("setting_player_immersive") ?: "always",
                 rotation = get("setting_player_rotation") ?: "auto",
                 pip = get("setting_player_pip")?.toBooleanStrictOrNull() ?: true,

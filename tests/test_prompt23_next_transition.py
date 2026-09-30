@@ -46,7 +46,7 @@ class Prompt23NextTransitionTests(unittest.TestCase):
 
     def test_native_next_is_single_flight_and_session_scoped(self):
         start = self.player.index("private fun requestEpisode")
-        end = self.player.index("private fun updateEpisodeNavigationButtons", start)
+        end = self.player.index("private fun seekToSavedPosition", start)
         request = self.player[start:end]
         self.assertIn("episodeChangePending", request)
         self.assertIn("NEXT_REQUEST_DUPLICATE", request)

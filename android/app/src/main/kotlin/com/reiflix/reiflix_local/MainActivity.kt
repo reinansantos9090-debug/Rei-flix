@@ -722,23 +722,44 @@ class MainActivity : FlutterFragmentActivity() {
                 }
                 "cancel_player_transition" -> {
                     val originRequestId = data.getQueryParameter("origin_request_id")?.trim().orEmpty()
-                    val originPlayerSessionId = data.getQueryParameter("origin_player_session_id")?.trim()?.takeIf { it.isNotEmpty() }
-                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    val originPlayerSessionId = data.getQueryParameter("origin_player_session_id")
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                    nativeRequestState.markOperationState(
+                        requestId,
+                        action,
+                        NativeRequestState.OperationState.RUNNING,
+                    )
+                    publishNativeDiagnostic(
+                        "OPERATION_STARTED",
+                        requestId,
+                        action,
+                        NativeRequestState.OperationState.RUNNING.name,
+                        playerSessionId = originPlayerSessionId,
+                    )
                     if (originRequestId.isBlank()) {
                         publishNativeCommandError(
-                            requestId, action, "cancel", "MISSING_ORIGIN_REQUEST_ID",
+                            requestId,
+                            action,
+                            "cancel",
+                            "MISSING_ORIGIN_REQUEST_ID",
                             "A invalidação da transição não informou a requisição original.",
                         )
                         return
                     }
                     revokePlayerTransition(originRequestId, originPlayerSessionId)
-                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.COMPLETED)
+                    nativeRequestState.markOperationState(
+                        requestId,
+                        action,
+                        NativeRequestState.OperationState.COMPLETED,
+                    )
                     publishNativeDiagnostic(
                         "PLAYER_TRANSITION_CANCELLED",
                         requestId,
                         action,
                         NativeRequestState.OperationState.COMPLETED.name,
                         result = originRequestId,
+                        playerSessionId = originPlayerSessionId,
                     )
                 }
                 "play" -> {
@@ -1022,6 +1043,19 @@ class MainActivity : FlutterFragmentActivity() {
         NativeMailbox.write(
             this,
             JSONObject().put("type", "diagnostic").put("requestId", requestId ?: "").put("payload", payload),
+        )
+    }
+
+    private fun publishPlayerSessionDiagnostic(
+        requestId: String?,
+        event: String,
+        sessionId: String? = activePlayerSessionId,
+    ) {
+        publishNativeDiagnostic(
+            event,
+            requestId,
+            action = "play",
+            playerSessionId = sessionId,
         )
     }
 

@@ -28,7 +28,7 @@ class DetailView:
               on_toggle_favorite, get_playback_target=None, on_set_user_tags=None,
               on_toggle_pinned=None, on_set_personal_note=None, on_set_episode_identification=None,
                on_identification_saved=None, on_refresh_metadata=None, resolve_artwork=None, resolve_artwork_batch=None,
-               on_open_marathon=None, resolve_artwork_palette=None, is_active=None):
+               on_open_marathon=None, resolve_artwork_palette=None, is_active=None, view_state=None):
         performance = get_performance_monitor()
         build_started = performance.now()
         performance.counter("ui.builds_requested.details")
@@ -64,6 +64,7 @@ class DetailView:
         visible_episode_count = [48]
         visible_special_count = [48]
         episode_artwork = {}
+        episode_thumbnail_bindings = {}
         expanded_description = [False]
         current = anime_group.get("current_episode") or {}
         duration_warning = None
@@ -605,11 +606,29 @@ class DetailView:
                 identification = "✓ Identificado"
 
             thumb = None
-            resolved_thumb = episode_artwork.get(str(episode.get("id")))
-            if resolved_thumb and not episode.get("missing"):
-                thumb_path = resolved_thumb.get("local_path") or resolved_thumb.get("external_url")
+            episode_id = episode.get("id")
+            if episode_id is not None and not episode.get("missing"):
+                thumb_slot = ft.Container(
+                    width=112,
+                    height=72,
+                    border_radius=RADIUS,
+                    bgcolor=theme.surface_raised,
+                    alignment=ft.Alignment(0, 0),
+                )
+                resolved_thumb = episode_artwork.get(str(episode_id))
+                thumb_path = (
+                    (resolved_thumb.get("local_path") or resolved_thumb.get("external_url"))
+                    if resolved_thumb else None
+                )
                 if thumb_path:
-                    thumb = media_artwork(thumb_path, 72, width=112, icon_size=20)
+                    thumb_slot.content = media_artwork(thumb_path, 72, width=112, icon_size=20)
+                else:
+                    thumb_slot.content = ft.Icon(ft.Icons.MOVIE_OUTLINED, color=theme.text_muted, size=20)
+                try:
+                    episode_thumbnail_bindings[int(episode_id)] = thumb_slot
+                except (TypeError, ValueError):
+                    pass
+                thumb = thumb_slot
 
             duration = duration_label(episode)
             edit_button = (
@@ -659,6 +678,43 @@ class DetailView:
                 return ft.Row([episode_button, edit_button], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
             return episode_button
 
+        def update_thumbnail_in_place(uri, thumbnail_path, media_identity=None):
+            uri = str(uri or "").strip()
+            thumbnail_path = str(thumbnail_path or "").strip()
+            media_identity = str(media_identity or "").strip()
+            if not uri or not thumbnail_path:
+                return False
+            updated = False
+            for episode in episodes:
+                if episode.get("missing"):
+                    continue
+                episode_uri = str(episode.get("path") or "").strip()
+                episode_identity = str(episode.get("media_identity") or "").strip()
+                if episode_uri != uri and (not media_identity or episode_identity != media_identity):
+                    continue
+                episode_id = episode.get("id")
+                if episode_id is None:
+                    continue
+                episode_artwork[str(episode_id)] = {
+                    "entity_type": "episode",
+                    "entity_id": str(episode_id),
+                    "artwork_type": "episode_thumbnail",
+                    "source": "generated",
+                    "local_path": thumbnail_path,
+                    "status": "ready",
+                }
+                holder = episode_thumbnail_bindings.get(int(episode_id))
+                if holder is not None and callable(is_active) and is_active():
+                    holder.content = media_artwork(thumbnail_path, 72, width=112, icon_size=20)
+                    updated = True
+                break
+            if updated:
+                page.update()
+            return updated
+
+        if isinstance(view_state, dict):
+            view_state["_update_thumbnail"] = update_thumbnail_in_place
+
         def load_more_episodes(_event=None):
             visible_episode_count[0] += 48
             render_episodes()
@@ -670,6 +726,7 @@ class DetailView:
         def render_episodes():
             episode_column.controls.clear()
             episode_artwork.clear()
+            episode_thumbnail_bindings.clear()
             if is_movie:
                 visible_movies = movie_episodes[:visible_episode_count[0]]
                 _prepare_episode_artwork(visible_movies)

@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 object MediaStoreScanner {
     const val SOURCE = "mediastore:external:video"
+    data class LibraryScope(val authority: String, val volumeId: String, val treeDocumentId: String)
     const val DISPLAY_NAME = "Vídeos do dispositivo"
     private const val TAG = "[REIFLIX][MEDIASTORE]"
     // Match Nova's broad local video extension surface; provider MIME values
@@ -96,8 +97,34 @@ object MediaStoreScanner {
                 (Build.VERSION.SDK_INT<30&&it.isPrimary&&volumeName==MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }?.uuid.orEmpty()
     }
-    fun scan(context: Context,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false},scanId:String?=null,onBatch:((JSONObject)->Unit)?=null):JSONObject {
+    private fun normalizeScopePath(documentId:String):String {
+        val decoded = Uri.decode(documentId)
+        return decoded.substringAfter(':', decoded).trim().trim('/').trimEnd('/')
+    }
+    private fun volumeMatches(scope:LibraryScope, volumeName:String, volumeUuid:String):Boolean {
+        val requested = scope.volumeId.trim()
+        if(requested.equals("primary", ignoreCase=true) || requested.equals(MediaStore.VOLUME_EXTERNAL_PRIMARY, ignoreCase=true)){
+            return volumeName.equals(MediaStore.VOLUME_EXTERNAL_PRIMARY, ignoreCase=true)
+        }
+        return requested.equals(volumeName, ignoreCase=true) || (volumeUuid.isNotBlank() && requested.equals(volumeUuid, ignoreCase=true))
+    }
+    private fun isWithinLibraryScope(scope:LibraryScope, volumeName:String, volumeUuid:String, relativePath:String):Boolean {
+        if(scope.authority != "com.android.externalstorage.documents") return false
+        if(!volumeMatches(scope, volumeName, volumeUuid)) return false
+        val root = normalizeScopePath(scope.treeDocumentId)
+        val candidate = relativePath.trim().trim('/').replace("\\", "/")
+        return root.isBlank() || candidate == root || candidate.startsWith(root + "/")
+    }
+    fun scan(context: Context,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false},scanId:String?=null,onBatch:((JSONObject)->Unit)?=null,libraryScopes:Collection<LibraryScope> = emptyList()):JSONObject {
         check(hasReadPermission(context)){"Permissão de vídeos não concedida."}
+        val authorizedScopes = libraryScopes.toList()
+        if(authorizedScopes.isEmpty()){
+            Log.w(TAG,"SCAN_SOURCE_REJECTED reason=NO_CONFIGURED_LIBRARY_SOURCE")
+            onProgress?.invoke(JSONObject().put("phase","blocked").put("source",SOURCE).put("reason","NO_CONFIGURED_LIBRARY_SOURCE"))
+            return JSONObject().put("source",SOURCE).put("name",DISPLAY_NAME).put("volumeScopes",JSONArray())
+                .put("stats",JSONObject().put("files",0).put("videos",0).put("errors",JSONArray()).put("access",accessLevel(context)).put("status","BLOCKED").put("rejection","NO_CONFIGURED_LIBRARY_SOURCE"))
+                .put("partial",false).put("cancelled",false)
+        }
         val resolver=context.contentResolver
         val volumeNames=if(Build.VERSION.SDK_INT>=29)MediaStore.getExternalVolumeNames(context).ifEmpty{setOf(MediaStore.VOLUME_EXTERNAL_PRIMARY)}else setOf(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val projection=mutableListOf(MediaStore.Video.Media._ID,MediaStore.Video.Media.DISPLAY_NAME,MediaStore.Video.Media.MIME_TYPE,MediaStore.Video.Media.SIZE,MediaStore.Video.Media.DATE_MODIFIED)
@@ -180,6 +207,10 @@ object MediaStoreScanner {
                             baseVolumeUuid
                         } else {
                             volumeUuidCache.getOrPut(actualVol) { volumeUuid(context, actualVol) }
+                        }
+                        if(!authorizedScopes.any { scope -> isWithinLibraryScope(scope, actualVol, actualVolumeUuid, rel) }){
+                            if(Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG,"SCAN_SOURCE_FILE_REJECTED reason=OUTSIDE_SOURCE volume="+actualVol+" relativePath="+rel)
+                            continue
                         }
                         val uri=if(Build.VERSION.SDK_INT>=29)MediaStore.Video.Media.getContentUri(actualVol,id)else android.content.ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI,id)
                         val item=JSONObject().put("uri",uri.toString()).put("name",name).put("relativePath",rel).put("volumeName",actualVol).put("volumeId",actualVol).put("volumeUuid",actualVolumeUuid)

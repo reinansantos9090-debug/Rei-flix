@@ -1902,6 +1902,8 @@ async def main(page: ft.Page):
                                 if lifecycle_session:
                                     if lifecycle in {"onCreate", "onNewIntent", "onStart", "onResume"}:
                                         player_active_session_id["value"] = lifecycle_session
+                                        if event_request_id:
+                                            player_active_request_id["value"] = event_request_id
                                         player_session_active["value"] = lifecycle_state not in {"EXITING", "DESTROYED"}
                                     elif lifecycle in {"onPause", "onStop", "onDestroy"} and (
                                         lifecycle_state in {"EXITING", "DESTROYED"} or lifecycle == "onDestroy"
@@ -2550,6 +2552,7 @@ async def main(page: ft.Page):
                                     )
                                     continue
                                 player_active_session_id["value"] = session_id
+                                player_active_request_id["value"] = event_request_id
                                 player_session_active["value"] = True
                                 player_active_episode_id["value"] = payload.get("episodeId")
                                 player_active_anime_id["value"] = payload.get("animeId")
@@ -3325,10 +3328,12 @@ async def main(page: ft.Page):
                         elif event_type == 'player_exited':
                             exit_session_id = str(payload.get("playerSessionId") or "").strip()
                             if (
-                                player_active_request_id["value"] in (None, event_request_id)
-                                and (
-                                    not exit_session_id
-                                    or player_active_session_id["value"] in (None, exit_session_id)
+                                (
+                                    player_active_request_id["value"] in (None, event_request_id)
+                                    or (
+                                        exit_session_id
+                                        and player_active_session_id["value"] == exit_session_id
+                                    )
                                 )
                             ):
                                 cancel_player_transition("player_exited")

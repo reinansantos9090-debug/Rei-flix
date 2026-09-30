@@ -137,7 +137,7 @@ class Prompt28Media3ErrorTests(unittest.TestCase):
             "pendingPreparation?.cancel(true)",
             "transitionGeneration == expectedTransitionGeneration",
             "PLAYER_TIMEOUT_STALE",
-            "invalidateTransition("player_error")",
+            'invalidateTransition("player_error")',
             "PLAYER_ERROR_STALE_IGNORED",
         ):
             self.assertIn(token, PLAYER)

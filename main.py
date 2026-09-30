@@ -770,8 +770,8 @@ async def main(page: ft.Page):
         next_context = pending_next_transition["value"]
         if isinstance(next_context, dict):
             performance.event(
-                    invalidated_event,
-                    screen=navigation.current,
+                "NEXT_TRANSITION_INVALIDATED",
+                screen=navigation.current,
                 metadata={
                     "request_id": next_context.get("origin_request_id"),
                     "target_request_id": next_context.get("target_request_id"),

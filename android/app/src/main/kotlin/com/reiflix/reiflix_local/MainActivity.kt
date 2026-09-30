@@ -1825,7 +1825,7 @@ class MainActivity : FlutterFragmentActivity() {
                     },
                     { NativeScanController.isCancelled(scanId) },
                     scanId,
-                ) { batch ->
+                    onBatch = { batch ->
                     val volume = batch.optString("volumeId")
                     NativeScanPublisher.publish(
                         appContext,
@@ -1901,7 +1901,7 @@ class MainActivity : FlutterFragmentActivity() {
                     },
                     { NativeScanController.isCancelled(scanId) },
                     scanId,
-                ) { batch ->
+                    onBatch = { batch ->
                     val volume = batch.optString("volumeId")
                     NativeScanPublisher.publish(
                         appContext,

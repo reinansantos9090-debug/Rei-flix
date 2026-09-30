@@ -3593,7 +3593,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         logPlayer("onResume requestId=" + requestId.ifEmpty { "-" })
         if (!inPictureInPicture) applyImmersiveAfterLayout()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.refreshZoomForLayout()
-        if (::player.isInitialized && !errorVisible) {
+        if (::player.isInitialized && !errorVisible && !playbackErrorForGeneration) {
             if (!inPictureInPicture && playbackWasRequestedBeforeStop &&
                 player.playbackState != Player.STATE_ENDED
             ) {

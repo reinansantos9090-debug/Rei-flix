@@ -1192,9 +1192,21 @@ class LibraryService:
                 report["removed"] += 1
                 continue
 
-            # An old broad/MediaStore row with no match to any configured source
-            # is sufficiently proven external when it retained a URI/path.
-            if str(episode.get("path") or "").strip():
+            path = str(episode.get("path") or "").strip()
+            identity = str(episode.get("media_identity") or "").strip()
+
+            provable_external = False
+            if path.casefold().startswith("file://") or os.path.isabs(path):
+                provable_external = True
+            elif path.startswith("content://"):
+                authority = str(urlparse(path).netloc or "").strip().casefold()
+                # External-storage DocumentProvider URIs expose a comparable
+                # document scope. Generic MediaStore/cloud content URIs do not.
+                provable_external = authority == "com.android.externalstorage.documents"
+            if identity.startswith("shared:") or identity.startswith("file:"):
+                provable_external = True
+
+            if provable_external:
                 remove_ids.append(int(episode["id"]))
                 report["removed"] += 1
             else:

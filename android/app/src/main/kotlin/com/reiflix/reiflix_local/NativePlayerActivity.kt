@@ -373,10 +373,10 @@ class NativePlayerActivity : ComponentActivity() {
 
 override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        publishPlayerLifecycle("onCreate")
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         requestId = savedInstanceState?.getString("session_request_id")?.trim()
             ?: intent.getStringExtra("requestId")?.trim().orEmpty()
+        publishPlayerLifecycle("onCreate")
         val traceEpisodeId = intent.getStringExtra("episodeId").orEmpty()
         val traceAnimeId = intent.getStringExtra("animeId").orEmpty()
         PerformanceDiagnostics.attach(this)
@@ -557,7 +557,6 @@ override fun onCreate(savedInstanceState: Bundle?) {
     }
 
     override fun onNewIntent(newIntent: Intent) {
-        publishPlayerLifecycle("onNewIntent")
         if (sessionState != SessionState.ACTIVE) {
             logPlayer(
                 "PLAYER_REUSE_IGNORED requestId=" +
@@ -568,6 +567,8 @@ override fun onCreate(savedInstanceState: Bundle?) {
         }
         super.onNewIntent(newIntent)
         setIntent(newIntent)
+        requestId = newIntent.getStringExtra("requestId")?.trim().orEmpty()
+        publishPlayerLifecycle("onNewIntent")
         val traceEpisodeId = newIntent.getStringExtra("episodeId").orEmpty()
         val traceAnimeId = newIntent.getStringExtra("animeId").orEmpty()
         PerformanceDiagnostics.attach(this)

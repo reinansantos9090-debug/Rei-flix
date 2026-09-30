@@ -35,7 +35,7 @@ class Prompt13NativePlayerLifecycleTests(unittest.TestCase):
         self.assertIn("generation == playerGeneration", self.player)
         self.assertIn("sessionState == SessionState.ACTIVE", self.player)
         self.assertIn("uri == localUri", self.player)
-        self.assertIn("if (!isCurrentPreparation(generation, localUri)) return@post", self.player)
+        self.assertIn("isCurrentPreparation(generation, localUri, preparationTransitionGeneration)", self.player)
 
     def test_resume_is_applied_once_after_ready(self):
         ready = self.player[

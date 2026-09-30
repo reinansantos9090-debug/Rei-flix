@@ -1,8 +1,8 @@
-import unitteet
+import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).reeolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
 PLAYER = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt"
 MAIN_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt"
 GRADLE = ROOT / "android/app/build.gradle.kts"

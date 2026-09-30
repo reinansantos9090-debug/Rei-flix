@@ -576,7 +576,8 @@ E: manifest
         player = (ROOT / "android" / "app" / "src" / "main" / "kotlin" / "com" / "reiflix" / "reiflix_local" / "NativePlayerActivity.kt").read_text(encoding="utf-8")
         self.assertIn("private var suppressExitEvent = false", player)
         self.assertIn("private fun reportPlayerExit", player)
-        self.assertIn("if (isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations)", player)
+        self.assertIn("val shouldReportExit = isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations", player)
+        self.assertIn("if (shouldReportExit)", player)
         self.assertIn('reportPlayerExit("activity_finish")', player)
 
     def test_template_requires_the_system_ui_controller(self):

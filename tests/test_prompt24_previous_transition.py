@@ -81,9 +81,9 @@ class Prompt24PreviousTransitionTests(unittest.TestCase):
         end = PLAYER.index("private var retryCount", start)
         block = PLAYER[start:end]
         self.assertIn("PREVIOUS_TRANSITION_STALLED", block)
-        self.assertIn("episodeChangeTimeoutRequestId != requestId", block)
-        self.assertIn("episodeChangeTimeoutUri != uri.toString()", block)
-        self.assertIn("episodeChangeTimeoutGeneration != transitionGeneration", block)
+        self.assertIn("timeoutContextValid", block)
+        self.assertIn("episodeChangeTimeoutSessionId == playerSessionId", block)
+        self.assertIn("episodeChangeTimeoutPlayerGeneration == playerGeneration", block)
 
     def test_previous_invalidation_clears_pending(self):
         start = PLAYER.index("private fun invalidateTransition")
@@ -94,7 +94,8 @@ class Prompt24PreviousTransitionTests(unittest.TestCase):
         self.assertIn("previousTransitionActive = false", block)
 
     def test_previous_exit_rejects_old_request(self):
-        self.assertIn('cancel_player_transition("player_exited")', MAIN)
+        self.assertIn("invalidate_player_session(", MAIN)
+        self.assertIn('"player_exited"', MAIN)
         self.assertIn('player_session_active["value"] = False', MAIN)
         self.assertIn("PLAYER_PREVIOUS_STALE_REJECTED", ACTIVITY + PLAYER)
 
@@ -124,8 +125,8 @@ class Prompt24PreviousTransitionTests(unittest.TestCase):
 
     def test_previous_tests_do_not_sleep(self):
         source = Path(__file__).read_text(encoding="utf-8")
-        self.assertNotIn("time.sleep(", source)
-        self.assertNotIn("asyncio.sleep(", source)
+        self.assertNotIn("time" + ".sleep(", source)
+        self.assertNotIn("asyncio" + ".sleep(", source)
 
     def test_previous_and_next_are_direction_fenced(self):
         self.assertIn('"NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE"', MAIN)

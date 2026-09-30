@@ -1161,63 +1161,34 @@ class LibraryService:
         )
 
     def media_center_home(self, limit=12, *, catalog=None):
-        """Build Home sections from bounded local projections when no catalog is supplied.
-
-        The legacy ``catalog=`` path remains available for Details/compatibility.
-        """
+        """Build only the Home projections that remain visible."""
         if catalog is None:
             sections = self.store.home_sections(limit=limit)
-            # Enrich every secondary projection with one shared genre lookup.
-            # The previous implementation executed one SQLite genre query per
-            # section, even when the same anime appeared in several sections.
-            enrich_keys = (
-                "next_episode",
-                "recently_added",
-                "favorites",
-                "pinned",
-                "series",
-                "movies",
-                "specials",
-            )
+            enrich_keys = ("favorites", "pinned", "movies")
             enrich_items = []
             for key in enrich_keys:
                 enrich_items.extend(sections.get(key) or [])
             if enrich_items:
                 self.genre_registry.enrich_catalog(enrich_items)
             return sections
+
         catalog = catalog
-        episodes = [e for anime in catalog for season in anime.get("seasons", [])
-                    for e in season.get("episodes", [])]
-        specials = [e for anime in catalog for group in anime.get("specials", [])
-                    for e in group.get("episodes", [])]
+        episodes = [e for anime in catalog for season in anime.get("seasons", []) for e in season.get("episodes", [])]
+        specials = [e for anime in catalog for group in anime.get("specials", []) for e in group.get("episodes", [])]
         all_media = episodes + specials + [e for anime in catalog for e in anime.get("media_files", [])]
         by_path = {e.get("path"): e for e in all_media if e.get("path")}
         continue_items = self.store.continue_watching(limit=limit)
         for item in continue_items:
             if item.get("path") in by_path:
                 item["next_episode"] = by_path[item["path"]]
-        history = self.store.playback_history(limit=limit)
-        recently_added = sorted(
-            catalog,
-            key=lambda a: (a.get("meta", {}).get("added_at") or 0, a.get("last_played_at") or 0),
-            reverse=True,
-        )[:limit]
-        series = [a for a in catalog if a.get("media_kind") != "movie"]
-        movies = [a for a in catalog if a.get("media_kind") == "movie"]
         favorites = [a for a in catalog if a.get("favorite")]
         pinned = [a for a in catalog if a.get("is_pinned")]
-        next_items = [a for a in series if a.get("next_episode") and not a["next_episode"].get("watched")]
-        next_items.sort(key=lambda a: a.get("last_played_at") or 0, reverse=True)
+        movies = [a for a in catalog if a.get("media_kind") == "movie"]
         return {
             "continue_watching": continue_items,
-            "next_episode": next_items[:limit],
-            "recently_added": recently_added,
-            "recently_watched": history,
             "favorites": favorites[:limit],
             "pinned": pinned[:limit],
-            "series": series[:limit],
             "movies": movies[:limit],
-            "specials": [a for a in catalog if any(a.get("specials"))][:limit],
         }
 
     def browse_catalog_page(self, **filters):

@@ -1494,6 +1494,71 @@ class LibraryStore:
             row = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
             return dict(row) if row else None
 
+    def apply_library_reconciliation(self, remove_episode_ids, duplicate_merges=None):
+        """Apply library-only cleanup atomically; never touch physical media files."""
+        remove_ids = []
+        seen_ids = set()
+        for value in remove_episode_ids or ():
+            try:
+                episode_id = int(value)
+            except (TypeError, ValueError):
+                continue
+            if episode_id > 0 and episode_id not in seen_ids:
+                seen_ids.add(episode_id)
+                remove_ids.append(episode_id)
+
+        removed = 0
+        merged = 0
+        with self._conn() as c:
+            for merge in duplicate_merges or ():
+                try:
+                    source_id = int(merge.get("source_id"))
+                    target_id = int(merge.get("target_id"))
+                except (TypeError, ValueError, AttributeError):
+                    continue
+                if source_id <= 0 or target_id <= 0 or source_id == target_id:
+                    continue
+                source = c.execute("SELECT * FROM episodes WHERE id=?", (source_id,)).fetchone()
+                target = c.execute("SELECT * FROM episodes WHERE id=?", (target_id,)).fetchone()
+                if not source or not target:
+                    continue
+
+                progress = max(float(source["progress"] or 0), float(target["progress"] or 0))
+                watched = max(int(source["watched"] or 0), int(target["watched"] or 0))
+                last_played = max(
+                    float(source["last_played_at"] or 0),
+                    float(target["last_played_at"] or 0),
+                ) or None
+
+                if bool(source["manual_override"]) and not bool(target["manual_override"]):
+                    c.execute(
+                        """UPDATE episodes
+                           SET season=?,number=?,episode_type=?,episode_title=?,
+                               identification_source=?,identification_confidence=?,
+                               manual_override=1,progress=?,watched=?,last_played_at=?
+                           WHERE id=?""",
+                        (
+                            source["season"], source["number"], source["episode_type"],
+                            source["episode_title"], source["identification_source"],
+                            source["identification_confidence"], progress, watched,
+                            last_played, target_id,
+                        ),
+                    )
+                else:
+                    c.execute(
+                        "UPDATE episodes SET progress=?,watched=?,last_played_at=? WHERE id=?",
+                        (progress, watched, last_played, target_id),
+                    )
+
+                if source_id not in seen_ids:
+                    seen_ids.add(source_id)
+                    remove_ids.append(source_id)
+                merged += 1
+
+            for episode_id in remove_ids:
+                removed += c.execute("DELETE FROM episodes WHERE id=?", (episode_id,)).rowcount
+
+        return {"removed": removed, "duplicates_merged": merged}
     def missing_candidate(self, anime_id, source_folder, file_size, modified_at, volume_id=None, *, excluded_paths=None):
         """Find one unambiguous row that can survive a move/rename.
 

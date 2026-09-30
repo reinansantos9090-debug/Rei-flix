@@ -232,7 +232,7 @@ class LifecycleContractTests(unittest.TestCase):
         start = source.index("elif event_type == 'thumbnail_ready':")
         end = source.index("elif event_type == 'player_opened':", start)
         block = source[start:end]
-        self.assertIn("thumbnail_key = (uri, size, modified_at)", block)
+        self.assertIn("thumbnail_key = (uri, size, modified_at, media_identity)", block)
         self.assertIn("thumbnail_latest_key_by_uri", block)
         self.assertIn("latest_key = thumbnail_latest_key_by_uri.get(uri)", block)
         self.assertIn("thumbnail_key != latest_key", block)

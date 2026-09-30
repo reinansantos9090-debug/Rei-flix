@@ -2849,16 +2849,16 @@ async def main(page: ft.Page):
                                     )
                                 performance.event(
                                     "PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
-                                        screen=navigation.current,
-                                        metadata={
-                                            "request_id": event_request_id,
-                                            "age_ms": mailbox_latency_ms,
-                                            "origin_generation": payload.get("transitionGeneration"),
-                                            "current_generation": player_transition_generation["value"],
-                                            "reason": "out_of_order",
-                                        },
-                                    )
-                                    continue
+                                    screen=navigation.current,
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "age_ms": mailbox_latency_ms,
+                                        "origin_generation": payload.get("transitionGeneration"),
+                                        "current_generation": player_transition_generation["value"],
+                                        "reason": "out_of_order",
+                                    },
+                                )
+                                continue
                             player_last_command.update(
                                 sequence=command_sequence,
                                 request_id=event_request_id,

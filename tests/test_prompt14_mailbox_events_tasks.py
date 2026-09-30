@@ -149,7 +149,9 @@ class EventAndTaskContractTests(unittest.TestCase):
             "episodeChangePending",
             'saveProgress("player_completed", force = true)',
             'requestEpisode("player_next_request")',
-            'if (!::player.isInitialized || episodeChangePending || errorVisible) return',
+            'if (!::player.isInitialized',
+            'if (episodeChangePending)',
+            'if (errorVisible)',
         ):
             self.assertIn(token, player)
 

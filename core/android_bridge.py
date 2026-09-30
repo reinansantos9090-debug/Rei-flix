@@ -144,9 +144,15 @@ class AndroidBridge:
         performance.event(
             "NATIVE_COMMAND_CREATED",
             screen="android_bridge",
-            metadata={"request_id": request_id, "operation": action,
-                      "commandCreatedAtMs": created_at,
-                      "commandCreatedMonotonicNs": created_monotonic_ns},
+            metadata={
+                "request_id": request_id,
+                "operation": action,
+                "commandCreatedAtMs": created_at,
+                "commandCreatedMonotonicNs": created_monotonic_ns,
+                "player_session_id": params.get("player_session_id"),
+                "episode_id": params.get("episode_id"),
+                "anime_id": params.get("anime_id"),
+            },
         )
         query = urlencode({
             "action": action,
@@ -193,11 +199,27 @@ class AndroidBridge:
                 "NATIVE_COMMAND_SENT",
                 duration_ms=(performance.now()-launch_started)*1000.0,
                 screen="android_bridge",
-                metadata={"request_id": request_id, "operation": action,
-                          "commandCreatedAtMs": created_at},
+                metadata={
+                    "request_id": request_id,
+                    "operation": action,
+                    "commandCreatedAtMs": created_at,
+                    "player_session_id": params.get("player_session_id"),
+                    "episode_id": params.get("episode_id"),
+                    "anime_id": params.get("anime_id"),
+                },
             )
-            performance.event("android.launch_url", duration_ms=(performance.now()-launch_started)*1000.0,
-                              screen="android_bridge", metadata={"action": action, "request_id": request_id})
+            performance.event(
+                "android.launch_url",
+                duration_ms=(performance.now()-launch_started)*1000.0,
+                screen="android_bridge",
+                metadata={
+                    "action": action,
+                    "request_id": request_id,
+                    "player_session_id": params.get("player_session_id"),
+                    "episode_id": params.get("episode_id"),
+                    "anime_id": params.get("anime_id"),
+                },
+            )
             logger.info(
                 "[ANDROID_BRIDGE] COMMAND_LAUNCH_ACCEPTED request_id=%s action=%s "
                 "timestamp=%s launcher=UrlLauncher mode=EXTERNAL_NON_BROWSER_APPLICATION",

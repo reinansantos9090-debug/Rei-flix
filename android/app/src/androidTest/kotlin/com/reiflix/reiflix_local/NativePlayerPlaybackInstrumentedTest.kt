@@ -165,6 +165,65 @@ class NativePlayerPlaybackInstrumentedTest {
     }
 
     @Test
+    fun mainActivityPlay_restoresResumePositionOnlyAfterReady() {
+        launchMainActivityForPlayer()
+        val uri = insertFixtureIntoMediaStore()
+        fixtureUri = uri
+
+        val requestId = "instrumented-main-activity-resume"
+        val resumeMs = 1_500L
+        val commandUri = android.net.Uri.Builder()
+            .scheme("reiflix")
+            .authority("native")
+            .appendQueryParameter("action", "play")
+            .appendQueryParameter("request_id", requestId)
+            .appendQueryParameter("protocol_version", "2")
+            .appendQueryParameter("created_at", System.currentTimeMillis().toString())
+            .appendQueryParameter("player_session_id", "instrumented-resume-session")
+            .appendQueryParameter("uri", uri.toString())
+            .appendQueryParameter("title", "Fixture resume")
+            .appendQueryParameter("position_ms", resumeMs.toString())
+            .appendQueryParameter("can_next", "false")
+            .appendQueryParameter("can_previous", "false")
+            .appendQueryParameter("autoplay", "false")
+            .build()
+
+        InstrumentationRegistry.getInstrumentation().startActivitySync(
+            Intent(target, MainActivity::class.java)
+                .setData(commandUri)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        )
+
+        await("Resume test must dispatch NativePlayerActivity") {
+            val resumed = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+                .getInstance()
+                .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                .firstOrNull { it is NativePlayerActivity } as? NativePlayerActivity
+            if (resumed != null) {
+                activity = resumed
+                true
+            } else {
+                false
+            }
+        }
+
+        val playerView = awaitView<PlayerView>("reiflix_player_view")
+        val player = onMain { requireNotNull(playerView.player) }
+        await("Resume test player must reach READY") {
+            player.playbackState == Player.STATE_READY
+        }
+        assertFalse("Resume instrumentation must not autoplay", onMain { player.isPlaying })
+        await("Resume position must be applied after READY") {
+            val position = onMain { player.currentPosition }
+            position in 900L..2_100L
+        }
+        assertTrue(
+            "Resume test Activity must remain alive",
+            !activity!!.isFinishing && !activity!!.isDestroyed,
+        )
+    }
+
+    @Test
     fun mainActivityPlay_duplicateSameUriIsSuppressed_butDifferentUriIsAccepted() {
         launchMainActivityForPlayer()
         val firstUri = "content://reiflix.test/player-first"

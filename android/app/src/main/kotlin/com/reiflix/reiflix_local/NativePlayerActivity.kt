@@ -2988,7 +2988,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         setControlsVisible(true)
         findViewByTag<View>("reiflix_error_text")?.let { (it as TextView).text = userMessageForFailure(resolvedFailureKind, fallback = message) }
         findViewByTag<View>("reiflix_error_reason")?.let {
-            (it as TextView).text = "Detalhe: " + resolvedFailureKind.name
+            (it as TextView).text = "Detalhe: " + userFailureDetailForFailure(resolvedFailureKind)
         }
         findViewByTag<View>("reiflix_error_retry")?.visibility =
             if (::player.isInitialized && resolvedRetryable) View.VISIBLE else View.GONE
@@ -3022,6 +3022,22 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             userMessageForFailure(resolvedFailureKind, fallback = message),
             effectivePayload,
         )
+    }
+
+    private fun userFailureDetailForFailure(
+        kind: PlayerMediaPolicy.PlaybackFailureKind,
+    ): String = when (kind) {
+        PlayerMediaPolicy.PlaybackFailureKind.MEDIA_NOT_FOUND -> "arquivo ausente"
+        PlayerMediaPolicy.PlaybackFailureKind.PERMISSION -> "acesso negado ou autorização revogada"
+        PlayerMediaPolicy.PlaybackFailureKind.SOURCE -> "fonte local indisponível"
+        PlayerMediaPolicy.PlaybackFailureKind.PARSER -> "container/formato não reconhecido"
+        PlayerMediaPolicy.PlaybackFailureKind.DECODER -> "falha de inicialização do decoder"
+        PlayerMediaPolicy.PlaybackFailureKind.CODEC -> "codec incompatível"
+        PlayerMediaPolicy.PlaybackFailureKind.RENDERER -> "falha no renderizador"
+        PlayerMediaPolicy.PlaybackFailureKind.TIMEOUT -> "tempo de preparação excedido"
+        PlayerMediaPolicy.PlaybackFailureKind.LIFECYCLE -> "sessão/lifecycle invalidado"
+        PlayerMediaPolicy.PlaybackFailureKind.STALE -> "requisição obsoleta"
+        PlayerMediaPolicy.PlaybackFailureKind.UNKNOWN -> "falha de reprodução não classificada"
     }
 
     private fun userMessageForFailure(

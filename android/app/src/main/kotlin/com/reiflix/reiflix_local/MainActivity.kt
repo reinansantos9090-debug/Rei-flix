@@ -724,48 +724,6 @@ class MainActivity : FlutterFragmentActivity() {
                     pendingBroadRequestId = pendingRequestId
                     openBroadStorageSettings()
                 }
-                "cancel_player_transition" -> {
-                    val originRequestId = data.getQueryParameter("origin_request_id")?.trim().orEmpty()
-                    val originPlayerSessionId = data.getQueryParameter("origin_player_session_id")
-                        ?.trim()
-                        ?.takeIf { it.isNotEmpty() }
-                    nativeRequestState.markOperationState(
-                        requestId,
-                        action,
-                        NativeRequestState.OperationState.RUNNING,
-                    )
-                    publishNativeDiagnostic(
-                        "OPERATION_STARTED",
-                        requestId,
-                        action,
-                        NativeRequestState.OperationState.RUNNING.name,
-                        playerSessionId = originPlayerSessionId,
-                    )
-                    if (originRequestId.isBlank()) {
-                        publishNativeCommandError(
-                            requestId,
-                            action,
-                            "cancel",
-                            "MISSING_ORIGIN_REQUEST_ID",
-                            "A invalidação da transição não informou a requisição original.",
-                        )
-                        return
-                    }
-                    revokePlayerTransition(originRequestId, originPlayerSessionId)
-                    nativeRequestState.markOperationState(
-                        requestId,
-                        action,
-                        NativeRequestState.OperationState.COMPLETED,
-                    )
-                    publishNativeDiagnostic(
-                        "PLAYER_TRANSITION_CANCELLED",
-                        requestId,
-                        action,
-                        NativeRequestState.OperationState.COMPLETED.name,
-                        result = originRequestId,
-                        playerSessionId = originPlayerSessionId,
-                    )
-                }
                 "play" -> {
                     val uri = pendingPlayUri
                     if (!uri.isNullOrBlank()) {
@@ -789,6 +747,27 @@ class MainActivity : FlutterFragmentActivity() {
                             ?.trim()
                             ?.takeIf { it.isNotEmpty() }
                             ?.let { raw -> runCatching { Uri.parse(raw) }.getOrNull() }
+                        val restoredPlayerSessionId = pendingPlayIntentData
+                            ?.let { raw -> runCatching { Uri.parse(raw).getQueryParameter("player_session_id") }.getOrNull() }
+                            ?.trim()
+                            ?.takeIf { it.isNotEmpty() }
+                            ?: activePlayerSessionId
+                        if (restoredPlayerSessionId.isNullOrBlank()) {
+                            nativeRequestState.markOperationState(
+                                pendingRequestId,
+                                "play",
+                                NativeRequestState.OperationState.FAILED,
+                            )
+                            publishNativeDiagnostic(
+                                "PLAYER_HANDOFF_REJECTED",
+                                pendingRequestId,
+                                "play",
+                                NativeRequestState.OperationState.FAILED.name,
+                                result = "PLAYER_SESSION_INVALID",
+                            )
+                            clearPendingPlay()
+                            return
+                        }
                         val playData = preservedPlayData ?: Uri.parse("reiflix://native").buildUpon()
                             .appendQueryParameter("action", "play")
                             .appendQueryParameter("request_id", pendingRequestId.orEmpty())
@@ -801,6 +780,7 @@ class MainActivity : FlutterFragmentActivity() {
                             .appendQueryParameter("can_previous", pendingPlayCanPrevious.toString())
                             .appendQueryParameter("autoplay", pendingPlayAutoplay.toString())
                             .appendQueryParameter("created_at", pendingPlayCommandCreatedAtMs.toString())
+                            .appendQueryParameter("player_session_id", restoredPlayerSessionId)
                             .build()
                         clearPendingPlay()
                         if (openPlayer(playData, commandReceivedAtMs = System.currentTimeMillis())) {
@@ -1256,6 +1236,48 @@ class MainActivity : FlutterFragmentActivity() {
                     nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
                     publishNativeDiagnostic("OPERATION_STARTED", requestId, action, NativeRequestState.OperationState.RUNNING.name)
                     signInWithGoogle(intent.data?.getQueryParameter("server_client_id"), requestId)
+                }
+                "cancel_player_transition" -> {
+                    val originRequestId = data.getQueryParameter("origin_request_id")?.trim().orEmpty()
+                    val originPlayerSessionId = data.getQueryParameter("origin_player_session_id")
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                    nativeRequestState.markOperationState(
+                        requestId,
+                        action,
+                        NativeRequestState.OperationState.RUNNING,
+                    )
+                    publishNativeDiagnostic(
+                        "OPERATION_STARTED",
+                        requestId,
+                        action,
+                        NativeRequestState.OperationState.RUNNING.name,
+                        playerSessionId = originPlayerSessionId,
+                    )
+                    if (originRequestId.isBlank()) {
+                        publishNativeCommandError(
+                            requestId,
+                            action,
+                            "cancel",
+                            "MISSING_ORIGIN_REQUEST_ID",
+                            "A invalidação da transição não informou a requisição original.",
+                        )
+                        return
+                    }
+                    revokePlayerTransition(originRequestId, originPlayerSessionId)
+                    nativeRequestState.markOperationState(
+                        requestId,
+                        action,
+                        NativeRequestState.OperationState.COMPLETED,
+                    )
+                    publishNativeDiagnostic(
+                        "PLAYER_TRANSITION_CANCELLED",
+                        requestId,
+                        action,
+                        NativeRequestState.OperationState.COMPLETED.name,
+                        result = originRequestId,
+                        playerSessionId = originPlayerSessionId,
+                    )
                 }
                 "play" -> {
                     if (!activityResumed) {

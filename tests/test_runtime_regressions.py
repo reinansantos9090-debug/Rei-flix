@@ -67,7 +67,7 @@ class RuntimeRegressionTests(unittest.TestCase):
 
     def test_home_artwork_work_is_concurrency_limited(self):
         home = self.read(HOME)
-        self.assertIn("artwork_concurrency = asyncio.Semaphore(4)", home)
+        self.assertIn("artwork_concurrency = asyncio.Semaphore(1)", home)
         self.assertIn("async with artwork_concurrency:", home)
         self.assertIn("artwork_ui_update_scheduled", home)
         self.assertIn("schedule_artwork_ui_update()", home)

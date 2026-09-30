@@ -1023,6 +1023,30 @@ class MainActivity : FlutterFragmentActivity() {
         )
     }
 
+    private fun publishPlayerSessionDiagnostic(requestId: String, event: String) {
+        val session = activePlayerSessionId ?: return
+        publishNativeDiagnostic(
+            event,
+            requestId,
+            "play",
+            NativeRequestState.OperationState.COMPLETED.name,
+            result = session,
+        )
+        NativeMailbox.writeBestEffort(
+            this,
+            JSONObject()
+                .put("type", "diagnostic")
+                .put("requestId", requestId)
+                .put(
+                    "payload",
+                    JSONObject()
+                        .put("event", event)
+                        .put("requestId", requestId)
+                        .put("playerSessionId", session),
+                ),
+        )
+    }
+
     private fun publishNativeCommandError(
         requestId: String?,
         action: String?,
@@ -2045,6 +2069,25 @@ class MainActivity : FlutterFragmentActivity() {
         val reusingPlayerActivity = !previousActiveRequestId.isNullOrBlank()
         val originRequestId = playerRequest.originRequestId
         val originCreatedAtMs = playerRequest.originCreatedAtMs
+        val incomingPlayerSessionId = playerRequest.playerSessionId
+        if (originRequestId.isBlank() && incomingPlayerSessionId.isNotBlank()) {
+            if (activePlayerSessionId != null && activePlayerSessionId != incomingPlayerSessionId) {
+                nativeRequestState.markOperationState(
+                    requestId,
+                    "play",
+                    NativeRequestState.OperationState.FAILED,
+                )
+                publishNativeDiagnostic(
+                    "PLAYER_HANDOFF_REJECTED",
+                    requestId,
+                    "play",
+                    NativeRequestState.OperationState.FAILED.name,
+                    result = "stale_session",
+                )
+                return false
+            }
+            activePlayerSessionId = incomingPlayerSessionId
+        }
         val originPlayerSessionId = playerRequest.originPlayerSessionId
         val staleOriginDiagnosticEvent =
             if (playerRequest.transitionDirection == "PREVIOUS") "PLAYER_PREVIOUS_STALE_REJECTED" else "PLAYER_NEXT_STALE_REJECTED"
@@ -2185,6 +2228,7 @@ class MainActivity : FlutterFragmentActivity() {
             return true
         }
         activePlayerRequestId = requestId.takeIf { it.isNotBlank() }
+        activePlayerSessionId = playerRequest.playerSessionId.takeIf { it.isNotBlank() } ?: activePlayerSessionId
         activePlayerCommandCreatedAtMs = playerRequest.commandCreatedAtMs
         Log.i(
             tag,
@@ -2200,6 +2244,7 @@ class MainActivity : FlutterFragmentActivity() {
                 .putExtra("originRequestId", playerRequest.originRequestId)
                 .putExtra("originCreatedAtMs", playerRequest.originCreatedAtMs)
                 .putExtra("originTransitionGeneration", playerRequest.originTransitionGeneration)
+                .putExtra("playerSessionId", playerRequest.playerSessionId)
                 .putExtra("originPlayerSessionId", playerRequest.originPlayerSessionId)
                 .putExtra("originMonotonicNs", playerRequest.originMonotonicNs)
                 .putExtra("transitionDirection", playerRequest.transitionDirection)
@@ -2272,6 +2317,7 @@ class MainActivity : FlutterFragmentActivity() {
                     NativeRequestState.OperationState.COMPLETED.name,
                     result = "activity_direct",
                 )
+                publishPlayerSessionDiagnostic(requestId, "PLAYER_SESSION_CREATED")
                 Log.i(
                     tag,
                     "PLAY_HANDOFF_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +
@@ -2289,6 +2335,7 @@ class MainActivity : FlutterFragmentActivity() {
                     NativeRequestState.OperationState.COMPLETED.name,
                     result = "activity_result",
                 )
+                publishPlayerSessionDiagnostic(requestId, "PLAYER_SESSION_CREATED")
                 Log.i(
                     tag,
                     "PLAY_HANDOFF_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +

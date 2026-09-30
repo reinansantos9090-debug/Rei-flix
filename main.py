@@ -2539,25 +2539,78 @@ async def main(page: ft.Page):
                             performance.record_native_event(event)
                             continue
                         elif event_type == 'player_opened':
-                            if player_active_request_id["value"] in (None, event_request_id):
+                            session_id = str(payload.get("playerSessionId") or "").strip()
+                            if session_id:
+                                if player_active_session_id["value"] not in (None, session_id):
+                                    diagnostics.record(
+                                        "PLAYER_OPENED_IGNORED",
+                                        request_id=event_request_id,
+                                        source="native_player",
+                                        result="stale_player_session",
+                                    )
+                                    continue
+                                player_active_session_id["value"] = session_id
+                                player_session_active["value"] = True
+                                player_active_episode_id["value"] = payload.get("episodeId")
+                                player_active_anime_id["value"] = payload.get("animeId")
+                                player_active_uri["value"] = payload.get("uri")
+
+                            context = pending_next_transition["value"]
+                            if isinstance(context, dict):
+                                target_request_id = str(context.get("target_request_id") or "").strip()
+                                if (
+                                    event_request_id == target_request_id
+                                    and session_id
+                                    and session_id == str(context.get("player_session_id") or "")
+                                    and str(payload.get("episodeId") or "") == str(context.get("target_episode_id") or "")
+                                ):
+                                    context["ready"] = True
+                                    performance.event(
+                                        "NEXT_TRANSITION_READY",
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": context.get("origin_request_id"),
+                                            "target_request_id": target_request_id,
+                                            "player_session_id": session_id,
+                                            "episode_id": payload.get("episodeId"),
+                                            "transition_generation": context.get("native_transition_generation"),
+                                        },
+                                    )
+                                    diagnostics.record(
+                                        "PLAYER_OPENED",
+                                        request_id=event_request_id,
+                                        source=payload.get("source") or "native_player",
+                                        result=payload.get("state") or "READY",
+                                    )
+                                else:
+                                    performance.event(
+                                        "NEXT_REQUEST_STALE",
+                                        screen=navigation.current,
+                                        status="rejected",
+                                        metadata={
+                                            "request_id": context.get("origin_request_id"),
+                                            "target_request_id": target_request_id,
+                                            "reason": "player_opened_wrong_target",
+                                        },
+                                    )
+                            else:
                                 player_active_request_id["value"] = event_request_id
                                 player_session_active["value"] = True
-                                performance.event("PLAYER_TRANSITION_COMMITTED", screen=navigation.current,
-                                                  metadata={"request_id": event_request_id, "episode_id": payload.get("episodeId"),
-                                                            "generation": payload.get("generation"),
-                                                            "transition_generation": payload.get("transitionGeneration")})
+                                performance.event(
+                                    "PLAYER_TRANSITION_COMMITTED",
+                                    screen=navigation.current,
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "episode_id": payload.get("episodeId"),
+                                        "generation": payload.get("generation"),
+                                        "transition_generation": payload.get("transitionGeneration"),
+                                    },
+                                )
                                 diagnostics.record(
                                     "PLAYER_OPENED",
                                     request_id=event_request_id,
-                                    source=payload.get('source') or "native_player",
-                                    result=payload.get('state') or "READY",
-                                )
-                            else:
-                                diagnostics.record(
-                                    "PLAYER_OPENED_IGNORED",
-                                    request_id=event_request_id,
-                                    source="native_player",
-                                    result="stale_player_session",
+                                    source=payload.get("source") or "native_player",
+                                    result=payload.get("state") or "READY",
                                 )
                         elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
                             path_ref = str(payload.get('uri') or '').strip()

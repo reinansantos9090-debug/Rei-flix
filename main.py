@@ -839,6 +839,7 @@ async def main(page: ft.Page):
             player_settings={
                 "player.default_speed": settings.get("player.default_speed"),
                 "player.aspect_ratio": settings.get("player.aspect_ratio"),
+                "player.zoom_enabled": settings.get("player.zoom_enabled"),
                 "player.immersive": settings.get("player.immersive"),
                 "player.rotation": settings.get("player.rotation"),
                 "player.pip": settings.get("player.pip"),

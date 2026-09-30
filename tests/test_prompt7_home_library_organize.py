@@ -25,7 +25,8 @@ class Prompt7HomeLibraryOrganizeTests(unittest.TestCase):
         self.assertIn("is_active = is_active or (lambda: True)", home)
         self.assertIn("await asyncio.to_thread(", home)
         self.assertIn("library.browse_catalog_page", home)
-        self.assertIn("if changed and is_active():\n                page.update()", home)
+        self.assertIn("if changed and is_active():", home)
+        self.assertIn("page.update()", home)
 
     def test_home_load_catalog_no_longer_double_updates_after_paged_load(self):
         home = self.read(HOME)

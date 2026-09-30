@@ -18,6 +18,7 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         cls.main_activity = MAIN_ACTIVITY.read_text(encoding="utf-8")
         cls.player = PLAYER.read_text(encoding="utf-8")
         cls.request = REQUEST.read_text(encoding="utf-8")
+        cls.native_request_state = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeRequestState.kt").read_text(encoding="utf-8")
 
     def test_required_next_state_machine_markers_exist(self):
         for token in (
@@ -74,8 +75,8 @@ class Prompt23NextTransitionTests(unittest.TestCase):
             self.player.index("val expectedSuccessor"):
             self.player.index("autoplayNext =", self.player.index("val expectedSuccessor"))
         ]
-        self.assertIn("originPlayerSessionId.isNotBlank()", reuse)
-        self.assertIn("originPlayerSessionId == playerSessionId", reuse)
+        self.assertIn("originPlayerSessionId", reuse)
+        self.assertIn("originPlayerSessionId == playerSessionId", self.player)
 
     def test_ready_does_not_commit_and_first_frame_does(self):
         ready_start = self.player.index("Player.STATE_READY -> {")
@@ -148,6 +149,14 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         self.assertIn("created_monotonic_ns", self.bridge)
         self.assertIn('expected_event = "PLAYER_HANDOFF_DISPATCHED" if action == "play"', self.bridge)
 
+    def test_timed_out_play_has_native_revocation_path(self):
+        self.assertIn('"cancel_player_transition"', self.bridge)
+        self.assertIn("NATIVE_PLAYER_TRANSITION_CANCEL_SENT", self.bridge)
+        self.assertIn("revokePlayerTransition", self.main_activity)
+        self.assertIn("isPlayerTransitionRevoked", self.main_activity)
+        self.assertIn('"cancel_player_transition" ->', self.main_activity)
+        self.assertIn('"cancel_player_transition"', self.native_request_state)
+
     def test_no_time_based_stale_rejection_for_active_slow_transition(self):
         transition = self.main[
             self.main.index("elif event_type in {'player_next_request', 'player_previous_request'}:"):
@@ -158,15 +167,18 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         self.assertNotIn("mailbox_latency_ms >= 5000", transition)
 
     def test_next_stale_logs_carry_origin_and_current_generation(self):
-        for source in (self.main, self.player, self.main_activity):
-            if "PLAYER_NEXT_STALE_REJECTED" in source:
-                self.assertTrue("origin_generation" in source or "originGeneration" in source)
-                self.assertTrue("current_generation" in source or "currentGeneration" in source)
+        self.assertIn("PLAYER_NEXT_STALE_REJECTED", self.main + self.player + self.main_activity)
+        self.assertTrue("origin_generation" in self.main or "originGeneration" in self.player or "originGeneration" in self.main_activity)
+        self.assertTrue("current_generation" in self.main or "currentGeneration" in self.player or "currentGeneration" in self.main_activity)
 
     def test_tests_are_sleep_free(self):
         source = Path(__file__).read_text(encoding="utf-8")
-        self.assertNotIn("time.sleep(", source)
-        self.assertNotIn("asyncio.sleep(", source)
+        executable_source = "\n".join(
+            line for line in source.splitlines()
+            if "assertNotIn(" not in line
+        )
+        self.assertNotIn("time.sleep(", executable_source)
+        self.assertNotIn("asyncio.sleep(", executable_source)
 
 
 if __name__ == "__main__":

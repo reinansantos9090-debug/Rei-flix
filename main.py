@@ -394,6 +394,7 @@ async def main(page: ft.Page):
         if callable(resetter):
             resetter("SUCCESS", 1.2)
     organize_state = {}
+    details_state = {}
     settings_state = {}
     device_interaction_profile = {}
     navigation = NavigationController()
@@ -691,6 +692,7 @@ async def main(page: ft.Page):
                     and details_instance_generation[0] == token
                     and (current[0] or {}).get("id") == anime_id
                 ),
+                view_state=details_state,
             )
         elif route == "collector":
             collector_instance_generation[0] += 1

@@ -484,6 +484,42 @@ class LibraryService:
     def register_generated_thumbnail(self, media_uri, thumbnail_path, *, size=0, modified_at=0, media_identity=None, metadata=None):
         return self.artwork.register_generated_thumbnail(media_uri, thumbnail_path, size=size, modified_at=modified_at, media_identity=media_identity, metadata=metadata)
 
+    def thumbnail_candidates(self, *, after_id=0, limit=128):
+        """Return eligible episodes that do not currently have a valid exact thumbnail."""
+        limit = max(1, min(int(limit or 128), 128))
+        after_id = max(0, int(after_id or 0))
+        with self.store._conn() as con:
+            rows = [
+                dict(row) for row in con.execute(
+                    """SELECT id,anime_id,path,file_size,modified_at,media_identity,missing,
+                              availability_state,last_played_at
+                       FROM episodes
+                       WHERE id > ?
+                         AND missing=0
+                         AND COALESCE(availability_state,'available')='available'
+                         AND path IS NOT NULL
+                         AND trim(path) != ''
+                       ORDER BY id
+                       LIMIT ?""",
+                    (after_id, limit),
+                ).fetchall()
+            ]
+        if not rows:
+            return []
+        exact = self.artwork.resolve_local_batch(
+            "episode",
+            [row["id"] for row in rows],
+            ("episode_thumbnail",),
+        )
+        return [
+            {
+                **row,
+                "thumbnail_ready": str(row["id"]) in exact,
+            }
+            for row in rows
+            if str(row["id"]) not in exact
+        ]
+
     def resolve_artwork_batch(self, entity_type, entity_ids, artwork_types=("episode_thumbnail", "poster")):
         """Return local artwork for many entities through the shared ArtworkEngine."""
         return self.artwork.resolve_local_batch(entity_type, entity_ids, artwork_types=artwork_types)

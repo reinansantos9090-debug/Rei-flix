@@ -155,6 +155,36 @@ class MainActivity : FlutterFragmentActivity() {
         private var activePlayerSessionId: String? = null
         @Volatile
         private var activePlayerRequestId: String? = null
+        private val revokedPlayerTransitions = LinkedHashMap<String, String?>()
+        private const val MAX_REVOKED_PLAYER_TRANSITIONS = 128
+
+        @JvmStatic
+        fun revokePlayerTransition(originRequestId: String, originPlayerSessionId: String? = null) {
+            val request = originRequestId.trim()
+            if (request.isBlank()) return
+            synchronized(revokedPlayerTransitions) {
+                revokedPlayerTransitions[request] = originPlayerSessionId?.trim()?.takeIf { it.isNotEmpty() }
+                while (revokedPlayerTransitions.size > MAX_REVOKED_PLAYER_TRANSITIONS) {
+                    revokedPlayerTransitions.remove(revokedPlayerTransitions.keys.first())
+                }
+            }
+            Log.i(
+                LOG_TAG,
+                "PLAYER_TRANSITION_REVOKED originRequestId=" + request +
+                    " originPlayerSessionId=" + (originPlayerSessionId ?: "-"),
+            )
+        }
+
+        @JvmStatic
+        fun isPlayerTransitionRevoked(originRequestId: String, originPlayerSessionId: String? = null): Boolean {
+            val request = originRequestId.trim()
+            if (request.isBlank()) return false
+            synchronized(revokedPlayerTransitions) {
+                val revokedSession = revokedPlayerTransitions[request] ?: return true
+                val incomingSession = originPlayerSessionId?.trim().orEmpty()
+                return revokedSession.isNullOrBlank() || incomingSession.isBlank() || revokedSession == incomingSession
+            }
+        }
 
         @JvmStatic
         fun notePlayerSession(requestId: String, sessionId: String) {
@@ -689,6 +719,27 @@ class MainActivity : FlutterFragmentActivity() {
                 "open_broad_storage_settings" -> {
                     pendingBroadRequestId = pendingRequestId
                     openBroadStorageSettings()
+                }
+                "cancel_player_transition" -> {
+                    val originRequestId = data.getQueryParameter("origin_request_id")?.trim().orEmpty()
+                    val originPlayerSessionId = data.getQueryParameter("origin_player_session_id")?.trim()?.takeIf { it.isNotEmpty() }
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    if (originRequestId.isBlank()) {
+                        publishNativeCommandError(
+                            requestId, action, "cancel", "MISSING_ORIGIN_REQUEST_ID",
+                            "A invalidação da transição não informou a requisição original.",
+                        )
+                        return
+                    }
+                    revokePlayerTransition(originRequestId, originPlayerSessionId)
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.COMPLETED)
+                    publishNativeDiagnostic(
+                        "PLAYER_TRANSITION_CANCELLED",
+                        requestId,
+                        action,
+                        NativeRequestState.OperationState.COMPLETED.name,
+                        result = originRequestId,
+                    )
                 }
                 "play" -> {
                     val uri = pendingPlayUri

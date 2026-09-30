@@ -17,7 +17,8 @@ class Prompt12PlayerTransitionContractTests(unittest.TestCase):
 
     def test_transition_gate_blocks_second_request_until_media3_ready(self):
         request = self.player[self.player.index("private fun requestEpisode"):self.player.index("private fun seekToSavedPosition")]
-        self.assertIn("episodeChangePending || errorVisible", request)
+        self.assertIn("if (episodeChangePending)", request)
+        self.assertIn("if (errorVisible)", request)
         self.assertIn("episodeChangePending = true", request)
         self.assertIn("updateEpisodeNavigationButtons()", request)
 

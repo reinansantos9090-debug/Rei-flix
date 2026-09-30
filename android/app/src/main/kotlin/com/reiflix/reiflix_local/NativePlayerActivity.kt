@@ -1034,10 +1034,18 @@ override fun onCreate(savedInstanceState: Bundle?) {
                         logPlayer("PREFLIGHT_ASYNC_FAILED requestId=" + requestId.ifEmpty { "-" } +
                             " generation=" + generation + " errorCode=" + preflightFailure.code +
                             " error=" + preflightFailure.message)
+                        val preflightClassification = PlayerMediaPolicy.classifyPlaybackFailure(
+                            errorCodeName = preflightFailure.code,
+                        )
                         showPlayerError(
                             preflightFailure.message,
                             "source_preflight",
-                            JSONObject().put("errorCode", preflightFailure.code),
+                            JSONObject()
+                                .put("errorCode", preflightFailure.code)
+                                .put("failureStage", "SOURCE_PREFLIGHT"),
+                            category = preflightClassification.legacyCategory,
+                            failureKind = preflightClassification.kind,
+                            retryable = preflightClassification.retryable,
                         )
                     }
                     return@submit

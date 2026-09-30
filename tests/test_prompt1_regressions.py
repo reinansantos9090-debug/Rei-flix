@@ -88,8 +88,7 @@ class Prompt1RegressionTests(unittest.TestCase):
             "start_native_player",
             "player_exited",
             "store.save_progress",
-            "library.next_episode",
-            "library.previous_episode",
+            "library.player_navigation",
             "resolve_artwork_palette",
         ):
             self.assertIn(token, MAIN)

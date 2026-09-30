@@ -116,7 +116,7 @@ class Prompt25SessionHardeningTests(unittest.TestCase):
         self.assertIn("episodeChangeTimeoutSessionId", PLAYER)
         self.assertIn("episodeChangeTimeoutPlayerGeneration", PLAYER)
         self.assertIn("episodeChangeTimeoutSessionId == playerSessionId", PLAYER)
-        self.assertIn("episodeChangeTimeoutPlayerGeneration != playerGeneration", PLAYER)
+        self.assertIn("episodeChangeTimeoutPlayerGeneration == playerGeneration", PLAYER)
         self.assertIn("PLAYER_TIMEOUT_STALE", PLAYER)
 
     def test_feedback_is_session_scoped(self):

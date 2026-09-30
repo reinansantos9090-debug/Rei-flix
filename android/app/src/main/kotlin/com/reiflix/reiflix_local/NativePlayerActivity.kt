@@ -1273,8 +1273,54 @@ override fun onCreate(savedInstanceState: Bundle?) {
                     }
                     if (!initialSeekApplied) {
                         val savedPosition = intent.getLongExtra("positionMs", 0L)
-                        seekToSavedPosition(restoredPositionMs ?: savedPosition)
+                        val resumeRequestedMs = restoredPositionMs ?: savedPosition
+                        if (resumeRequestedMs > 0L) {
+                            NativeMailbox.writeBestEffort(
+                                this@NativePlayerActivity,
+                                JSONObject()
+                                    .put("type", "diagnostic")
+                                    .put("requestId", requestId)
+                                    .put(
+                                        "payload",
+                                        JSONObject()
+                                            .put("event", "RESUME_SEEK_REQUESTED")
+                                            .put("episodeId", currentEpisodeId())
+                                            .put("playerSessionId", playerSessionId)
+                                            .put("playerGeneration", generation)
+                                            .put("requestedPositionMs", resumeRequestedMs)
+                                            .put("durationMs", player.duration.coerceAtLeast(0L)),
+                                    ),
+                            )
+                        }
+                        val appliedResumePositionMs = seekToSavedPosition(resumeRequestedMs)
+                        if (resumeRequestedMs > 0L) {
+                            NativeMailbox.writeBestEffort(
+                                this@NativePlayerActivity,
+                                JSONObject()
+                                    .put("type", "diagnostic")
+                                    .put("requestId", requestId)
+                                    .put(
+                                        "payload",
+                                        JSONObject()
+                                            .put("event", "RESUME_SEEK_APPLIED")
+                                            .put("episodeId", currentEpisodeId())
+                                            .put("playerSessionId", playerSessionId)
+                                            .put("playerGeneration", generation)
+                                            .put("requestedPositionMs", resumeRequestedMs)
+                                            .put("appliedPositionMs", appliedResumePositionMs)
+                                            .put("durationMs", player.duration.coerceAtLeast(0L)),
+                                    ),
+                            )
+                        }
                         initialSeekApplied = true
+                    }
+                    if (sessionState == SessionState.ACTIVE && !errorVisible) {
+                        player.playWhenReady = requestedPlayWhenReadyForGeneration
+                        logPlayer(
+                            "PLAY_WHEN_READY_APPLIED requested=" + requestedPlayWhenReadyForGeneration +
+                                " requestId=" + requestId.ifEmpty { "-" } +
+                                " generation=$generation",
+                        )
                     }
                     if (
                         (

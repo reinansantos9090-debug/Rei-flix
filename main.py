@@ -1176,6 +1176,8 @@ async def main(page: ft.Page):
                     metadata={"request_id": request_id, "episode_id": episode_id, "anime_id": anime_id},
                 )
             except Exception as exc:
+                if player_active_session_id["value"] == launch_session_id:
+                    invalidate_player_session("launch_failed", expected_session_id=launch_session_id)
                 logger.exception("[PLAYER] native handoff failed path=%s", path)
                 page.snack_bar = ft.SnackBar(
                     ft.Text("Não foi possível enviar este episódio ao player Android.")
@@ -2842,14 +2844,6 @@ async def main(page: ft.Page):
                                 )
                                 continue
 
-                            if session_id:
-                                player_active_session_id["value"] = session_id
-                            player_session_active["value"] = True
-                            player_active_player_generation["value"] = int(payload.get("generation") or player_active_player_generation["value"])
-                            player_active_episode_id["value"] = payload.get("episodeId")
-                            player_active_anime_id["value"] = payload.get("animeId")
-                            player_active_uri["value"] = payload.get("uri")
-
                             pending_candidates = (
                                 ("NEXT", pending_next_transition["value"]),
                                 ("PREVIOUS", pending_previous_transition["value"]),
@@ -2877,6 +2871,12 @@ async def main(page: ft.Page):
                                     context["ready"] = True
                                     context["target_player_generation"] = payload.get("generation")
                                     context["target_transition_generation"] = payload.get("transitionGeneration")
+                                    player_active_session_id["value"] = session_id
+                                    player_session_active["value"] = True
+                                    player_active_player_generation["value"] = int(payload.get("generation") or player_active_player_generation["value"])
+                                    player_active_episode_id["value"] = payload.get("episodeId")
+                                    player_active_anime_id["value"] = payload.get("animeId")
+                                    player_active_uri["value"] = payload.get("uri")
                                     performance.event(
                                         "NEXT_TRANSITION_READY" if context_direction == "NEXT" else "PREVIOUS_TRANSITION_READY",
                                         screen=navigation.current,
@@ -2909,6 +2909,20 @@ async def main(page: ft.Page):
                                     )
                                     continue
                             else:
+                                if not session_id:
+                                    performance.event(
+                                        "PLAYER_COMMAND_REJECTED",
+                                        screen=navigation.current,
+                                        status="rejected",
+                                        metadata={"request_id": event_request_id, "reason": "missing_player_session_id"},
+                                    )
+                                    continue
+                                player_active_session_id["value"] = session_id
+                                player_session_active["value"] = True
+                                player_active_player_generation["value"] = int(payload.get("generation") or player_active_player_generation["value"])
+                                player_active_episode_id["value"] = payload.get("episodeId")
+                                player_active_anime_id["value"] = payload.get("animeId")
+                                player_active_uri["value"] = payload.get("uri")
                                 player_active_request_id["value"] = event_request_id
                                 performance.event(
                                     "PLAYER_COMMAND_ACCEPTED",
@@ -2932,6 +2946,19 @@ elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
                                 try:
                                     position_ms = max(0.0, float(payload.get('positionMs') or 0.0))
                                     duration_ms = max(0.0, float(payload.get('durationMs') or 0.0))
+                                    pre_current, pre_reason = player_callback_is_current(
+                                        event_request_id,
+                                        payload,
+                                        episode_id=payload.get("episodeId"),
+                                    )
+                                    if not pre_current:
+                                        performance.event(
+                                            "PLAYER_TASK_STALE",
+                                            screen=navigation.current,
+                                            status="ignored",
+                                            metadata={"request_id": event_request_id, "reason": pre_reason, "stage": "before_save_progress"},
+                                        )
+                                        continue
                                     progress_started = performance.now()
                                     updated = await asyncio.to_thread(
                                         store.save_progress,
@@ -3641,20 +3668,26 @@ elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
                                         performance.event(
                                             f"player.{direction_name.lower()}.request_complete",
                                             duration_ms=(performance.now() - transition_started) * 1000.0,
-                                            screen=navigation.current,
-                                            metadata={
-                                                "request_id": event_request_id,
-                                                "button_to_handoff_or_fail_ms": (performance.now() - transition_started) * 1000.0,
-                                                "button_created_at_ms": button_created_at_ms,
-                                            },
-                                        )
-
-                            task = asyncio.create_task(
-                                run_player_transition(),
-                                name=f"reiflix-player-transition-{direction_name.lower()}-{transition_generation}",
+            elif event_type == 'player_error':
+                            callback_current, callback_reason = player_callback_is_current(
+                                event_request_id,
+                                payload,
+                                episode_id=payload.get("episodeId"),
                             )
-                            player_transition_task["task"] = task
-                        elif event_type == 'player_error':
+                            if not callback_current:
+                                performance.event(
+                                    "PLAYER_ERROR_STALE_IGNORED",
+                                    screen=navigation.current,
+                                    status="ignored",
+                                    metadata={
+                                        "request_id": event_request_id,
+                                        "reason": callback_reason,
+                                        "player_session_id": payload.get("playerSessionId"),
+                                        "episode_id": payload.get("episodeId"),
+                                    },
+                                )
+                                continue
+
                             for context_direction, pending in (
                                 ("NEXT", pending_next_transition["value"]),
                                 ("PREVIOUS", pending_previous_transition["value"]),
@@ -3685,26 +3718,24 @@ elif event_type in {'player_progress', 'player_paused', 'player_completed'}:
                                 )
                             ):
                                 cancel_player_transition("player_error")
-                            callback_current, callback_reason = player_callback_is_current(
-                                event_request_id,
-                                payload,
-                                episode_id=payload.get("episodeId"),
-                            )
-                            if not callback_current:
-                                performance.event(
-                                    "PLAYER_ERROR_STALE_IGNORED",
-                                    screen=navigation.current,
-                                    status="ignored",
-                                    metadata={
-                                        "request_id": event_request_id,
-                                        "reason": callback_reason,
-                                        "player_session_id": payload.get("playerSessionId"),
-                                        "episode_id": payload.get("episodeId"),
-                                    },
-                                )
-                                continue
                             message = event.get('message', 'Não foi possível reproduzir este arquivo localmente.')
                             diagnostics.record(
+                                "PLAYER_ERROR",
+                                request_id=event_request_id,
+                                source="native_player",
+                                result=payload.get('reason') or message,
+                                error=message,
+                            )
+                            logger.error(
+                                "[PLAYER] native_error request_id=%s uri=%s payload=%s",
+                                event_request_id or "-",
+                                payload.get('uri') or "",
+                                payload,
+                            )
+                            page.snack_bar = ft.SnackBar(ft.Text(message))
+                            page.snack_bar.open = True
+                            safe_update()
+                                  diagnostics.record(
                                 "PLAYER_ERROR",
                                 request_id=event_request_id,
                                 source="native_player",

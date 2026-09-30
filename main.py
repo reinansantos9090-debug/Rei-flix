@@ -3260,6 +3260,7 @@ async def main(page: ft.Page):
                                         duration_ms / 1000.0,
                                         episode_id=payload.get("episodeId"),
                                         event_created_at=event.get('createdAt') or event.get('timestamp'),
+                                        session_id=payload.get("playerSessionId"),
                                     )
                                     callback_current, callback_reason = player_callback_is_current(
                                         event_request_id,
@@ -4095,6 +4096,7 @@ async def main(page: ft.Page):
                                         duration_seconds,
                                         episode_id=payload.get("episodeId"),
                                         event_created_at=event.get('createdAt') or event.get('timestamp'),
+                                        session_id=payload.get("playerSessionId"),
                                     )
                                 except (TypeError, ValueError):
                                     exit_updated = False

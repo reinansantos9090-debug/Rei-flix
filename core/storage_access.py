@@ -85,7 +85,10 @@ class StorageCapabilities:
         broad = str(payload.get("broadStorageState") or "unavailable").casefold()
         if broad not in {"available", "unavailable"}:
             broad = "unavailable"
-        saf = dedupe_saf_roots(payload.get("safRoots") or [])
+        saf = tuple(dict.fromkeys(
+            str(value).strip() for value in (payload.get("safRoots") or [])
+            if str(value).strip()
+        ))
         removable = tuple(dict.fromkeys(
             str(value).strip() for value in (payload.get("removableVolumes") or [])
             if str(value).strip()
@@ -186,7 +189,7 @@ def saf_source_identity(value: str | None) -> str | None:
     path = parsed.path.rstrip("/")
     marker = "/tree/"
     if marker not in path:
-        return None
+        return f"saf-uri:{raw}"
     encoded_id = path.split(marker, 1)[1].split("/", 1)[0].strip()
     if not encoded_id:
         return None

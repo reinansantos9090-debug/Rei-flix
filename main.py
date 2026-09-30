@@ -12,7 +12,17 @@ from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIR
 from core.android_bridge import AndroidBridge
 from core.navigation import NavigationController, SafSelectionState
 from core.scan_coordinator import ScanCoordinator, ScanOrigin, ScanState, ScanTarget
-from core.storage_access import (\n    StorageAccessState,\n    StorageCapabilities,\n    ScanUiState,\n    scan_ui_state_from_native,\n    storage_access_state,\n    storage_source_states,\n    dedupe_saf_roots,\n    saf_source_identity,\n    library_saf_roots,\n)
+from core.storage_access import (
+    StorageAccessState,
+    StorageCapabilities,
+    ScanUiState,
+    scan_ui_state_from_native,
+    storage_access_state,
+    storage_source_states,
+    dedupe_saf_roots,
+    saf_source_identity,
+    library_saf_roots,
+)
 from core.diagnostics import DiagnosticTimeline
 from core.performance import get_performance_monitor
 from core.settings_focus import SettingsTaskRegistry
@@ -2319,6 +2329,22 @@ async def main(page: ft.Page):
                 page.snack_bar.open = True
                 safe_update()
 
+        async def allow_media(_event):
+            # Retained for lifecycle compatibility with the existing storage
+            # permission flow. A MediaStore grant never creates a library source.
+            storage_onboarding["dialog_open"] = False
+            storage_onboarding["waiting_for_result"] = True
+            page.pop_dialog()
+            try:
+                await request_video_access()
+            except Exception:
+                storage_onboarding["waiting_for_result"] = False
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("Não foi possível abrir a solicitação de acesso.")
+                )
+                page.snack_bar.open = True
+                safe_update()
+
         def cancel(_event):
             logger.info("[LIBRARY_SOURCE] onboarding cancelled")
             storage_onboarding["dialog_open"] = False
@@ -2328,7 +2354,7 @@ async def main(page: ft.Page):
 
         dialog.actions = [
             ft.TextButton("CANCELAR", on_click=cancel),
-            ft.FilledButton("ESCOLHER PASTA", on_click=choose_folder),
+            ft.TextButton("ESCOLHER PASTA", on_click=choose_folder),
         ]
         storage_onboarding["dialog_open"] = True
         logger.info("[LIBRARY_SOURCE] LIBRARY_SOURCE_INVALID reason=no_configured_library_source")

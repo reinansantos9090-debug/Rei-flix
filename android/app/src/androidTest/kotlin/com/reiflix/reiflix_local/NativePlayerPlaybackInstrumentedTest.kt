@@ -214,6 +214,47 @@ class NativePlayerPlaybackInstrumentedTest {
     }
 
     @Test
+    fun playerZoom_isDisabledByDefault_andPinchLeavesVideoUntransformed() {
+        launchMainActivityForPlayer()
+        val uri = insertFixtureIntoMediaStore()
+        fixtureUri = uri
+        val intent = Intent(target, NativePlayerActivity::class.java)
+            .putExtra("requestId", "instrumented-zoom-disabled")
+            .putExtra("uri", uri.toString())
+            .putExtra("title", "Fixture zoom disabled")
+            .putExtra("positionMs", 0L)
+            .putExtra("autoplay", false)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        activity = InstrumentationRegistry.getInstrumentation().startActivitySync(intent) as NativePlayerActivity
+        val playerView = awaitView<PlayerView>("reiflix_player_view")
+        await("Disabled-by-default player must reach READY") {
+            onMain { playerView.player?.playbackState == Player.STATE_READY }
+        }
+        val gestureLayer = awaitView<View>("reiflix_gesture_layer")
+        val size = onMain { gestureLayer.width to gestureLayer.height }
+        pinch(gestureLayer, zoom = true)
+        await("Zoom disabled by default must leave resize mode on FIT") {
+            playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+        assertTrue(
+            "Zoom disabled by default must not apply a manual TextureView transform",
+            onMain {
+                val video = playerView.videoSurfaceView
+                if (video !is TextureView) {
+                    false
+                } else {
+                    val matrix = Matrix()
+                    video.getTransform(matrix)
+                    val values = FloatArray(9)
+                    matrix.getValues(values)
+                    kotlin.math.abs(values[Matrix.MSCALE_X] - 1f) <= 0.01f &&
+                        kotlin.math.abs(values[Matrix.MSCALE_Y] - 1f) <= 0.01f
+                }
+            },
+        )
+    }
+
+    @Test
     fun localMediaStoreFixture_reachesReadyAndPlays_inImmersivePlayer() {
         logStage("MEDIASTORE_FIXTURE_START")
         // Launch the player from a real ReiAnix task so Back is tested as it
@@ -231,6 +272,7 @@ class NativePlayerPlaybackInstrumentedTest {
             .putExtra("canNext", false)
             .putExtra("canPrevious", false)
             .putExtra("autoplay", false)
+            .putExtra("setting_player_zoom_enabled", true)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
         logStage("ACTIVITY_START")
@@ -445,8 +487,8 @@ class NativePlayerPlaybackInstrumentedTest {
 
         logStage("PINCH_ZOOM")
         pinch(gestureLayer, zoom = true)
-        await("Pinch out must select ZOOM") {
-            playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        await("Pinch out must keep Media3 on FIT while applying manual zoom") {
+            playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
         assertTrue(
             "Pinch out must actually transform the video surface, not only change resize mode",

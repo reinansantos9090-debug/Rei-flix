@@ -101,7 +101,8 @@ class Prompt10ProgressResumeTests(unittest.TestCase):
         stop = player[player.index("override fun onStop()"):player.index("override fun onWindowFocusChanged")]
         self.assertIn("sessionState != SessionState.EXITING || !exitProgressPublished", pause)
         self.assertIn("sessionState != SessionState.EXITING || !exitProgressPublished", stop)
-        self.assertIn("exitProgressPublished = ok", player)
+        self.assertIn("exitProgressPublished = true", player)
+        self.assertIn("exitProgressPublished = false", player)
         self.assertIn("reportPlayerExit(reason)", player)
 
     def test_out_of_order_events_remain_rejected_after_switching_to_episode_id(self):

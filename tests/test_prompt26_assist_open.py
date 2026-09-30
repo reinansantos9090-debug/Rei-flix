@@ -74,6 +74,8 @@ class Prompt26AssistOpenTests(unittest.TestCase):
             "FILE_NOT_FOUND",
             "MEDIA_URI_INVALID",
             "PLAYER_SESSION_INVALID",
+            "EPISODE_NOT_FOUND",
+            "MEDIA_URI_MISSING",
         ):
             self.assertIn(code, PLAYER)
         self.assertIn("SourceValidationFailure", PLAYER)
@@ -146,6 +148,7 @@ class Prompt26AssistOpenTests(unittest.TestCase):
             "H_slow_uri_resolution": ("playbackWorker.submit", "isCurrentPreparation"),
             "I_slow_media3_prepare": ("prepare()", "playerGeneration"),
             "J_missing_file": ("FILE_NOT_FOUND", "showPlayerError"),
+            "episode_validation": ("EPISODE_NOT_FOUND", "MEDIA_URI_MISSING"),
             "K_invalid_uri": ("MEDIA_URI_INVALID", "normalizeLocalReference"),
             "L_missing_permission": ("STORAGE_PERMISSION_MISSING", "SafScanner.isAuthorizedDocument"),
             "M_valid_saf": ("SAF_PERMISSION_MISSING", "SafScanner.isAuthorizedDocument"),

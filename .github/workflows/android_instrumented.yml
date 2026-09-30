@@ -75,8 +75,14 @@ jobs:
           "$sdkmanager_path" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "emulator"
       - name: Install Flet build dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt "flet[cli]==0.86.5"
+      - name: Generate deterministic player fixture
+        run: |
+          python scripts/create_player_fixture.py
+          test -s android/app/src/androidTest/assets/player_fixture.mp4
       - name: Prepare Flet template with ReiAnix Android host
         shell: bash
         run: |

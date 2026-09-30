@@ -954,6 +954,9 @@ override fun onCreate(savedInstanceState: Bundle?) {
             sessionState == SessionState.ACTIVE &&
             ::uri.isInitialized &&
             uri == localUri
+    private fun isCurrentPreparation(generation: Long, localUri: Uri): Boolean =
+        isCurrentPreparation(generation, localUri, transitionGeneration)
+
 
     private fun prepareCurrentMedia(reason: String, playWhenReadyOverride: Boolean? = null) {
         if (!::player.isInitialized || sessionState == SessionState.DESTROYED) return

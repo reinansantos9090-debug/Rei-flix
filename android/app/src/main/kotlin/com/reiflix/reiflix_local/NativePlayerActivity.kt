@@ -58,12 +58,16 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -250,6 +254,15 @@ class NativePlayerActivity : ComponentActivity() {
     private var audioFormatSummary: String? = null
     private var subtitleFormatSummary: String? = null
     private var currentErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN
+    private var currentFailureKind = PlayerMediaPolicy.PlaybackFailureKind.UNKNOWN
+    private var currentFailureRetryable = false
+    private var playbackErrorForGeneration = false
+    private var lastMediaPeriodId = ""
+    private var lastLoadUri = ""
+    private var lastLoadDataType = -1
+    private var lastLoadTrackType = -1
+    private var lastLoadErrorClass = ""
+    private var lastLoadErrorMessage = ""
     private var pendingPreparation: Future<*>? = null
     private val playbackWorker: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "ReiAnix-PlayerIO").apply { isDaemon = true }
@@ -339,7 +352,11 @@ class NativePlayerActivity : ComponentActivity() {
 
             val payload = diagnosticPayload()
                 .put("event", "FIRST_FRAME_TIMEOUT")
-                .put("stage", "first_frame_wait")
+                .put("stage", "FIRST_FRAME")
+                .put("failureStage", "FIRST_FRAME_WAIT")
+                .put("failureKind", PlayerMediaPolicy.PlaybackFailureKind.UNKNOWN.name)
+                .put("diagnosticOnly", true)
+                .put("playbackState", player.playbackStateLabel())
                 .put("generation", generation)
                 .put("playWhenReady", player.playWhenReady)
                 .put("videoWidth", player.videoSize.width)
@@ -980,6 +997,18 @@ override fun onCreate(savedInstanceState: Bundle?) {
         videoFormatSummary = null
         audioFormatSummary = null
         currentErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN
+        currentFailureKind = PlayerMediaPolicy.PlaybackFailureKind.UNKNOWN
+        currentFailureRetryable = false
+        playbackErrorForGeneration = false
+        lastMediaPeriodId = ""
+        lastLoadUri = ""
+        lastLoadDataType = -1
+        lastLoadTrackType = -1
+        lastLoadErrorClass = ""
+        lastLoadErrorMessage = ""
+        if (reason != "retry") {
+            retryCount = 0
+        }
         pendingPreparation?.cancel(true)
         cancelFirstFrameDiagnostics("prepare_start")
         if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
@@ -1142,7 +1171,9 @@ override fun onCreate(savedInstanceState: Bundle?) {
 
     private fun createPlayerListener(generation: Long): Player.Listener = object : Player.Listener {
         private fun isCurrent(): Boolean =
-            generation == playerGeneration && sessionState == SessionState.ACTIVE
+            generation == playerGeneration &&
+                sessionState == SessionState.ACTIVE &&
+                !playbackErrorForGeneration
         override fun onEvents(player: Player, events: Player.Events) {
             if (!isCurrent()) return
             if (events.contains(Player.EVENT_RENDERED_FIRST_FRAME)) {
@@ -1262,7 +1293,6 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 " positionMs=" + if (::player.isInitialized) player.currentPosition else 0L)
             when (state) {
                 Player.STATE_READY -> {
-                    retryCount = 0
                     // READY means the media is prepared, but keep the preparation
                     // indicator until Media3 actually renders the first frame.
                     if (!openedReported) {
@@ -1488,47 +1518,90 @@ override fun onCreate(savedInstanceState: Bundle?) {
 
         override fun onPlayerError(error: PlaybackException) {
             if (!isCurrent()) return
-            val code = error.errorCodeName.orEmpty()
-            val technicalCode = "media3:" + code
-            val detail = error.message?.trim().orEmpty()
-            val category = PlayerMediaPolicy.classifyError(
-                code,
-                listOfNotNull(
-                    error.cause?.javaClass?.simpleName,
-                    error.cause?.cause?.javaClass?.simpleName,
-                ),
+
+            val exoError = error as? ExoPlaybackException
+            val rendererIndex = exoError?.rendererIndex?.takeIf { it >= 0 }
+            val rendererType = exoError?.type?.let { "TYPE_$it" }.orEmpty()
+            val causeChain = throwableChain(error)
+            val causeNames = causeChain.map { it::class.java.simpleName }
+            val causeMessages = causeChain.mapNotNull { it.message?.trim()?.takeIf(String::isNotBlank) }
+            val codeName = error.errorCodeName.orEmpty()
+            val classification = PlayerMediaPolicy.classifyPlaybackFailure(
+                errorCodeName = codeName,
+                causeNames = causeNames,
+                messages = causeMessages,
+                rendererIndex = rendererIndex,
             )
-            currentErrorCategory = category
+            currentErrorCategory = classification.legacyCategory
+            currentFailureKind = classification.kind
+            currentFailureRetryable = classification.retryable
+            playbackErrorForGeneration = true
             cancelFirstFrameDiagnostics("player_error")
+
+            val failureStage = when {
+                firstFrameRenderedForTesting -> "PLAYBACK_AFTER_FIRST_FRAME"
+                openedReported -> "PLAYER_ERROR_AFTER_READY_BEFORE_FIRST_FRAME"
+                else -> "PLAYER_ERROR_BEFORE_READY"
+            }
+            val rootCause = causeChain.lastOrNull()
+            val technicalCode = "media3:" + codeName
+            val detail = error.message?.trim().orEmpty()
+            val causeSummary = causeChain.joinToString(" -> ") { throwable ->
+                throwable::class.java.simpleName +
+                    throwable.message?.trim()?.takeIf(String::isNotBlank)?.let { ":$it" }.orEmpty()
+            }
+
             logPlayer(
-                "PlaybackException requestId=" + requestId.ifEmpty { "-" } +
-                    " code=" + code + " detail=" + detail +
-                    " cause=" + (error.cause?.javaClass?.simpleName ?: "-"),
+                "PLAYER_ERROR" +
+                    " requestId=" + requestId.ifEmpty { "-" } +
+                    " generation=" + generation +
+                    " stage=" + failureStage +
+                    " errorCode=" + codeName +
+                    " kind=" + classification.kind.name +
+                    " retryable=" + classification.retryable +
+                    " rendererIndex=" + (rendererIndex ?: -1) +
+                    " rendererType=" + rendererType.ifBlank { "-" } +
+                    " mediaPeriodId=" + lastMediaPeriodId.ifBlank { "-" } +
+                    " dataSourceUri=" + lastLoadUri.ifBlank { "-" } +
+                    " rootCause=" + (rootCause?.javaClass?.simpleName ?: "-"),
                 error,
             )
+
             saveProgress("player_progress", force = true)
             player.pause()
+
+            val diagnostic = diagnosticPayload()
+                .put("failureStage", failureStage)
+                .put("failureKind", classification.kind.name)
+                .put("retryable", classification.retryable)
+                .put("errorCode", technicalCode)
+                .put("errorCodeName", codeName)
+                .put("errorMessage", detail)
+                .put("causeChain", causeSummary)
+                .put("rootCauseClass", rootCause?.javaClass?.simpleName.orEmpty())
+                .put("rootCauseMessage", rootCause?.message?.trim().orEmpty())
+                .put("rendererIndex", rendererIndex ?: -1)
+                .put("rendererType", rendererType)
+                .put("mediaPeriodId", lastMediaPeriodId)
+                .put("dataSourceUri", lastLoadUri)
+                .put("dataType", lastLoadDataType)
+                .put("trackType", lastLoadTrackType)
+                .put("loadErrorClass", lastLoadErrorClass)
+                .put("loadErrorMessage", lastLoadErrorMessage)
+                .put("uri", uri.toString())
+                .put("requestId", requestId)
+                .put("playerSessionId", playerSessionId)
+                .put("playerGeneration", generation)
+                .put("transitionGeneration", transitionGeneration)
+                .put("episodeId", currentEpisodeId())
+
             showPlayerError(
-                when (category) {
-                    PlayerMediaPolicy.ErrorCategory.DECODER_UNSUPPORTED ->
-                        "Este dispositivo não possui um decoder compatível com este vídeo."
-                    PlayerMediaPolicy.ErrorCategory.SOURCE_UNAVAILABLE ->
-                        "O arquivo deste episódio não está disponível para leitura."
-                    else ->
-                        "Não foi possível reproduzir este arquivo neste dispositivo."
-                },
-                technicalCode,
-                diagnosticPayload()
-                    .put("uri", uri.toString())
-                    .put("errorCode", technicalCode)
-                    .put("detail", detail)
-                    .put("cause", error.cause?.javaClass?.simpleName ?: "")
-                    .put("requestId", requestId)
-                    .put("playerSessionId", playerSessionId)
-                    .put("playerGeneration", generation)
-                    .put("transitionGeneration", transitionGeneration)
-                    .put("episodeId", currentEpisodeId()),
-                category,
+                message = userMessageForFailure(classification.kind),
+                reason = failureStage,
+                payload = diagnostic,
+                category = classification.legacyCategory,
+                failureKind = classification.kind,
+                retryable = classification.retryable,
             )
         }
     }
@@ -1537,6 +1610,46 @@ override fun onCreate(savedInstanceState: Bundle?) {
         object : AnalyticsListener {
             private fun isCurrent(): Boolean =
                 generation == playerGeneration && sessionState == SessionState.ACTIVE
+
+            override fun onPlayerError(
+                eventTime: AnalyticsListener.EventTime,
+                error: PlaybackException,
+            ) {
+                if (!isCurrent()) return
+                lastMediaPeriodId = eventTime.mediaPeriodId?.toString().orEmpty()
+                logPlayer(
+                    "MEDIA3_ANALYTICS_PLAYER_ERROR generation=" + generation +
+                        " mediaPeriodId=" + lastMediaPeriodId.ifBlank { "-" } +
+                        " code=" + error.errorCodeName.orEmpty(),
+                )
+            }
+
+            override fun onLoadError(
+                eventTime: AnalyticsListener.EventTime,
+                loadEventInfo: LoadEventInfo,
+                mediaLoadData: MediaLoadData,
+                error: IOException,
+                wasCanceled: Boolean,
+            ) {
+                if (!isCurrent()) return
+                lastMediaPeriodId = eventTime.mediaPeriodId?.toString().orEmpty()
+                lastLoadUri = loadEventInfo.dataSpec.uri.toString()
+                lastLoadDataType = mediaLoadData.dataType
+                lastLoadTrackType = mediaLoadData.trackType
+                lastLoadErrorClass = error::class.java.simpleName
+                lastLoadErrorMessage = error.message?.trim().orEmpty()
+                if (!wasCanceled) {
+                    logPlayer(
+                        "MEDIA3_ANALYTICS_LOAD_ERROR generation=" + generation +
+                            " mediaPeriodId=" + lastMediaPeriodId.ifBlank { "-" } +
+                            " uri=" + lastLoadUri +
+                            " dataType=" + lastLoadDataType +
+                            " trackType=" + lastLoadTrackType +
+                            " errorClass=" + lastLoadErrorClass,
+                        error,
+                    )
+                }
+            }
 
             override fun onVideoDecoderInitialized(
                 eventTime: AnalyticsListener.EventTime,
@@ -1577,6 +1690,15 @@ override fun onCreate(savedInstanceState: Bundle?) {
         pendingPreparation?.cancel(true)
         playerGeneration += 1L
         errorPublishedForGeneration = false
+        playbackErrorForGeneration = false
+        currentFailureKind = PlayerMediaPolicy.PlaybackFailureKind.UNKNOWN
+        currentFailureRetryable = false
+        lastMediaPeriodId = ""
+        lastLoadUri = ""
+        lastLoadDataType = -1
+        lastLoadTrackType = -1
+        lastLoadErrorClass = ""
+        lastLoadErrorMessage = ""
         openedReported = false
         lastSavedPosition = -1L
         val generation = playerGeneration
@@ -2417,6 +2539,8 @@ override fun onCreate(savedInstanceState: Bundle?) {
     private fun diagnosticPayload(): JSONObject = JSONObject()
         .put("timestamp", System.currentTimeMillis())
         .put("timing", playbackTimingPayload())
+        .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
+        .put("source", if (::uri.isInitialized) sourceFor(uri) else "")
         .put("requestId", requestId)
         .put("mediaId", currentMediaId())
         .put("episodeId", currentEpisodeId())
@@ -2446,6 +2570,26 @@ override fun onCreate(savedInstanceState: Bundle?) {
         .put("playerViewHeight", if (::playerView.isInitialized) playerView.height else 0)
         .put("videoWidth", if (::player.isInitialized) player.videoSize.width else 0)
         .put("videoHeight", if (::player.isInitialized) player.videoSize.height else 0)
+        .put("failureKind", currentFailureKind.name)
+        .put("retryable", currentFailureRetryable)
+        .put("mediaPeriodId", lastMediaPeriodId)
+        .put("dataSourceUri", lastLoadUri)
+        .put("dataType", lastLoadDataType)
+        .put("trackType", lastLoadTrackType)
+        .put("loadErrorClass", lastLoadErrorClass)
+        .put("loadErrorMessage", lastLoadErrorMessage)
+
+    private fun throwableChain(error: Throwable?): List<Throwable> {
+        if (error == null) return emptyList()
+        val chain = mutableListOf<Throwable>()
+        val seen = mutableSetOf<Throwable>()
+        var current: Throwable? = error
+        while (current != null && chain.size < 8 && seen.add(current)) {
+            chain += current
+            current = current.cause
+        }
+        return chain
+    }
 
     private fun ExoPlayer.playbackStateLabel(): String = when (playbackState) {
         Player.STATE_IDLE -> "STATE_IDLE"
@@ -2733,19 +2877,31 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             logPlayer("PLAYER_RETRY_UNAVAILABLE requestId=" + requestId.ifEmpty { "-" })
             return
         }
+        if (!currentFailureRetryable) {
+            logPlayer(
+                "PLAYER_RETRY_REJECTED requestId=" + requestId.ifEmpty { "-" } +
+                    " kind=" + currentFailureKind.name,
+            )
+            showFeedback("Esta falha não pode ser repetida automaticamente", 1600L)
+            return
+        }
         if (retryCount >= MAX_RETRY_ATTEMPTS) {
             showFeedback("Limite de tentativas atingido", 1400L)
             return
         }
+
         retryCount += 1
         errorVisible = false
+        playbackErrorForGeneration = false
         moreVisible = false
         findViewByTag<View>("reiflix_error_panel")?.visibility = View.GONE
         findViewByTag<View>("reiflix_more_panel")?.visibility = View.GONE
         if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.VISIBLE
         logPlayer(
             "PLAYER_RETRY requestId=" + requestId.ifEmpty { "-" } +
-                " attempt=" + retryCount,
+                " attempt=" + retryCount +
+                " kind=" + currentFailureKind.name +
+                " retryable=" + currentFailureRetryable,
         )
         prepareCurrentMedia(
             "retry",
@@ -2758,6 +2914,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         reason: String,
         payload: JSONObject = JSONObject(),
         category: PlayerMediaPolicy.ErrorCategory = PlayerMediaPolicy.ErrorCategory.UNKNOWN,
+        failureKind: PlayerMediaPolicy.PlaybackFailureKind? = null,
+        retryable: Boolean? = null,
     ) {
         val suppliedSession = payload.optString("playerSessionId").trim()
         val suppliedRequest = payload.optString("requestId").trim()
@@ -2788,12 +2946,38 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             return
         }
 
-        currentErrorCategory = category
-        if (nextTransitionActive) {
-            publishNextTransitionDiagnostic(
-                "NEXT_TRANSITION_FAILED",
+        val failurePlayerGeneration = playerGeneration
+        val failureTransitionGeneration = transitionGeneration
+        val resolvedErrorCode = payload.optString("errorCode").ifBlank { diagnosticErrorCode(reason) }
+        val derivedClassification = PlayerMediaPolicy.classifyPlaybackFailure(
+            errorCodeName = resolvedErrorCode,
+            causeNames = listOfNotNull(
+                payload.optString("cause").takeIf(String::isNotBlank),
+                payload.optString("rootCauseClass").takeIf(String::isNotBlank),
+                payload.optString("loadErrorClass").takeIf(String::isNotBlank),
+            ),
+            messages = listOfNotNull(
+                payload.optString("detail").takeIf(String::isNotBlank),
+                payload.optString("rootCauseMessage").takeIf(String::isNotBlank),
+                payload.optString("loadErrorMessage").takeIf(String::isNotBlank),
+            ),
+            rendererIndex = payload.optInt("rendererIndex", -1).takeIf { it >= 0 },
+        )
+        val resolvedFailureKind = failureKind ?: derivedClassification.kind
+        val resolvedRetryable = retryable ?: derivedClassification.retryable
+        currentErrorCategory = category.takeIf { it != PlayerMediaPolicy.ErrorCategory.UNKNOWN }
+            ?: derivedClassification.legacyCategory
+        currentFailureKind = resolvedFailureKind
+        currentFailureRetryable = resolvedRetryable
+        playbackErrorForGeneration = true
+
+        if (nextTransitionActive || previousTransitionActive) {
+            publishNavigationTransitionDiagnostic(
+                if (nextTransitionActive) "NEXT_TRANSITION_FAILED" else "PREVIOUS_TRANSITION_FAILED",
                 "player_error",
-                JSONObject().put("error", reason),
+                JSONObject()
+                    .put("error", reason)
+                    .put("failureKind", resolvedFailureKind.name),
             )
         }
         invalidateTransition("player_error")
@@ -2802,13 +2986,16 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         if (::preparingIndicator.isInitialized) preparingIndicator.visibility = View.GONE
         if (::player.isInitialized) player.pause()
         setControlsVisible(true)
-        findViewByTag<View>("reiflix_error_text")?.let { (it as TextView).text = message }
-        findViewByTag<View>("reiflix_error_reason")?.let { (it as TextView).text = "Detalhe: " + reason }
+        findViewByTag<View>("reiflix_error_text")?.let { (it as TextView).text = userMessageForFailure(resolvedFailureKind, fallback = message) }
+        findViewByTag<View>("reiflix_error_reason")?.let {
+            (it as TextView).text = "Detalhe: " + resolvedFailureKind.name
+        }
         findViewByTag<View>("reiflix_error_retry")?.visibility =
-            if (::player.isInitialized && PlayerMediaPolicy.isRetryable(category)) View.VISIBLE else View.GONE
+            if (::player.isInitialized && resolvedRetryable) View.VISIBLE else View.GONE
         findViewByTag<View>("reiflix_error_panel")?.visibility = View.VISIBLE
         findViewByTag<View>("reiflix_error_back")?.requestFocus()
         if (::feedback.isInitialized) feedback.visibility = View.GONE
+
         val effectivePayload = diagnosticPayload()
         val supplied = JSONObject(payload.toString())
         val keys = supplied.keys()
@@ -2818,32 +3005,50 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         }
         effectivePayload
             .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
+            .put("source", if (::uri.isInitialized) sourceFor(uri) else "")
             .put("requestId", requestId)
             .put("playerSessionId", playerSessionId)
-            .put("playerGeneration", playerGeneration)
-            .put("transitionGeneration", transitionGeneration)
+            .put("playerGeneration", failurePlayerGeneration)
+            .put("transitionGeneration", failureTransitionGeneration)
             .put("episodeId", currentEpisodeId())
             .put("reason", reason)
-            .put("errorCode", payload.optString("errorCode").ifBlank { diagnosticErrorCode(reason) })
-            .put("category", category.name)
-        publishPlayerError(message, effectivePayload)
+            .put("failureStage", payload.optString("failureStage").ifBlank { reason })
+            .put("failureKind", resolvedFailureKind.name)
+            .put("retryable", resolvedRetryable)
+            .put("errorCode", resolvedErrorCode)
+            .put("category", currentErrorCategory.name)
+            .put("diagnosticOnly", false)
+        publishPlayerError(
+            userMessageForFailure(resolvedFailureKind, fallback = message),
+            effectivePayload,
+        )
     }
 
-    private fun diagnosticErrorCode(reason: String): String = when (reason) {
-        "missing_uri", "missing_uri_on_reuse", "invalid_uri_on_reuse" -> "MEDIA_URI_INVALID"
-        "episode_not_found" -> "EPISODE_NOT_FOUND"
-        "media_uri_missing" -> "MEDIA_URI_MISSING"
-        "unauthorized_or_unreadable", "source_preflight" -> "MEDIA_URI_INVALID"
-        "media3_prepare" -> "MEDIA3_PREPARE_FAILED"
-        "unsupported_format", "unsupported_media" -> "UNSUPPORTED_MEDIA"
-        "empty_file" -> "FILE_NOT_FOUND"
-        "player_reuse" -> "HANDOFF_REJECTED"
-        else -> reason.trim()
-            .takeIf { it.isNotEmpty() }
-            ?.uppercase()
-            ?.replace(Regex("[^A-Z0-9]+"), "_")
-            ?.trim('_')
-            ?: "UNKNOWN_OPEN_FAILURE"
+    private fun userMessageForFailure(
+        kind: PlayerMediaPolicy.PlaybackFailureKind,
+        fallback: String? = null,
+    ): String = when (kind) {
+        PlayerMediaPolicy.PlaybackFailureKind.MEDIA_NOT_FOUND ->
+            "O arquivo deste episódio não foi encontrado ou foi removido."
+        PlayerMediaPolicy.PlaybackFailureKind.PERMISSION ->
+            "O acesso ao arquivo deste episódio foi negado ou revogado."
+        PlayerMediaPolicy.PlaybackFailureKind.SOURCE ->
+            "O arquivo ou provedor local não está disponível para leitura."
+        PlayerMediaPolicy.PlaybackFailureKind.PARSER ->
+            "O Media3 não conseguiu interpretar o container ou formato deste arquivo."
+        PlayerMediaPolicy.PlaybackFailureKind.DECODER ->
+            "Este dispositivo não conseguiu inicializar um decoder compatível com este vídeo."
+        PlayerMediaPolicy.PlaybackFailureKind.CODEC ->
+            "O codec deste vídeo não é compatível com o decoder disponível."
+        PlayerMediaPolicy.PlaybackFailureKind.RENDERER ->
+            "O vídeo foi preparado, mas o renderizador não conseguiu exibir os frames."
+        PlayerMediaPolicy.PlaybackFailureKind.TIMEOUT ->
+            "A preparação do vídeo excedeu o tempo esperado."
+        PlayerMediaPolicy.PlaybackFailureKind.LIFECYCLE,
+        PlayerMediaPolicy.PlaybackFailureKind.STALE ->
+            fallback ?: "A reprodução foi invalidada por uma mudança de sessão."
+        PlayerMediaPolicy.PlaybackFailureKind.UNKNOWN ->
+            fallback ?: "Não foi possível reproduzir este arquivo neste dispositivo."
     }
 
     private fun publishPlayerError(message: String, payload: JSONObject = JSONObject()) {

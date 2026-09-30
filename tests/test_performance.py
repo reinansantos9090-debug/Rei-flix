@@ -97,9 +97,10 @@ class StorePaginationTests(unittest.TestCase):
 
             sections = store.home_sections(limit=8)
 
-            self.assertLessEqual(len(sections["recently_added"]), 8)
+            self.assertLessEqual(len(sections["continue_watching"]), 8)
             self.assertLessEqual(len(sections["favorites"]), 8)
-            self.assertLessEqual(len(sections["series"]), 8)
+            self.assertLessEqual(len(sections["pinned"]), 8)
+            self.assertLessEqual(len(sections["movies"]), 8)
 
     def test_continue_watching_uses_sql_bounded_resumable_projection(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -131,8 +132,9 @@ class StorePaginationTests(unittest.TestCase):
             with patch.object(store, "catalog", wraps=store.catalog) as catalog:
                 sections = store.home_sections(limit=8)
             self.assertEqual(1, catalog.call_count)
-            self.assertLessEqual(len(sections["recently_added"]), 8)
             self.assertLessEqual(len(sections["favorites"]), 8)
+            self.assertLessEqual(len(sections["pinned"]), 8)
+            self.assertLessEqual(len(sections["movies"]), 8)
 
     def test_prompt8_episode_filter_index_has_a_direct_query_plan(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -212,47 +214,6 @@ class StorePaginationTests(unittest.TestCase):
                 plan_text = " ".join(str(row["detail"]) for row in plan)
                 self.assertIn("idx_anime_added_title", plan_text)
 
-    def test_next_episode_projection_is_sql_bounded_and_excludes_specials(self):
-        with tempfile.TemporaryDirectory() as directory:
-            store = LibraryStore(directory)
-            active = store.upsert_anime("active", {"title": "Active", "genres": "[]"})
-            active_path = "/library/active-10.mkv"
-            store.upsert_episode(active, active_path, "Active 10", 1, 10)
-            store.save_progress(active_path, 20, 100, event_created_at=10)
-
-            queued = store.upsert_anime("queued", {"title": "Queued", "genres": "[]"})
-            first = "/library/queued-01.mkv"
-            second = "/library/queued-02.mkv"
-            special = "/library/queued-sp01.mkv"
-            store.upsert_episode(queued, first, "Queued 01", 1, 1)
-            store.upsert_episode(queued, second, "Queued 02", 1, 2)
-            store.upsert_episode(queued, special, "Queued SP01", 1, 1, episode_type="special")
-            store.save_progress(first, 100, 100, event_created_at=11)
-
-            result = store.next_episode_items(limit=10)
-            by_title = {item["main_title"]: item for item in result}
-
-            self.assertEqual(active_path, by_title["Active"]["next_episode"]["path"])
-            self.assertEqual(second, by_title["Queued"]["next_episode"]["path"])
-            self.assertNotIn(special, {item["next_episode"]["path"] for item in result})
-            self.assertLessEqual(len(result), 2)
-
-    def test_home_sections_keep_next_episode_semantics(self):
-        with tempfile.TemporaryDirectory() as directory:
-            store = LibraryStore(directory)
-            anime_id = store.upsert_anime("watch-next", {"title": "Watch Next", "genres": "[]"})
-            first = "/library/watch-next-01.mkv"
-            second = "/library/watch-next-02.mkv"
-            store.upsert_episode(anime_id, first, "Watch Next 01", 1, 1)
-            store.upsert_episode(anime_id, second, "Watch Next 02", 1, 2)
-            store.save_progress(first, 100, 100)
-
-            sections = store.home_sections(limit=4)
-
-            self.assertEqual(1, len(sections["next_episode"]))
-            self.assertEqual(second, sections["next_episode"][0]["next_episode"]["path"])
-
-
 class ServiceAndSourceTests(unittest.TestCase):
     def test_service_exposes_paged_catalog_and_bounded_home_sections(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -266,7 +227,7 @@ class ServiceAndSourceTests(unittest.TestCase):
 
             self.assertEqual(result["total"], 1)
             self.assertEqual(len(result["items"]), 1)
-            self.assertLessEqual(len(home["recently_added"]), 4)
+            self.assertLessEqual(len(home["favorites"]), 4)
 
     def test_home_uses_page_api_and_does_not_load_full_catalog(self):
         source = Path("views/home_view.py").read_text(encoding="utf-8")

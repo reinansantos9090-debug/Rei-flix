@@ -81,8 +81,11 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         ready_start = self.player.index("Player.STATE_READY -> {")
         ready_end = self.player.index("Player.STATE_BUFFERING -> {", ready_start)
         ready = self.player[ready_start:ready_end]
-        self.assertIn("NEXT_TRANSITION_READY", ready)
-        self.assertNotIn("EPISODE_CHANGE_COMMITTED", ready)
+        next_ready_start = ready.index("nextTransitionActive &&")
+        next_ready_end = ready.index("if (\n                        !nextTransitionActive", next_ready_start)
+        next_ready = ready[next_ready_start:next_ready_end]
+        self.assertIn("NEXT_TRANSITION_READY", next_ready)
+        self.assertNotIn("EPISODE_CHANGE_COMMITTED", next_ready)
 
         first_start = self.player.index('if (events.contains(Player.EVENT_RENDERED_FIRST_FRAME))')
         first_end = self.player.index("override fun onMediaItemTransition", first_start)

@@ -26,6 +26,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.LinkedHashSet
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -1961,7 +1962,14 @@ class MainActivity : FlutterFragmentActivity() {
         val size = source.getQueryParameter("size")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
         val modifiedAt = source.getQueryParameter("modified_at")?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
         val mediaIdentity = source.getQueryParameter("media_identity")?.trim().orEmpty()
-        val localUri = runCatching { Uri.parse(raw) }.getOrNull()
+        val localUri = runCatching {
+            val parsed = Uri.parse(raw)
+            if (parsed.scheme.isNullOrBlank() && raw.startsWith("/")) {
+                Uri.fromFile(File(raw).canonicalFile)
+            } else {
+                parsed
+            }
+        }.getOrNull()
         if (localUri == null || !(
             (localUri.scheme == "content" &&
                 (SafScanner.isAuthorizedDocument(this, localUri) || MediaStoreScanner.isAuthorizedDocument(this, localUri))) ||

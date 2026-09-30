@@ -221,6 +221,20 @@ class Prompt35ReconciliationTests(unittest.TestCase):
             self.assertIsNotNone(self.store.physical_row(path_a))
             self.assertIsNotNone(self.store.physical_row(path_b))
 
+    def test_saf_authority_must_match_configured_tree(self):
+        anime_id = self.anime("Wrong Authority")
+        path = "content://com.example.other/document/primary%3AAnime%2Fep.mp4"
+        self.episode(
+            anime_id,
+            path,
+            "ep.mp4",
+            identity="uri:com.example.other:document/primary%3AAnime%2Fep.mp4",
+            source_folder=self.SAF_ROOT,
+        )
+        report = self.service.reconcile_existing_library()
+        self.assertEqual(1, report["removed"])
+        self.assertIsNone(self.store.physical_row(path))
+
     def test_recursive_saf_scope_is_preserved(self):
         anime_id = self.anime("Nested")
         path = "content://com.android.externalstorage.documents/document/primary%3AAnime%2FNaruto%2FSeason%2001%2Fep01.mp4"

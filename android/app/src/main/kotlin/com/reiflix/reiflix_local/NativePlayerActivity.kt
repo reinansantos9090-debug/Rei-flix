@@ -2871,22 +2871,16 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 }
             }
         } catch (error: java.util.concurrent.RejectedExecutionException) {
-            episodeChangePending = false
-            episodeChangeTimeoutRequestId = ""
-            episodeChangeTimeoutUri = ""
-            episodeChangeTimeoutGeneration = 0L
-            transitionSourceRequestId = ""
-            transitionSourceUri = ""
-            transitionSourceCreatedAtMs = 0L
-            transitionStartedAtMs = 0L
-            updateEpisodeNavigationButtons()
-            showFeedback("Não foi possível mudar de episódio.", 1800L)
             if (nextTransitionActive) {
-                publishNextTransitionDiagnostic("NEXT_TRANSITION_FAILED", "mailbox_executor_rejected",
-                    JSONObject().put("error", error.message ?: error::class.java.simpleName))
-                publishNextTransitionDiagnostic("NEXT_REQUEST_CANCELLED", "mailbox_executor_rejected")
+                publishNextTransitionDiagnostic(
+                    "NEXT_TRANSITION_FAILED",
+                    "mailbox_executor_rejected",
+                    JSONObject().put("error", error.message ?: error::class.java.simpleName),
+                )
             }
+            showFeedback("Não foi possível mudar de episódio.", 1800L)
             logPlayer(eventType + " PUBLISH_REJECTED", error)
+            invalidateTransition("mailbox_executor_rejected")
         }
     }
 

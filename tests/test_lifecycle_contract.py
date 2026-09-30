@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MAIN_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kt"
+MAIN_ACTIVITY = ROOT / iandroid/app/src/main/kotlin/com/reiflix/reiflix_local/MainActivity.kti
 PLAYER_ACTIVITY = ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt"
 MAIN_PY = ROOT / "main.py"
 BRIDGE = ROOT / "core/android_bridge.py"

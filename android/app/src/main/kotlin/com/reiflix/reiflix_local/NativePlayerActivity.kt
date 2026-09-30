@@ -2926,6 +2926,25 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         )
     }
 
+    private fun diagnosticErrorCode(reason: String): String = when (reason.trim()) {
+        "missing_uri",
+        "missing_uri_on_reuse" -> "MEDIA_URI_MISSING"
+        "invalid_uri",
+        "invalid_uri_on_reuse" -> "MEDIA_URI_INVALID"
+        "player_initialization",
+        "player_reuse" -> "PLAYER_SESSION_INVALID"
+        "empty_file" -> "MEDIA_URI_INVALID"
+        "media3_prepare" -> "MEDIA3_PREPARE_FAILED"
+        "prepare_io" -> "ERROR_CODE_IO_UNSPECIFIED"
+        "source_preflight" -> "SOURCE_UNAVAILABLE"
+        else -> reason
+            .trim()
+            .uppercase(Locale.ROOT)
+            .replace(Regex("[^A-Z0-9]+"), "_")
+            .trim('_')
+            .ifBlank { "UNKNOWN_OPEN_FAILURE" }
+    }
+
     private fun showPlayerError(
         message: String,
         reason: String,

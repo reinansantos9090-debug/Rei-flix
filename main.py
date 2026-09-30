@@ -114,6 +114,7 @@ async def main(page: ft.Page):
         "active": False,
         "state": "IDLE",
         "refresh_id": None,
+        "request_id": None,
         "started_at": None,
         "scan_started": False,
         "scan_started_at": None,
@@ -136,6 +137,9 @@ async def main(page: ft.Page):
             except Exception as exc:
                 logger.debug("[FLET] player transition task cancellation failed: %s", exc)
         player_transition_task["task"] = None
+        home_refresh_context["active"] = False
+        home_refresh_context["db_updated"] = False
+        home_refresh_context["request_id"] = None
         settings_tasks.invalidate()
 
     try:
@@ -204,7 +208,10 @@ async def main(page: ft.Page):
             scan_id=snapshot.request_id,
             error=snapshot.last_result if state in {ScanState.FAILED, ScanState.PARTIAL} else None,
         )
-        if home_refresh_context["active"]:
+        if home_refresh_context["active"] and (
+            home_refresh_context.get("request_id") is None
+            or snapshot.request_id == home_refresh_context.get("request_id")
+        ):
             if state in {ScanState.RUNNING, ScanState.CANCELLING} and not home_refresh_context["scan_started"]:
                 home_refresh_context["scan_started"] = True
                 home_refresh_context["scan_started_at"] = time.monotonic()
@@ -223,14 +230,19 @@ async def main(page: ft.Page):
                     source=snapshot.source or "all",
                     durationMs=int((time.monotonic() - scan_started) * 1000) if scan_started else None,
                 )
-                performance.counter("home.refresh.completed" if terminal_success else "home.refresh.failed")
+                performance.counter("home.refresh.scan_completed" if terminal_success else "home.refresh.failed")
                 if not terminal_success:
                     home_refresh_context["active"] = False
                     home_refresh_context["db_updated"] = False
+                    home_refresh_context["request_id"] = None
                     _publish_home_refresh_state("ERROR")
+                    resetter = home_state.get("_reset_refresh_state")
+                    if callable(resetter):
+                        resetter("ERROR", 1.6)
                 elif navigation.current != "home":
                     home_refresh_context["active"] = False
                     home_refresh_context["db_updated"] = True
+                    home_refresh_context["request_id"] = None
                     home_state["_manual_refresh_pending"] = False
                     _publish_home_refresh_state("IDLE")
         safe_update()
@@ -309,8 +321,12 @@ async def main(page: ft.Page):
         performance.counter("home.refresh.ui_updated")
         performance.event("home.refresh", duration_ms=(time.monotonic() - total_started) * 1000.0, screen="home", metadata={"refresh_id": refresh_id, "rebuild": False, "db_updated": True})
         home_refresh_context["active"] = False
+        home_refresh_context["request_id"] = None
         home_state["_manual_refresh_pending"] = False
         _publish_home_refresh_state("SUCCESS")
+        resetter = home_state.get("_reset_refresh_state")
+        if callable(resetter):
+            resetter("SUCCESS", 1.2)
     organize_state = {}
     settings_state = {}
     device_interaction_profile = {}
@@ -2272,7 +2288,7 @@ async def main(page: ft.Page):
         page.show_dialog(dialog)
         safe_update()
 
-    async def refresh_library(_=None):
+    async def refresh_library(_=None, *, _home_refresh_context=None):
         if saf_selection.pending:
             return "Conclua ou cancele a seleção da pasta antes de atualizar a biblioteca.", False
         caps = storage_capabilities[0]
@@ -2287,6 +2303,8 @@ async def main(page: ft.Page):
             full=False,
             reason="explicit_user_refresh",
         )
+        if _home_refresh_context is not None:
+            _home_refresh_context["request_id"] = transition.request_id
         if transition.kind == "ignored":
             return "Nenhuma fonte local autorizada para atualizar a biblioteca.", False
         if transition.kind == "blocked":
@@ -2307,6 +2325,7 @@ async def main(page: ft.Page):
             "active": True,
             "state": "REFRESHING",
             "refresh_id": refresh_id,
+            "request_id": None,
             "started_at": time.monotonic(),
             "scan_started": False,
             "scan_started_at": None,
@@ -2318,7 +2337,7 @@ async def main(page: ft.Page):
         diagnostics.record("HOME_REFRESH_REQUESTED", refreshId=refresh_id, source="home")
         performance.counter("home.refresh.requested")
         try:
-            message, waiting = await refresh_library()
+            message, waiting = await refresh_library(_home_refresh_context=home_refresh_context)
         except Exception:
             logger.exception("[HOME_REFRESH] request failed refreshId=%s", refresh_id)
             _fail_home_refresh("request_exception")
@@ -2336,7 +2355,11 @@ async def main(page: ft.Page):
         diagnostics.record("HOME_REFRESH_REJECTED", refreshId=refresh_id, reason=message or "coordinator_rejected")
         performance.counter("home.refresh.rejected")
         home_refresh_context["active"] = False
+        home_refresh_context["request_id"] = None
         _publish_home_refresh_state("ERROR")
+        resetter = home_state.get("_reset_refresh_state")
+        if callable(resetter):
+            resetter("ERROR", 1.6)
         return message, False
 
     async def login(_=None):

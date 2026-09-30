@@ -1309,15 +1309,11 @@ class HomeView:
             filter_options_loaded[0] = True
             page.update()
 
-        def update_thumbnail_in_place(uri, thumbnail_path):
-            """Apply a completed thumbnail to already-mounted Home artwork only.
-
-            Thumbnail persistence has already completed in the native callback.  This
-            intentionally avoids catalog queries and reset=True, which would replace
-            the grid and lose its viewport/focus state for a single image change.
-            """
+        def update_thumbnail_in_place(uri, thumbnail_path, media_identity=None):
+            """Apply a completed episode thumbnail to mounted Home artwork only."""
             uri = str(uri or "").strip()
             thumbnail_path = str(thumbnail_path or "").strip()
+            media_identity = str(media_identity or "").strip()
             if not show_thumbnails or not uri or not thumbnail_path:
                 return False
 
@@ -1328,7 +1324,12 @@ class HomeView:
                     anime_id = value.get("anime_id", inherited_anime_id)
                     if anime_id is None and any(key in value for key in ("seasons", "current_episode", "available_count")):
                         anime_id = value.get("id")
-                    if str(value.get("path") or "").strip() == uri and anime_id is not None:
+                    item_uri = str(value.get("path") or "").strip()
+                    item_identity = str(value.get("media_identity") or "").strip()
+                    if (
+                        (item_uri == uri or (media_identity and item_identity == media_identity))
+                        and anime_id is not None
+                    ):
                         try:
                             affected_ids.add(int(anime_id))
                         except (TypeError, ValueError):

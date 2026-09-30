@@ -2046,6 +2046,42 @@ class MainActivity : FlutterFragmentActivity() {
         val originRequestId = playerRequest.originRequestId
         val originCreatedAtMs = playerRequest.originCreatedAtMs
         val originPlayerSessionId = playerRequest.originPlayerSessionId
+        if (originRequestId.isNotBlank() && isPlayerTransitionRevoked(originRequestId, originPlayerSessionId)) {
+            nativeRequestState.markOperationState(
+                requestId,
+                "play",
+                NativeRequestState.OperationState.FAILED,
+            )
+            Log.w(
+                tag,
+                "PLAYER_HANDOFF_REJECTED requestId=" + requestId +
+                    " reason=revoked_origin originRequestId=" + originRequestId,
+            )
+            publishNativeDiagnostic(
+                "PLAYER_HANDOFF_REJECTED",
+                requestId,
+                "play",
+                NativeRequestState.OperationState.FAILED.name,
+                result = "revoked_origin",
+            )
+            NativeMailbox.writeBestEffort(
+                this,
+                JSONObject()
+                    .put("type", "diagnostic")
+                    .put("requestId", requestId)
+                    .put(
+                        "payload",
+                        JSONObject()
+                            .put("event", "PLAYER_NEXT_STALE_REJECTED")
+                            .put("requestId", requestId)
+                            .put("originRequestId", originRequestId)
+                            .put("originPlayerSessionId", originPlayerSessionId)
+                            .put("currentPlayerSessionId", activePlayerSessionId ?: "")
+                            .put("reason", "revoked_origin"),
+                    ),
+            )
+            return false
+        }
         if (originRequestId.isNotBlank()) {
             val activeOriginMismatch = !previousActiveRequestId.isNullOrBlank() &&
                 previousActiveRequestId != originRequestId

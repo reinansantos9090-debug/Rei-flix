@@ -46,7 +46,8 @@ object SafScanner {
     }
 
     fun persistPermission(context:Context,uri:Uri,flags:Int) {
-        treeIdentity(uri)
+        val identity = treeIdentity(uri)
+        Log.i(TAG,"LIBRARY_SOURCE_LOADED identity=" + identity.identity)
         val granted=flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         require(granted and Intent.FLAG_GRANT_READ_URI_PERMISSION!=0) { "A pasta não concedeu permissão persistente de leitura." }
         require(flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) { "O provedor não ofereceu permissão SAF persistente." }
@@ -69,7 +70,10 @@ object SafScanner {
     }
 
     fun inspectTree(context:Context,treeUri:Uri,requirePersisted:Boolean):JSONObject {
-        val identity=runCatching{treeIdentity(treeUri)}.getOrElse{return JSONObject().put("status",STATUS_FAILED).put("error",it.message?:"invalid_saf_tree")}
+        val identity=runCatching{treeIdentity(treeUri)}.getOrElse{
+            Log.w(TAG,"LIBRARY_SOURCE_INVALID reason=invalid_tree_uri")
+            return JSONObject().put("status",STATUS_FAILED).put("error",it.message?:"invalid_saf_tree")
+        }
         val base=identityPayload(treeUri)
         if(requirePersisted && !hasPersistedReadPermission(context,treeUri)) return base.put("status",STATUS_REVOKED).put("error","persisted_permission_missing")
         return try {
@@ -111,7 +115,10 @@ object SafScanner {
 
     fun scan(context:Context,treeUri:Uri,onProgress:((JSONObject)->Unit)?=null,shouldCancel:()->Boolean={false},scanId:String?=null,onBatch:((JSONObject)->Unit)?=null):JSONObject {
         val identity=treeIdentity(treeUri)
-        check(hasPersistedReadPermission(context,treeUri)){"A permissão desta pasta foi removida."}
+        if(!hasPersistedReadPermission(context,treeUri)){
+            Log.w(TAG,"LIBRARY_SOURCE_PERMISSION_LOST identity=" + identity.identity)
+            throw IllegalStateException("A permissão desta pasta foi removida.")
+        }
         val root=DocumentFile.fromTreeUri(context,treeUri) ?: throw IllegalArgumentException("Árvore SAF indisponível")
         val resolver=context.contentResolver
         val errors=JSONArray()
@@ -130,6 +137,7 @@ object SafScanner {
             .put("mimeFallbacks",0).put("successfulQueries",0).put("failedQueries",0).put("emptyDirectories",0).put("errors",errors)
         val pending=ArrayDeque<Pair<String,String>>(); val visited=HashSet<String>(); pending.addLast(identity.documentId to "")
         var cancelled=false; var revokedDuringScan=false; var lastFiles=0; var lastDirs=0
+        Log.i(TAG,"SCAN_SOURCE_STARTED identity=" + identity.identity)
         onProgress?.invoke(identityPayload(treeUri).put("phase","started").put("source","saf"))
         while(pending.isNotEmpty()){
             if(shouldCancel()){cancelled=true;break}
@@ -209,6 +217,9 @@ object SafScanner {
         val partial=status in setOf(STATUS_PARTIAL,STATUS_UNAVAILABLE,STATUS_REVOKED)
         stats.put("status",status).put("emptyComplete",status==STATUS_EMPTY_COMPLETE)
         onProgress?.invoke(identityPayload(treeUri).put("phase","finished").put("source","saf").put("status",status).put("directories",stats.getInt("directories")).put("files",fileCount).put("videos",stats.getInt("videos")).put("cancelled",cancelled))
+        Log.i(TAG,"SCAN_SOURCE_COMPLETED identity=" + identity.identity + " status=" + status +
+            " files=" + stats.getInt("files") + " accepted=" + stats.getInt("videos") + " ignored=" +
+            (stats.getInt("files") - stats.getInt("videos")))
         return identityPayload(treeUri).put("name",root.name?:treeUri.toString()).put("scope",identity.identity)
             .put("stats",stats).put("status",status).put("partial",partial).put("cancelled",cancelled)
     }

@@ -12,7 +12,7 @@ from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIR
 from core.android_bridge import AndroidBridge
 from core.navigation import NavigationController, SafSelectionState
 from core.scan_coordinator import ScanCoordinator, ScanOrigin, ScanState, ScanTarget
-from core.storage_access import StorageAccessState, StorageCapabilities, ScanUiState, scan_ui_state_from_native, storage_access_state, storage_source_states
+from core.storage_access import (\n    StorageAccessState,\n    StorageCapabilities,\n    ScanUiState,\n    scan_ui_state_from_native,\n    storage_access_state,\n    storage_source_states,\n    dedupe_saf_roots,\n    saf_source_identity,\n    library_saf_roots,\n)
 from core.diagnostics import DiagnosticTimeline
 from core.performance import get_performance_monitor
 from core.settings_focus import SettingsTaskRegistry
@@ -268,23 +268,64 @@ async def main(page: ft.Page):
     def _authorized_scan_targets(source=None, scope_ref=None):
         normalized = ScanCoordinator.normalize_source(source)
         caps = storage_capabilities[0]
-        targets = []
-        if normalized in (None, "mediastore") and caps.can_scan("mediastore"):
-            targets.append(ScanTarget("mediastore"))
-        if normalized in (None, "broad_storage") and caps.can_scan("broad-storage"):
-            targets.append(ScanTarget("broad_storage"))
-        if normalized in (None, "saf"):
-            allowed_roots = set(caps.saf_roots)
-            folders = {
-                str(folder.get("path") or "").strip()
-                for folder in store.folders()
-                if folder.get("kind") == "saf" and str(folder.get("path") or "").strip()
-            }
-            roots = sorted(allowed_roots | folders)
-            for root in roots:
-                if not scope_ref or root == scope_ref:
-                    targets.append(ScanTarget("saf", root))
-        return targets
+
+        # Library discovery is deliberately scoped to persisted SAF tree
+        # permissions explicitly granted by the user. MediaStore and broad
+        # storage remain diagnostic capabilities, never library sources.
+        if normalized not in (None, "saf"):
+            logger.warning(
+                "[LIBRARY_SOURCE] SCAN_SOURCE_REJECTED source=%s scope_ref=%s reason=non_library_scanner",
+                normalized or "all",
+                scope_ref or "-",
+            )
+            return []
+        if not caps.known:
+            logger.warning("[LIBRARY_SOURCE] SCAN_SOURCE_REJECTED reason=capabilities_unknown")
+            return []
+
+        raw_roots = tuple(caps.saf_roots)
+        roots = library_saf_roots(raw_roots, scope_ref=scope_ref)
+        invalid_count = sum(
+            1 for value in raw_roots
+            if str(value or "").strip() and not saf_source_identity(value)
+        )
+        if invalid_count:
+            logger.warning("[LIBRARY_SOURCE] LIBRARY_SOURCE_INVALID count=%d", invalid_count)
+
+        current_ids = {
+            identity
+            for identity in (saf_source_identity(uri) for uri in roots)
+            if identity
+        }
+        configured_folders = [
+            folder for folder in store.folders()
+            if str(folder.get("kind") or "").casefold() == "saf"
+            and str(folder.get("path") or "").strip()
+        ]
+        persisted_ids = {
+            identity
+            for identity in (saf_source_identity(uri) for uri in raw_roots)
+            if identity
+        }
+        for folder in configured_folders:
+            reference = str(folder.get("path") or "").strip()
+            identity = str(folder.get("saf_identity") or "").strip() or saf_source_identity(reference)
+            if not identity:
+                logger.warning("[LIBRARY_SOURCE] LIBRARY_SOURCE_INVALID reason=unparseable_configured_source")
+                continue
+            if identity not in persisted_ids:
+                logger.warning("[LIBRARY_SOURCE] LIBRARY_SOURCE_PERMISSION_LOST identity=%s", identity)
+
+        if not roots:
+            logger.info("[LIBRARY_SOURCE] SCAN_SOURCE_REJECTED reason=no_configured_library_source")
+            return []
+
+        for uri in roots:
+            logger.info(
+                "[LIBRARY_SOURCE] LIBRARY_SOURCE_LOADED identity=%s",
+                saf_source_identity(uri) or "invalid",
+            )
+        return [ScanTarget("saf", uri) for uri in roots]
 
     scan_coordinator = ScanCoordinator(
         bridge,
@@ -2222,7 +2263,7 @@ async def main(page: ft.Page):
 
     def update_saf_capabilities(current_uris):
         current = storage_capabilities[0]
-        roots = tuple(sorted({str(uri).strip() for uri in current_uris if str(uri).strip()}))
+        roots = dedupe_saf_roots(current_uris)
         scanners = set(current.scanner_capabilities)
         if roots:
             scanners.add("saf")
@@ -2240,36 +2281,22 @@ async def main(page: ft.Page):
         )
 
     def maybe_show_storage_onboarding():
-        """Show at most one post-render explanation based on Android's snapshot."""
+        """Ask for an explicit library folder, independent of media/broad grants."""
         if not bridge.available or storage_onboarding["dialog_open"] or storage_onboarding["waiting_for_result"]:
             return
         if not storage_capabilities[0].known:
             return
-        state = storage_state()
-        if state != StorageAccessState.NEEDS_MEDIA_PERMISSION:
+        if dedupe_saf_roots(storage_capabilities[0].saf_roots):
             return
+
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Permissão necessária"),
+            title=ft.Text("Fonte da biblioteca necessária"),
             content=ft.Text(
-                "O ReiAnix precisa de uma fonte de acesso aos seus vídeos locais. "
-                "Você pode permitir o acesso aos vídeos do dispositivo ou escolher uma pasta específica."
+                "Escolha uma pasta que pertença à sua biblioteca do ReiAnix. "
+                "Somente vídeos dentro dessa pasta e de suas subpastas serão considerados."
             ),
         )
-
-        async def allow_media(_event):
-            storage_onboarding["dialog_open"] = False
-            storage_onboarding["waiting_for_result"] = True
-            page.pop_dialog()
-            try:
-                await request_video_access()
-            except Exception:
-                storage_onboarding["waiting_for_result"] = False
-                page.snack_bar = ft.SnackBar(
-                    ft.Text("Não foi possível abrir a solicitação de acesso.")
-                )
-                page.snack_bar.open = True
-                safe_update()
 
         async def choose_folder(_event):
             storage_onboarding["dialog_open"] = False
@@ -2293,7 +2320,7 @@ async def main(page: ft.Page):
                 safe_update()
 
         def cancel(_event):
-            logger.info("[STORAGE] request_id=- action=cancel python_callback=received dialog_open=false")
+            logger.info("[LIBRARY_SOURCE] onboarding cancelled")
             storage_onboarding["dialog_open"] = False
             storage_onboarding["dismissed"] = True
             page.pop_dialog()
@@ -2301,11 +2328,10 @@ async def main(page: ft.Page):
 
         dialog.actions = [
             ft.TextButton("CANCELAR", on_click=cancel),
-            ft.TextButton("ESCOLHER PASTA", on_click=choose_folder),
-            ft.FilledButton("PERMITIR", on_click=allow_media),
+            ft.FilledButton("ESCOLHER PASTA", on_click=choose_folder),
         ]
         storage_onboarding["dialog_open"] = True
-        logger.info("[STORAGE] request_id=- action=onboarding_show dialog_open=true")
+        logger.info("[LIBRARY_SOURCE] LIBRARY_SOURCE_INVALID reason=no_configured_library_source")
         page.show_dialog(dialog)
         safe_update()
 
@@ -2327,9 +2353,9 @@ async def main(page: ft.Page):
         if _home_refresh_context is not None:
             _home_refresh_context["request_id"] = transition.request_id
         if transition.kind == "ignored":
-            return "Nenhuma fonte local autorizada para atualizar a biblioteca.", False
+            return "Nenhuma fonte da biblioteca está configurada. Escolha uma pasta primeiro.", False
         if transition.kind == "blocked":
-            return "Nenhuma fonte local autorizada para atualizar a biblioteca.", False
+            return "Nenhuma fonte da biblioteca está configurada. Escolha uma pasta primeiro.", False
         if transition.kind == "deduped":
             return "Uma atualização da biblioteca já está em andamento.", True
         if transition.kind == "queued":
@@ -3077,75 +3103,35 @@ async def main(page: ft.Page):
                                 text = 'Preparando armazenamento local…' if phase == 'started' else f'Verificando armazenamento… {directories} diretórios, {files} arquivos, {videos} vídeos.'
                             page.snack_bar = ft.SnackBar(ft.Text(text)); page.snack_bar.open = True; safe_update()
                         elif event_type == 'broad_storage_scan':
-                            try:
-                                stats = payload.get('stats') or {}
-                                source = payload.get('source') or 'broad-storage'
-                                scopes = payload.get('volumeScopes') or []
-                                catalog = store.catalog()
-                                if scopes:
-                                    for scope in scopes:
-                                        if not isinstance(scope, dict) or not scope.get('volumeId'):
-                                            continue
-                                        volume = str(scope.get('volumeId'))
-                                        scan_id = str(scope.get('scanId') or ((payload.get('scanId') or 'broad-storage') + ':' + volume))
-                                        scope_stats = dict(stats)
-                                        scope_errors = scope.get('errors') or []
-                                        if scope_errors:
-                                            scope_stats['errors'] = scope_errors
-                                        scope_status = str(scope.get('status') or '').casefold()
-                                        if scope_status:
-                                            scope_stats['status'] = scope_status
-                                        if scope_status in {'cancelled', 'canceled'}:
-                                            scope_stats['cancelled'] = True
-                                        if not scope.get('complete'):
-                                            scope_stats['partial'] = True
-                                        diagnostics.record("PYTHON_INGEST", request_id=request_id, scan_id=scan_id, source=source)
-                                        final_result = await asyncio.to_thread(
-                                            library.finish_ingest_documents,
-                                            source,
-                                            source_kind='broad_storage',
-                                            scan_id=scan_id,
-                                            scope_kind='volume',
-                                            scope_ref=volume,
-                                            scan_generation=scope.get('scanGeneration'),
-                                            generation_id=scope.get('generationId'),
-                                            status=scope.get('status') or ('completed' if scope.get('complete') else 'partial'),
-                                            folder_name=payload.get('name') or 'Armazenamento local',
-                                            scan_errors=scope_errors, scan_stats=scope_stats,
-                                        )
-                                        catalog = final_result.catalog
-                                else:
-                                    diagnostics.record("PYTHON_INGEST", request_id=request_id, scan_id=payload.get('scanId'), source=source)
-                                    catalog = await asyncio.to_thread(
-                                        library.ingest_documents, source, payload.get('documents') or [],
-                                        folder_name=payload.get('name') or 'Armazenamento local',
-                                        scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='broad_storage',
-                                        scan_id=payload.get('scanId'), scope_kind='global', scope_ref=payload.get('scopeRef') or source,
-                                        scan_generation=payload.get('scanGeneration'),
-                                    )
-                                videos = int(stats.get('videos') or 0)
-                                partial = bool(payload.get('partial') or stats.get('errors'))
-                                set_scan_state(
-                                    scan_ui_state_from_native(
-                                        str(stats.get('status') or payload.get('status') or ''),
-                                        errors=partial,
-                                        cancelled=bool(stats.get('cancelled')),
-                                        volume_available=True,
-                                    ),
-                                    source="broad-storage",
-                                    volume=payload.get('volumeId'),
-                                    scan_id=payload.get('scanId'),
-                                    found=videos,
-                                    error=(stats.get('errors') or [None])[0] if stats.get('errors') else None,
-                                    timestamp=event.get('createdAt'),
-                                )
-                                diagnostics.record("CATALOG_UPDATED", request_id=request_id, scan_id=payload.get('scanId'), source=source, counts={"videos": videos, "catalog": len(catalog)}, result=str(stats.get('status') or payload.get('status') or 'COMPLETED'))
-                                message = ('Armazenamento local atualizado parcialmente. ' if partial else 'Armazenamento local atualizado. ')
-                                message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
-                                page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; safe_update()
-                            except Exception:
-                                _fail_home_refresh("broad_ingest_or_sqlite_error", request_id=request_id, source="broad_storage")
-                                page.snack_bar = ft.SnackBar(ft.Text('Não foi possível salvar o índice do armazenamento local.')); page.snack_bar.open = True; safe_update()
+                            # Broad storage is not a library source. Never ingest
+                            # its global results into the ReiAnix catalog.
+                            source = payload.get('source') or 'broad-storage'
+                            stats = payload.get('stats') or {}
+                            videos = int(stats.get('videos') or 0)
+                            logger.warning(
+                                "[LIBRARY_SOURCE] SCAN_SOURCE_REJECTED source=%s reason=broad_storage_not_library_source scan_id=%s",
+                                source,
+                                payload.get('scanId'),
+                            )
+                            set_scan_state(
+                                scan_ui_state_from_native(
+                                    str(stats.get('status') or payload.get('status') or 'COMPLETED'),
+                                    errors=bool(stats.get('errors')),
+                                    cancelled=bool(stats.get('cancelled')),
+                                    volume_available=True,
+                                ),
+                                source="broad-storage",
+                                volume=payload.get('volumeId'),
+                                scan_id=payload.get('scanId'),
+                                found=videos,
+                                error=(stats.get('errors') or [None])[0] if stats.get('errors') else None,
+                                timestamp=event.get('createdAt'),
+                            )
+                            page.snack_bar = ft.SnackBar(
+                                ft.Text("Varredura ampla ignorada: escolha uma pasta da biblioteca para importar vídeos.")
+                            )
+                            page.snack_bar.open = True
+                            safe_update()
                         elif event_type == 'broad_storage_status':
                             granted = bool(payload.get('hasAccess'))
                             apply_storage_capabilities(payload)
@@ -3155,10 +3141,12 @@ async def main(page: ft.Page):
                             roots = payload.get('roots') or []
                             volumes = payload.get('volumes') or []
                             if granted:
-                                store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
                                 readable = sum(1 for root in roots if root.get('readable') and root.get('directory'))
-                                store.update_folder_status('broad-storage', 'granted', f'Diagnóstico: {readable} raiz(es) legível(is), {len(volumes)} volume(s) detectado(s).')
-                                store.restore_source('broad-storage')
+                                logger.info(
+                                    "[LIBRARY_SOURCE] broad storage permission is diagnostic-only; no library source created readable_roots=%d volumes=%d",
+                                    readable,
+                                    len(volumes),
+                                )
                             else:
                                 store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento não concedido.')
                                 store.mark_source_unavailable('broad-storage', 'broad_access_revoked')
@@ -3171,8 +3159,7 @@ async def main(page: ft.Page):
                             storage_onboarding["waiting_for_result"] = False
                             if granted:
                                 storage_onboarding["dismissed"] = False
-                                store.add_folder('broad-storage', name='Armazenamento local', kind='broad_storage', authorization='granted', account_id=store.account().get('id'))
-                                store.restore_source('broad-storage')
+                                logger.info("[LIBRARY_SOURCE] broad storage grant received; library still requires an explicit SAF folder")
                             else:
                                 if was_waiting:
                                     # The native host emits a status event immediately before
@@ -3209,72 +3196,35 @@ async def main(page: ft.Page):
                             page.snack_bar.open = True
                             safe_update()
                         elif event_type == 'mediastore_scan':
-                            try:
-                                stats = payload.get('stats') or {}
-                                source = payload.get('source') or 'mediastore:external:video'
-                                scopes = payload.get('volumeScopes') or []
-                                catalog = store.catalog()
-                                if scopes:
-                                    for scope in scopes:
-                                        if not isinstance(scope, dict) or not scope.get('volumeId'):
-                                            continue
-                                        volume = str(scope.get('volumeId'))
-                                        scan_id = str(scope.get('scanId') or ((payload.get('scanId') or 'mediastore') + ':' + volume))
-                                        scope_stats = dict(stats)
-                                        scope_errors = scope.get('errors') or []
-                                        if scope_errors:
-                                            scope_stats['errors'] = scope_errors
-                                        if not scope.get('complete'):
-                                            scope_stats['partial'] = True
-                                        final_result = await asyncio.to_thread(
-                                            library.finish_ingest_documents,
-                                            source,
-                                            source_kind='mediastore',
-                                            scan_id=scan_id,
-                                            scope_kind='volume',
-                                            scope_ref=volume,
-                                            scan_generation=scope.get('scanGeneration'),
-                                            generation_id=scope.get('generationId'),
-                                            status=scope.get('status') or ('completed' if scope.get('complete') else 'partial'),
-                                            folder_name=payload.get('name') or 'Vídeos do dispositivo',
-                                            scan_errors=scope_errors,
-                                            scan_stats=scope_stats,
-                                        )
-                                        catalog = final_result.catalog
-                                else:
-                                    catalog = await asyncio.to_thread(
-                                        library.ingest_documents, source, payload.get('documents') or [],
-                                        folder_name=payload.get('name') or 'Vídeos do dispositivo',
-                                        scan_errors=stats.get('errors', []), scan_stats=stats, source_kind='mediastore',
-                                        scan_id=payload.get('scanId'), scope_kind='global', scope_ref=source,
-                                        scan_generation=payload.get('scanGeneration'),
-                                    )
-                                videos = int(stats.get('videos') or 0)
-                                set_scan_state(
-                                    scan_ui_state_from_native(
-                                        str(stats.get('status') or payload.get('status') or 'COMPLETED'),
-                                        errors=bool(stats.get('errors')),
-                                        cancelled=bool(stats.get('cancelled')),
-                                        waiting_for_mediastore=str(stats.get('status') or payload.get('status') or '').upper() == ScanUiState.WAITING_FOR_MEDIASTORE.value,
-                                    ),
-                                    source="mediastore",
-                                    volume=payload.get('volumeId'),
-                                    scan_id=payload.get('scanId'),
-                                    found=videos,
-                                    error=(stats.get('errors') or [None])[0] if stats.get('errors') else None,
-                                    timestamp=event.get('createdAt'),
-                                )
-                                diagnostics.record("CATALOG_UPDATED", request_id=request_id, scan_id=payload.get('scanId'), source=source, counts={"videos": videos, "catalog": len(catalog)}, result=str(stats.get('status') or payload.get('status') or 'COMPLETED'))
-                                scan_status = str(stats.get('status') or payload.get('status') or 'COMPLETED').upper()
-                                if scan_status == ScanUiState.WAITING_FOR_MEDIASTORE.value:
-                                    message = 'Aguardando o Android concluir a indexação de mídia; a atualização continuará automaticamente.'
-                                else:
-                                    message = 'Vídeos do dispositivo atualizados. '
-                                    message += f'{videos} vídeo(s) em {len(catalog)} anime(s).' if videos else 'Nenhum vídeo compatível encontrado.'
-                                page.snack_bar = ft.SnackBar(ft.Text(message)); page.snack_bar.open = True; safe_update()
-                            except Exception:
-                                _fail_home_refresh("mediastore_ingest_or_sqlite_error", request_id=request_id, source="mediastore")
-                                page.snack_bar=ft.SnackBar(ft.Text('Não foi possível salvar os vídeos do dispositivo.')); page.snack_bar.open=True; safe_update()
+                            # MediaStore is an OS-wide index, not a library source.
+                            # Never ingest its global results into the ReiAnix catalog.
+                            source = payload.get('source') or 'mediastore:external:video'
+                            stats = payload.get('stats') or {}
+                            videos = int(stats.get('videos') or 0)
+                            logger.warning(
+                                "[LIBRARY_SOURCE] SCAN_SOURCE_REJECTED source=%s reason=mediastore_not_library_source scan_id=%s",
+                                source,
+                                payload.get('scanId'),
+                            )
+                            set_scan_state(
+                                scan_ui_state_from_native(
+                                    str(stats.get('status') or payload.get('status') or 'COMPLETED'),
+                                    errors=bool(stats.get('errors')),
+                                    cancelled=bool(stats.get('cancelled')),
+                                    waiting_for_mediastore=str(stats.get('status') or payload.get('status') or '').upper() == ScanUiState.WAITING_FOR_MEDIASTORE.value,
+                                ),
+                                source="mediastore",
+                                volume=payload.get('volumeId'),
+                                scan_id=payload.get('scanId'),
+                                found=videos,
+                                error=(stats.get('errors') or [None])[0] if stats.get('errors') else None,
+                                timestamp=event.get('createdAt'),
+                            )
+                            page.snack_bar = ft.SnackBar(
+                                ft.Text("Índice de vídeos do dispositivo ignorado: escolha uma pasta da biblioteca.")
+                            )
+                            page.snack_bar.open = True
+                            safe_update()
                         elif event_type == 'mediastore_permission':
                             source = payload.get('source') or 'mediastore:external:video'
                             access = str(payload.get('access') or 'denied')
@@ -3285,15 +3235,10 @@ async def main(page: ft.Page):
                                     storage_onboarding["dismissed"] = True
                             if payload.get('granted'):
                                 label = 'acesso total' if access == 'full' else 'acesso parcial'
-                                store.add_folder(
-                                    source,
-                                    name='Vídeos do dispositivo',
-                                    kind='mediastore',
-                                    authorization='granted',
-                                    account_id=store.account().get('id'),
+                                logger.info(
+                                    "[LIBRARY_SOURCE] MediaStore permission=%s is diagnostic-only; no library source created",
+                                    label,
                                 )
-                                store.update_folder_status(source, 'granted', f'Permissão de vídeos: {label}.')
-                                store.restore_source(source)
                             else:
                                 store.update_folder_status(source, 'revoked', 'A permissão para vídeos do dispositivo foi removida.')
                                 store.mark_source_unavailable(source, 'media_permission_revoked')

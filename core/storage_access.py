@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 
 class StorageAccessState(str, Enum):
@@ -84,10 +85,7 @@ class StorageCapabilities:
         broad = str(payload.get("broadStorageState") or "unavailable").casefold()
         if broad not in {"available", "unavailable"}:
             broad = "unavailable"
-        saf = tuple(dict.fromkeys(
-            str(value).strip() for value in (payload.get("safRoots") or [])
-            if str(value).strip()
-        ))
+        saf = dedupe_saf_roots(payload.get("safRoots") or [])
         removable = tuple(dict.fromkeys(
             str(value).strip() for value in (payload.get("removableVolumes") or [])
             if str(value).strip()
@@ -172,6 +170,53 @@ class StorageCapabilities:
         if value == "saf":
             return bool(self.saf_roots)
         return value in {str(item).strip().casefold() for item in self.reconciliation_capabilities}
+
+
+def saf_source_identity(value: str | None) -> str | None:
+    """Return a stable identity for a persisted SAF tree URI."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = urlparse(raw)
+    except ValueError:
+        return None
+    if parsed.scheme.casefold() != "content" or not parsed.netloc:
+        return None
+    path = parsed.path.rstrip("/")
+    marker = "/tree/"
+    if marker not in path:
+        return None
+    encoded_id = path.split(marker, 1)[1].split("/", 1)[0].strip()
+    if not encoded_id:
+        return None
+    document_id = unquote(encoded_id).strip()
+    if not document_id:
+        return None
+    return f"saf:{parsed.netloc.casefold()}:{document_id}"
+
+
+def dedupe_saf_roots(values) -> tuple[str, ...]:
+    """Normalize and de-duplicate SAF tree URIs by provider/document identity."""
+    by_identity: dict[str, str] = {}
+    for value in values or ():
+        uri = str(value or "").strip()
+        identity = saf_source_identity(uri)
+        if not identity:
+            continue
+        by_identity.setdefault(identity, uri)
+    return tuple(by_identity[key] for key in sorted(by_identity))
+
+
+def library_saf_roots(values, *, scope_ref: str | None = None) -> tuple[str, ...]:
+    """Resolve the explicit SAF roots that are eligible to be library sources."""
+    roots = dedupe_saf_roots(values)
+    if scope_ref is None or not str(scope_ref).strip():
+        return roots
+    requested = saf_source_identity(scope_ref)
+    if requested is None:
+        return ()
+    return tuple(uri for uri in roots if saf_source_identity(uri) == requested)
 
 
 def _mapping_from_snapshot(snapshot: Any) -> dict[str, Any]:
@@ -266,6 +311,9 @@ __all__ = [
     "ScanUiState",
     "scan_ui_state_from_native",
     "StorageCapabilities",
+    "saf_source_identity",
+    "dedupe_saf_roots",
+    "library_saf_roots",
     "normalize_storage_snapshot",
     "storage_access_state",
     "storage_source_states",

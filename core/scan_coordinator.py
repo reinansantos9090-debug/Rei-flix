@@ -321,6 +321,7 @@ class ScanCoordinator:
             return ScanTransition(True, "ignored")
         targets = list(self.target_provider(request.source, request.scope_ref))
         if not targets:
+            self._log("SCAN_SOURCE_REJECTED", request, reason="no_authorized_library_source")
             async with self._lock:
                 self._state = ScanState.BLOCKED
                 self._last_result = "no_authorized_scan_source"
@@ -350,12 +351,21 @@ class ScanCoordinator:
                     child_id = await self.bridge.scan_all_storage()
                 elif target.source == "saf":
                     if not target.scope_ref:
+                        self._log("SCAN_SOURCE_REJECTED", request, target=target.source, reason="missing_scope")
+                        failed_launches.append((target, ValueError("missing SAF library source scope")))
                         continue
                     child_id = await self.bridge.rescan_tree(target.scope_ref)
                 else:
                     raise ValueError(f"unsupported scan source: {target.source}")
             except Exception as exc:
                 failed_launches.append((target, exc))
+                self._log(
+                    "SCAN_SOURCE_REJECTED",
+                    request,
+                    target=target.source,
+                    scope_ref=target.scope_ref,
+                    reason=f"launch_failed:{exc.__class__.__name__}",
+                )
                 logger.exception("[SCAN] launch failed source=%s scope=%s", target.source, target.scope_ref)
                 continue
             async with self._lock:
@@ -408,8 +418,16 @@ class ScanCoordinator:
                         refresh_required=True,
                     )
                 return ScanTransition(False, "unmatched")
-            if request_id:
-                self._active_children.pop(request_id, None)
+            completed_target = self._active_children.pop(request_id, None) if request_id else None
+            if completed_target is not None:
+                self._log(
+                    "SCAN_SOURCE_COMPLETED",
+                    self._active_request,
+                    child_request_id=request_id,
+                    target=completed_target.source,
+                    scope_ref=completed_target.scope_ref,
+                    status=status,
+                )
             if self._active_request is None:
                 return ScanTransition(True, "ignored")
             child_state = (

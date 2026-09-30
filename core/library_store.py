@@ -756,8 +756,30 @@ class LibraryStore:
 
     def add_folder(self, reference, name=None, kind="path", authorization="granted", account_id=None,
                    saf_authority=None, saf_document_id=None, saf_volume_id=None, saf_identity=None):
+        reference = str(reference or "").strip()
+        if not reference:
+            raise ValueError("A fonte da biblioteca não pode ser vazia.")
         name = name or os.path.basename(reference.rstrip("/")) or reference
         with self._conn() as c:
+            if str(kind or "").casefold() == "saf" and saf_identity:
+                existing = c.execute(
+                    "SELECT path FROM folders WHERE saf_identity=? LIMIT 1",
+                    (str(saf_identity),),
+                ).fetchone()
+                if existing and str(existing["path"]) != reference:
+                    existing_path = str(existing["path"])
+                    c.execute(
+                        """UPDATE folders SET name=?,kind='saf',authorization=?,
+                           account_id=COALESCE(?,account_id),
+                           saf_authority=COALESCE(?,saf_authority),
+                           saf_document_id=COALESCE(?,saf_document_id),
+                           saf_volume_id=COALESCE(?,saf_volume_id),
+                           saf_identity=?,last_error=NULL,last_scan_at=NULL
+                           WHERE path=?""",
+                        (name, authorization, account_id, saf_authority, saf_document_id,
+                         saf_volume_id, str(saf_identity), existing_path),
+                    )
+                    return existing_path
             c.execute("""INSERT INTO folders(
                             path,name,kind,authorization,account_id,added_at,
                             saf_authority,saf_document_id,saf_volume_id,saf_identity
@@ -773,6 +795,7 @@ class LibraryStore:
                             last_error=NULL""",
                       (reference, name, kind, authorization, account_id,
                        time.time(), saf_authority, saf_document_id, saf_volume_id, saf_identity))
+            return reference
 
     def update_saf_identity(self, reference, authority, document_id, volume_id=None, identity=None):
         with self._conn() as c:

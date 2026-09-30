@@ -51,7 +51,7 @@ class Prompt1RegressionTests(unittest.TestCase):
         thumb_block_start = MAIN.find("elif event_type == 'thumbnail_ready':")
         thumb_block_end = MAIN.find("elif event_type == 'thumbnail_error':", thumb_block_start)
         thumb_block = MAIN[thumb_block_start:thumb_block_end]
-        self.assertIn("update_thumbnail(uri, thumbnail_path)", thumb_block)
+        self.assertIn("home_update(uri, thumbnail_path, media_identity)", thumb_block)
         self.assertNotIn("screen_cache.pop('details'", thumb_block)
 
     def test_next_without_next_episode_is_supported(self):

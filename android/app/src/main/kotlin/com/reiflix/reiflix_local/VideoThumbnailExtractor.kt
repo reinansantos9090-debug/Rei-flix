@@ -80,8 +80,11 @@ object VideoThumbnailExtractor {
             runCatching {
                 if (target.exists()) target.delete()
             }
-            extractionPermits.acquire()
-            val startedNs = android.os.SystemClock.elapsedRealtimeNanos()
+            var permitAcquired = false
+            try {
+                extractionPermits.acquire()
+                permitAcquired = true
+                val startedNs = android.os.SystemClock.elapsedRealtimeNanos()
             NativeMailbox.writeBestEffort(
                 context,
                 org.json.JSONObject().put("type", "diagnostic").put("requestId", requestId)
@@ -89,7 +92,7 @@ object VideoThumbnailExtractor {
                         .put("requestId", requestId)),
             )
             try {
-                if (target.isFile && target.length() > 0L) {
+                if (target.isFile && target.length() > 0L && isValidCachedThumbnail(target)) {
                     return Result(target.absolutePath)
                 }
                 val result = extractLocked(context, uri, target, key, size, modifiedAt)
@@ -103,7 +106,7 @@ object VideoThumbnailExtractor {
                 )
                 return result
             } finally {
-                extractionPermits.release()
+                if (permitAcquired) extractionPermits.release()
                 inFlight.remove(key, lock)
             }
         }

@@ -1987,9 +1987,33 @@ async def main(page: ft.Page):
                                     payload.get('result') or "-",
                                 )
                             diagnostic_event = str(payload.get('event') or 'NATIVE_DIAGNOSTIC').strip()
-                            if diagnostic_event == "PLAYER_HANDOFF_DISPATCHED" and event_request_id:
+                            if diagnostic_event == "PLAYER_SESSION_CREATED":
+                                session_id = str(payload.get("playerSessionId") or payload.get("result") or "").strip()
+                                if session_id:
+                                    player_active_session_id["value"] = session_id
+                                    player_active_request_id["value"] = event_request_id or player_active_request_id["value"]
+                                    player_session_active["value"] = True
+                                    player_active_player_generation["value"] = int(payload.get("playerGeneration") or player_active_player_generation["value"])
+                                    performance.event(
+                                        "PLAYER_SESSION_CREATED",
+                                        screen=navigation.current,
+                                        metadata={
+                                            "request_id": event_request_id,
+                                            "player_session_id": session_id,
+                                            "player_generation": player_active_player_generation["value"],
+                                        },
+                                    )
+                            elif diagnostic_event == "PLAYER_HANDOFF_DISPATCHED" and event_request_id:
                                 player_active_request_id["value"] = event_request_id
+                                session_id = str(payload.get("playerSessionId") or "").strip()
+                                if session_id:
+                                    player_active_session_id["value"] = session_id
                                 player_session_active["value"] = True
+                                performance.event(
+                                    "PLAYER_COMMAND_ACCEPTED",
+                                    screen=navigation.current,
+                                    metadata={"request_id": event_request_id, "player_session_id": player_active_session_id["value"], "reason": "handoff_dispatched"},
+                                )
                             elif diagnostic_event == "PLAYER_ACTIVITY_RESULT":
                                 controlled_result = bool(payload.get("controlled"))
                                 if controlled_result and (
@@ -2004,20 +2028,42 @@ async def main(page: ft.Page):
                                 lifecycle_state = str(payload.get("sessionState") or "").strip().upper()
                                 if lifecycle_session:
                                     if lifecycle in {"onCreate", "onNewIntent", "onStart", "onResume"}:
-                                        player_active_session_id["value"] = lifecycle_session
-                                        if event_request_id:
-                                            player_active_request_id["value"] = event_request_id
-                                        player_session_active["value"] = lifecycle_state not in {"EXITING", "DESTROYED"}
+                                        if player_active_session_id["value"] not in (None, lifecycle_session):
+                                            performance.event(
+                                                "PLAYER_CALLBACK_STALE",
+                                                screen=navigation.current,
+                                                status="ignored",
+                                                metadata={
+                                                    "request_id": event_request_id,
+                                                    "player_session_id": lifecycle_session,
+                                                    "current_player_session_id": player_active_session_id["value"],
+                                                    "reason": "lifecycle_session_mismatch",
+                                                },
+                                            )
+                                        else:
+                                            player_active_session_id["value"] = lifecycle_session
+                                            if event_request_id:
+                                                player_active_request_id["value"] = event_request_id
+                                            player_session_active["value"] = lifecycle_state not in {"EXITING", "DESTROYED"}
+                                            player_active_player_generation["value"] = int(payload.get("playerGeneration") or player_active_player_generation["value"])
+                                            performance.event(
+                                                "PLAYER_COMMAND_ACCEPTED",
+                                                screen=navigation.current,
+                                                metadata={
+                                                    "request_id": event_request_id,
+                                                    "player_session_id": lifecycle_session,
+                                                    "player_generation": player_active_player_generation["value"],
+                                                    "lifecycle": lifecycle,
+                                                },
+                                            )
                                     elif lifecycle in {"onPause", "onStop", "onDestroy"} and (
                                         lifecycle_state in {"EXITING", "DESTROYED"} or lifecycle == "onDestroy"
-                                    ) and player_active_session_id["value"] == lifecycle_session:
-                                        cancel_player_transition(f"player_lifecycle_{lifecycle}")
-                                        player_session_active["value"] = False
-                                        player_active_session_id["value"] = None
-                                        player_active_request_id["value"] = None
-                                        player_active_episode_id["value"] = None
-                                        player_active_anime_id["value"] = None
-                                        player_active_uri["value"] = None
+                                    ):
+                                        invalidate_player_session(
+                                            f"player_lifecycle_{lifecycle}",
+                                            expected_session_id=lifecycle_session,
+                                            expected_request_id=event_request_id or None,
+                                        )
                             elif diagnostic_event == "FIRST_FRAME_RENDERED":
                                 pending_candidates = (
                                     ("NEXT", pending_next_transition["value"]),

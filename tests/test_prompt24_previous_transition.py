@@ -31,13 +31,13 @@ class Prompt24PreviousTransitionTests(unittest.TestCase):
 
     def test_previous_single_flight_and_generation(self):
         self.assertIn("pending_previous_transition", MAIN)
-        self.assertIn("player_transition_inflight["value"]", MAIN)
-        self.assertIn("player_transition_generation["value"]", MAIN)
+        self.assertIn('player_transition_inflight["value"]', MAIN)
+        self.assertIn('player_transition_generation["value"]', MAIN)
         self.assertIn("python_transition_generation", MAIN)
 
     def test_previous_session_and_stale_fencing(self):
-        self.assertIn("player_session_active["value"]", MAIN)
-        self.assertIn("player_active_session_id["value"]", MAIN)
+        self.assertIn('player_session_active["value"]', MAIN)
+        self.assertIn('player_active_session_id["value"]', MAIN)
         self.assertIn("source_player_session_id", MAIN)
         self.assertIn("PLAYER_PREVIOUS_STALE_REJECTED", MAIN + ACTIVITY + PLAYER)
 

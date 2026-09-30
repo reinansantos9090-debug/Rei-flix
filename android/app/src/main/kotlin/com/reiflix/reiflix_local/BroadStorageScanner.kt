@@ -235,12 +235,30 @@ object BroadStorageScanner {
         return "path:" + runCatching { root.canonicalPath }.getOrDefault(root.path)
     }
 
-    fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null, shouldCancel: () -> Boolean = { false }, scanId: String? = null, onBatch: ((JSONObject) -> Unit)? = null): JSONObject {
+    fun scan(context: Context, onProgress: ((JSONObject) -> Unit)? = null, shouldCancel: () -> Boolean = { false }, scanId: String? = null, onBatch: ((JSONObject) -> Unit)? = null, authorizedRoots: List<File> = emptyList()): JSONObject {
         val access = hasAccess(context)
         Log.i(TAG, "SCAN_STARTED: api=" + Build.VERSION.SDK_INT + ", granted=" + access)
         check(access) { "Acesso amplo ao armazenamento não foi concedido." }
         val errors = JSONArray()
-        val rootFiles = roots(context)
+        val discoveredRoots = roots(context)
+        val authorizedRootFiles = authorizedRoots.mapNotNull { candidate ->
+            runCatching { candidate.canonicalFile }.getOrNull()
+                ?.takeIf { it.exists() && it.isDirectory && !isRestricted(it) }
+        }.distinctBy { it.path }
+        if (authorizedRootFiles.isEmpty()) {
+            Log.w(TAG, "SCAN_SOURCE_REJECTED reason=NO_CONFIGURED_LIBRARY_SOURCE")
+            onProgress?.invoke(JSONObject().put("phase", "blocked").put("source", SOURCE)
+                .put("reason", "NO_CONFIGURED_LIBRARY_SOURCE"))
+            return JSONObject().put("source", SOURCE).put("name", DISPLAY_NAME).put("volumeScopes", JSONArray())
+                .put("stats", JSONObject().put("directories", 0).put("files", 0).put("videos", 0)
+                    .put("errors", errors).put("access", access).put("status", "BLOCKED")
+                    .put("rejection", "NO_CONFIGURED_LIBRARY_SOURCE"))
+                .put("partial", false).put("cancelled", false)
+        }
+        val rootFiles = authorizedRootFiles.mapNotNull { libraryRoot ->
+            val volume = rootForFile(libraryRoot, discoveredRoots) ?: return@mapNotNull null
+            volume.copy(file = libraryRoot)
+        }
         val errorsByVolume = LinkedHashMap<String, JSONArray>()
         val batchesByVolume = LinkedHashMap<String, NativeBatch.Accumulator>()
         val statsByVolume = LinkedHashMap<String, JSONObject>()
@@ -412,6 +430,10 @@ object BroadStorageScanner {
                 if (!child.isFile || child.extension.lowercase() !in videoExtensions) continue
 
                 val file = runCatching { child.canonicalFile }.getOrNull() ?: continue
+                if (!isInside(file, root.file) || isRestricted(file)) {
+                    if (Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG, "SCAN_SOURCE_FILE_REJECTED reason=OUTSIDE_SOURCE path=" + file.path)
+                    continue
+                }
                 val volumeName = root.volumeId
                 val relative = relativePath(file, root.file)
                 val document = JSONObject()

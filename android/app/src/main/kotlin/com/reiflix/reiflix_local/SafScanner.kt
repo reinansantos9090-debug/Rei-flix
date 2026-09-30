@@ -98,6 +98,20 @@ object SafScanner {
         }
     }
 
+    private fun normalizedDocumentId(value:String):String = Uri.decode(value).trim().trim('/')
+    private fun isDocumentIdWithinTree(treeDocumentId:String, documentId:String):Boolean {
+        val root = normalizedDocumentId(treeDocumentId)
+        val child = normalizedDocumentId(documentId)
+        return root.isNotBlank() && child.isNotBlank() && (child == root || child.startsWith(root + "/"))
+    }
+    fun isAuthorizedDocumentForTree(context:Context,treeUri:Uri,documentUri:Uri):Boolean {
+        val tree = runCatching { treeIdentity(treeUri) }.getOrNull() ?: return false
+        if(documentUri.scheme != "content" || !DocumentsContract.isDocumentUri(context,documentUri)) return false
+        if(documentUri.authority != tree.authority) return false
+        val documentId = runCatching { DocumentsContract.getDocumentId(documentUri) }.getOrNull() ?: return false
+        return isDocumentIdWithinTree(tree.documentId, documentId)
+    }
+
     fun isAuthorizedDocument(context:Context,documentUri:Uri):Boolean {
         if(documentUri.scheme!="content" || !DocumentsContract.isDocumentUri(context,documentUri)) return false
         val documentId=runCatching{DocumentsContract.getDocumentId(documentUri)}.getOrNull() ?: return false
@@ -105,6 +119,7 @@ object SafScanner {
             if(!p.isReadPermission) return@any false
             val tree=runCatching{treeIdentity(p.uri)}.getOrNull() ?: return@any false
             if(tree.authority!=documentUri.authority) return@any false
+            if(!isDocumentIdWithinTree(tree.documentId, documentId)) return@any false
             runCatching{DocumentsContract.buildDocumentUriUsingTree(p.uri,documentId)}.getOrNull()?.let { u ->
                 context.contentResolver.query(u,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),null,null,null)?.use{it.moveToFirst()}==true
             } ?: false
@@ -134,7 +149,7 @@ object SafScanner {
         }
         val stats=JSONObject().put("scanId",scanId ?: "").put("files",0).put("videos",0).put("directories",0).put("excludedNoMedia",0)
             .put("nomediaDirectories",0).put("nomediaFiles",0).put("metadataMissingSize",0).put("metadataMissingModified",0)
-            .put("mimeFallbacks",0).put("successfulQueries",0).put("failedQueries",0).put("emptyDirectories",0).put("errors",errors)
+            .put("mimeFallbacks",0).put("successfulQueries",0).put("failedQueries",0).put("emptyDirectories",0).put("rejectedOutsideSource",0).put("errors",errors)
         val pending=ArrayDeque<Pair<String,String>>(); val visited=HashSet<String>(); pending.addLast(identity.documentId to "")
         var cancelled=false; var revokedDuringScan=false; var lastFiles=0; var lastDirs=0
         Log.i(TAG,"SCAN_SOURCE_STARTED identity=" + identity.identity)
@@ -190,6 +205,11 @@ object SafScanner {
                     for(child in videoChildren){
                         if(shouldCancel()){cancelled=true;break}
                         val relative=if(currentPath.isEmpty())child.name else currentPath+"/"+child.name
+                        if(!isDocumentIdWithinTree(identity.documentId, child.id)){
+                            stats.put("rejectedOutsideSource",stats.getInt("rejectedOutsideSource")+1)
+                            if(Log.isLoggable(TAG, Log.DEBUG)) Log.d(TAG,"SCAN_SOURCE_FILE_REJECTED reason=OUTSIDE_SOURCE documentId="+child.id)
+                            continue
+                        }
                         val childUri=runCatching{DocumentsContract.buildDocumentUriUsingTree(treeUri,child.id)}.getOrElse{stats.put("failedQueries",stats.getInt("failedQueries")+1);errors.put("Não foi possível acessar: "+relative);continue}
                         if(!child.mime.startsWith("video/"))stats.put("mimeFallbacks",stats.getInt("mimeFallbacks")+1)
                         if(child.size==null)stats.put("metadataMissingSize",stats.getInt("metadataMissingSize")+1)

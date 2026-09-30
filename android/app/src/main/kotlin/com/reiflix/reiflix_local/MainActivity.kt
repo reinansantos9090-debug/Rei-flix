@@ -1025,18 +1025,6 @@ class MainActivity : FlutterFragmentActivity() {
         )
     }
 
-    private fun publishPlayerSessionDiagnostic(requestId: String, event: String) {
-        val session = activePlayerSessionId ?: return
-        publishNativeDiagnostic(
-            event = event,
-            requestId = requestId,
-            action = "play",
-            state = NativeRequestState.OperationState.COMPLETED.name,
-            result = session,
-            playerSessionId = session,
-        )
-    }
-
     private fun publishNativeCommandError(
         requestId: String?,
         action: String?,
@@ -2309,7 +2297,6 @@ class MainActivity : FlutterFragmentActivity() {
                     NativeRequestState.OperationState.COMPLETED.name,
                     result = "activity_direct",
                 )
-                publishPlayerSessionDiagnostic(requestId, "PLAYER_SESSION_CREATED")
                 Log.i(
                     tag,
                     "PLAY_HANDOFF_DISPATCHED requestId=" + requestId.ifEmpty { "-" } +

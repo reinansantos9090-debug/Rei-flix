@@ -483,7 +483,7 @@ class HomeView:
                 if not candidate and item.get("seasons"):
                     candidate = next((ep for season_data in item.get("seasons", []) for ep in season_data.get("episodes", []) if ep.get("path") and not ep.get("missing")), None)
                 if candidate:
-                    on_request_thumbnail(candidate)
+                    on_request_thumbnail(candidate, priority=300)
             performance.counter("home.cards_created")
             return ft.OutlinedButton(
                 width=card_width,

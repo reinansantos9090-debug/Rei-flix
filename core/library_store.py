@@ -2643,102 +2643,134 @@ class LibraryStore:
             return False
         if duration > 0:
             position = min(position, duration)
-        durable_time = time.time()
+
         normalized_session_id = str(session_id or "").strip()
         with self._playback_session_lock:
             active_session_id = self._active_playback_session_id
             if normalized_session_id and active_session_id not in (None, normalized_session_id):
                 get_performance_monitor().record_sqlite(
                     "save_progress",
-                    (time.perf_counter()-started)*1000.0,
+                    (time.perf_counter() - started) * 1000.0,
                     rows=0,
                     status="stale_session",
-                    metadata={"session_id": normalized_session_id, "active_session_id": active_session_id},
+                    metadata={
+                        "session_id": normalized_session_id,
+                        "active_session_id": active_session_id,
+                    },
                 )
                 return False
+
+            durable_time = time.time()
             with self._conn() as c:
-            parsed_episode_id = None
-            try:
-                if episode_id is not None and str(episode_id).strip():
-                    parsed_episode_id = int(episode_id)
-            except (TypeError, ValueError):
                 parsed_episode_id = None
-            if parsed_episode_id is not None and parsed_episode_id <= 0:
-                parsed_episode_id = None
-            identity_source = "path_fallback"
-            if parsed_episode_id is not None:
-                row = c.execute("SELECT * FROM episodes WHERE id=?", (parsed_episode_id,)).fetchone()
-                identity_source = "episode_id"
-                if not row:
-                    return False
-                if path:
-                    path_row = self._find_episode_row(c, path)
-                    if path_row and path_row["id"] != row["id"]:
+                try:
+                    if episode_id is not None and str(episode_id).strip():
+                        parsed_episode_id = int(episode_id)
+                except (TypeError, ValueError):
+                    parsed_episode_id = None
+                if parsed_episode_id is not None and parsed_episode_id <= 0:
+                    parsed_episode_id = None
+
+                if parsed_episode_id is not None:
+                    row = c.execute(
+                        "SELECT * FROM episodes WHERE id=?",
+                        (parsed_episode_id,),
+                    ).fetchone()
+                    if not row:
+                        return False
+                    if path:
+                        path_row = self._find_episode_row(c, path)
+                        if path_row and path_row["id"] != row["id"]:
+                            get_performance_monitor().record_sqlite(
+                                "save_progress",
+                                (time.perf_counter() - started) * 1000.0,
+                                rows=0,
+                                status="identity_mismatch",
+                                metadata={"episode_id": parsed_episode_id},
+                            )
+                            return False
+                else:
+                    row = self._find_episode_row(c, path)
+                    if not row:
+                        return False
+
+                canonical_path = str(row["path"])
+                canonical_episode_id = int(row["id"])
+                stored_duration = float(row["duration"] or 0)
+                if duration <= 0 and stored_duration > 0:
+                    duration = stored_duration
+                if duration > 0:
+                    position = min(position, duration)
+
+                watched = int(
+                    is_completed(
+                        {
+                            "progress": position,
+                            "duration": duration,
+                            "watched": bool(row["watched"]),
+                        }
+                    )
+                )
+
+                if event_time is not None:
+                    durable_time = (
+                        event_time / 1000.0
+                        if event_time > 10_000_000_000
+                        else event_time
+                    )
+                    event_key = f"episode:{canonical_episode_id}"
+                    last_seen = self._last_playback_event_at.get(event_key, 0.0)
+                    if durable_time <= last_seen:
                         get_performance_monitor().record_sqlite(
-                            "save_progress", (time.perf_counter()-started)*1000.0,
-                            rows=0, status="identity_mismatch",
-                            metadata={"episode_id": parsed_episode_id},
+                            "save_progress",
+                            (time.perf_counter() - started) * 1000.0,
+                            rows=0,
+                            status="stale",
                         )
                         return False
-            else:
-                row = self._find_episode_row(c, path)
-                if not row:
-                    return False
-            canonical_path = str(row["path"])
-            canonical_episode_id = int(row["id"])
-            stored_duration = float(row["duration"] or 0)
-            if duration <= 0 and stored_duration > 0:
-                duration = stored_duration
-            if duration > 0:
-                position = min(position, duration)
-            watched = int(is_completed({"progress": position, "duration": duration, "watched": bool(row["watched"])}))
-            if event_time is not None:
-                durable_time = event_time / 1000.0 if event_time > 10_000_000_000 else event_time
-                event_key = f"episode:{canonical_episode_id}" if parsed_episode_id is not None else canonical_path
-                last_seen = self._last_playback_event_at.get(event_key, 0.0)
-                if durable_time <= last_seen:
-                    get_performance_monitor().record_sqlite("save_progress", (time.perf_counter()-started)*1000.0, rows=0, status="stale")
-                    return False
-                if parsed_episode_id is not None:
+
                     updated = c.execute(
                         """UPDATE episodes
                            SET progress=?, duration=?, watched=?, last_played_at=?
                            WHERE id=?
                              AND (last_played_at IS NULL OR last_played_at < ?)""",
-                        (position, duration, watched, durable_time, canonical_episode_id, durable_time),
+                        (
+                            position,
+                            duration,
+                            watched,
+                            durable_time,
+                            canonical_episode_id,
+                            durable_time,
+                        ),
                     ).rowcount
-                else:
-                    updated = c.execute(
-                        """UPDATE episodes
-                           SET progress=?, duration=?, watched=?, last_played_at=?
-                           WHERE path=?
-                             AND (last_played_at IS NULL OR last_played_at < ?)""",
-                        (position, duration, watched, durable_time, canonical_path, durable_time),
-                    ).rowcount
-                if updated:
-                    self._last_playback_event_at[event_key] = durable_time
-                    if len(self._last_playback_event_at) > 8192:
-                        oldest = sorted(
-                            self._last_playback_event_at.items(),
-                            key=lambda item: item[1],
-                        )[:2048]
-                        for old_path, _ in oldest:
-                            self._last_playback_event_at.pop(old_path, None)
-                get_performance_monitor().record_sqlite("save_progress", (time.perf_counter()-started)*1000.0,
-                                                          rows=int(bool(updated)), status="ok" if updated else "ignored")
-                return bool(updated)
-                if parsed_episode_id is not None:
-                    updated = c.execute(
-                        "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE id=?",
-                        (position, duration, watched, durable_time, canonical_episode_id),
-                    ).rowcount
-                else:
-                    updated = c.execute(
-                        "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE path=?",
-                        (position, duration, watched, durable_time, canonical_path),
-                    ).rowcount
-        get_performance_monitor().record_sqlite("save_progress", (time.perf_counter()-started)*1000.0,
-                                                  rows=int(bool(updated)), status="ok" if updated else "ignored")
+                    if updated:
+                        self._last_playback_event_at[event_key] = durable_time
+                        if len(self._last_playback_event_at) > 8192:
+                            oldest = sorted(
+                                self._last_playback_event_at.items(),
+                                key=lambda item: item[1],
+                            )[:2048]
+                            for old_key, _ in oldest:
+                                self._last_playback_event_at.pop(old_key, None)
+                    get_performance_monitor().record_sqlite(
+                        "save_progress",
+                        (time.perf_counter() - started) * 1000.0,
+                        rows=int(bool(updated)),
+                        status="ok" if updated else "ignored",
+                    )
+                    return bool(updated)
+
+                updated = c.execute(
+                    "UPDATE episodes SET progress=?,duration=?,watched=?,last_played_at=? WHERE id=?",
+                    (position, duration, watched, durable_time, canonical_episode_id),
+                ).rowcount
+
+        get_performance_monitor().record_sqlite(
+            "save_progress",
+            (time.perf_counter() - started) * 1000.0,
+            rows=int(bool(updated)),
+            status="ok" if updated else "ignored",
+        )
         return bool(updated)
     @staticmethod
     def consumption_state(episode):

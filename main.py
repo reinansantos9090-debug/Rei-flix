@@ -3699,6 +3699,8 @@ async def main(page: ft.Page):
                                     },
                                 )
                                 continue
+
+                            for context_direction, pending in (
                                 ("NEXT", pending_next_transition["value"]),
                                 ("PREVIOUS", pending_previous_transition["value"]),
                             ):

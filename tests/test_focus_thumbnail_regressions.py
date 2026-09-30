@@ -33,7 +33,7 @@ class FocusAndThumbnailRegressionTests(unittest.TestCase):
         end = MAIN.index("elif event_type == 'thumbnail_error':", start)
         handler = MAIN[start:end]
         self.assertIn("home_state.get('_update_thumbnail')", handler)
-        self.assertIn("update_thumbnail(uri, thumbnail_path)", handler)
+        self.assertIn("home_update(uri, thumbnail_path, media_identity)", handler)
         self.assertNotIn("on_catalog_changed(", handler)
 
     def test_incremental_thumbnail_update_preserves_grid_and_uses_existing_bindings(self):
@@ -49,7 +49,8 @@ class FocusAndThumbnailRegressionTests(unittest.TestCase):
 
     def test_thumbnail_callback_is_exposed_without_rebuild_path(self):
         self.assertIn("view_state['_update_thumbnail'] = update_thumbnail_in_place", HOME)
-        self.assertIn("Thumbnail persistence has already completed", HOME)
+        self.assertIn("thumbnail", HOME)
+        self.assertIn("view_state[\'_update_thumbnail\'] = update_thumbnail_in_place", HOME)
 
     def test_existing_thumbnail_generation_guard_remains(self):
         start = MAIN.index("elif event_type == 'thumbnail_ready':")

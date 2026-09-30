@@ -652,7 +652,7 @@ class OrganizeView:
                 return
             if remaining < 800 and has_more[0] and not page_loading[0] and mode[0] == 'collection':
                 _start_view_task(load_next_collection_page)
-        def render_overview(summary, registry_genres):
+        def render_overview(summary):
             if summary is None:
                 content.controls.extend(
                     [
@@ -680,7 +680,30 @@ class OrganizeView:
                     )
                 )
                 return
-            total_overview = sum(int(item.get("count") or 0) for item in (summary.get("collections") or []))
+            all_collection_items = summary.get("collections") or []
+            collections = [
+                item for item in all_collection_items
+                if int(item.get("count") or 0) > 0
+            ]
+            genres = [
+                item for item in (summary.get("genres") or [])
+                if int(item.get("count") or 0) > 0
+            ]
+
+            skipped_collections = len(all_collection_items) - len(collections)
+            skipped_genres = len(summary.get("genres") or []) - len(genres)
+            logger.info(
+                "ORGANIZE_CATEGORY_COUNT collections=%s genres=%s",
+                len(collections), len(genres),
+            )
+            skipped = skipped_collections + skipped_genres
+            if skipped:
+                logger.info(
+                    "ORGANIZE_EMPTY_CATEGORY_SKIPPED count=%s collections=%s genres=%s",
+                    skipped, skipped_collections, skipped_genres,
+                )
+
+            total_overview = sum(int(item.get("count") or 0) for item in collections)
             if total_overview == 0:
                 if status.visible:
                     return
@@ -696,34 +719,25 @@ class OrganizeView:
                                 item["name"],
                                 item["count"],
                             )
-                            for item in (summary.get("collections") or summary.get("states") or [])
+                            for item in collections
                         ],
                         scroll=ft.ScrollMode.AUTO,
                         spacing=10,
                     ),
                 ]
             )
-            covers = {str(item.get('id')): item.get('cover', '') for item in (summary.get('genres') or [])}
-            registry_genres = [
-                {**item, "cover": covers.get(str(item.get("id")), item.get("cover", ""))}
-                for item in (registry_genres or summary.get("genres") or [])
-            ]
-            if registry_genres:
+            if genres:
                 content.controls.extend(
                     [
                         section_title("Gêneros", ft.Icons.LOCAL_OFFER_OUTLINED),
-                        ft.Row([genre_card(item) for item in registry_genres],
+                        ft.Row([genre_card(item) for item in genres],
                                wrap=True, spacing=12, run_spacing=12),
                     ]
                 )
-            else:
-                content.controls.append(
-                    ft.Text(
-                        "Nenhum gênero está disponível nos metadados locais.",
-                        color=TEXT_MUTED,
-                        size=12,
-                    )
-                )
+            logger.info(
+                "ORGANIZE_UI_BUILT collections=%s genres=%s",
+                len(collections), len(genres),
+            )
 
         def state_chip(label):
             active = (
@@ -798,18 +812,16 @@ class OrganizeView:
                 render_generation[0] += 1
                 token = render_generation[0]
             overview_started = time.perf_counter()
+            logger.info("ORGANIZE_QUERY_START token=%s", token)
             try:
-                summary, registry_genres = await asyncio.gather(
-                    asyncio.to_thread(library.organize_summary_bounded),
-                    asyncio.to_thread(library.genre_options, include_unused=False),
-                )
+                summary = await asyncio.to_thread(library.organize_summary_bounded)
             except Exception:
                 logger.exception('Organize overview load failed')
-                summary, registry_genres = None, None
+                summary = None
             if token != render_generation[0]:
                 return
             content.controls.clear()
-            render_overview(summary, registry_genres)
+            render_overview(summary)
             if is_active():
                 page.update()
             performance.event(

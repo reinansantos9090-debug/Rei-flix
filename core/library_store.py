@@ -2800,6 +2800,9 @@ class LibraryStore:
     def player_navigation(self, path):
         """Resolve Next/Previous plus destination edge flags in one SQLite read."""
         started = time.perf_counter()
+        monitor = get_performance_monitor()
+        monitor.event("SQLITE_NEIGHBOR_QUERY_STARTED", screen="player",
+                      metadata={"operation": "player_navigation"})
         with self._conn() as c:
             current = self._find_episode_row(c, path)
             if not current or not is_regular_episode(dict(current)):
@@ -2837,7 +2840,15 @@ class LibraryStore:
             "previous_can_next": previous_item is not None,
             "previous_can_previous": previous_before is not None,
         }
-        get_performance_monitor().record_sqlite(
+        monitor.event(
+            "SQLITE_NEIGHBOR_QUERY_FINISHED",
+            duration_ms=(time.perf_counter() - started) * 1000.0,
+            screen="player",
+            metadata={"operation": "player_navigation", "rows": len(rows),
+                      "can_next": next_item is not None,
+                      "can_previous": previous_item is not None},
+        )
+        monitor.record_sqlite(
             "player_navigation",
             (time.perf_counter() - started) * 1000.0,
             rows=len(rows),
@@ -2915,6 +2926,9 @@ class LibraryStore:
         to reproduce ordering, completion, or missing-file rules.
         """
         started = time.perf_counter()
+        monitor = get_performance_monitor()
+        monitor.event("SQLITE_PLAYBACK_LOOKUP_STARTED", screen="details",
+                      metadata={"operation": "playback_target", "anime_id": anime_id})
         current = self.current_episode(anime_id)
         if current:
             get_performance_monitor().record_sqlite("playback_target", (time.perf_counter()-started)*1000.0,

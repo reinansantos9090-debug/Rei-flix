@@ -33,6 +33,7 @@ def _truthy(value: str | None) -> bool:
 class PerformanceEvent:
     name: str
     timestamp_ms: int
+    monotonic_ns: int
     duration_ms: float | None = None
     interaction_id: str | None = None
     screen: str | None = None
@@ -51,6 +52,8 @@ class PerformanceMonitor:
         self._sequence = 0
         self._screen_provider: Callable[[], str] | None = None
         self._page_hooks: set[int] = set()
+        self._active_tasks: Counter[str] = Counter()
+        self._active_task_meta: dict[str, tuple[str, str]] = {}
 
     def now(self) -> float:
         return time.perf_counter()
@@ -106,6 +109,7 @@ class PerformanceMonitor:
         item = PerformanceEvent(
             name=str(name),
             timestamp_ms=int(time.time() * 1000),
+            monotonic_ns=time.monotonic_ns(),
             duration_ms=None if duration_ms is None else round(float(duration_ms), 3),
             interaction_id=_INTERACTION.get(),
             screen=screen if screen is not None else self.current_screen(),
@@ -178,6 +182,15 @@ class PerformanceMonitor:
                        status=status, screen=target, metadata=payload)
             self.counter("interactions.completed")
         finally:
+            task_meta = self._active_task_meta.pop(task_id, None)
+            if task_meta:
+                owner, operation = task_meta
+                key = f"{owner}:{operation}"
+                self._active_tasks[key] = max(0, self._active_tasks.get(key, 1) - 1)
+                self._active_tasks["__all__"] = max(0, self._active_tasks.get("__all__", 1) - 1)
+                self.gauge("tasks.active.total", self._active_tasks["__all__"])
+                self.gauge(f"tasks.active.screen.{owner}",
+                           sum(v for k, v in self._active_tasks.items() if k.startswith(f"{owner}:")))
             _INTERACTION.reset(token)
 
     @asynccontextmanager
@@ -189,19 +202,40 @@ class PerformanceMonitor:
         task_id = f"t-{uuid.uuid4().hex[:10]}"
         started = self.now()
         metadata = {"generation": generation} if generation is not None else {}
+        operation = str(name or "anonymous")
+        owner = str(screen or "global")
+        active_key = f"{owner}:{operation}"
+        self._active_tasks[active_key] += 1
+        self._active_tasks["__all__"] += 1
+        self._active_task_meta[task_id] = (owner, operation)
         self.counter("tasks.created")
+        self.event("TASK_CREATED", task_id=task_id, screen=screen,
+                   metadata={"name": name, "operation": operation, "owner": owner,
+                             "generation": generation, "active_tasks": self._active_tasks["__all__"], **metadata})
         self.event("task.created", task_id=task_id, screen=screen,
                    metadata={"name": name, **metadata})
         try:
             yield task_id
         except asyncio.CancelledError:
             self.counter("tasks.cancelled")
+            self.event("TASK_CANCELLED", task_id=task_id, screen=screen,
+                       duration_ms=(self.now() - started) * 1000.0,
+                       status="cancelled", metadata={"name": name, "operation": operation,
+                                                     "owner": owner, "generation": generation,
+                                                     "active_tasks": max(0, self._active_tasks["__all__"] - 1), **metadata})
             self.event("task.finished", task_id=task_id, screen=screen,
                        duration_ms=(self.now() - started) * 1000.0,
                        status="cancelled", metadata={"name": name, **metadata})
             raise
         except Exception as exc:
             self.counter("tasks.failed")
+            self.event("TASK_FAILED", task_id=task_id, screen=screen,
+                       duration_ms=(self.now() - started) * 1000.0,
+                       status="error",
+                       metadata={"name": name, "operation": operation, "owner": owner,
+                                 "generation": generation,
+                                 "active_tasks": max(0, self._active_tasks["__all__"] - 1),
+                                 "error": str(exc)[:120], **metadata})
             self.event("task.finished", task_id=task_id, screen=screen,
                        duration_ms=(self.now() - started) * 1000.0,
                        status="error",
@@ -209,6 +243,11 @@ class PerformanceMonitor:
             raise
         else:
             self.counter("tasks.completed")
+            self.event("TASK_FINISHED", task_id=task_id, screen=screen,
+                       duration_ms=(self.now() - started) * 1000.0,
+                       status="ok", metadata={"name": name, "operation": operation,
+                                              "owner": owner, "generation": generation,
+                                              "active_tasks": max(0, self._active_tasks["__all__"] - 1), **metadata})
             self.event("task.finished", task_id=task_id, screen=screen,
                        duration_ms=(self.now() - started) * 1000.0,
                        status="ok", metadata={"name": name, **metadata})
@@ -265,8 +304,19 @@ class PerformanceMonitor:
                     return original_update(*args, **kwargs)
                 finally:
                     self.counter("page.update")
-                    self.event("page.update",
-                               duration_ms=(self.now() - started) * 1000.0)
+                    duration_ms = (self.now() - started) * 1000.0
+                screen = self.current_screen()
+                metadata = {"page_views": len(getattr(page, "views", []) or [])}
+                if screen == "home":
+                    try:
+                        metadata["approx_controls"] = sum(
+                            self.control_count(view, limit=4000) or 0
+                            for view in (getattr(page, "views", []) or [])
+                        )
+                    except Exception:
+                        metadata["approx_controls"] = None
+                    self.event("HOME_PAGE_UPDATE", duration_ms=duration_ms, screen=screen, metadata=metadata)
+                self.event("page.update", duration_ms=duration_ms, screen=screen, metadata=metadata)
             page.update = measured_update
         except Exception:
             logger.debug("performance page.update hook unavailable", exc_info=True)

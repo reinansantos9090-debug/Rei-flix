@@ -514,6 +514,21 @@ class MainActivity : FlutterFragmentActivity() {
                 "focused=${window?.decorView?.hasWindowFocus() == true} finishing=$isFinishing " +
                 "action=${action ?: "-"} requestId=${requestId ?: "-"} flags=0x${intent?.flags?.toString(16) ?: "0"}"
         )
+        NativeMailbox.writeBestEffort(
+            this,
+            JSONObject().put("type", "diagnostic")
+                .put("requestId", requestId ?: "")
+                .put("payload", JSONObject()
+                    .put("event", "MAIN_ACTIVITY_LIFECYCLE")
+                    .put("lifecycle", event)
+                    .put("requestId", requestId ?: "")
+                    .put("activeRequestId", activePlayerRequestId ?: "")
+                    .put("activeCommandCreatedAtMs", activePlayerCommandCreatedAtMs)
+                    .put("activityElapsedRealtimeNs", SystemClock.elapsedRealtimeNanos())
+                    .put("resumed", activityResumed)
+                    .put("focused", window?.decorView?.hasWindowFocus() == true)
+                    .put("finishing", isFinishing)),
+        )
     }
 
     private fun publishInteractionProfileIfChanged(force: Boolean = false) {

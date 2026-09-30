@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -295,6 +296,8 @@ class ScanCoordinator:
             full=full or origin == ScanOrigin.EXPLICIT_FULL_RESCAN,
             reason=reason,
         )
+        self._log("SCAN_STARTED", request)
+        logger.info("[SCAN] instrumentation monotonic_ns=%s", time.monotonic_ns())
         async with self._lock:
             if self._active_request is not None:
                 if self._request_covers(self._active_request, request):
@@ -341,6 +344,7 @@ class ScanCoordinator:
 
         for target in targets:
             try:
+                self._log("SCAN_SOURCE_STARTED", request, target=target.source, scope_ref=target.scope_ref)
                 if target.source == "mediastore":
                     child_id = await self.bridge.scan_media_store()
                 elif target.source == "broad_storage":
@@ -358,6 +362,8 @@ class ScanCoordinator:
             async with self._lock:
                 self._active_children[str(child_id)] = target
                 self._emit()
+            self._log("SCAN_SOURCE_DISPATCHED", request, child_request_id=str(child_id),
+                      target=target.source, scope_ref=target.scope_ref)
 
         self._launch_failures = len(failed_launches)
         if failed_launches and not self._active_children:
@@ -463,7 +469,9 @@ class ScanCoordinator:
         self._log(
             "SCAN_COMPLETED" if status == ScanState.COMPLETED.value else f"SCAN_{status}",
             request,
+            pending_after=len(self._pending),
         )
+        self._log("SCAN_FINISHED", request, status=status, duration_monotonic_hint_ms=None)
         return ScanTransition(True, "completed", logical_id, logical_finished=True, refresh_required=refresh_required)
 
     async def event_refresh_required(self, transition: ScanTransition) -> bool:

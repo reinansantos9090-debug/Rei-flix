@@ -45,17 +45,53 @@ object VideoThumbnailExtractor {
         val identity = mediaIdentity?.trim().takeUnless { it.isNullOrEmpty() } ?: uri.toString()
         val key = cacheKey(identity, size, modifiedAt)
         val target = File(cacheDir, key + ".jpg")
+        val requestId = "thumb-" + key.take(12)
+        NativeMailbox.writeBestEffort(
+            context,
+            org.json.JSONObject().put("type", "diagnostic").put("requestId", requestId)
+                .put("payload", org.json.JSONObject().put("event", "THUMBNAIL_REQUESTED")
+                    .put("requestId", requestId).put("mediaIdentity", identity).put("size", size)
+                    .put("modifiedAt", modifiedAt)),
+        )
         if (target.isFile && target.length() > 0L) {
+            NativeMailbox.writeBestEffort(
+                context,
+                org.json.JSONObject().put("type", "diagnostic").put("requestId", requestId)
+                    .put("payload", org.json.JSONObject().put("event", "THUMBNAIL_CACHE_HIT")
+                        .put("requestId", requestId).put("mediaIdentity", identity).put("size", size)),
+            )
             return Result(target.absolutePath)
         }
+        NativeMailbox.writeBestEffort(
+            context,
+            org.json.JSONObject().put("type", "diagnostic").put("requestId", requestId)
+                .put("payload", org.json.JSONObject().put("event", "THUMBNAIL_CACHE_MISS")
+                    .put("requestId", requestId).put("mediaIdentity", identity).put("size", size)),
+        )
 
         val lock = inFlight.computeIfAbsent(key) { Any() }
         synchronized(lock) {
+            val startedNs = android.os.SystemClock.elapsedRealtimeNanos()
+            NativeMailbox.writeBestEffort(
+                context,
+                org.json.JSONObject().put("type", "diagnostic").put("requestId", requestId)
+                    .put("payload", org.json.JSONObject().put("event", "THUMBNAIL_GENERATION_STARTED")
+                        .put("requestId", requestId)),
+            )
             try {
                 if (target.isFile && target.length() > 0L) {
                     return Result(target.absolutePath)
                 }
-                return extractLocked(context, uri, target, key, size, modifiedAt)
+                val result = extractLocked(context, uri, target, key, size, modifiedAt)
+                NativeMailbox.writeBestEffort(
+                    context,
+                    org.json.JSONObject().put("type", "diagnostic").put("requestId", requestId)
+                        .put("payload", org.json.JSONObject()
+                            .put("event", if (result != null) "THUMBNAIL_GENERATION_FINISHED" else "THUMBNAIL_FAILED")
+                            .put("requestId", requestId)
+                            .put("durationMs", (android.os.SystemClock.elapsedRealtimeNanos() - startedNs) / 1_000_000.0)),
+                )
+                return result
             } finally {
                 inFlight.remove(key, lock)
             }

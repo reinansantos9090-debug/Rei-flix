@@ -392,6 +392,9 @@ class HomeView:
             )
 
         def render_section(title, key, items, action=None, episode=False):
+            section_started = time.perf_counter()
+            performance.event("HOME_SECTION_RENDER_START", screen="home",
+                              metadata={"section": key, "generation": render_generation[0]})
             visible_items = list((items or [])[:8])
             signature = tuple(_visible_item_signature(item, episode=episode) for item in visible_items)
             row = section_rows.setdefault(key, ft.Row(scroll=ft.ScrollMode.AUTO, spacing=10))
@@ -420,6 +423,11 @@ class HomeView:
             card.visible = bool(visible_items)
             card.content.controls[1] = row
             section_signatures[key] = signature
+            performance.event("HOME_SECTION_RENDER_END",
+                              duration_ms=(time.perf_counter() - section_started) * 1000.0,
+                              screen="home",
+                              metadata={"section": key, "items": len(visible_items),
+                                        "generation": render_generation[0]})
             return True
 
         def _library_filters():
@@ -433,6 +441,8 @@ class HomeView:
         async def load_library_page(*, reset=False):
             if page_loading[0] or (not reset and not has_more[0]):
                 return
+            performance.event("HOME_BROWSE_START", screen="home",
+                              metadata={"reset": reset, "generation": render_generation[0]})
             if reset:
                 render_generation[0] += 1
                 current_page[0] = 0
@@ -457,6 +467,12 @@ class HomeView:
                 page_loading[0] = False
                 return
             finally:
+                performance.event(
+                    "HOME_BROWSE_END",
+                    duration_ms=(time.perf_counter() - browse_started) * 1000.0,
+                    screen="home",
+                    metadata={"page": target_page, "reset": reset, "generation": token},
+                )
                 logger.info(
                     "HOME_BROWSE_CATALOG_PAGE duration_ms=%s page=%s reset=%s",
                     int((time.perf_counter() - browse_started) * 1000),
@@ -507,7 +523,14 @@ class HomeView:
                 await restore_scroll_position()
             if fresh_items:
                 async def run_hydration_batch():
+                    started = time.perf_counter()
+                    performance.event("HOME_HYDRATION_START", screen="home",
+                                      metadata={"count": len(fresh_items), "generation": token})
                     await hydrate_metadata_and_artwork(list(fresh_items), token)
+                    performance.event("HOME_HYDRATION_END",
+                                      duration_ms=(time.perf_counter() - started) * 1000.0,
+                                      screen="home",
+                                      metadata={"count": len(fresh_items), "generation": token})
                 schedule_background(run_hydration_batch)
 
         def schedule_background(coro_factory):
@@ -1006,12 +1029,18 @@ class HomeView:
 
         async def refresh_home_sections(token):
             sections_started = time.perf_counter()
+            performance.event("HOME_INITIAL_LOAD_START", screen="home",
+                              metadata={"generation": token})
             try:
                 loaded = await asyncio.to_thread(library.media_center_home, limit=12)
             except Exception:
                 logger.exception("Home secondary sections load failed", extra={"screen":"home"})
                 return
             finally:
+                performance.event("HOME_INITIAL_LOAD_END",
+                                  duration_ms=(time.perf_counter() - sections_started) * 1000.0,
+                                  screen="home",
+                                  metadata={"generation": token})
                 logger.info(
                     "HOME_MEDIA_CENTER_HOME duration_ms=%s",
                     int((time.perf_counter() - sections_started) * 1000),

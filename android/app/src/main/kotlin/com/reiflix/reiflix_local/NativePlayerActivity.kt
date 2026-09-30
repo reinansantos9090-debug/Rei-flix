@@ -104,6 +104,8 @@ class NativePlayerActivity : ComponentActivity() {
     private var transitionSourceUri = ""
     private var transitionSourceCreatedAtMs = 0L
     private var transitionSourceGeneration = 0L
+    private var playerCommandSequence = 0L
+    private var lastPlayerCommandSequence = 0L
     private var transitionStartedAtMs = 0L
     private var activePlayerListener: Player.Listener? = null
     private var errorPublishedForGeneration = false
@@ -351,8 +353,26 @@ class NativePlayerActivity : ComponentActivity() {
         firstFrameWatchGeneration = -1L
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
+        private fun publishPlayerLifecycle(event: String) {
+        NativeMailbox.writeBestEffort(
+            this,
+            JSONObject().put("type", "diagnostic")
+                .put("requestId", requestId)
+                .put("payload", JSONObject()
+                    .put("event", "PLAYER_LIFECYCLE")
+                    .put("lifecycle", event)
+                    .put("requestId", requestId)
+                    .put("playerGeneration", playerGeneration)
+                    .put("transitionGeneration", transitionGeneration)
+                    .put("sessionState", sessionState.name)
+                    .put("activityElapsedRealtimeNs", SystemClock.elapsedRealtimeNanos())
+                    .put("episodeId", currentEpisodeId())),
+        )
+    }
+
+override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        publishPlayerLifecycle("onCreate")
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         requestId = savedInstanceState?.getString("session_request_id")?.trim()
             ?: intent.getStringExtra("requestId")?.trim().orEmpty()
@@ -536,6 +556,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     override fun onNewIntent(newIntent: Intent) {
+        publishPlayerLifecycle("onNewIntent")
         if (sessionState != SessionState.ACTIVE) {
             logPlayer(
                 "PLAYER_REUSE_IGNORED requestId=" +
@@ -2439,6 +2460,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("reason", reason)
             .put("timestamp", exitCapturedAt)
             .put("playerSessionId", playerSessionId)
+            .put("sequence", commandSequence)
             .put("transitionGeneration", transitionGeneration)
         val exitEvent = JSONObject()
             .put("type", "player_exited")
@@ -2550,6 +2572,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             saveProgress("player_progress", force = true)
         }
 
+        playerCommandSequence += 1L
+        val commandSequence = playerCommandSequence
         val payload = JSONObject()
             .put("uri", uri.toString())
             .put("requestId", requestId)
@@ -2562,6 +2586,32 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("transitionGeneration", generation)
             .put("playerSessionId", playerSessionId)
 
+        if (commandSequence < lastPlayerCommandSequence) {
+            NativeMailbox.writeBestEffort(
+                this,
+                JSONObject().put("type", "diagnostic")
+                    .put("requestId", requestId)
+                    .put("payload", JSONObject().put("event", "PLAYER_COMMAND_OUT_OF_ORDER")
+                        .put("requestId", requestId).put("sequence", commandSequence)
+                        .put("previousSequence", lastPlayerCommandSequence)
+                        .put("transitionGeneration", generation)),
+            )
+        }
+        lastPlayerCommandSequence = commandSequence
+        NativeMailbox.writeBestEffort(
+            this,
+            JSONObject().put("type", "diagnostic")
+                .put("requestId", requestId)
+                .put("payload", JSONObject()
+                    .put("event", if (eventType == "player_next_request") "NEXT_BUTTON_PRESSED" else "PREVIOUS_BUTTON_PRESSED")
+                    .put("requestId", requestId)
+                    .put("sequence", commandSequence)
+                    .put("createdAt", startedAtMs)
+                    .put("playerGeneration", playerGeneration)
+                    .put("transitionGeneration", generation)
+                    .put("episodeId", currentEpisodeId())
+                    .put("playerSessionId", playerSessionId)),
+        )
         val transitionEvent = JSONObject()
             .put("type", eventType)
             .put("requestId", requestId)
@@ -2719,12 +2769,14 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     override fun onStart() {
         super.onStart()
+        publishPlayerLifecycle("onStart")
         logPlayer("onStart requestId=" + requestId.ifEmpty { "-" })
         if (!inPictureInPicture) applyImmersiveAfterLayout()
     }
 
     override fun onResume() {
         super.onResume()
+        publishPlayerLifecycle("onResume")
         logPlayer("onResume requestId=" + requestId.ifEmpty { "-" })
         if (!inPictureInPicture) applyImmersiveAfterLayout()
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.refreshZoomForLayout()
@@ -2748,6 +2800,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     }
 
     override fun onPause() {
+        publishPlayerLifecycle("onPause")
         cancelFirstFrameDiagnostics("pause")
         if (sessionState != SessionState.EXITING || !exitProgressPublished) {
             saveProgress("player_paused", force = true)
@@ -2757,6 +2810,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     }
 
     override fun onStop() {
+        publishPlayerLifecycle("onStop")
         findViewByTag<GestureLayer>("reiflix_gesture_layer")?.cancelInteractions()
         if (isFinishing && !isChangingConfigurations) {
             invalidateTransition("onStop_finishing")
@@ -2853,6 +2907,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     }
 
     override fun onDestroy() {
+        publishPlayerLifecycle("onDestroy")
         PerformanceDiagnostics.sampleMemory(this, "player_on_destroy")
         PerformanceDiagnostics.detach()
         val shouldReportExit = isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations

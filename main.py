@@ -749,6 +749,9 @@ async def main(page: ft.Page):
     player_transition_generation = {"value": 0}
     player_active_request_id = {"value": None}
     player_session_active = {"value": False}
+    player_command_sequence = {"value": 0}
+    player_command_seen = set()
+    player_last_command = {"sequence": 0, "request_id": None, "direction": None, "created_at_ms": 0}
 
     def cancel_player_transition(reason="unknown"):
         player_transition_generation["value"] += 1
@@ -757,6 +760,13 @@ async def main(page: ft.Page):
             task.cancel()
         player_transition_task["task"] = None
         player_transition_inflight["value"] = False
+        performance.event(
+            "PLAYER_TRANSITION_INVALIDATED",
+            screen=navigation.current,
+            metadata={"request_id": player_active_request_id["value"],
+                      "generation": player_transition_generation["value"],
+                      "reason": reason},
+        )
         diagnostics.record(
             "PLAYER_TRANSITION_CANCELLED",
             request_id=player_active_request_id["value"],
@@ -790,7 +800,7 @@ async def main(page: ft.Page):
         origin_transition_generation=0,
     ):
         performance.event(
-            "player.start_native_player",
+            "NATIVE_PLAY_REQUEST_CREATED",
             screen=navigation.current,
             metadata={
                 "path": path,
@@ -831,6 +841,12 @@ async def main(page: ft.Page):
                 bool(navigation_snapshot.get("can_previous")),
             )
 
+        performance.event(
+            "PLAYER_NAVIGATION_REQUESTED",
+            screen=navigation.current,
+            metadata={"request_id": origin_request_id or player_active_request_id["value"],
+                      "episode_id": episode_id, "anime_id": anime_id},
+        )
         request_id = await bridge.play(
             path,
             title,
@@ -869,7 +885,7 @@ async def main(page: ft.Page):
             },
         )
         performance.event(
-            "player.command_confirmed",
+            "NATIVE_HANDOFF_ACCEPTED",
             screen=navigation.current,
             metadata={
                 "request_id": request_id,
@@ -2323,6 +2339,10 @@ async def main(page: ft.Page):
                             if player_active_request_id["value"] in (None, event_request_id):
                                 player_active_request_id["value"] = event_request_id
                                 player_session_active["value"] = True
+                                performance.event("PLAYER_TRANSITION_COMMITTED", screen=navigation.current,
+                                                  metadata={"request_id": event_request_id, "episode_id": payload.get("episodeId"),
+                                                            "generation": payload.get("generation"),
+                                                            "transition_generation": payload.get("transitionGeneration")})
                                 diagnostics.record(
                                     "PLAYER_OPENED",
                                     request_id=event_request_id,
@@ -2405,6 +2425,34 @@ async def main(page: ft.Page):
                         elif event_type in {'player_next_request', 'player_previous_request'}:
                             transition_started = performance.now()
                             direction_name = "NEXT" if event_type == "player_next_request" else "PREVIOUS"
+                            player_command_sequence["value"] += 1
+                            command_sequence = int(payload.get("sequence") or player_command_sequence["value"])
+                            command_created_at_ms = int(payload.get("buttonPressedAtMs") or payload.get("createdAt") or event.get("createdAt") or 0)
+                            performance.event(
+                                "NEXT_BUTTON_PRESSED" if direction_name == "NEXT" else "PREVIOUS_BUTTON_PRESSED",
+                                screen=navigation.current,
+                                metadata={"request_id": event_request_id, "sequence": command_sequence,
+                                          "episode_id": payload.get("episodeId"), "anime_id": payload.get("animeId"),
+                                          "transition_generation": payload.get("transitionGeneration")},
+                            )
+                            if event_request_id and event_request_id in player_command_seen:
+                                performance.event("PLAYER_COMMAND_DUPLICATE", screen=navigation.current,
+                                                  status="duplicate",
+                                                  metadata={"request_id": event_request_id, "direction": direction_name,
+                                                            "sequence": command_sequence})
+                            elif event_request_id:
+                                player_command_seen.add(event_request_id)
+                                if len(player_command_seen) > 128:
+                                    player_command_seen.pop()
+                            previous_sequence = int(player_last_command.get("sequence") or 0)
+                            if command_sequence < previous_sequence:
+                                performance.event("PLAYER_COMMAND_OUT_OF_ORDER", screen=navigation.current,
+                                                  status="out_of_order",
+                                                  metadata={"request_id": event_request_id, "direction": direction_name,
+                                                            "sequence": command_sequence, "previous_sequence": previous_sequence,
+                                                            "previous_request_id": player_last_command.get("request_id")})
+                            player_last_command.update(sequence=command_sequence, request_id=event_request_id,
+                                                       direction=direction_name, created_at_ms=command_created_at_ms)
                             button_created_at_ms = int(
                                 payload.get("buttonPressedAtMs")
                                 or payload.get("createdAt")
@@ -2421,6 +2469,15 @@ async def main(page: ft.Page):
                                 int(time.time() * 1000) - mailbox_created_at_ms,
                             )
                             performance.event(
+                                "PYTHON_MAILBOX_RECEIVED",
+                                screen=navigation.current,
+                                metadata={"request_id": event_request_id, "direction": direction_name,
+                                          "sequence": command_sequence, "mailbox_age_ms": mailbox_latency_ms,
+                                          "command_created_at_ms": command_created_at_ms,
+                                          "command_generation": payload.get("transitionGeneration"),
+                                          "current_generation": player_transition_generation["value"]},
+                            )
+                            performance.event(
                                 f"player.{direction_name.lower()}.request",
                                 screen=navigation.current,
                                 metadata={
@@ -2431,6 +2488,14 @@ async def main(page: ft.Page):
                                 },
                             )
                             if player_transition_inflight["value"]:
+                                performance.event("PLAYER_COMMAND_STALE", screen=navigation.current,
+                                                  status="rejected",
+                                                  metadata={"request_id": event_request_id, "direction": direction_name,
+                                                            "age_ms": mailbox_latency_ms,
+                                                            "current_request_id": player_active_request_id["value"],
+                                                            "current_generation": player_transition_generation["value"],
+                                                            "command_generation": payload.get("transitionGeneration"),
+                                                            "reason": "transition_in_progress"})
                                 diagnostics.record(
                                     "PLAYER_NEXT_IGNORED" if event_type == "player_next_request" else "PLAYER_PREVIOUS_IGNORED",
                                     request_id=event_request_id,
@@ -2476,6 +2541,13 @@ async def main(page: ft.Page):
                                         return
 
                                     query_started = performance.now()
+                                    performance.event("PYTHON_PLAYER_NAVIGATION_STARTED", screen=navigation.current,
+                                                      metadata={"request_id": event_request_id, "direction": direction_name,
+                                                                "sequence": command_sequence,
+                                                                "transition_generation": transition_generation})
+                                    performance.event("SQLITE_NEIGHBOR_QUERY_STARTED", screen=navigation.current,
+                                                      metadata={"request_id": event_request_id, "direction": direction_name,
+                                                                "transition_generation": transition_generation})
                                     navigation_snapshot = await asyncio.to_thread(
                                         library.player_navigation,
                                         current_path,
@@ -2491,9 +2563,15 @@ async def main(page: ft.Page):
                                         if direction > 0
                                         else navigation_snapshot.get("previous")
                                     )
+                                    sqlite_ms = (performance.now() - query_started) * 1000.0
+                                    performance.event("SQLITE_NEIGHBOR_QUERY_FINISHED", duration_ms=sqlite_ms,
+                                                      screen=navigation.current,
+                                                      metadata={"request_id": event_request_id, "direction": direction_name,
+                                                                "transition_generation": transition_generation,
+                                                                "has_target": bool((navigation_snapshot.get("next") if direction > 0 else navigation_snapshot.get("previous")))})
                                     performance.event(
                                         f"player.{direction_name.lower()}.query",
-                                        duration_ms=(performance.now() - query_started) * 1000.0,
+                                        duration_ms=sqlite_ms,
                                         screen=navigation.current,
                                         metadata={
                                             "request_id": event_request_id,
@@ -2545,6 +2623,10 @@ async def main(page: ft.Page):
                                     ):
                                         return
 
+                                    performance.event("TARGET_EPISODE_RESOLVED", screen=navigation.current,
+                                                      metadata={"request_id": event_request_id, "direction": direction_name,
+                                                                "episode_id": target.get("id"), "anime_id": target.get("anime_id"),
+                                                                "transition_generation": transition_generation})
                                     diagnostics.record(
                                         "PLAYER_NEXT" if direction > 0 else "PLAYER_PREVIOUS",
                                         request_id=event_request_id,
@@ -2564,6 +2646,12 @@ async def main(page: ft.Page):
                                     )
 
                                     handoff_started = performance.now()
+                                    performance.event("NATIVE_PLAY_REQUEST_CREATED", screen=navigation.current,
+                                                      metadata={"request_id": event_request_id, "direction": direction_name,
+                                                                "episode_id": target.get("id"), "anime_id": target.get("anime_id"),
+                                                                "origin_request_id": event_request_id,
+                                                                "origin_created_at_ms": button_created_at_ms,
+                                                                "origin_transition_generation": transition_generation})
                                     await start_native_player(
                                         target_path,
                                         target_title,

@@ -1,6 +1,7 @@
 package com.reiflix.reiflix_local
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import org.json.JSONObject
 import java.io.File
@@ -128,6 +129,7 @@ object NativeMailbox {
             val target = File(queue, "$PREFIX$id.json")
             val temp = File(queue, "$PREFIX$id.json.tmp")
             temporary = temp
+            val writeStartedNs = SystemClock.elapsedRealtimeNanos()
             val now=System.currentTimeMillis()
             val capturedAt = event.optLong("createdAt", 0L).takeIf { it > 0L } ?: now
             val payload=JSONObject(event.toString())
@@ -136,6 +138,7 @@ object NativeMailbox {
                 .put("eventType", eventType(event))
                 .put("createdAt",capturedAt)
                 .put("timestamp",capturedAt)
+                .put("mailboxWriteStartedElapsedNs", writeStartedNs)
             val nested = payload.optJSONObject("payload")
             fun promote(name: String, vararg aliases: String) {
                 if (payload.has(name) || nested == null) return
@@ -191,7 +194,11 @@ object NativeMailbox {
                     StandardCopyOption.REPLACE_EXISTING,
                 )
             }
-            Log.i(TAG,"EVENT_WRITTEN eventId=$id type=${event.optString("type")} eventType=${payload.optString("eventType")} operationState=${operationState.ifEmpty{"-"}} requestId=${requestId.ifEmpty{"-"}} createdAt=$now durable=$durable")
+            val committedNs = SystemClock.elapsedRealtimeNanos()
+            Log.i(TAG,"EVENT_WRITTEN eventId=$id type=${event.optString("type")} eventType=${payload.optString("eventType")} operationState=${operationState.ifEmpty{"-"}} requestId=${requestId.ifEmpty{"-"}} createdAt=$now durable=$durable payloadBytes=${payload.toString().toByteArray(Charsets.UTF_8).size} writeDurationMs=${(committedNs - writeStartedNs) / 1_000_000.0}")
+            if (event.optString("type") in setOf("player_next_request", "player_previous_request")) {
+                Log.i(TAG,"MAILBOX_WRITE requestId=${requestId.ifEmpty{"-"}} writeDurationMs=${(committedNs - writeStartedNs) / 1_000_000.0} payloadBytes=${payload.toString().toByteArray(Charsets.UTF_8).size}")
+            }
         }catch(exception:Exception){
             temporary?.delete()
             Log.e(TAG,"Unable to queue native event",exception)

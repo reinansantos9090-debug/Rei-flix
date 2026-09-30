@@ -140,11 +140,20 @@ class AndroidBridge:
             raise RuntimeError("A ponte Android está disponível somente no APK ReiFlix.")
         request_id = uuid.uuid4().hex
         created_at = int(time.time() * 1000)
+        created_monotonic_ns = time.monotonic_ns()
+        performance.event(
+            "NATIVE_COMMAND_CREATED",
+            screen="android_bridge",
+            metadata={"request_id": request_id, "operation": action,
+                      "commandCreatedAtMs": created_at,
+                      "commandCreatedMonotonicNs": created_monotonic_ns},
+        )
         query = urlencode({
             "action": action,
             "request_id": request_id,
             "protocol_version": BRIDGE_PROTOCOL_VERSION,
             "created_at": created_at,
+            "created_monotonic_ns": created_monotonic_ns,
             **{k: v for k, v in params.items() if v is not None},
         })
         url = f"reiflix://native?{query}"
@@ -180,6 +189,13 @@ class AndroidBridge:
                     "Flet 0.86.5 não expôs UrlLauncher/EXTERNAL_NON_BROWSER_APPLICATION."
                 )
             await launcher.launch_url(url, mode=external_non_browser)
+            performance.event(
+                "NATIVE_COMMAND_SENT",
+                duration_ms=(performance.now()-launch_started)*1000.0,
+                screen="android_bridge",
+                metadata={"request_id": request_id, "operation": action,
+                          "commandCreatedAtMs": created_at},
+            )
             performance.event("android.launch_url", duration_ms=(performance.now()-launch_started)*1000.0,
                               screen="android_bridge", metadata={"action": action, "request_id": request_id})
             logger.info(
@@ -216,6 +232,14 @@ class AndroidBridge:
                               status="timeout", screen="android_bridge",
                               metadata={"action": action, "request_id": request_id,
                                         "expected_event": expected_event})
+            performance.event(
+                "NATIVE_COMMAND_DELIVERY_TIMEOUT",
+                duration_ms=(performance.now()-launch_started)*1000.0,
+                status="timeout",
+                screen="android_bridge",
+                metadata={"request_id": request_id, "operation": action,
+                          "expected_event": expected_event},
+            )
             logger.error(
                 "[ANDROID_BRIDGE] COMMAND_DELIVERY_TIMEOUT request_id=%s action=%s "
                 "timeout_s=%s expected=%s",
@@ -239,6 +263,13 @@ class AndroidBridge:
             self._command_delivery_expected_events.pop(request_id, None)
             if not delivery_waiter.done():
                 delivery_waiter.cancel()
+        performance.event(
+            "NATIVE_HANDOFF_ACCEPTED" if action == "play" else "NATIVE_COMMAND_ACCEPTED",
+            duration_ms=(performance.now()-launch_started)*1000.0,
+            screen="android_bridge",
+            metadata={"request_id": request_id, "operation": action,
+                      "expected_event": expected_event},
+        )
         logger.info(
             "[ANDROID_BRIDGE] COMMAND_SENT request_id=%s action=%s timestamp=%s "
             "delivery=%s_CONFIRMED",

@@ -20,6 +20,9 @@ object PerformanceDiagnostics {
     private var frames = 0L
     private var framesOverBudget = 0L
     private var jankyFrames = 0L
+    private var framesOver32Ms = 0L
+    private var framesOver50Ms = 0L
+    private var framesOver100Ms = 0L
     private var totalFrameDurationNs = 0L
     private var maxFrameDurationNs = 0L
     private var refreshRateHz = 60f
@@ -52,6 +55,9 @@ object PerformanceDiagnostics {
             frames += 1
             if (duration > frameBudgetNs()) framesOverBudget += 1
             if (duration > frameBudgetNs() * JANK_MULTIPLIER) jankyFrames += 1
+            if (duration > 32_000_000L) framesOver32Ms += 1
+            if (duration > 50_000_000L) framesOver50Ms += 1
+            if (duration > 100_000_000L) framesOver100Ms += 1
             totalFrameDurationNs += duration
             maxFrameDurationNs = maxOf(maxFrameDurationNs, duration)
             maybeFlush(activity)
@@ -147,6 +153,10 @@ object PerformanceDiagnostics {
                     .put("frames", count)
                     .put("framesOverBudget", framesOverBudget)
                     .put("jankyFrames", jankyFrames)
+                    .put("framesOver16Ms", framesOverBudget)
+                    .put("framesOver32Ms", framesOver32Ms)
+                    .put("framesOver50Ms", framesOver50Ms)
+                    .put("framesOver100Ms", framesOver100Ms)
                     .put("avgFrameMs", avgMs)
                     .put("maxFrameMs", maxFrameDurationNs.toDouble() / 1_000_000.0)
                     .put("refreshRateHz", refreshRateHz)
@@ -157,6 +167,9 @@ object PerformanceDiagnostics {
         frames = 0L
         framesOverBudget = 0L
         jankyFrames = 0L
+        framesOver32Ms = 0L
+        framesOver50Ms = 0L
+        framesOver100Ms = 0L
         totalFrameDurationNs = 0L
         maxFrameDurationNs = 0L
     }

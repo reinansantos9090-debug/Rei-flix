@@ -996,13 +996,18 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 logPlayer("PREFLIGHT_ASYNC_START requestId=" + requestId.ifEmpty { "-" } +
                     " generation=" + generation + " uri=" + localUri +
                     " atMs=" + preflightStartedAtMs)
-                val preflightError = validateLocalSource(localUri)
-                if (preflightError != null) {
+                val preflightFailure = validateLocalSource(localUri)
+                if (preflightFailure != null) {
                     handler.post {
                         if (!isCurrentPreparation(generation, localUri, preparationTransitionGeneration)) return@post
                         logPlayer("PREFLIGHT_ASYNC_FAILED requestId=" + requestId.ifEmpty { "-" } +
-                            " generation=" + generation + " error=" + preflightError)
-                        showPlayerError(preflightError, "unauthorized_or_unreadable")
+                            " generation=" + generation + " errorCode=" + preflightFailure.code +
+                            " error=" + preflightFailure.message)
+                        showPlayerError(
+                            preflightFailure.message,
+                            "source_preflight",
+                            JSONObject().put("errorCode", preflightFailure.code),
+                        )
                     }
                     return@submit
                 }
@@ -2739,8 +2744,24 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("transitionGeneration", transitionGeneration)
             .put("episodeId", currentEpisodeId())
             .put("reason", reason)
+            .put("errorCode", payload.optString("errorCode").ifBlank { diagnosticErrorCode(reason) })
             .put("category", category.name)
         publishPlayerError(message, effectivePayload)
+    }
+
+    private fun diagnosticErrorCode(reason: String): String = when (reason) {
+        "missing_uri", "missing_uri_on_reuse", "invalid_uri_on_reuse" -> "MEDIA_URI_INVALID"
+        "unauthorized_or_unreadable", "source_preflight" -> "MEDIA_URI_INVALID"
+        "media3_prepare" -> "MEDIA3_PREPARE_FAILED"
+        "unsupported_format", "unsupported_media" -> "UNSUPPORTED_MEDIA"
+        "empty_file" -> "FILE_NOT_FOUND"
+        "player_reuse" -> "HANDOFF_REJECTED"
+        else -> reason.trim()
+            .takeIf { it.isNotEmpty() }
+            ?.uppercase()
+            ?.replace(Regex("[^A-Z0-9]+"), "_")
+            ?.trim('_')
+            ?: "UNKNOWN_OPEN_FAILURE"
     }
 
     private fun publishPlayerError(message: String, payload: JSONObject = JSONObject()) {
@@ -3747,7 +3768,12 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         return if (parsed.scheme == scheme) parsed else parsed.buildUpon().scheme(scheme).build()
     }
 
-    private fun validateLocalSource(localUri: Uri): String? {
+    private data class SourceValidationFailure(
+        val message: String,
+        val code: String,
+    )
+
+    private fun validateLocalSource(localUri: Uri): SourceValidationFailure? {
         val result = when (localUri.scheme?.lowercase()) {
             "content" -> {
                 val safAuthorized = runCatching {
@@ -3758,44 +3784,97 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                         MediaStoreScanner.isAuthorizedDocument(this, localUri)
                     }.getOrDefault(false)
                 } else false
-                logPlayer("AUTH_CHECK uri=" + localUri + " saf=" + safAuthorized + " mediastore=" + mediaStoreAuthorized)
+                logPlayer(
+                    "AUTH_CHECK scheme=content authority=" + localUri.authority.orEmpty() +
+                        " saf=" + safAuthorized + " mediastore=" + mediaStoreAuthorized,
+                )
                 if (!safAuthorized && !mediaStoreAuthorized) {
                     if (localUri.authority == MediaStore.AUTHORITY &&
-                        !MediaStoreScanner.hasReadPermission(this)) {
-                        "A permissão para ler vídeos foi revogada."
+                        !MediaStoreScanner.hasReadPermission(this)
+                    ) {
+                        SourceValidationFailure(
+                            "A permissão para ler vídeos foi revogada.",
+                            "STORAGE_PERMISSION_MISSING",
+                        )
+                    } else if (localUri.authority == MediaStore.AUTHORITY) {
+                        SourceValidationFailure(
+                            "Este vídeo do armazenamento de mídia não está mais disponível.",
+                            "MEDIASTORE_ITEM_UNAVAILABLE",
+                        )
                     } else {
-                        "A autorização deste arquivo não está mais disponível ou o provedor local está indisponível."
+                        SourceValidationFailure(
+                            "A autorização deste arquivo não está mais disponível.",
+                            "SAF_PERMISSION_MISSING",
+                        )
                     }
                 } else {
                     val readable = runCatching {
                         contentResolver.openFileDescriptor(localUri, "r")?.use { true } == true
                     }.onFailure { error ->
-                        logPlayer("CONTENT_READ_PREFLIGHT_FAILED uri=" + localUri, error)
+                        logPlayer(
+                            "CONTENT_READ_PREFLIGHT_FAILED authority=" + localUri.authority.orEmpty(),
+                            error,
+                        )
                     }.getOrDefault(false)
                     if (!readable) {
-                        "O provedor local não está disponível para leitura deste arquivo."
+                        SourceValidationFailure(
+                            "O provedor local não está disponível para leitura deste arquivo.",
+                            "MEDIA_URI_INVALID",
+                        )
                     } else null
                 }
             }
             "file" -> {
                 val file = runCatching {
                     File(localUri.path ?: "").canonicalFile
-                }.getOrNull() ?: return "Arquivo local inválido."
+                }.getOrNull() ?: return SourceValidationFailure(
+                    "Arquivo local inválido.",
+                    "MEDIA_URI_INVALID",
+                )
+                val hasBroadAccess = runCatching {
+                    BroadStorageScanner.hasAccess(this)
+                }.getOrDefault(false)
                 val authorized = runCatching {
                     BroadStorageScanner.isAuthorizedFile(this, localUri)
                 }.getOrDefault(false)
-                logPlayer("AUTH_CHECK uri=" + localUri + " broad=" + authorized + " exists=" + file.exists())
+                logPlayer(
+                    "AUTH_CHECK scheme=file broad=" + hasBroadAccess +
+                        " authorized=" + authorized + " exists=" + file.exists(),
+                )
                 when {
-                    !file.exists() -> "Arquivo local removido ou indisponível."
-                    !file.isFile -> "A referência local não aponta para um arquivo."
-                    !authorized -> "Este arquivo não pertence a uma pasta autorizada pelo ReiAnix."
-                    !file.canRead() -> "O arquivo local não pode ser lido neste momento."
+                    !file.exists() -> SourceValidationFailure(
+                        "Arquivo local removido ou indisponível.",
+                        "FILE_NOT_FOUND",
+                    )
+                    !file.isFile -> SourceValidationFailure(
+                        "A referência local não aponta para um arquivo.",
+                        "MEDIA_URI_INVALID",
+                    )
+                    !hasBroadAccess -> SourceValidationFailure(
+                        "O acesso amplo ao armazenamento não está disponível para este arquivo.",
+                        "STORAGE_PERMISSION_MISSING",
+                    )
+                    !authorized -> SourceValidationFailure(
+                        "Este arquivo não pertence a uma pasta autorizada pelo ReiAnix.",
+                        "STORAGE_PERMISSION_MISSING",
+                    )
+                    !file.canRead() -> SourceValidationFailure(
+                        "O arquivo local não pode ser lido neste momento.",
+                        "MEDIA_URI_INVALID",
+                    )
                     else -> null
                 }
             }
-            else -> "A reprodução aceita somente referências locais content:// ou file://."
+            else -> SourceValidationFailure(
+                "A reprodução aceita somente referências locais content:// ou file://.",
+                "MEDIA_URI_INVALID",
+            )
         }
-        logPlayer("validateLocalSource result=" + (result ?: "OK") + " uri=" + localUri)
+        logPlayer(
+            "validateLocalSource result=" + (result?.code ?: "OK") +
+                " uriScheme=" + localUri.scheme +
+                " authority=" + localUri.authority.orEmpty(),
+        )
         return result
     }
 

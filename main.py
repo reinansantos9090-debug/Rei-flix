@@ -1150,6 +1150,46 @@ async def main(page: ft.Page):
         performance.event("player.click", screen=navigation.current,
                           metadata={"path": path, "progress_seconds": progress_seconds,
                                     "episode_id": episode_id, "anime_id": anime_id})
+        try:
+            normalized_episode_id = int(episode_id)
+        except (TypeError, ValueError):
+            normalized_episode_id = 0
+        if normalized_episode_id <= 0:
+            performance.event(
+                "ASSIST_REQUEST_REJECTED",
+                screen=navigation.current,
+                status="rejected",
+                metadata={
+                    "reason": "EPISODE_NOT_FOUND",
+                    "error_code": "EPISODE_NOT_FOUND",
+                    "anime_id": anime_id,
+                },
+            )
+            diagnostics.record(
+                "PLAYER_COMMAND_REJECTED",
+                source="details",
+                result="EPISODE_NOT_FOUND",
+            )
+            return
+        if not str(path or "").strip():
+            performance.event(
+                "ASSIST_REQUEST_REJECTED",
+                screen=navigation.current,
+                status="rejected",
+                metadata={
+                    "reason": "MEDIA_URI_MISSING",
+                    "error_code": "MEDIA_URI_MISSING",
+                    "episode_id": normalized_episode_id,
+                    "anime_id": anime_id,
+                },
+            )
+            diagnostics.record(
+                "PLAYER_COMMAND_REJECTED",
+                source="details",
+                result="MEDIA_URI_MISSING",
+            )
+            return
+        episode_id = normalized_episode_id
         if not settings.get("player.resume"):
             progress_seconds = 0
         if player_launch_inflight["value"]:

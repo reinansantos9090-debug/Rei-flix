@@ -105,6 +105,8 @@ class NativePlayerActivity : ComponentActivity() {
     private var transitionSourceUri = ""
     private var transitionSourceCreatedAtMs = 0L
     private var transitionSourceGeneration = 0L
+    private var transitionSourceDirection = ""
+    private var transitionSourceMonotonicNs = 0L
     private var playerCommandSequence = 0L
     private var lastPlayerCommandSequence = 0L
     private var transitionStartedAtMs = 0L
@@ -152,6 +154,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var originRequestId = ""
     private var originCreatedAtMs = 0L
     private var originTransitionGeneration = 0L
+    private var originMonotonicNs = 0L
     private var commandCreatedAtMs = 0L
     private var commandReceivedAtMs = 0L
     private var handoffDispatchedAtMs = 0L
@@ -171,6 +174,7 @@ class NativePlayerActivity : ComponentActivity() {
     private var episodeChangeTimeoutGeneration = 0L
     private var transitionReadyGeneration = -1L
     private var nextTransitionActive = false
+    private var previousTransitionActive = false
     private var originPlayerSessionId = ""
     private val episodeChangeTimeout = Runnable {
         if (!episodeChangePending) return@Runnable
@@ -179,32 +183,36 @@ class NativePlayerActivity : ComponentActivity() {
             episodeChangeTimeoutGeneration != transitionSourceGeneration ||
             episodeChangeTimeoutGeneration != transitionGeneration
         ) return@Runnable
-        if (nextTransitionActive) {
-            // A slow device is not an abandoned Next transition. The watchdog
-            // is diagnostic-only and never releases the single-flight gate.
+
+        val direction = when {
+            nextTransitionActive -> "NEXT"
+            previousTransitionActive -> "PREVIOUS"
+            else -> "NONE"
+        }
+        if (direction == "NEXT") {
             publishNextTransitionDiagnostic(
                 "NEXT_TRANSITION_STALLED",
                 "watchdog_elapsed",
-                JSONObject().put("ageMs", transitionStartedAtMs.takeIf { it > 0L }?.let { System.currentTimeMillis() - it } ?: 0L),
+                JSONObject().put(
+                    "ageMs",
+                    transitionStartedAtMs.takeIf { it > 0L }?.let { System.currentTimeMillis() - it } ?: 0L,
+                ),
             )
-            logPlayer(
-                "EPISODE_CHANGE_WATCHDOG requestId=" + requestId.ifEmpty { "-" } +
-                    " transitionGeneration=" + transitionGeneration +
-                    " active=true direction=NEXT",
-            )
-        } else {
-            episodeChangePending = false
-            transitionPublishFuture = null
-            transitionSourceRequestId = ""
-            transitionSourceUri = ""
-            transitionSourceCreatedAtMs = 0L
-            updateEpisodeNavigationButtons()
-            showFeedback("Não foi possível mudar de episódio.", 1800L)
-            logPlayer(
-                "EPISODE_CHANGE_TIMEOUT requestId=" + requestId.ifEmpty { "-" } +
-                    " uri=" + uri + " direction=PREVIOUS",
+        } else if (direction == "PREVIOUS") {
+            publishPreviousTransitionDiagnostic(
+                "PREVIOUS_TRANSITION_STALLED",
+                "watchdog_elapsed",
+                JSONObject().put(
+                    "ageMs",
+                    transitionStartedAtMs.takeIf { it > 0L }?.let { System.currentTimeMillis() - it } ?: 0L,
+                ),
             )
         }
+        logPlayer(
+            "EPISODE_CHANGE_WATCHDOG requestId=" + requestId.ifEmpty { "-" } +
+                " transitionGeneration=" + transitionGeneration +
+                " active=true direction=" + direction,
+        )
     }
     private var retryCount = 0
     internal var firstFrameRenderedForTesting = false
@@ -400,16 +408,20 @@ override fun onCreate(savedInstanceState: Bundle?) {
             ?: intent.getStringExtra("requestId")?.trim().orEmpty()
         originRequestId = intent.getStringExtra("originRequestId")?.trim().orEmpty()
         originCreatedAtMs = intent.getLongExtra("originCreatedAtMs", 0L)
+        originMonotonicNs = intent.getLongExtra("originMonotonicNs", 0L)
         originPlayerSessionId = intent.getStringExtra("originPlayerSessionId")?.trim().orEmpty()
         originTransitionGeneration = intent.getLongExtra("originTransitionGeneration", 0L)
+        val originTransitionDirection = intent.getStringExtra("transitionDirection")?.trim()?.uppercase().orEmpty()
         publishPlayerLifecycle("onCreate")
 
         // A Next handoff always targets the already-active player session.
         // Reaching a brand-new Activity with a non-empty origin is therefore
         // an old/recreated-session command and must never gain control of it.
         if (originRequestId.isNotBlank()) {
-            publishNextTransitionDiagnostic(
-                "NEXT_REQUEST_STALE",
+            val staleEvent = if (originTransitionDirection == "PREVIOUS") "PREVIOUS_REQUEST_STALE" else "NEXT_REQUEST_STALE"
+            val staleRejectedEvent = if (originTransitionDirection == "PREVIOUS") "PLAYER_PREVIOUS_STALE_REJECTED" else "PLAYER_NEXT_STALE_REJECTED"
+            publishNavigationTransitionDiagnostic(
+                staleEvent,
                 "origin_on_new_activity",
                 JSONObject()
                     .put("requestId", requestId)
@@ -419,8 +431,8 @@ override fun onCreate(savedInstanceState: Bundle?) {
                     .put("originPlayerSessionId", originPlayerSessionId)
                     .put("currentPlayerSessionId", playerSessionId),
             )
-            publishNextTransitionDiagnostic(
-                "PLAYER_NEXT_STALE_REJECTED",
+            publishNavigationTransitionDiagnostic(
+                staleRejectedEvent,
                 "origin_on_new_activity",
                 JSONObject()
                     .put("requestId", requestId)
@@ -2740,7 +2752,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             enabled && intent.getBooleanExtra("canPrevious", false)
     }
 
-    private fun publishNextTransitionDiagnostic(
+    private fun publishNavigationTransitionDiagnostic(
         event: String,
         reason: String,
         extra: JSONObject = JSONObject(),
@@ -2775,6 +2787,18 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 " reason=" + reason,
         )
     }
+
+    private fun publishNextTransitionDiagnostic(
+        event: String,
+        reason: String,
+        extra: JSONObject = JSONObject(),
+    ) = publishNavigationTransitionDiagnostic(event, reason, extra)
+
+    private fun publishPreviousTransitionDiagnostic(
+        event: String,
+        reason: String,
+        extra: JSONObject = JSONObject(),
+    ) = publishNavigationTransitionDiagnostic(event, reason, extra)
 
     private fun invalidateTransition(reason: String) {
         val wasNext = nextTransitionActive

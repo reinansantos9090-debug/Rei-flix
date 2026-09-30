@@ -111,8 +111,10 @@ class Prompt34ScopePolicyTests(unittest.TestCase):
     def test_batch_rejects_outside_saf_document(self):
         result = self.service.ingest_documents_batch(self.ROOT_URI, [self.document("primary:AnimeBackup/episode01.mkv")],
             source_kind="saf", scope_kind="root", scope_ref=self.ROOT_URI, enforce_library_source=True)
-        self.assertFalse(result.get("ignored", False))
+        self.assertFalse(result.get("ignored", False) is False and result.get("ignored", 0) == 0)
         self.assertGreaterEqual(result["ignored"], 1)
+        self.assertEqual(0, result["inserted"])
+        self.assertEqual(0, result["updated"])
         self.assertTrue(any("OUTSIDE_SOURCE" in error for error in result["errors"]))
 
     def test_android_scanners_require_explicit_library_scope(self):
@@ -139,9 +141,6 @@ class Prompt34ScopePolicyTests(unittest.TestCase):
             for p in external: self.assertFalse(self.service._filesystem_path_within_source(p, anime))
             self.assertFalse(self.service._filesystem_path_within_source(root_path/"AnimeBackup"/"video.mp4", anime))
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_saf_scanner_rejects_outside_directories_before_traversal(self):
         source = SAF.read_text(encoding="utf-8")
         self.assertIn("for((childId,childName) in directoriesToVisit)", source)
@@ -150,3 +149,7 @@ if __name__ == "__main__":
     def test_media_store_rejects_empty_scope_path(self):
         source = MEDIA.read_text(encoding="utf-8")
         self.assertIn("if(root.isBlank()) return false", source)
+
+
+if __name__ == "__main__":
+    unittest.main()

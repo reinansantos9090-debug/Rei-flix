@@ -1522,6 +1522,11 @@ override fun onCreate(savedInstanceState: Bundle?) {
             val exoError = error as? ExoPlaybackException
             val rendererIndex = exoError?.rendererIndex?.takeIf { it >= 0 }
             val rendererType = exoError?.type?.let { "TYPE_$it" }.orEmpty()
+            val rendererName = exoError?.rendererName.orEmpty()
+            val rendererFormatMimeType = exoError?.rendererFormat?.sampleMimeType.orEmpty()
+            val mediaPeriodId = exoError?.mediaPeriodId?.toString()
+                ?.takeIf { it.isNotBlank() }
+                ?: lastMediaPeriodId
             val causeChain = throwableChain(error)
             val causeNames = causeChain.map { it::class.java.simpleName }
             val causeMessages = causeChain.mapNotNull { it.message?.trim()?.takeIf(String::isNotBlank) }
@@ -1561,7 +1566,9 @@ override fun onCreate(savedInstanceState: Bundle?) {
                     " retryable=" + classification.retryable +
                     " rendererIndex=" + (rendererIndex ?: -1) +
                     " rendererType=" + rendererType.ifBlank { "-" } +
-                    " mediaPeriodId=" + lastMediaPeriodId.ifBlank { "-" } +
+                    " mediaPeriodId=" + mediaPeriodId.ifBlank { "-" } +
+                    " rendererName=" + rendererName.ifBlank { "-" } +
+                    " formatMimeType=" + rendererFormatMimeType.ifBlank { "-" } +
                     " dataSourceUri=" + lastLoadUri.ifBlank { "-" } +
                     " rootCause=" + (rootCause?.javaClass?.simpleName ?: "-"),
                 error,
@@ -1582,7 +1589,9 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 .put("rootCauseMessage", rootCause?.message?.trim().orEmpty())
                 .put("rendererIndex", rendererIndex ?: -1)
                 .put("rendererType", rendererType)
-                .put("mediaPeriodId", lastMediaPeriodId)
+                .put("rendererName", rendererName)
+                .put("rendererFormatMimeType", rendererFormatMimeType)
+                .put("mediaPeriodId", mediaPeriodId)
                 .put("dataSourceUri", lastLoadUri)
                 .put("dataType", lastLoadDataType)
                 .put("trackType", lastLoadTrackType)

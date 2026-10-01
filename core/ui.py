@@ -281,17 +281,11 @@ def spoiler_artwork(
 
     def restore(_event=None):
         shield.visible = True
-        try:
-            page.update()
-        except Exception:
-            shield.update()
+        shield.update()
 
     def reveal(_event=None):
         shield.visible = False
-        try:
-            page.update()
-        except Exception:
-            shield.update()
+        shield.update()
 
     gesture = ft.GestureDetector(
         content=ft.Stack(

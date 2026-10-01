@@ -76,6 +76,7 @@ import kotlin.math.roundToInt
 /** Full-screen Media3 player for one persisted local, SAF, or MediaStore URI. */
 @OptIn(UnstableApi::class)
 class NativePlayerActivity : ComponentActivity() {
+    private val activityInstanceId = UUID.randomUUID().toString()
     private lateinit var player: ExoPlayer
     private lateinit var uri: Uri
     private lateinit var playerView: PlayerView
@@ -464,6 +465,12 @@ class NativePlayerActivity : ComponentActivity() {
                     .put("sessionState", sessionState.name)
                     .put("activityElapsedRealtimeNs", SystemClock.elapsedRealtimeNanos())
                     .put("playerSessionId", playerSessionId)
+                    .put("activityInstanceId", activityInstanceId)
+                    .put("originRequestId", originRequestId)
+                    .put("originCreatedAtMs", originCreatedAtMs)
+                    .put("originTransitionGeneration", originTransitionGeneration)
+                    .put("originPlayerSessionId", originPlayerSessionId)
+                    .put("transitionDirection", intent.getStringExtra("transitionDirection").orEmpty())
                     .put("episodeId", currentEpisodeId())),
         )
     }
@@ -483,20 +490,15 @@ override fun onCreate(savedInstanceState: Bundle?) {
         originPlayerSessionId = intent.getStringExtra("originPlayerSessionId")?.trim().orEmpty()
         originTransitionGeneration = intent.getLongExtra("originTransitionGeneration", 0L)
         val originTransitionDirection = intent.getStringExtra("transitionDirection")?.trim()?.uppercase().orEmpty()
-        publishPlayerLifecycle("onCreate")
-        publishNavigationTransitionDiagnostic(
-            "PLAYER_SESSION_CREATED",
-            "onCreate",
-            JSONObject()
-                .put("playerSessionId", playerSessionId)
-                .put("playerGeneration", playerGeneration)
-                .put("transitionGeneration", transitionGeneration),
+        val isEpisodeSuccessor = originRequestId.isNotBlank() && MainActivity.isCurrentPlayerHandoff(
+            requestId = requestId,
+            originRequestId = originRequestId,
+            originCreatedAtMs = originCreatedAtMs,
+            playerSessionId = playerSessionId,
+            originPlayerSessionId = originPlayerSessionId,
         )
 
-        // A Next handoff always targets the already-active player session.
-        // Reaching a brand-new Activity with a non-empty origin is therefore
-        // an old/recreated-session command and must never gain control of it.
-        if (originRequestId.isNotBlank()) {
+        if (originRequestId.isNotBlank() && !isEpisodeSuccessor) {
             val staleEvent = if (originTransitionDirection == "PREVIOUS") "PREVIOUS_REQUEST_STALE" else "NEXT_REQUEST_STALE"
             val staleRejectedEvent = if (originTransitionDirection == "PREVIOUS") "PLAYER_PREVIOUS_STALE_REJECTED" else "PLAYER_NEXT_STALE_REJECTED"
             publishNavigationTransitionDiagnostic(
@@ -508,7 +510,8 @@ override fun onCreate(savedInstanceState: Bundle?) {
                     .put("originCreatedAtMs", originCreatedAtMs)
                     .put("originGeneration", originTransitionGeneration)
                     .put("originPlayerSessionId", originPlayerSessionId)
-                    .put("currentPlayerSessionId", playerSessionId),
+                    .put("currentPlayerSessionId", playerSessionId)
+                    .put("activityInstanceId", activityInstanceId),
             )
             publishNavigationTransitionDiagnostic(
                 staleRejectedEvent,
@@ -520,13 +523,54 @@ override fun onCreate(savedInstanceState: Bundle?) {
                     .put("originGeneration", originTransitionGeneration)
                     .put("currentGeneration", transitionGeneration)
                     .put("originPlayerSessionId", originPlayerSessionId)
-                    .put("currentPlayerSessionId", playerSessionId),
+                    .put("currentPlayerSessionId", playerSessionId)
+                    .put("activityInstanceId", activityInstanceId),
             )
             suppressExitEvent = true
             sessionState = SessionState.EXITING
             finish()
             return
         }
+
+        if (originRequestId.isNotBlank() && isEpisodeSuccessor) {
+            transitionGeneration = maxOf(transitionGeneration, originTransitionGeneration)
+            episodeChangePending = true
+            transitionSourceRequestId = originRequestId
+            transitionSourceUri = intent.getStringExtra("uri").orEmpty()
+            transitionSourceCreatedAtMs = originCreatedAtMs
+            transitionSourceGeneration = transitionGeneration
+            transitionSourceDirection = originTransitionDirection
+            transitionSourceMonotonicNs = originMonotonicNs
+            transitionStartedAtMs = originCreatedAtMs
+            nextTransitionActive = originTransitionDirection == "NEXT"
+            previousTransitionActive = originTransitionDirection == "PREVIOUS"
+            transitionReadyGeneration = -1L
+            publishNavigationTransitionDiagnostic(
+                if (nextTransitionActive) "NEXT_TRANSITION_ACTIVITY_CREATED" else "PREVIOUS_TRANSITION_ACTIVITY_CREATED",
+                "authorized_successor_activity",
+                JSONObject()
+                    .put("originRequestId", originRequestId)
+                    .put("requestId", requestId)
+                    .put("originGeneration", originTransitionGeneration)
+                    .put("transitionGeneration", transitionGeneration)
+                    .put("playerSessionId", playerSessionId)
+                    .put("activityInstanceId", activityInstanceId),
+            )
+        }
+
+        publishPlayerLifecycle("onCreate")
+        publishNavigationTransitionDiagnostic(
+            if (isEpisodeSuccessor) "PLAYER_EPISODE_TRANSITION" else "PLAYER_SESSION_CREATED",
+            "onCreate",
+            JSONObject()
+                .put("playerSessionId", playerSessionId)
+                .put("playerGeneration", playerGeneration)
+                .put("transitionGeneration", transitionGeneration)
+                .put("activityInstanceId", activityInstanceId)
+                .put("originRequestId", originRequestId)
+                .put("transitionDirection", originTransitionDirection),
+        )
+        MainActivity.notePlayerActivityCreated(activityInstanceId, requestId, playerSessionId)
 
         val traceEpisodeId = intent.getStringExtra("episodeId").orEmpty()
         val traceAnimeId = intent.getStringExtra("animeId").orEmpty()
@@ -2590,6 +2634,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
         .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
         .put("source", if (::uri.isInitialized) sourceFor(uri) else "")
         .put("requestId", requestId)
+        .put("activityInstanceId", activityInstanceId)
         .put("mediaId", currentMediaId())
         .put("episodeId", currentEpisodeId())
         .put("playerState", if (::player.isInitialized) player.playbackStateLabel() else "STATE_IDLE")
@@ -3169,6 +3214,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("reason", reason)
             .put("timestamp", exitCapturedAt)
             .put("playerSessionId", playerSessionId)
+            .put("activityInstanceId", activityInstanceId)
             .put("transitionGeneration", transitionGeneration)
         val exitEvent = JSONObject()
             .put("type", "player_exited")
@@ -3176,7 +3222,12 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("createdAt", exitCapturedAt)
             .put("payload", payload)
 
-        MainActivity.notePlayerExit(requestId, exitCapturedAt, playerSessionId)
+        MainActivity.notePlayerExit(
+            requestId,
+            exitCapturedAt,
+            playerSessionId,
+            activityInstanceId,
+        )
         exitProgressPublished = true
         try {
             playbackWorker.submit {
@@ -3634,6 +3685,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                     .put("isPlaying", if (::player.isInitialized) player.isPlaying else false)
                     .put("playbackSpeed", if (::player.isInitialized) player.playbackParameters.speed else 1f)
                     .put("playerSessionId", playerSessionId)
+                    .put("activityInstanceId", activityInstanceId)
             )
     }
 
@@ -3802,6 +3854,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     override fun onDestroy() {
         publishPlayerLifecycle("onDestroy")
+        MainActivity.notePlayerActivityDestroyed(activityInstanceId, playerSessionId)
         PerformanceDiagnostics.sampleMemory(this, "player_on_destroy")
         PerformanceDiagnostics.detach()
         val shouldReportExit = isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations

@@ -17,15 +17,17 @@ class Prompt32PullRefreshContractTests(unittest.TestCase):
         self.assertNotIn("async def pull_refresh_library", source)
         self.assertNotIn("async def refresh_pull_library", source)
 
-    def test_pull_refresh_uses_scroll_overscroll_and_end_notifications(self):
+    def test_pull_refresh_uses_documented_user_idle_and_overscroll_notifications(self):
         source = self.read("views/home_view.py")
-        self.assertIn('event_type == "START"', source)
+        self.assertIn('event_type == "USER"', source)
+        self.assertIn('direction == "IDLE"', source)
         self.assertIn('event_type == "OVERSCROLL"', source)
-        self.assertIn('event_type == "END"', source)
         self.assertIn('getattr(event, "overscroll"', source)
         self.assertIn("pull_gesture_at_top", source)
         self.assertIn("extent_before <= 1.0", source)
         self.assertIn("pull_overscroll[0] >= pull_threshold", source)
+        self.assertNotIn('event_type == "START"', source)
+        self.assertNotIn('event_type == "END"', source)
 
     def test_pull_refresh_does_not_fire_from_normal_scroll_or_horizontal_rows(self):
         source = self.read("views/home_view.py")
@@ -71,6 +73,7 @@ class Prompt32PullRefreshContractTests(unittest.TestCase):
         pull_start = source[source.index("async def _trigger_pull_refresh"):source.index("def on_home_scroll")]
         self.assertIn("_start_view_task", source)
         self.assertIn("_trigger_pull_refresh", pull_start)
+        self.assertIn("_scroll_direction_name", source)
         self.assertIn("cancel_view_tasks", source)
         self.assertIn("view_tasks", source)
 

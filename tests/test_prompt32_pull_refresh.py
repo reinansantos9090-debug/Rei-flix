@@ -43,9 +43,12 @@ class Prompt32PullRefreshContractTests(unittest.TestCase):
         source = self.read("views/home_view.py")
         self.assertIn("ft.Row(scroll=ft.ScrollMode.AUTO", source)
         scroll = source[source.index("def on_home_scroll"):source.index("def card(", source.index("def on_home_scroll"))]
-        self.assertIn('elif event_type in {"UPDATE", "USER"}:', scroll)
+        self.assertIn('if event_type == "USER":', scroll)
+        self.assertIn('elif event_type == "OVERSCROLL":', scroll)
+        self.assertIn('elif event_type == "UPDATE":', scroll)
         self.assertIn("pull_gesture_at_top[0] = False", scroll)
-        self.assertIn("extent_before > 1.0", scroll)
+        self.assertIn("extent_before <= 1.0", scroll)
+        self.assertIn("_scroll_direction_name", scroll)
 
     def test_pull_refresh_reuses_prompt31_concurrency_state(self):
         source = self.read("views/home_view.py")

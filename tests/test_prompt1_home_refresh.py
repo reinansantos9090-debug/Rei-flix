@@ -68,9 +68,8 @@ class Prompt1HomeRefreshBehaviorTests(unittest.TestCase):
     def test_home_uses_one_refresh_callback_for_button_and_pull(self):
         source = (ROOT / "views/home_view.py").read_text(encoding="utf-8")
         # There is one shared handler; both the button and pull gesture route
-        # through it. The handler may invoke the same callback again when a
-        # duplicate user intent arrives during an active refresh, so counting
-        # callback invocations in source is not a valid single-pipeline test.
+        # through it. A duplicate intent while the state is REFRESHING is rejected
+        # locally instead of dispatching a second refresh request.
         self.assertEqual(source.count("async def handle_manual_refresh("), 1)
         self.assertIn('await on_refresh_library(source=source)', source)
         self.assertIn('await handle_manual_refresh(None, source="pull")', source)

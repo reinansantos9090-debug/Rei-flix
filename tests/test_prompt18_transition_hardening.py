@@ -29,7 +29,7 @@ class Prompt18TransitionHardeningTests(unittest.TestCase):
         block = self.player[start:end]
         self.assertIn("episodeChangePending", block)
         self.assertIn("transitionGeneration", block)
-        self.assertIn("playbackWorker.submit", block)
+        self.assertIn("progressWorker.submit", block)
         self.assertIn("val published = NativeMailbox.write(", block)
         self.assertIn("handler.post", block)
         self.assertIn("requestEvent(\"NEXT_TRANSITION_STARTED\", \"PREVIOUS_TRANSITION_STARTED\")", block)

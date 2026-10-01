@@ -161,7 +161,7 @@ class PlaybackContractTests(unittest.TestCase):
         self.assertIn("lastPlayerEventCreatedAtMs", self.player)
         self.assertIn("private fun nextPlayerEventCreatedAt()", self.player)
         self.assertIn("max(wallClockMs, lastPlayerEventCreatedAtMs + 1L)", self.player)
-        self.assertIn('val startedAtMs = nextPlayerEventCreatedAt()', self.player)
+        self.assertIn('val transitionCreatedAtMs = nextPlayerEventCreatedAt()', self.player)
         self.assertIn('val exitCapturedAt = nextPlayerEventCreatedAt()', self.player)
 
     def test_mailbox_best_effort_queue_is_bounded_and_not_globally_synchronized(self):

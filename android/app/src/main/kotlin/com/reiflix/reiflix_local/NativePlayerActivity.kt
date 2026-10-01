@@ -550,6 +550,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
 
         if (originRequestId.isNotBlank() && isEpisodeSuccessor) {
             transitionGeneration = maxOf(transitionGeneration, originTransitionGeneration)
+            setTransitionPhase(TransitionPhase.TARGET_ACTIVITY_ACTIVE, "authorized_successor_activity")
             episodeChangePending = true
             transitionSourceRequestId = originRequestId
             transitionSourceUri = intent.getStringExtra("uri").orEmpty()
@@ -882,6 +883,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
         episodeChangeTimeoutUri = ""
         episodeChangeTimeoutGeneration = 0L
         episodeChangePending = false
+        setTransitionPhase(TransitionPhase.IDLE, "reuse_reset")
         transitionSourceRequestId = ""
         transitionSourceUri = ""
         transitionSourceCreatedAtMs = 0L
@@ -1077,6 +1079,9 @@ override fun onCreate(savedInstanceState: Bundle?) {
         }
         val generation = playerGeneration
         val preparationTransitionGeneration = transitionGeneration
+        if (episodeChangePending && (nextTransitionActive || previousTransitionActive)) {
+            setTransitionPhase(TransitionPhase.PREPARING, "media_prepare")
+        }
         val localUri = uri
         val shouldPlayWhenReady = playWhenReadyOverride
             ?: intent.getBooleanExtra("autoplay", true)
@@ -1340,6 +1345,8 @@ override fun onCreate(savedInstanceState: Bundle?) {
                             .put("playerSessionId", playerSessionId)
                             .put("originMonotonicNs", transitionSourceMonotonicNs),
                     )
+                    setTransitionPhase(TransitionPhase.FIRST_FRAME, "media3_first_frame")
+                    setTransitionPhase(TransitionPhase.COMMITTED, "first_frame_rendered")
                     episodeChangePending = false
                     episodeChangeTimeoutRequestId = ""
                     episodeChangeTimeoutUri = ""
@@ -1461,6 +1468,9 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 " positionMs=" + if (::player.isInitialized) player.currentPosition else 0L)
             when (state) {
                 Player.STATE_READY -> {
+                    if (episodeChangePending && (nextTransitionActive || previousTransitionActive)) {
+                        setTransitionPhase(TransitionPhase.READY, "media3_ready")
+                    }
                     // READY means the media is prepared, but keep the preparation
                     // indicator until Media3 actually renders the first frame.
                     if (!openedReported) {
@@ -2769,6 +2779,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
 .put("durationMs", if (::player.isInitialized) player.duration.coerceAtLeast(0L) else 0L)
         .put("firstFrameRendered", firstFrameRenderedForTesting)
         .put("sessionState", sessionState.name)
+        .put("transitionPhase", transitionPhase.name)
         .put("windowFocus", window.decorView.hasWindowFocus())
         .put("orientation", resources.configuration.orientation)
         .put("surfaceType", "texture_view")
@@ -3513,6 +3524,11 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 JSONObject().put("ageMs", staleAgeMs),
             )
         }
+        if (wasNext || wasPrevious) {
+            setTransitionPhase(TransitionPhase.FAILED, "invalidated:" + reason)
+        } else {
+            setTransitionPhase(TransitionPhase.IDLE, "no_active_transition")
+        }
         episodeChangePending = false
         episodeChangeTimeoutRequestId = ""
         episodeChangeTimeoutUri = ""
@@ -3609,6 +3625,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         transitionSourceDirection = requestEvent("NEXT", "PREVIOUS")
         transitionSourceMonotonicNs = monotonicNs
         episodeChangePending = true
+        setTransitionPhase(TransitionPhase.REQUESTED, "request_accepted")
         nextTransitionActive = isNextRequest
         previousTransitionActive = isPreviousRequest
         transitionReadyGeneration = -1L
@@ -3729,6 +3746,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                             invalidateTransition("mailbox_publish_failed")
                             return@post
                         }
+                        setTransitionPhase(TransitionPhase.HANDOFF_DISPATCHED, "native_mailbox_published")
                         handler.postDelayed(episodeChangeTimeout, 5_000L)
                         logPlayer(
                             eventType + " requestId=" + requestId.ifEmpty { "-" } +
@@ -5269,6 +5287,34 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     }
 
     private enum class SessionState { ACTIVE, EXITING, DESTROYED }
+
+    private enum class TransitionPhase {
+        IDLE,
+        REQUESTED,
+        HANDOFF_DISPATCHED,
+        TARGET_ACTIVITY_ACTIVE,
+        PREPARING,
+        READY,
+        FIRST_FRAME,
+        COMMITTED,
+        FAILED,
+    }
+
+    private var transitionPhase = TransitionPhase.IDLE
+
+    private fun setTransitionPhase(next: TransitionPhase, reason: String) {
+        if (transitionPhase == next) return
+        val previous = transitionPhase
+        transitionPhase = next
+        logPlayer(
+            "PLAYER_TRANSITION_PHASE from=" + previous.name +
+                " to=" + next.name +
+                " reason=" + reason +
+                " requestId=" + requestId.ifEmpty { "-" } +
+                " transitionGeneration=" + transitionGeneration +
+                " playerSessionId=" + playerSessionId,
+        )
+    }
 
     companion object {
         internal fun resolveImmersivePolicy(setting: String?, orientation: Int): Boolean =

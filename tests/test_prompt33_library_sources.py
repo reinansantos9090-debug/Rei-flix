@@ -149,10 +149,9 @@ class Prompt33ContractTests(unittest.TestCase):
         refresh = source[a:b]
         self.assertIn("scan_coordinator.request(", refresh)
         self.assertIn("ScanOrigin.USER_REFRESH", refresh)
-        a = source.index("    async def refresh_home_library")
-        b = source.index("    async def login", a)
-        self.assertIn("refresh_library(_home_refresh_context=home_refresh_context)", source[a:b])
-
+        a = source.index("    async def request_home_refresh")
+        b = source.index("    async def refresh_home_library", a)
+        self.assertIn("await refresh_library(_home_refresh_context=home_refresh_context)", source[a:b])
     def test_global_scan_results_never_enter_library(self):
         source = MAIN.read_text(encoding="utf-8")
         a = source.index("                        elif event_type == 'broad_storage_scan':")

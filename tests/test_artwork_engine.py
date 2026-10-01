@@ -184,6 +184,17 @@ class ArtworkEngineTests(unittest.TestCase):
         self.assertFalse(self.engine.add_local("anime", anime, "poster", bad))
         self.assertIsNone(self.engine.resolve("anime", anime, "poster", allow_network=False))
 
+    def test_http_200_non_image_payload_does_not_enter_retry_wait(self):
+        anime = self._media("HTML response")
+        self._remote(anime, "https://example/html.jpg")
+        calls = []
+        self.engine._downloader = lambda url: (calls.append(url) or (b"<html>server page</html>", "text/html", 200))
+        self.assertIsNone(self.engine.request("anime", anime, "poster", blocking=True))
+        row = self.engine.list_for("anime", anime, "poster")[0]
+        self.assertEqual(row["status"], STATUS_FAILED)
+        self.assertIsNone(row["next_retry_at"])
+        self.assertEqual(len(calls), 1)
+
     def test_invalid_download_payload_does_not_enter_retry_wait(self):
         anime = self._media("Invalid remote")
         self._remote(anime, "https://example/invalid.jpg")

@@ -314,6 +314,7 @@ class MainActivity : FlutterFragmentActivity() {
                 activePlayerRequestId = null
                 activePlayerSessionId = null
                 activePlayerActivityInstanceId = null
+                activePlayerTransitionGeneration = 0L
             }
             Log.i(
                 LOG_TAG,

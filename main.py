@@ -310,9 +310,15 @@ async def main(page: ft.Page):
             if state in {ScanState.COMPLETED, ScanState.PARTIAL, ScanState.FAILED, ScanState.CANCELLED} and not home_refresh_context["scan_terminal"]:
                 home_refresh_context["scan_terminal"] = True
                 terminal_success = state in {ScanState.COMPLETED, ScanState.PARTIAL}
-                if not terminal_success:
+                if state == ScanState.FAILED:
                     _set_home_refresh_phase(
-                        "ERROR" if state in {ScanState.FAILED, ScanState.PARTIAL} else "CANCELLED",
+                        "ERROR",
+                        request_id=snapshot.request_id,
+                        reason=f"scan_terminal:{state.value}",
+                    )
+                elif state == ScanState.CANCELLED:
+                    _set_home_refresh_phase(
+                        "CANCELLED",
                         request_id=snapshot.request_id,
                         reason=f"scan_terminal:{state.value}",
                     )
@@ -2657,7 +2663,7 @@ async def main(page: ft.Page):
             return "Atualização enfileirada; a varredura atual será concluída primeiro.", True
         return "Atualização iniciada. Verificando as fontes locais…", True
 
-    async def request_home_refresh(*, source="button"):
+    async def refresh_home_library(_=None, *, source="button"):
         refresh_source = str(source or "button").strip().casefold()
         if refresh_source not in {"button", "pull"}:
             refresh_source = "button"
@@ -2752,9 +2758,7 @@ async def main(page: ft.Page):
             resetter("ERROR", 1.6)
         return message, False
 
-    async def refresh_home_library(_=None, *, source="button"):
-        """Compatibility wrapper for the single Home refresh intent entry point."""
-        return await request_home_refresh(source=source)
+    request_home_refresh = refresh_home_library
 
     async def login(_=None):
         if bridge.available:

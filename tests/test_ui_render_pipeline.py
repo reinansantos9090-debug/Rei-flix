@@ -34,6 +34,14 @@ class UiRenderPipelineTests(unittest.TestCase):
         self.assertGreater(invalidate, skip)
         self.assertGreater(invalidate, guard)
 
+    def test_details_thumbnail_update_is_control_local(self):
+        source = (ROOT / "views" / "details_view.py").read_text(encoding="utf-8")
+        start = source.index("def update_thumbnail_in_place")
+        end = source.index("if isinstance(view_state, dict):", start)
+        block = source[start:end]
+        self.assertIn("updated_holder.update()", block)
+        self.assertNotIn("page.update()", block)
+
     def test_render_origins_are_traced(self):
         source = MAIN.read_text(encoding="utf-8")
         for reason in (

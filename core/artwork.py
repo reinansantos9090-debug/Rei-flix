@@ -750,6 +750,18 @@ class ArtworkEngine:
 
     def _first_usable(self, entity_type, entity_id, artwork_type, allow_network):
         for row in self.list_for(entity_type, entity_id, artwork_type):
+            # Legacy generated poster rows can originate from the old
+            # episode-thumbnail promotion bug. They must never become a
+            # fallback source for any artwork resolution path.
+            if artwork_type == "poster" and self._is_thumbnail_generated_poster(row):
+                self._log(
+                    "miss",
+                    key=row.get("artwork_key"),
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    reason="legacy_episode_thumbnail_poster_fallback",
+                )
+                continue
             if row.get("local_path") and self._is_valid_image_file(row["local_path"]):
                 self._touch(row["id"])
                 return row

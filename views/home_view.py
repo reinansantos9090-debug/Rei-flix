@@ -827,6 +827,14 @@ class HomeView:
                 return
             await handle_manual_refresh(None, source="pull")
 
+        def _scroll_direction_name(event):
+            value = getattr(event, "direction", None)
+            name = getattr(value, "name", None)
+            if name:
+                return str(name).upper()
+            raw = str(value or "")
+            return raw.rsplit(".", 1)[-1].upper()
+
         def on_home_scroll(event):
             try:
                 view_state["scroll_position"] = float(event.pixels)
@@ -835,37 +843,53 @@ class HomeView:
                 min_extent = float(event.min_scroll_extent)
                 extent_before = float(event.extent_before)
                 event_type = _scroll_event_name(event)
+                direction = _scroll_direction_name(event)
             except (TypeError, ValueError, AttributeError):
                 return
             if not is_active():
                 return
 
-            # Flet reports negative overscroll at the start edge and positive
-            # overscroll at the end edge. We only accumulate the negative value
-            # while the gesture began at the vertical start of this scrollable.
-            if event_type == "START":
-                pull_gesture_active[0] = True
-                pull_gesture_at_top[0] = (
-                    extent_before <= 1.0
-                    and pixels <= min_extent + 1.0
-                    and not page_loading[0]
-                    and refresh_state[0] != "REFRESHING"
-                )
-                pull_overscroll[0] = 0.0
-                if pull_gesture_at_top[0]:
-                    _set_pull_indicator(True, "Puxe para atualizar")
-                else:
+            at_top = extent_before <= 1.0 and pixels <= min_extent + 1.0
+
+            if event_type == "USER":
+                if direction == "IDLE":
+                    should_refresh = _pull_refresh_should_trigger(
+                        gesture_active=pull_gesture_active[0],
+                        at_top=pull_gesture_at_top[0],
+                        overscroll=pull_overscroll[0],
+                        threshold=pull_threshold,
+                        page_loading=page_loading[0],
+                        refresh_state=refresh_state[0],
+                    )
+                    pull_gesture_active[0] = False
+                    pull_gesture_at_top[0] = False
+                    overscroll_ready = pull_overscroll[0] >= pull_threshold
+                    pull_overscroll[0] = 0.0
                     _set_pull_indicator(False)
+                    if should_refresh:
+                        performance.counter("home.pull_refresh.armed")
+                        _start_view_task(_trigger_pull_refresh)
+                    elif overscroll_ready:
+                        performance.counter("home.pull_refresh.cancelled_below_threshold")
+                else:
+                    pull_gesture_active[0] = True
+                    pull_gesture_at_top[0] = (
+                        at_top
+                        and not page_loading[0]
+                        and refresh_state[0] != "REFRESHING"
+                    )
+                    if pull_gesture_at_top[0]:
+                        pull_overscroll[0] = 0.0
+                        _set_pull_indicator(True, "Puxe para atualizar")
+                    else:
+                        pull_overscroll[0] = 0.0
+                        _set_pull_indicator(False)
             elif event_type == "OVERSCROLL":
                 overscroll_raw = getattr(event, "overscroll", None)
                 try:
                     overscroll = float(overscroll_raw) if overscroll_raw is not None else 0.0
                 except (TypeError, ValueError):
                     overscroll = 0.0
-                at_top = (
-                    extent_before <= 1.0
-                    and pixels <= min_extent + 1.0
-                )
                 if not at_top:
                     pull_gesture_at_top[0] = False
                     pull_overscroll[0] = 0.0
@@ -880,33 +904,15 @@ class HomeView:
                             True,
                             "Solte para atualizar" if is_ready else "Puxe para atualizar",
                         )
-            elif event_type in {"UPDATE", "USER"}:
-                # A normal in-range scroll after leaving the top cancels the
-                # candidate gesture. This prevents a later/diagonal swipe from
-                # inheriting overscroll from an unrelated scroll.
-                if pixels > min_extent + 1.0 or extent_before > 1.0:
+            elif event_type == "UPDATE":
+                if not at_top:
                     pull_gesture_at_top[0] = False
                     pull_overscroll[0] = 0.0
                     _set_pull_indicator(False)
-            elif event_type == "END":
-                should_refresh = _pull_refresh_should_trigger(
-                    gesture_active=pull_gesture_active[0],
-                    at_top=pull_gesture_at_top[0],
-                    overscroll=pull_overscroll[0],
-                    threshold=pull_threshold,
-                    page_loading=page_loading[0],
-                    refresh_state=refresh_state[0],
-                )
-                pull_gesture_active[0] = False
-                pull_gesture_at_top[0] = False
-                overscroll_ready = pull_overscroll[0] >= pull_threshold
-                pull_overscroll[0] = 0.0
-                _set_pull_indicator(False)
-                if should_refresh:
-                    performance.counter("home.pull_refresh.armed")
-                    _start_view_task(_trigger_pull_refresh)
-                elif overscroll_ready:
-                    performance.counter("home.pull_refresh.cancelled_below_threshold")
+            elif event_type not in {"START", "END"}:
+                # Flet 0.86.x normally reports USER/UPDATE/OVERSCROLL for the
+                # pull gesture. Unknown event names are diagnostic-only.
+                pull_gesture_at_top[0] = pull_gesture_at_top[0] and at_top
 
             if remaining < 800 and has_more[0] and not page_loading[0] and not page_load_scheduled[0]:
                 page_load_scheduled[0] = True

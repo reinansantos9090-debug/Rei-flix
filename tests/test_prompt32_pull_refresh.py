@@ -26,6 +26,16 @@ class Prompt32PullRefreshContractTests(unittest.TestCase):
         self.assertIn("pull_gesture_at_top", source)
         self.assertIn("extent_before <= 1.0", source)
         self.assertIn("pull_overscroll[0] >= pull_threshold", source)
+        for marker in (
+            "PULL_GESTURE_START",
+            "PULL_OVERSCROLL",
+            "PULL_THRESHOLD_REACHED",
+            "PULL_REFRESH_TRIGGERED",
+            "PULL_REFRESH_COMPLETED",
+            "PULL_REFRESH_CANCELLED",
+            "PULL_REFRESH_REJECTED",
+        ):
+            self.assertIn(marker, source)
         self.assertNotIn('event_type == "START"', source)
         self.assertNotIn('event_type == "END"', source)
 

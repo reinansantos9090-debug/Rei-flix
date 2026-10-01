@@ -1418,15 +1418,11 @@ override fun onCreate(savedInstanceState: Bundle?) {
 
         override fun onRenderedFirstFrame() {
             if (!isCurrent()) return
-            firstFrameRenderedAtMs = System.currentTimeMillis()
-            firstFrameRenderedForTesting = true
-            cancelFirstFrameDiagnostics("first_frame")
             logPlayer(
-                "FIRST_FRAME_RENDERED requestId=" + requestId.ifEmpty { "-" } +
+                "FIRST_FRAME_CALLBACK requestId=" + requestId.ifEmpty { "-" } +
                     " generation=" + playerGeneration +
                     " transitionGeneration=" + transitionGeneration +
-                    " atMs=" + firstFrameRenderedAtMs +
-                    " latencyFromPrepareMs=" + metricDelta(prepareDispatchedAtMs, firstFrameRenderedAtMs),
+                    " renderedAtMs=" + System.currentTimeMillis(),
             )
         }
 

@@ -119,7 +119,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("build/ReiAnix-apk.zip", workflow)
         self.assertIn("Publish APK and ZIP to rolling GitHub Release", workflow)
         self.assertIn("RELEASE_TAG: reianix-ci-latest", workflow)
-        self.assertIn('if: github.event_name == "workflow_dispatch"', workflow)
+        self.assertIn("if: github.event_name == 'workflow_dispatch'", workflow)
         self.assertNotIn("actions/upload-artifact@v7", workflow)
         self.assertNotIn("reactivecircus/android-emulator-runner", workflow)
         self.assertNotIn("android_api30", workflow)

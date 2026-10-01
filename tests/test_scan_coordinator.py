@@ -294,7 +294,7 @@ class ScanCoordinatorSourceContractTests(unittest.TestCase):
         source = self.read("main.py")
         self.assertIn("scan_coordinator.handle_native_event(", source)
         hook = source[source.index("if event_type in {'saf_scan', 'broad_storage_scan', 'mediastore_scan',"): ]
-        self.assertIn("on_catalog_changed()", hook)
+        self.assertIn("on_catalog_changed(refresh_request_id=refresh_request_id)", hook)
 
     def test_media_observer_has_single_register_unregister_contract(self):
         source = self.read("android/app/src/main/kotlin/com/reiflix/reiflix_local/MediaStoreScanner.kt")

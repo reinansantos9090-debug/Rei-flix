@@ -2663,7 +2663,7 @@ async def main(page: ft.Page):
             return "Atualização enfileirada; a varredura atual será concluída primeiro.", True
         return "Atualização iniciada. Verificando as fontes locais…", True
 
-    async def refresh_home_library(_=None, *, source="button"):
+    async def request_home_refresh(source="button"):
         refresh_source = str(source or "button").strip().casefold()
         if refresh_source not in {"button", "pull"}:
             refresh_source = "button"
@@ -2758,7 +2758,9 @@ async def main(page: ft.Page):
             resetter("ERROR", 1.6)
         return message, False
 
-    request_home_refresh = refresh_home_library
+    async def refresh_home_library(_=None, *, source="button"):
+        """Compatibility wrapper; Home enters refresh through request_home_refresh."""
+        return await request_home_refresh(source=source)
 
     async def login(_=None):
         if bridge.available:

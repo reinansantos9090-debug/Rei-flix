@@ -3856,13 +3856,13 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     override fun onDestroy() {
         publishPlayerLifecycle("onDestroy")
-        MainActivity.notePlayerActivityDestroyed(activityInstanceId, playerSessionId)
         PerformanceDiagnostics.sampleMemory(this, "player_on_destroy")
         PerformanceDiagnostics.detach()
         val shouldReportExit = isFinishing && !suppressExitEvent && !exitReported && !isChangingConfigurations
         if (shouldReportExit) {
             reportPlayerExit("activity_finish")
         }
+        MainActivity.notePlayerActivityDestroyed(activityInstanceId, playerSessionId)
         invalidateTransition("destroy")
         transitionGeneration += 1L
         sessionState = SessionState.DESTROYED

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: reiflix-android-instrumented-${{ github.ref }}
+  # Each commit gets an independent certification slot so a stuck prior emulator run cannot block the current SHA.\n  group: reiflix-android-instrumented-${{ github.sha }}
   cancel-in-progress: true
 
 permissions:

@@ -23,8 +23,9 @@ class Prompt31HomeRefreshContractTests(unittest.TestCase):
 
     def test_main_wires_home_refresh_to_existing_scan_pipeline(self):
         source = self.read("main.py")
+        self.assertIn("async def request_home_refresh", source)
         self.assertIn("async def refresh_home_library", source)
-        start = source.index("async def refresh_home_library")
+        start = source.index("async def request_home_refresh")
         end = source.index("async def login", start)
         block = source[start:end]
         self.assertIn("await refresh_library(_home_refresh_context=home_refresh_context)", block)

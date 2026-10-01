@@ -7,6 +7,18 @@ from unittest.mock import patch
 from core.library_service import LibraryService
 from core.library_store import LibraryStore
 
+import io
+from PIL import Image
+
+
+def _valid_jpeg_bytes():
+    output = io.BytesIO()
+    Image.new("RGB", (8, 8), (24, 48, 72)).save(output, format="JPEG", quality=85)
+    return output.getvalue()
+
+
+VALID_JPEG = _valid_jpeg_bytes()
+
 
 class ProfessionalMetadataTests(unittest.TestCase):
     def setUp(self):
@@ -244,10 +256,10 @@ class ProfessionalMetadataTests(unittest.TestCase):
         anime = self._anime('Attack on Titan', 'attack on titan')
         self.store.upsert_episode(anime, 'content://hydrate/1', 'Attack on Titan S01E01.mkv', 1, 1)
         cover = __import__('pathlib').Path(self.tmp.name) / 'cover.jpg'
-        cover.write_bytes(b'cover')
+        cover.write_bytes(VALID_JPEG)
         media = {'id': 16498, 'title': {'english': 'Attack on Titan', 'romaji': 'Shingeki no Kyojin'},
                  'coverImage': {'extraLarge': 'https://img.example/a.jpg'}, 'genres': ['Action']}
-        downloader = lambda url: (b"\\xff\\xd8\\xff" + b"cover", "image/jpeg", 200)
+        downloader = lambda url: (VALID_JPEG, "image/jpeg", 200)
         with patch.object(self.service.anilist, 'search', return_value=[media]), patch.object(self.service.artwork, '_downloader', side_effect=downloader) as artwork_downloader:
             result = self.service.hydrate_catalog_metadata(self.service.catalog())
         self.assertEqual(len(result), 1)
@@ -261,7 +273,7 @@ class ProfessionalMetadataTests(unittest.TestCase):
     def test_hydration_uses_existing_cover_without_http_download(self):
         anime = self._anime('Attack on Titan', 'attack on titan')
         cover = __import__('pathlib').Path(self.tmp.name) / 'cached.jpg'
-        cover.write_bytes(b'cached')
+        cover.write_bytes(VALID_JPEG)
         now = time.time()
         with self.store._conn() as con:
             con.execute(

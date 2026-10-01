@@ -489,6 +489,7 @@ jobs:
         with:
           path: ${{ steps.apk.outputs.path }}
           archive: false
+          retention-days: 7
           if-no-files-found: error
 
       - name: Upload APK metadata
@@ -499,4 +500,5 @@ jobs:
             ${{ steps.apk.outputs.path }}.sha256
             build/reiflix-release-metadata.txt
             build/reiflix-build-identity.json
+          retention-days: 7
           if-no-files-found: error

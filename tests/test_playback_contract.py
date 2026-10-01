@@ -36,7 +36,10 @@ class PlaybackContractTests(unittest.TestCase):
 
     def test_playback_event_capture_time_survives_async_mailbox_delivery(self):
         for token in (
-            '.put("createdAt", System.currentTimeMillis())',
+            "private fun nextPlayerEventCreatedAt()",
+            "val wallClockMs = System.currentTimeMillis()",
+            "max(wallClockMs, previous + 1L)",
+            '.put("createdAt", nextPlayerEventCreatedAt())',
             'val capturedAt = event.optLong("createdAt", 0L).takeIf { it > 0L } ?: now',
             '.put("createdAt",capturedAt)',
         ):

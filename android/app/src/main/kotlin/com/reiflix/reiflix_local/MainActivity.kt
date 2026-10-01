@@ -126,6 +126,7 @@ class MainActivity : FlutterFragmentActivity() {
                 activePlayerRequestId = null
                 activePlayerSessionId = null
                 activePlayerActivityInstanceId = null
+                activePlayerTransitionGeneration = 0L
                 activePlayerCommandCreatedAtMs = 0L
             }
         }
@@ -172,6 +173,8 @@ class MainActivity : FlutterFragmentActivity() {
         private var activePlayerRequestId: String? = null
         @Volatile
         private var activePlayerActivityInstanceId: String? = null
+        @Volatile
+        private var activePlayerTransitionGeneration: Long = 0L
         private val revokedPlayerTransitions = LinkedHashMap<String, String?>()
         private const val MAX_REVOKED_PLAYER_TRANSITIONS = 128
 
@@ -204,31 +207,35 @@ class MainActivity : FlutterFragmentActivity() {
         }
 
         @JvmStatic
-        fun notePlayerSession(requestId: String, sessionId: String) {
+        fun notePlayerSession(requestId: String, sessionId: String, transitionGeneration: Long = 0L) {
             val normalizedRequest = requestId.trim().takeIf { it.isNotEmpty() }
             val normalizedSession = sessionId.trim().takeIf { it.isNotEmpty() }
             if (normalizedSession == null) return
             activePlayerRequestId = normalizedRequest
             activePlayerSessionId = normalizedSession
+            activePlayerTransitionGeneration = transitionGeneration.coerceAtLeast(0L)
             Log.i(
                 LOG_TAG,
                 "PLAYER_SESSION_ACTIVE requestId=" + (normalizedRequest ?: "-") +
-                    " playerSessionId=" + normalizedSession,
+                    " playerSessionId=" + normalizedSession +
+                    " transitionGeneration=" + activePlayerTransitionGeneration,
             )
         }
 
         @JvmStatic
-        fun notePlayerActivityCreated(instanceId: String, requestId: String, sessionId: String) {
+        fun notePlayerActivityCreated(instanceId: String, requestId: String, sessionId: String, transitionGeneration: Long = 0L) {
             val normalizedInstance = instanceId.trim().takeIf { it.isNotEmpty() } ?: return
             val normalizedSession = sessionId.trim().takeIf { it.isNotEmpty() } ?: return
             activePlayerActivityInstanceId = normalizedInstance
             activePlayerRequestId = requestId.trim().takeIf { it.isNotEmpty() }
             activePlayerSessionId = normalizedSession
+            activePlayerTransitionGeneration = transitionGeneration.coerceAtLeast(0L)
             Log.i(
                 LOG_TAG,
                 "PLAYER_ACTIVITY_INSTANCE_ACTIVE instanceId=" + normalizedInstance +
                     " requestId=" + (activePlayerRequestId ?: "-") +
-                    " playerSessionId=" + normalizedSession,
+                    " playerSessionId=" + normalizedSession +
+                    " transitionGeneration=" + activePlayerTransitionGeneration,
             )
         }
 
@@ -257,6 +264,7 @@ class MainActivity : FlutterFragmentActivity() {
             originCreatedAtMs: Long,
             playerSessionId: String,
             originPlayerSessionId: String,
+            originTransitionGeneration: Long,
         ): Boolean {
             val request = requestId.trim()
             val origin = originRequestId.trim()
@@ -266,6 +274,8 @@ class MainActivity : FlutterFragmentActivity() {
             if (request == origin) return false
             if (activePlayerRequestId != request) return false
             if (activePlayerSessionId != session || originSession != session) return false
+            if (originTransitionGeneration <= 0L) return false
+            if (originTransitionGeneration != activePlayerTransitionGeneration + 1L) return false
             if (lastPlayerExitAtMs >= originCreatedAtMs && originCreatedAtMs > 0L) return false
             if (isPlayerTransitionRevoked(origin, originSession)) return false
             return true

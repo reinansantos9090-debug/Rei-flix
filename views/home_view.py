@@ -238,6 +238,15 @@ class HomeView:
         async def handle_manual_refresh(_event=None, *, source="button"):
             if refresh_state[0] == "REFRESHING":
                 performance.counter("home.refresh.rejected")
+                if callable(on_refresh_library):
+                    try:
+                        # The coordinator remains the single authority for
+                        # duplicate requests; this also preserves diagnostic
+                        # source=button/pull instead of silently dropping the
+                        # second user intent inside HomeView.
+                        await on_refresh_library(source=source)
+                    except Exception:
+                        logger.exception("Home duplicate refresh request failed")
                 if source == "pull":
                     pull_refresh_active[0] = False
                 return

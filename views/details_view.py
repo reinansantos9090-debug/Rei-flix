@@ -707,7 +707,7 @@ class DetailView:
             media_identity = str(media_identity or "").strip()
             if not uri or not thumbnail_path:
                 return False
-            updated = False
+            updated_holder = None
             for episode in episodes:
                 if episode.get("missing"):
                     continue
@@ -729,11 +729,12 @@ class DetailView:
                 holder = episode_thumbnail_bindings.get(int(episode_id))
                 if holder is not None and callable(is_active) and is_active():
                     holder.content = media_artwork(thumbnail_path, 72, width=112, icon_size=20)
-                    updated = True
+                    updated_holder = holder
                 break
-            if updated:
-                page.update()
-            return updated
+            if updated_holder is not None:
+                performance.counter("details.thumbnail.control_updates")
+                updated_holder.update()
+            return updated_holder is not None
 
         if isinstance(view_state, dict):
             view_state["_update_thumbnail"] = update_thumbnail_in_place

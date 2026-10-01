@@ -2955,11 +2955,17 @@ async def main(page: ft.Page):
                                 )
                             elif diagnostic_event == "PLAYER_ACTIVITY_RESULT":
                                 controlled_result = bool(payload.get("controlled"))
-                                if controlled_result and (
+                                result_activity_instance = str(payload.get("activityInstanceId") or "").strip()
+                                result_is_current = (
+                                    not result_activity_instance
+                                    or player_active_activity_instance_id["value"] in (None, result_activity_instance)
+                                )
+                                if controlled_result and result_is_current and (
                                     player_active_request_id["value"] in (None, event_request_id)
                                 ):
                                     cancel_player_transition("player_activity_result")
                                     player_active_request_id["value"] = None
+                                    player_active_activity_instance_id["value"] = None
                                     player_session_active["value"] = False
                             elif diagnostic_event == "PLAYER_LIFECYCLE":
                                 lifecycle = str(payload.get("lifecycle") or "").strip()

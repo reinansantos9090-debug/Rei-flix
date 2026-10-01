@@ -1412,17 +1412,6 @@ override fun onCreate(savedInstanceState: Bundle?) {
             )
         }
 
-        override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (!isCurrent()) return
-            logPlayer(
-                "IS_PLAYING_CHANGED requestId=" + requestId.ifEmpty { "-" } +
-                    " value=" + isPlaying +
-                    " playbackState=" + player.playbackState +
-                    " playWhenReady=" + player.playWhenReady +
-                    " suppression=" + player.playbackSuppressionReason,
-            )
-        }
-
         override fun onRenderedFirstFrame() {
             if (!isCurrent()) return
             logPlayer(
@@ -1653,7 +1642,13 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 PerformanceDiagnostics.markPlayer(this@NativePlayerActivity, "playing",
                     requestId, commandCreatedAtMs, reused = false)
             }
-            logPlayer("IS_PLAYING_CHANGED=" + isPlaying)
+            logPlayer(
+                "IS_PLAYING_CHANGED=" + isPlaying +
+                    " requestId=" + requestId.ifEmpty { "-" } +
+                    " playbackState=" + player.playbackState +
+                    " playWhenReady=" + player.playWhenReady +
+                    " suppression=" + player.playbackSuppressionReason,
+            )
             updatePlayPauseButton()
             updatePictureInPictureParams()
             if (!errorVisible) {

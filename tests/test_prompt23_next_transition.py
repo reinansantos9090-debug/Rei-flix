@@ -148,6 +148,8 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         ):
             self.assertIn(token, self.player)
         self.assertIn("isCurrentPlayerHandoff", self.main_activity)
+        self.assertIn("originTransitionGeneration", self.main_activity)
+        self.assertIn("originTransitionGeneration != activePlayerTransitionGeneration + 1L", self.main_activity)
         self.assertIn("activePlayerActivityInstanceId", self.main_activity)
 
     def test_python_player_callbacks_are_activity_instance_scoped(self):
@@ -165,6 +167,8 @@ class Prompt23NextTransitionTests(unittest.TestCase):
             "notePlayerSession",
             "notePlayerExit",
             "activePlayerSessionId",
+            "activePlayerTransitionGeneration",
+            "originTransitionGeneration",
             "stale_origin_player_session",
             "lastPlayerExitAtMs",
             "PLAYER_NEXT_STALE_REJECTED",

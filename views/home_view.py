@@ -107,6 +107,8 @@ class HomeView:
         filter_options_loaded = [False]
         artwork_tasks: set[tuple] = set()
         artwork_pending_items: dict[tuple, dict] = {}
+        artwork_request_tokens: dict[tuple, int] = {}
+        artwork_token_counter = [0]
         artwork_bindings: dict[tuple, list] = {}
         catalog_focus_targets: dict[str, object] = {}
         artwork_concurrency = asyncio.Semaphore(1)
@@ -238,17 +240,13 @@ class HomeView:
         async def handle_manual_refresh(_event=None, *, source="button"):
             if refresh_state[0] == "REFRESHING":
                 performance.counter("home.refresh.rejected")
-                if callable(on_refresh_library):
-                    try:
-                        # The coordinator remains the single authority for
-                        # duplicate requests; this also preserves diagnostic
-                        # source=button/pull instead of silently dropping the
-                        # second user intent inside HomeView.
-                        await on_refresh_library(source=source)
-                    except Exception:
-                        logger.exception("Home duplicate refresh request failed")
+                logger.info(
+                    "HOME_REFRESH_REJECTED source=%s reason=refresh_in_progress",
+                    source,
+                )
                 if source == "pull":
                     pull_refresh_active[0] = False
+                    _set_pull_indicator(False)
                 return
             if not callable(on_refresh_library):
                 set_refresh_state("ERROR")
@@ -368,9 +366,9 @@ class HomeView:
 
             async def flush():
                 try:
-                    # Coalesce completions that arrive in the same event-loop turn
-                    # without introducing an artificial 50 ms rendering delay.
-                    await asyncio.sleep(0)
+                    # page.run_task schedules this flush after the current callback
+                    # returns, so same-turn completions can share one UI update
+                    # without an artificial delay.
                     if not is_active():
                         return
                     update_started = time.perf_counter()
@@ -414,6 +412,10 @@ class HomeView:
                 return
             generation = render_generation[0]
             snapshot = tuple(artwork_tasks)
+            snapshot_tokens = {
+                key: artwork_request_tokens.get(key)
+                for key in snapshot
+            }
             grouped: dict[tuple[str, str], list[int]] = {}
             for entity, item_id, kind in snapshot:
                 grouped.setdefault((entity, kind), []).append(int(item_id))
@@ -434,12 +436,25 @@ class HomeView:
                     for item_id_raw, row in (resolved or {}).items():
                         item_id = int(item_id_raw)
                         key = (entity, item_id, kind)
+                        if snapshot_tokens.get(key) != artwork_request_tokens.get(key):
+                            performance.counter("home.artwork.stale_ignored")
+                            logger.info(
+                                "STALE_ARTWORK_IGNORED entity=%s entity_id=%s type=%s generation=%s",
+                                entity,
+                                item_id,
+                                kind,
+                                generation,
+                            )
+                            continue
                         path = (row or {}).get("local_path")
                         item = artwork_pending_items.get(key)
                         if item is not None and _valid_artwork_source(path):
-                            meta = item.setdefault("meta", {})
-                            meta["cover_cache"] = path
-                            item["cover"] = path
+                            if kind == "poster":
+                                meta = item.setdefault("meta", {})
+                                meta["cover_cache"] = path
+                                item["cover"] = path
+                            elif kind == "episode_thumbnail":
+                                item["episode_thumbnail"] = path
                         for holder, width, height in artwork_bindings.get(key, ()):
                             if _apply_artwork(holder, width, height, path):
                                 performance.counter("home.artwork.batch_updated")
@@ -449,8 +464,10 @@ class HomeView:
                 logger.exception("Home batched artwork lookup failed", extra={"screen": "home"})
             finally:
                 for key in snapshot:
-                    artwork_tasks.discard(key)
-                    artwork_pending_items.pop(key, None)
+                    if artwork_request_tokens.get(key) == snapshot_tokens.get(key):
+                        artwork_tasks.discard(key)
+                        artwork_pending_items.pop(key, None)
+                        artwork_request_tokens.pop(key, None)
                 performance.gauge("home.artwork.pending", len(artwork_tasks))
                 artwork_batch_scheduled[0] = False
                 if artwork_tasks and generation == render_generation[0] and is_active():
@@ -475,17 +492,25 @@ class HomeView:
             if not show_thumbnails:
                 holder.content = ft.Icon(ft.Icons.MOVIE_OUTLINED, color=TEXT_MUTED, size=28)
                 return holder
-            if _apply_artwork(holder, width, height, source):
+
+            # Poster sources are resolved only through the ArtworkEngine. This
+            # prevents a stale anime.cover_cache from bypassing poster type
+            # isolation after an older thumbnail contamination.
+            direct_source = source if kind == "episode_thumbnail" else None
+            if _apply_artwork(holder, width, height, direct_source):
                 return holder
-            meta = item.get("meta") or {}
-            candidate_source = item.get("cover") or meta.get("cover_cache")
+
+            candidate_source = item.get("episode_thumbnail") if kind == "episode_thumbnail" else None
             if _apply_artwork(holder, width, height, candidate_source):
                 return holder
 
             item_id = item.get("anime_id") if item.get("anime_id") is not None and entity in {"anime", "movie"} else item.get("id")
             if item_id is not None and library is not None:
                 key = (binding_entity, int(item_id), kind)
+                artwork_token = artwork_token_counter[0] + 1
+                artwork_token_counter[0] = artwork_token
                 artwork_tasks.add(key)
+                artwork_request_tokens[key] = artwork_token
                 artwork_pending_items[key] = item
                 performance.gauge("home.artwork.pending", len(artwork_tasks))
             holder.content = ft.Icon(ft.Icons.MOVIE_OUTLINED, color=TEXT_MUTED, size=28)
@@ -545,11 +570,19 @@ class HomeView:
             if episode:
                 title = item.get("anime_title") or item.get("title") or "Mídia local"
                 subtitle = item.get("episode_title") or (f"T{item.get('season')} E{item.get('number')}" if item.get("season") is not None else "Episódio")
+                holder = artwork_holder(
+                    item,
+                    card_width,
+                    card_height,
+                    entity="episode",
+                    kind="episode_thumbnail",
+                    source=item.get("episode_thumbnail"),
+                )
             else:
                 title = item.get("main_title") or item.get("anime_title") or meta.get("title") or "Mídia local"
                 subtitle = "Filme" if item.get("media_kind") == "movie" else (count_label(item.get("available_count", 0), "episódio") if item.get("available_count") else "")
-            holder = artwork_holder(item, card_width, card_height, source=cover)
-            if not cover and on_request_thumbnail:
+                holder = artwork_holder(item, card_width, card_height, source=cover)
+            if episode and not item.get("episode_thumbnail") and on_request_thumbnail:
                 candidate = item.get("episode") or item.get("current_episode")
                 if not candidate and item.get("seasons"):
                     candidate = next((ep for season_data in item.get("seasons", []) for ep in season_data.get("episodes", []) if ep.get("path") and not ep.get("missing")), None)
@@ -704,6 +737,7 @@ class HomeView:
                 artwork_bindings.clear()
                 artwork_tasks.clear()
                 artwork_pending_items.clear()
+                artwork_request_tokens.clear()
                 catalog_focus_targets.clear()
                 catalog.clear()
                 grid.controls.clear()
@@ -993,7 +1027,14 @@ class HomeView:
                     width=258, bgcolor=SURFACE, border_radius=RADIUS, padding=9, ink=True,
                     on_click=lambda _, entry=item: play_continuation(entry),
                     content=ft.Row([
-                        artwork_holder(item, 56, 82),
+                        artwork_holder(
+                            item,
+                            56,
+                            82,
+                            entity="episode",
+                            kind="episode_thumbnail",
+                            source=item.get("episode_thumbnail"),
+                        ),
                         ft.Column([
                             ft.Text(item.get("anime_title", "Anime local"), color=TEXT, size=12, weight=ft.FontWeight.BOLD, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                             ft.Text(label, color=TEXT_MUTED, size=10),
@@ -1408,59 +1449,79 @@ class HomeView:
             page.update()
 
         def update_thumbnail_in_place(uri, thumbnail_path, media_identity=None):
-            """Apply a completed episode thumbnail to mounted Home artwork only."""
+            """Apply a completed episode thumbnail to mounted episode artwork only."""
             uri = str(uri or "").strip()
             thumbnail_path = str(thumbnail_path or "").strip()
             media_identity = str(media_identity or "").strip()
             if not show_thumbnails or not uri or not thumbnail_path:
                 return False
 
-            affected_ids = set()
+            affected_episode_ids: set[int] = set()
 
-            def collect_ids(value, inherited_anime_id=None):
+            def collect_episode_ids(value):
                 if isinstance(value, dict):
-                    anime_id = value.get("anime_id", inherited_anime_id)
-                    if anime_id is None and any(key in value for key in ("seasons", "current_episode", "available_count")):
-                        anime_id = value.get("id")
                     item_uri = str(value.get("path") or "").strip()
                     item_identity = str(value.get("media_identity") or "").strip()
+                    episode_id = value.get("episode_id")
+                    if episode_id is None and value.get("anime_id") is not None and value.get("id") is not None:
+                        episode_id = value.get("id")
                     if (
-                        (item_uri == uri or (media_identity and item_identity == media_identity))
-                        and anime_id is not None
-                    ):
+                        item_uri == uri
+                        or (media_identity and item_identity == media_identity)
+                    ) and episode_id is not None:
                         try:
-                            affected_ids.add(int(anime_id))
+                            affected_episode_ids.add(int(episode_id))
                         except (TypeError, ValueError):
                             pass
                     for child in value.values():
-                        collect_ids(child, anime_id)
+                        collect_episode_ids(child)
                 elif isinstance(value, (list, tuple)):
                     for child in value:
-                        collect_ids(child, inherited_anime_id)
+                        collect_episode_ids(child)
 
-            collect_ids(catalog)
-            collect_ids(home_data)
-            if not affected_ids:
+            collect_episode_ids(catalog)
+            collect_episode_ids(home_data)
+            if not affected_episode_ids:
                 return False
 
             updated = 0
-            for anime in catalog:
-                try:
-                    anime_id = int(anime.get("id"))
-                except (TypeError, ValueError):
-                    continue
-                if anime_id in affected_ids:
-                    anime.setdefault("meta", {})["cover_cache"] = thumbnail_path
-            for anime_id in affected_ids:
-                entity = "movie" if any(
-                    str(item.get("media_kind") or "").casefold() == "movie" and item.get("id") == anime_id
-                    for item in catalog
-                ) else "anime"
-                for holder, width, height in artwork_bindings.get((entity, anime_id, "poster"), []):
-                    holder.content = ft.Image(src=thumbnail_path, width=width, height=height, fit=ft.BoxFit.COVER, border_radius=RADIUS)
+            for episode_id in affected_episode_ids:
+                key = ("episode", episode_id, "episode_thumbnail")
+                for holder, width, height in artwork_bindings.get(key, ()):
+                    holder.content = ft.Image(
+                        src=thumbnail_path,
+                        width=width,
+                        height=height,
+                        fit=ft.BoxFit.COVER,
+                        border_radius=RADIUS,
+                    )
                     updated += 1
+                def update_item(node):
+                    if isinstance(node, dict):
+                        node_uri = str(node.get("path") or "").strip()
+                        node_id = node.get("id")
+                        node_episode_id = node.get("episode_id")
+                        if node_episode_id is None and node.get("anime_id") is not None:
+                            node_episode_id = node_id
+                        try:
+                            matches_id = int(node_episode_id) == episode_id
+                        except (TypeError, ValueError):
+                            matches_id = False
+                        if matches_id and (node_uri == uri or not node_uri):
+                            node["episode_thumbnail"] = thumbnail_path
+                        for child in node.values():
+                            update_item(child)
+                    elif isinstance(node, (list, tuple)):
+                        for child in node:
+                            update_item(child)
+                update_item(catalog)
+                update_item(home_data)
             if updated:
-                logger.info("THUMBNAIL_UI_UPDATE affected_anime=%s controls=%s", len(affected_ids), updated)
+                logger.info(
+                    "THUMBNAIL_UI_UPDATE affected_episodes=%s controls=%s",
+                    len(affected_episode_ids),
+                    updated,
+                )
                 schedule_artwork_ui_update()
             return bool(updated)
 
@@ -1631,6 +1692,7 @@ class HomeView:
             render_generation[0] += 1
             home_sections_generation[0] = render_generation[0]
             catalog_refresh_dirty[0] = False
+            artwork_request_tokens.clear()
             cancel_view_tasks()
 
         view_state['_refresh_from_catalog'] = schedule_refresh_from_catalog

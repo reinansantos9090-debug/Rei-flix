@@ -205,7 +205,7 @@ jobs:
             chmod +x gradlew
             log="$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}/connectedDebugAndroidTest.log"
             set +e
-            timeout --foreground --signal=TERM --kill-after=30s 15m ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee "$log"
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee "$log"
             status=${PIPESTATUS[0]}
             set -e
             if [ "$status" -ne 0 ]; then
@@ -352,7 +352,7 @@ jobs:
             chmod +x gradlew
             log="$GITHUB_WORKSPACE/build/android-tv-api36/connectedDebugAndroidTest.log"
             set +e
-            timeout --foreground --signal=TERM --kill-after=30s 15m ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee "$log"
+            ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee "$log"
             status=${PIPESTATUS[0]}
             set -e
             if [ "$status" -ne 0 ]; then

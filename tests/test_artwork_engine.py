@@ -19,7 +19,13 @@ from PIL import Image
 from core.library_store import LibraryStore
 
 
-JPEG = b"\\xff\\xd8\\xff" + b"JFIF" + b"\\x00" * 24
+def _valid_jpeg():
+    buffer = io.BytesIO()
+    Image.new("RGB", (2, 2), (255, 255, 255)).save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+JPEG = _valid_jpeg()
 
 
 class ArtworkEngineTests(unittest.TestCase):

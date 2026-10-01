@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import tempfile
@@ -9,6 +10,16 @@ from core.artwork import ArtworkEngine
 from core.library_parser import parse_video_path
 from core.library_service import LibraryService
 from core.library_store import LibraryStore
+from PIL import Image
+
+
+def _valid_jpeg():
+    buffer = io.BytesIO()
+    Image.new("RGB", (2, 2), (255, 255, 255)).save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+JPEG = _valid_jpeg()
 
 
 class FinalRegressionTests(unittest.TestCase):
@@ -76,7 +87,7 @@ class FinalRegressionTests(unittest.TestCase):
     def test_local_backup_restores_user_and_media_state(self):
         os.makedirs(os.path.join(self.tmp.name, "covers"), exist_ok=True)
         cover = os.path.join(self.tmp.name, "covers", "poster.jpg")
-        Path(cover).write_bytes(b"poster")
+        Path(cover).write_bytes(JPEG)
         anime = self.store.upsert_anime(
             "attack",
             {

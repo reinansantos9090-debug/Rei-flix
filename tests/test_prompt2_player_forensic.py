@@ -143,6 +143,21 @@ class Prompt2PlayerForensicTests(unittest.TestCase):
         ):
             self.assertIn(token, self.bridge)
 
+    def test_media3_runtime_diagnostics_cover_state_surface_and_codec_signals(self):
+        for token in (
+            "onPlayWhenReadyChanged",
+            "onPlaybackSuppressionReasonChanged",
+            "onIsPlayingChanged",
+            "onRenderedFirstFrame",
+            "onVideoSizeChanged",
+            "onSurfaceSizeChanged",
+            "onDroppedVideoFrames",
+            "onVideoCodecError",
+            "playbackSuppressionReason",
+            "PLAYER_EXIT_CLASSIFICATION",
+        ):
+            self.assertIn(token, self.player)
+
     def test_existing_media3_error_path_does_not_finish_activity(self):
         start = self.player.index("private fun showPlayerError")
         end = self.player.index("private fun userFailureDetailForFailure", start)

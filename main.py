@@ -4043,9 +4043,9 @@ async def main(page: ft.Page):
                                 created_at_ms=button_created_at_ms,
                             )
 
-                            if is_next and not source_player_session_id:
+                            if not source_player_session_id:
                                 performance.event(
-                                    "NEXT_REQUEST_REJECTED",
+                                    "NEXT_REQUEST_REJECTED" if is_next else "PREVIOUS_REQUEST_REJECTED",
                                     screen=navigation.current,
                                     status="rejected",
                                     metadata={
@@ -4056,9 +4056,9 @@ async def main(page: ft.Page):
                                 )
                                 continue
 
-                            if is_next and player_active_session_id["value"] not in (None, source_player_session_id):
+                            if player_active_session_id["value"] not in (None, source_player_session_id):
                                 performance.event(
-                                    "NEXT_REQUEST_STALE",
+                                    "NEXT_REQUEST_STALE" if is_next else "PREVIOUS_REQUEST_STALE",
                                     screen=navigation.current,
                                     status="rejected",
                                     metadata={
@@ -4072,7 +4072,7 @@ async def main(page: ft.Page):
                                     },
                                 )
                                 performance.event(
-                                    "PLAYER_NEXT_STALE_REJECTED",
+                                    "PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED",
                                     screen=navigation.current,
                                     metadata={
                                         "request_id": event_request_id,

@@ -75,6 +75,17 @@ class Prompt36ThumbnailTests(unittest.TestCase):
             )
             self.assertEqual(str(thumb), resolved["local_path"])
             self.assertNotIn("fallback", resolved)
+            with store._conn() as con:
+                poster_rows = con.execute(
+                    "SELECT * FROM artwork WHERE entity_type='anime' AND entity_id=? AND artwork_type='poster'",
+                    (str(anime_id),),
+                ).fetchall()
+                cover_cache = con.execute(
+                    "SELECT cover_cache FROM anime WHERE id=?",
+                    (anime_id,),
+                ).fetchone()["cover_cache"]
+            self.assertEqual([], poster_rows)
+            self.assertFalse(cover_cache)
 
     def test_stable_media_identity_registers_after_uri_representation_changes(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -77,6 +77,7 @@ import kotlin.math.roundToInt
 /** Full-screen Media3 player for one persisted local, SAF, or MediaStore URI. */
 @OptIn(UnstableApi::class)
 class NativePlayerActivity : ComponentActivity() {
+    private val traceId = UUID.randomUUID().toString()
     private val activityInstanceId = UUID.randomUUID().toString()
     private lateinit var player: ExoPlayer
     private lateinit var uri: Uri
@@ -472,6 +473,7 @@ class NativePlayerActivity : ComponentActivity() {
                 .put("payload", JSONObject()
                     .put("event", "PLAYER_LIFECYCLE")
                     .put("lifecycle", event)
+                    .put("traceId", traceId)
                     .put("requestId", requestId)
                     .put("playerGeneration", playerGeneration)
                     .put("transitionGeneration", transitionGeneration)
@@ -1660,6 +1662,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
 
             logPlayer(
                 "PLAYER_ERROR" +
+                    " traceId=" + traceId +
                     " requestId=" + requestId.ifEmpty { "-" } +
                     " generation=" + generation +
                     " stage=" + failureStage +
@@ -2650,6 +2653,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
 
     private fun diagnosticPayload(): JSONObject = JSONObject()
         .put("timestamp", System.currentTimeMillis())
+        .put("traceId", traceId)
         .put("timing", playbackTimingPayload())
         .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
         .put("source", if (::uri.isInitialized) sourceFor(uri) else "")
@@ -3214,8 +3218,23 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
+    private fun classifyPlayerExit(reason: String): String = when (reason.trim()) {
+        "back_button", "android_back" -> "USER_NAVIGATION"
+        "player_error_back" -> "ERROR_BACK"
+        "activity_finish" -> "ACTIVITY_FINISH"
+        else -> if (sessionState == SessionState.EXITING) "CONTROLLED_EXIT" else "UNEXPECTED_EXIT"
+    }
+
     private fun reportPlayerExit(reason: String) {
         if (sessionState == SessionState.DESTROYED || exitReported) return
+        val exitClassification = classifyPlayerExit(reason)
+        logPlayer(
+            "PLAYER_EXIT_CLASSIFICATION=" + exitClassification +
+                " reason=" + reason +
+                " requestId=" + requestId.ifEmpty { "-" } +
+                " traceId=" + traceId +
+                " activityInstanceId=" + activityInstanceId,
+        )
         exitReported = true
         suppressExitEvent = true
         val rawDuration = if (::player.isInitialized) player.duration else 0L
@@ -3232,6 +3251,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             .put("durationMs", currentDuration)
             .put("completion", completionReported)
             .put("reason", reason)
+            .put("classification", exitClassification)
+            .put("traceId", traceId)
             .put("timestamp", exitCapturedAt)
             .put("playerSessionId", playerSessionId)
             .put("activityInstanceId", activityInstanceId)

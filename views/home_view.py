@@ -860,6 +860,7 @@ class HomeView:
 
             if event_type == "USER":
                 if direction == "IDLE":
+                    was_pull_gesture = pull_gesture_active[0]
                     should_refresh = _pull_refresh_should_trigger(
                         gesture_active=pull_gesture_active[0],
                         at_top=pull_gesture_at_top[0],
@@ -878,7 +879,7 @@ class HomeView:
                         _start_view_task(_trigger_pull_refresh)
                     elif overscroll_ready:
                         performance.counter("home.pull_refresh.cancelled_below_threshold")
-                    elif pull_gesture_active[0]:
+                    elif was_pull_gesture:
                         performance.counter("home.pull_refresh.cancelled")
                         logger.info(
                             "PULL_REFRESH_CANCELLED reason=below_threshold_or_invalid_state",

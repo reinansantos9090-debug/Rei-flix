@@ -184,8 +184,13 @@ class HomeView:
             normalized = str(state or "IDLE").upper()
             if normalized not in {"IDLE", "REFRESHING", "SUCCESS", "ERROR"}:
                 normalized = "IDLE"
+            was_pull_refresh = pull_refresh_active[0]
             if normalized in {"IDLE", "SUCCESS", "ERROR"}:
                 pull_refresh_active[0] = False
+            if normalized == "SUCCESS" and was_pull_refresh:
+                logger.info("PULL_REFRESH_COMPLETED")
+            elif normalized == "ERROR" and was_pull_refresh:
+                logger.info("PULL_REFRESH_CANCELLED reason=refresh_error")
             refresh_state[0] = normalized
             view_state["_refresh_state"] = normalized
             indicator = pull_refresh_indicator[0]
@@ -247,6 +252,7 @@ class HomeView:
                 if source == "pull":
                     pull_refresh_active[0] = False
                     _set_pull_indicator(False)
+                    logger.info("PULL_REFRESH_REJECTED reason=refresh_in_progress")
                 return
             if not callable(on_refresh_library):
                 set_refresh_state("ERROR")
@@ -255,6 +261,7 @@ class HomeView:
             if source == "pull":
                 pull_refresh_active[0] = True
                 performance.counter("home.pull_refresh.triggered")
+                logger.info("PULL_REFRESH_TRIGGERED")
             else:
                 performance.counter("home.refresh.button_tapped")
             set_refresh_state("REFRESHING", update=False)
@@ -871,13 +878,25 @@ class HomeView:
                         _start_view_task(_trigger_pull_refresh)
                     elif overscroll_ready:
                         performance.counter("home.pull_refresh.cancelled_below_threshold")
+                    elif pull_gesture_active[0]:
+                        performance.counter("home.pull_refresh.cancelled")
+                        logger.info(
+                            "PULL_REFRESH_CANCELLED reason=below_threshold_or_invalid_state",
+                        )
                 else:
+                    was_gesture_active = pull_gesture_active[0]
                     pull_gesture_active[0] = True
                     pull_gesture_at_top[0] = (
                         at_top
                         and not page_loading[0]
                         and refresh_state[0] != "REFRESHING"
                     )
+                    if not was_gesture_active:
+                        logger.info(
+                            "PULL_GESTURE_START at_top=%s blocked=%s",
+                            pull_gesture_at_top[0],
+                            not pull_gesture_at_top[0],
+                        )
                     if pull_gesture_at_top[0]:
                         pull_overscroll[0] = 0.0
                         _set_pull_indicator(True, "Puxe para atualizar")
@@ -898,8 +917,19 @@ class HomeView:
                     was_ready = pull_overscroll[0] >= pull_threshold
                     pull_overscroll[0] += -overscroll
                     performance.gauge("home.pull_refresh.overscroll", pull_overscroll[0])
+                    logger.info(
+                        "PULL_OVERSCROLL amount=%.1f accumulated=%.1f",
+                        -overscroll,
+                        pull_overscroll[0],
+                    )
                     is_ready = pull_overscroll[0] >= pull_threshold
                     if was_ready != is_ready:
+                        if is_ready:
+                            logger.info(
+                                "PULL_THRESHOLD_REACHED threshold=%.1f accumulated=%.1f",
+                                pull_threshold,
+                                pull_overscroll[0],
+                            )
                         _set_pull_indicator(
                             True,
                             "Solte para atualizar" if is_ready else "Puxe para atualizar",

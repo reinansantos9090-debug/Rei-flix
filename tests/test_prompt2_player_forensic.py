@@ -24,6 +24,16 @@ class Prompt2PlayerForensicTests(unittest.TestCase):
         self.assertIn("MainActivity.notePlayerActivityCreated(activityInstanceId, requestId, playerSessionId)", self.player)
         self.assertIn("MainActivity.notePlayerActivityDestroyed(activityInstanceId, playerSessionId)", self.player)
 
+    def test_destroy_publishes_exit_before_clearing_activity_identity(self):
+        destroy = self.player[
+            self.player.index("override fun onDestroy()"):
+            self.player.index("/**", self.player.index("override fun onDestroy()"))
+        ]
+        self.assertLess(
+            destroy.index('reportPlayerExit("activity_finish")'),
+            destroy.index("MainActivity.notePlayerActivityDestroyed(activityInstanceId, playerSessionId)"),
+        )
+
     def test_authorized_successor_activity_preserves_player_session(self):
         self.assertIn("MainActivity.isCurrentPlayerHandoff(", self.player)
         self.assertIn("if (originRequestId.isNotBlank() && isEpisodeSuccessor)", self.player)

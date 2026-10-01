@@ -115,16 +115,50 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         self.assertIn("NEXT_TRANSITION_INVALIDATED", block)
         self.assertIn("NEXT_REQUEST_CANCELLED", block)
 
-    def test_new_activity_rejects_nonempty_next_origin(self):
-        start = self.player.index("override fun onCreate(savedInstanceState")
-        end = self.player.index("val traceEpisodeId", start)
-        create = self.player[start:end]
-        self.assertIn("originRequestId.isNotBlank()", create)
-        self.assertIn('NEXT_REQUEST_STALE', create)
-        self.assertIn('PLAYER_NEXT_STALE_REJECTED', create)
-        self.assertIn('origin_on_new_activity', create)
-        self.assertIn("finish()", create)
-        self.assertIn("suppressExitEvent = true", create)
+    def test_new_activity_authorizes_valid_episode_successor_without_forcing_player_exit(self):
+        create = self.player[
+            self.player.index("override fun onCreate(savedInstanceState"):
+            self.player.index("val traceEpisodeId")
+        ]
+        self.assertIn("MainActivity.isCurrentPlayerHandoff(", create)
+        self.assertIn("if (originRequestId.isNotBlank() && isEpisodeSuccessor)", create)
+        self.assertIn("PLAYER_EPISODE_TRANSITION", create)
+        self.assertIn("authorized_successor_activity", create)
+        successor = create[create.index("if (originRequestId.isNotBlank() && isEpisodeSuccessor)"):]
+        self.assertNotIn("finish()", successor[:successor.index("publishPlayerLifecycle") if "publishPlayerLifecycle" in successor else len(successor)])
+
+    def test_new_activity_still_rejects_stale_origin(self):
+        create = self.player[
+            self.player.index("override fun onCreate(savedInstanceState"):
+            self.player.index("val traceEpisodeId")
+        ]
+        stale = create[create.index("if (originRequestId.isNotBlank() && !isEpisodeSuccessor)"):]
+        self.assertIn('NEXT_REQUEST_STALE', stale)
+        self.assertIn('PLAYER_NEXT_STALE_REJECTED', stale)
+        self.assertIn('origin_on_new_activity', stale)
+        self.assertIn("finish()", stale)
+        self.assertIn("suppressExitEvent = true", stale)
+
+    def test_activity_instance_identity_is_carried_through_lifecycle_and_exit(self):
+        for token in (
+            "activityInstanceId",
+            "MainActivity.notePlayerActivityCreated",
+            "MainActivity.notePlayerActivityDestroyed",
+            "MainActivity.notePlayerExit(",
+        ):
+            self.assertIn(token, self.player)
+        self.assertIn("isCurrentPlayerHandoff", self.main_activity)
+        self.assertIn("activePlayerActivityInstanceId", self.main_activity)
+
+    def test_python_player_callbacks_are_activity_instance_scoped(self):
+        for token in (
+            "player_active_activity_instance_id",
+            "stale_activity_instance",
+            "activityInstanceId",
+            "stale_activity_instance_lifecycle",
+            "current_activity_instance_id",
+        ):
+            self.assertIn(token, self.main)
 
     def test_activity_exit_and_recreation_have_native_session_authorization(self):
         for token in (

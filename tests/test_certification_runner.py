@@ -150,11 +150,12 @@ class CertificationRunnerTests(unittest.TestCase):
             self.assertEqual(result["not_discovered"],[])
             self.assertEqual(result["ignored_non_test_files"],["tests/test_helper.py"])
 
-    def test_workflow_and_report_are_named_release_certification(self):
+    def test_fast_apk_workflow_does_not_run_release_certification(self):
         workflow=(ROOT/".github/workflows/build_apk.yml").read_text(encoding="utf-8")
-        self.assertIn("Run release evidence certification (no emulator)",workflow)
-        self.assertIn("name: release-certification",workflow)
-        self.assertNotIn("Run Prompt 15.5 evidence certification",workflow)
+        self.assertNotIn("Run release evidence certification (no emulator)",workflow)
+        self.assertNotIn("name: release-certification",workflow)
+        self.assertIn("Run Python regression suite",workflow)
+        self.assertIn("Build APK",workflow)
 
     def test_rendered_gradle_environment_uses_staged_site_packages(self):
         with tempfile.TemporaryDirectory() as tmp:

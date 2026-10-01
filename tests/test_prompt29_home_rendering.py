@@ -16,7 +16,7 @@ class Prompt29HomeRenderingTests(unittest.TestCase):
         self.assertNotIn("asyncio.Semaphore(4)", HOME)
 
     def test_home_artwork_updates_are_coalesced_without_fixed_render_delay(self):
-        self.assertIn("await asyncio.sleep(0)", HOME)
+        self.assertNotIn("await asyncio.sleep(0)", HOME)
         self.assertNotIn("await asyncio.sleep(0.05)", HOME)
         self.assertIn('performance.counter("home.page_updates.artwork")', HOME)
         self.assertIn("schedule_artwork_ui_update()", HOME)

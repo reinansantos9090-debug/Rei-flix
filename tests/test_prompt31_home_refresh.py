@@ -80,14 +80,13 @@ class Prompt31HomeRefreshContractTests(unittest.TestCase):
 
     def test_home_refresh_tracks_the_exact_scan_request(self):
         source = self.read("main.py")
-        start = source.index("async def refresh_home_library")
-        end = source.index("async def login", start)
+        start = source.index("async def request_home_refresh")
+        end = source.index("async def refresh_home_library", start)
         block = source[start:end]
         self.assertIn('_home_refresh_context=home_refresh_context', block)
         self.assertIn('_home_refresh_context["request_id"]', source)
         self.assertIn('snapshot.request_id == home_refresh_context.get("request_id")', source)
         self.assertIn("ScanState.BLOCKED", source)
-
     def test_home_refresh_survives_leaving_home_and_refreshes_on_return(self):
         source = self.read("main.py")
         self.assertIn('home_state["_manual_refresh_pending"] = True', source)

@@ -149,6 +149,24 @@ class ArtworkEngineTests(unittest.TestCase):
         self.assertIsNone(anime_art)
         self.assertEqual([], self.engine.list_for("anime", anime, "poster"))
 
+    def test_legacy_generated_poster_is_never_used_as_fallback(self):
+        anime = self._media("Legacy thumbnail poster")
+        legacy = Path(self.tmp.name) / "legacy-thumbnail.jpg"
+        legacy.write_bytes(JPEG)
+        with self.store._conn() as con:
+            con.execute(
+                "INSERT INTO artwork(entity_type,entity_id,artwork_type,source,source_ref,local_path,status,discovered_at,updated_at,priority) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    "anime", str(anime), "poster", "generated",
+                    "native:legacy-episode|123|456", str(legacy), "ready",
+                    time.time(), time.time(), 50,
+                ),
+            )
+
+        self.assertIsNone(self.engine.resolve("anime", anime, "poster", allow_network=False))
+        self.assertIsNone(self.engine._first_usable("anime", anime, "poster", allow_network=False))
+
     def test_cache_and_anilist_external_reference(self):
         anime = self._media()
         cached = Path(self.tmp.name) / "cached.jpg"

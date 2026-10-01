@@ -409,7 +409,6 @@ class ArtworkEngine:
         for row in rows:
             episode_id = int(row["id"])
             anime_id = int(row["anime_id"])
-            entity_type = "movie" if str(row["media_kind"] or "series").casefold() == "movie" else "anime"
             with self.store._conn() as con:
                 con.execute(
                     """DELETE FROM artwork WHERE entity_type='episode' AND entity_id=?
@@ -435,33 +434,6 @@ class ArtworkEngine:
                         "UPDATE episodes SET duration=CASE WHEN duration<=0 AND ? > 0 THEN ? ELSE duration END WHERE id=?",
                         (duration_ms / 1000.0, duration_ms / 1000.0, episode_id),
                     )
-            with self.store._conn() as con:
-                has_protected = con.execute(
-                    """SELECT 1 FROM artwork WHERE entity_type=? AND entity_id=?
-                       AND artwork_type='poster' AND status='ready'
-                       AND local_path IS NOT NULL
-                       AND source IN ('local','cache','anilist','manual') LIMIT 1""",
-                    (entity_type, str(anime_id)),
-                ).fetchone()
-                if has_protected:
-                    continue
-                con.execute(
-                    """DELETE FROM artwork WHERE entity_type=? AND entity_id=?
-                       AND artwork_type='poster' AND source='generated'""",
-                    (entity_type, str(anime_id)),
-                )
-            self._upsert(
-                entity_type=entity_type, entity_id=anime_id, artwork_type="poster",
-                source="generated", source_ref=source_ref, local_path=thumbnail_path,
-                artwork_key=self._make_key("native", source_ref, "poster", "small"),
-                variant="small", byte_size=os.path.getsize(thumbnail_path),
-                content_type=_mime_from_path(thumbnail_path),
-            )
-            with self.store._conn() as con:
-                con.execute(
-                    "UPDATE anime SET cover_cache=? WHERE id=? AND (cover_cache IS NULL OR trim(cover_cache)='')",
-                    (thumbnail_path, anime_id),
-                )
         return True
 
     def set_manual(self, entity_type, entity_id, artwork_type, *, path=None, external_url=None):
@@ -709,6 +681,8 @@ class ArtworkEngine:
         for row in rows:
             entity_id = str(row["entity_id"])
             artwork_type = str(row["artwork_type"])
+            if artwork_type == "poster" and self._is_thumbnail_generated_poster(dict(row)):
+                continue
             current = result.get(entity_id)
             candidate_rank = preference.get(artwork_type, len(preference))
             if current is not None and current[0] <= candidate_rank:
@@ -724,12 +698,25 @@ class ArtworkEngine:
                 result[entity_id] = (candidate_rank, dict(row))
         return {entity_id: row for entity_id, (_, row) in result.items()}
 
+    @staticmethod
+    def _is_thumbnail_generated_poster(row):
+        """Return True for legacy poster rows created from episode thumbnails."""
+        return (
+            str(row.get("artwork_type") or "") == "poster"
+            and str(row.get("source") or "") == "generated"
+            and str(row.get("source_ref") or "").startswith("native:")
+        )
+
     def get(self, entity_type, entity_id, artwork_type, *, allow_network=False):
         """Return a valid cached artwork immediately, never requiring network."""
         entity_type = self._entity(entity_type, entity_id)
         artwork_type = self._type(artwork_type)
         rows = self.list_for(entity_type, entity_id, artwork_type)
         for row in rows:
+            if artwork_type == "poster" and self._is_thumbnail_generated_poster(row):
+                self._log("miss", key=row.get("artwork_key"), entity_type=entity_type,
+                          entity_id=entity_id, reason="legacy_episode_thumbnail_poster")
+                continue
             if row.get("local_path"):
                 valid = self._is_file(row["local_path"])
                 if row.get("local_path"):

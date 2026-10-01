@@ -145,6 +145,7 @@ class NativePlayerActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastSavedPosition = -1L
     private var lastProgressPersistAt = 0L
+    private var lastPlayerEventCreatedAtMs = 0L
     private var suppressExitEvent = false
     private var exitReported = false
     private var exitProgressPublished = false
@@ -288,8 +289,20 @@ class NativePlayerActivity : ComponentActivity() {
     private var lastLoadErrorClass = ""
     private var lastLoadErrorMessage = ""
     private var pendingPreparation: Future<*>? = null
+    /**
+     * Control-plane I/O (Next/Previous/exit handoff) is intentionally isolated from
+     * progress persistence. A slow SQLite/mailbox consumer must never occupy the
+     * same single-thread queue that owns episode transitions.
+     */
     private val playbackWorker: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "ReiAnix-PlayerIO").apply { isDaemon = true }
+    }
+    /**
+     * Progress remains on the existing mailbox + SQLite pipeline, but uses its own
+     * single-thread publisher so durable checkpoints cannot delay transition control.
+     */
+    private val progressWorker: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "ReiAnix-ProgressIO").apply { isDaemon = true }
     }
     private var activeAnalyticsListener: AnalyticsListener? = null
     private var firstFrameWatchGeneration = -1L
@@ -1793,6 +1806,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
         lastLoadErrorMessage = ""
         openedReported = false
         lastSavedPosition = -1L
+        lastProgressPersistAt = System.currentTimeMillis()
         val generation = playerGeneration
         activePlayerListener = createPlayerListener(generation)
         activeAnalyticsListener = createAnalyticsListener(generation)
@@ -3465,7 +3479,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             return
         }
 
-        val startedAtMs = System.currentTimeMillis()
+        val startedAtMs = nextPlayerEventCreatedAt()
         val monotonicNs = SystemClock.elapsedRealtimeNanos()
         transitionGeneration += 1L
         val generation = transitionGeneration
@@ -3657,6 +3671,19 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         return safePosition
     }
 
+    /**
+     * Player events are ordered by their persisted creation timestamp on the
+     * Python/native bridge. Keep timestamps strictly monotonic within one Activity
+     * so a completion/exit cannot be rejected merely because two lifecycle callbacks
+     * landed in the same millisecond.
+     */
+    private fun nextPlayerEventCreatedAt(): Long {
+        val wallClockMs = System.currentTimeMillis()
+        val createdAtMs = max(wallClockMs, lastPlayerEventCreatedAtMs + 1L)
+        lastPlayerEventCreatedAtMs = createdAtMs
+        return createdAtMs
+    }
+
     private fun buildProgressEvent(eventType: String, force: Boolean): JSONObject? {
         if (!::player.isInitialized) return null
         val rawDuration = player.duration
@@ -3695,7 +3722,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         val event = buildProgressEvent(eventType, force) ?: return
         val durable = force || eventType in setOf("player_paused", "player_completed", "player_exited")
         try {
-            playbackWorker.submit {
+            progressWorker.submit {
                 val ok = if (durable) {
                     NativeMailbox.write(this@NativePlayerActivity, event)
                 } else {
@@ -3877,6 +3904,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         restoreSystemUiBeforeExit()
         pendingPreparation?.cancel(true)
         playbackWorker.shutdown()
+        progressWorker.shutdown()
         if (::player.isInitialized) {
             activePlayerListener?.let { player.removeListener(it) }
             activeAnalyticsListener?.let { player.removeAnalyticsListener(it) }

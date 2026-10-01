@@ -403,7 +403,29 @@ class LibraryService:
             if status == 'manual' and not anilist_id:
                 continue
             cover_cache = str(cached.get('cover_cache') or '').strip()
-            cover_valid = bool(cover_cache and os.path.isfile(cover_cache) and os.path.getsize(cover_cache) > 0)
+            entity_type = 'movie' if str(cached.get('media_kind') or item.get('media_kind') or 'series').casefold() == 'movie' else 'anime'
+            cover_valid = False
+            if cached.get('id'):
+                try:
+                    self.artwork.sync_anime_metadata(cached['id'], cached)
+                    resolved_cached = self.artwork.resolve(
+                        entity_type,
+                        cached['id'],
+                        'poster',
+                        allow_network=False,
+                    )
+                    cover_valid = bool(
+                        resolved_cached
+                        and resolved_cached.get('local_path')
+                        and self.artwork._is_valid_image_file(resolved_cached.get('local_path'))
+                    )
+                except Exception:
+                    logger.debug(
+                        'Artwork cache validation failed during metadata hydration',
+                        extra={'lookup_title': lookup_title, 'anime_id': cached.get('id')},
+                        exc_info=True,
+                    )
+                    cover_valid = False
             needs_metadata = not anilist_id or status in {'unresolved', 'error', 'stale'}
             if status == 'ambiguous' and not anilist_id:
                 if pending_cache is None: pending_cache = self.store.pending_matches()

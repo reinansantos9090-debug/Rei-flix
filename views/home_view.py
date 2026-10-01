@@ -909,9 +909,9 @@ class HomeView:
                     pull_gesture_at_top[0] = False
                     pull_overscroll[0] = 0.0
                     _set_pull_indicator(False)
-            elif event_type not in {"START", "END"}:
-                # Flet 0.86.x normally reports USER/UPDATE/OVERSCROLL for the
-                # pull gesture. Unknown event names are diagnostic-only.
+            else:
+                # Unknown event names are diagnostic-only and must not start
+                # another refresh path.
                 pull_gesture_at_top[0] = pull_gesture_at_top[0] and at_top
 
             if remaining < 800 and has_more[0] and not page_loading[0] and not page_load_scheduled[0]:

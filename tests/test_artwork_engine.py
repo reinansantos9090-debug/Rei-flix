@@ -171,6 +171,24 @@ class ArtworkEngineTests(unittest.TestCase):
         self.assertFalse(any(p.name.endswith(".tmp") for p in self.engine.cache_dir.iterdir()))
         self.assertEqual(self.store.anime_metadata("local")["cover_cache"], result["local_path"])
 
+    def test_corrupt_local_artwork_is_not_accepted_as_ready(self):
+        anime = self._media("Corrupt local")
+        bad = Path(self.tmp.name) / "corrupt.jpg"
+        bad.write_bytes(b"JFIF but not a decodable image")
+        self.assertFalse(self.engine.add_local("anime", anime, "poster", bad))
+        self.assertIsNone(self.engine.resolve("anime", anime, "poster", allow_network=False))
+
+    def test_invalid_download_payload_does_not_enter_retry_wait(self):
+        anime = self._media("Invalid remote")
+        self._remote(anime, "https://example/invalid.jpg")
+        calls = []
+        self.engine._downloader = lambda url: (calls.append(url) or (b"not-an-image", "image/jpeg", 200))
+        self.assertIsNone(self.engine.request("anime", anime, "poster", blocking=True))
+        row = self.engine.list_for("anime", anime, "poster")[0]
+        self.assertEqual(row["status"], STATUS_FAILED)
+        self.assertIsNone(row["next_retry_at"])
+        self.assertEqual(len(calls), 1)
+
     def test_cache_hit_does_not_download(self):
         anime = self._media()
         self._remote(anime)
@@ -456,6 +474,37 @@ class ArtworkEngineTests(unittest.TestCase):
         stats = self.engine.cache_stats()
         self.assertLessEqual(stats["bytes"], 1024)
 
+
+    def test_generation_invalidation_waits_for_atomic_cache_commit(self):
+        anime = self._media("Generation commit")
+        self._remote(anime, "https://example/generation.jpg")
+        raw = io.BytesIO()
+        Image.new("RGB", (1200, 1800), (90, 40, 20)).save(raw, format="JPEG")
+        payload = raw.getvalue()
+        self.engine._downloader = lambda _url: (payload, "image/jpeg", 200)
+
+        original_replace = os.replace
+        observed = []
+
+        def replace_and_invalidate(source, target):
+            original_replace(source, target)
+            observed.append(True)
+            self.engine.invalidate_generation("during_commit")
+
+        os.replace = replace_and_invalidate
+        try:
+            generation = self.engine._generation
+            result = self.engine._download_row(
+                self.engine.list_for("anime", anime, "poster")[0],
+                generation=generation,
+            )
+        finally:
+            os.replace = original_replace
+
+        self.assertTrue(observed)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["status"], STATUS_READY)
+        self.assertTrue(Path(result["local_path"]).is_file())
 
     def test_stale_generation_does_not_delete_existing_cache_entry(self):
         anime = self._media("Stale refresh")

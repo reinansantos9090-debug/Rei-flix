@@ -3216,7 +3216,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         val currentDuration = if (rawDuration > 0L) rawDuration else 0L
         val rawPosition = if (::player.isInitialized) player.currentPosition.coerceAtLeast(0L) else 0L
         val currentPosition = if (currentDuration > 0L) rawPosition.coerceAtMost(currentDuration) else rawPosition
-        val exitCapturedAt = System.currentTimeMillis()
+        val exitCapturedAt = nextPlayerEventCreatedAt()
         val payload = JSONObject()
             .put("uri", if (::uri.isInitialized) uri.toString() else intent.getStringExtra("uri").orEmpty())
             .put("mediaId", currentMediaId())
@@ -3701,7 +3701,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
         return JSONObject()
             .put("type", eventType)
             .put("requestId", requestId)
-            .put("createdAt", System.currentTimeMillis())
+            .put("createdAt", nextPlayerEventCreatedAt())
             .put(
                 "payload",
                 JSONObject()

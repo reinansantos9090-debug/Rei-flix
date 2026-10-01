@@ -15,6 +15,32 @@ from core.library_discovery import format_duration
 
 logger = logging.getLogger(__name__)
 
+HOME_PULL_REFRESH_THRESHOLD = 72.0
+
+
+def _pull_refresh_should_trigger(
+    *,
+    gesture_active: bool,
+    at_top: bool,
+    overscroll: float,
+    threshold: float = HOME_PULL_REFRESH_THRESHOLD,
+    page_loading: bool = False,
+    refresh_state: str = "IDLE",
+) -> bool:
+    """Return whether the current pull gesture is eligible to trigger refresh."""
+    try:
+        distance = float(overscroll)
+        limit = float(threshold)
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        gesture_active
+        and at_top
+        and not page_loading
+        and str(refresh_state or "IDLE").upper() != "REFRESHING"
+        and distance >= limit
+    )
+
 
 class HomeView:
     """CloudStream-inspired local library home with async data access and compact cards."""
@@ -97,7 +123,7 @@ class HomeView:
         pull_gesture_active = [False]
         pull_gesture_at_top = [False]
         pull_overscroll = [0.0]
-        pull_threshold = 72.0
+        pull_threshold = HOME_PULL_REFRESH_THRESHOLD
         view_tasks: set[object] = set()
 
         def _discard_view_task(task):
@@ -819,12 +845,13 @@ class HomeView:
                     pull_overscroll[0] = 0.0
                     _set_pull_indicator(False)
             elif event_type == "END":
-                should_refresh = (
-                    pull_gesture_active[0]
-                    and pull_gesture_at_top[0]
-                    and pull_overscroll[0] >= pull_threshold
-                    and not page_loading[0]
-                    and refresh_state[0] != "REFRESHING"
+                should_refresh = _pull_refresh_should_trigger(
+                    gesture_active=pull_gesture_active[0],
+                    at_top=pull_gesture_at_top[0],
+                    overscroll=pull_overscroll[0],
+                    threshold=pull_threshold,
+                    page_loading=page_loading[0],
+                    refresh_state=refresh_state[0],
                 )
                 pull_gesture_active[0] = False
                 pull_gesture_at_top[0] = False

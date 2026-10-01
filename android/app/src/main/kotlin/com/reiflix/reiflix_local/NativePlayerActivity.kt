@@ -509,6 +509,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
             originCreatedAtMs = originCreatedAtMs,
             playerSessionId = playerSessionId,
             originPlayerSessionId = originPlayerSessionId,
+            originTransitionGeneration = originTransitionGeneration,
         )
 
         if (originRequestId.isNotBlank() && !isEpisodeSuccessor) {
@@ -583,7 +584,12 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 .put("originRequestId", originRequestId)
                 .put("transitionDirection", originTransitionDirection),
         )
-        MainActivity.notePlayerActivityCreated(activityInstanceId, requestId, playerSessionId)
+        MainActivity.notePlayerActivityCreated(
+            activityInstanceId,
+            requestId,
+            playerSessionId,
+            transitionGeneration,
+        )
 
         val traceEpisodeId = intent.getStringExtra("episodeId").orEmpty()
         val traceAnimeId = intent.getStringExtra("animeId").orEmpty()
@@ -595,7 +601,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
         handoffDispatchedAtMs = intent.getLongExtra("handoffDispatchedAtMs", 0L)
         activityStartedAtMs = System.currentTimeMillis()
         sessionState = SessionState.ACTIVE
-        MainActivity.notePlayerSession(requestId, playerSessionId)
+        MainActivity.notePlayerSession(requestId, playerSessionId, transitionGeneration)
         gesturePreferences = getSharedPreferences("reiflix_player_preferences", Context.MODE_PRIVATE)
         localMetadataStore = PlayerLocalMetadataStore(this)
         volumeGesturesEnabled = intent.getBooleanExtra("setting_gestures_volume",
@@ -846,7 +852,6 @@ override fun onCreate(savedInstanceState: Bundle?) {
         originMonotonicNs = incomingOriginMonotonicNs
         transitionSourceDirection = incomingOriginTransitionDirection
         publishPlayerLifecycle("onNewIntent")
-        MainActivity.notePlayerSession(requestId, playerSessionId)
         val traceEpisodeId = newIntent.getStringExtra("episodeId").orEmpty()
         val traceAnimeId = newIntent.getStringExtra("animeId").orEmpty()
         PerformanceDiagnostics.attach(this)
@@ -867,6 +872,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
         // A validated successor replaces the current media, but the old
         // transition identity is invalidated only after that validation.
         transitionGeneration += 1L
+        MainActivity.notePlayerSession(requestId, playerSessionId, transitionGeneration)
         transitionPublishFuture?.cancel(true)
         transitionPublishFuture = null
         handler.removeCallbacks(episodeChangeTimeout)

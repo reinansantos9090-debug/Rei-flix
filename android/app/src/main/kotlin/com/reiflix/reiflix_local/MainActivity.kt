@@ -2222,14 +2222,14 @@ class MainActivity : FlutterFragmentActivity() {
         val previousActiveRequestId = activePlayerRequestId
         val previousActiveSessionId = activePlayerSessionId
         val previousActiveCommandCreatedAtMs = activePlayerCommandCreatedAtMs
-        val reusingPlayerActivity =
-            !activePlayerActivityInstanceId.isNullOrBlank() &&
-                !previousActiveSessionId.isNullOrBlank() &&
-                previousActiveSessionId == incomingPlayerSessionId
         val originRequestId = playerRequest.originRequestId
         val originCreatedAtMs = playerRequest.originCreatedAtMs
         val incomingPlayerSessionId = playerRequest.playerSessionId
         val originPlayerSessionId = playerRequest.originPlayerSessionId
+        val reusingPlayerActivity =
+            !activePlayerActivityInstanceId.isNullOrBlank() &&
+                !previousActiveSessionId.isNullOrBlank() &&
+                previousActiveSessionId == incomingPlayerSessionId
         if (incomingPlayerSessionId.isBlank()) {
             nativeRequestState.markOperationState(
                 requestId,

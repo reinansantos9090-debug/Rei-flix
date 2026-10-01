@@ -84,8 +84,8 @@ class LifecycleContractTests(unittest.TestCase):
         end = source.index("try:\n        page.on_disconnect", start)
         block = source[start:end]
         self.assertIn("nonlocal thumbnail_dispatch_task, thumbnail_reconciliation_task, thumbnail_reconciliation_pending", block)
-        self.assertIn("thumbnail_dispatch_task.cancel()", block)
-        self.assertIn("thumbnail_reconciliation_task.cancel()", block)
+        self.assertIn("for task in (thumbnail_dispatch_task, thumbnail_reconciliation_task):", block)
+        self.assertIn("task.cancel()", block)
         self.assertIn("thumbnail_dispatch_task = None", block)
         self.assertIn("thumbnail_reconciliation_task = None", block)
 

@@ -164,6 +164,12 @@ class PlaybackContractTests(unittest.TestCase):
         self.assertIn("max(wallClockMs, previous + 1L)", self.player)
         self.assertIn('val transitionCreatedAtMs = nextPlayerEventCreatedAt()', self.player)
         self.assertIn('val exitCapturedAt = nextPlayerEventCreatedAt()', self.player)
+        progress_start = self.player.index("private fun buildProgressEvent")
+        progress_end = self.player.index("private fun saveProgress", progress_start)
+        progress_block = self.player[progress_start:progress_end]
+        self.assertIn('put("createdAt", nextPlayerEventCreatedAt())', progress_block)
+        self.assertNotIn('put("createdAt", System.currentTimeMillis())', progress_block)
+        self.assertIn("val exitCapturedAt = nextPlayerEventCreatedAt()", self.player)
 
     def test_mailbox_best_effort_queue_is_bounded_and_not_globally_synchronized(self):
         self.assertIn("BEST_EFFORT_QUEUE_CAPACITY = 128", self.mailbox)

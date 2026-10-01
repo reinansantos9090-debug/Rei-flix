@@ -1384,6 +1384,74 @@ override fun onCreate(savedInstanceState: Bundle?) {
             )
         }
 
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (!isCurrent()) return
+            logPlayer(
+                "PLAY_WHEN_READY_CHANGED requestId=" + requestId.ifEmpty { "-" } +
+                    " value=" + playWhenReady +
+                    " reason=" + reason +
+                    " suppression=" + player.playbackSuppressionReason +
+                    " isPlaying=" + player.isPlaying,
+            )
+        }
+
+        override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
+            if (!isCurrent()) return
+            logPlayer(
+                "PLAYBACK_SUPPRESSION_CHANGED requestId=" + requestId.ifEmpty { "-" } +
+                    " reason=" + playbackSuppressionReason +
+                    " playWhenReady=" + player.playWhenReady +
+                    " isPlaying=" + player.isPlaying,
+            )
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (!isCurrent()) return
+            logPlayer(
+                "IS_PLAYING_CHANGED requestId=" + requestId.ifEmpty { "-" } +
+                    " value=" + isPlaying +
+                    " playbackState=" + player.playbackState +
+                    " playWhenReady=" + player.playWhenReady +
+                    " suppression=" + player.playbackSuppressionReason,
+            )
+        }
+
+        override fun onRenderedFirstFrame() {
+            if (!isCurrent()) return
+            firstFrameRenderedAtMs = System.currentTimeMillis()
+            firstFrameRenderedForTesting = true
+            cancelFirstFrameDiagnostics("first_frame")
+            logPlayer(
+                "FIRST_FRAME_RENDERED requestId=" + requestId.ifEmpty { "-" } +
+                    " generation=" + playerGeneration +
+                    " transitionGeneration=" + transitionGeneration +
+                    " atMs=" + firstFrameRenderedAtMs +
+                    " latencyFromPrepareMs=" + metricDelta(prepareDispatchedAtMs, firstFrameRenderedAtMs),
+            )
+        }
+
+        override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+            if (!isCurrent()) return
+            logPlayer(
+                "VIDEO_SIZE_CHANGED requestId=" + requestId.ifEmpty { "-" } +
+                    " width=" + videoSize.width +
+                    " height=" + videoSize.height +
+                    " unappliedRotationDegrees=" + videoSize.unappliedRotationDegrees +
+                    " pixelWidthHeightRatio=" + videoSize.pixelWidthHeightRatio,
+            )
+        }
+
+        override fun onSurfaceSizeChanged(width: Int, height: Int) {
+            if (!isCurrent()) return
+            logPlayer(
+                "SURFACE_SIZE_CHANGED requestId=" + requestId.ifEmpty { "-" } +
+                    " width=" + width +
+                    " height=" + height +
+                    " attached=" + (::playerView.isInitialized && playerView.isAttachedToWindow) +
+                    " visible=" + (::playerView.isInitialized && playerView.isShown),
+            )
+        }
+
         override fun onPlaybackStateChanged(state: Int) {
             if (!isCurrent()) return
             val label = when (state) {
@@ -1765,7 +1833,33 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 }
             }
 
-            override fun onVideoDecoderInitialized(
+            override fun onDroppedVideoFrames(
+            eventTime: AnalyticsListener.EventTime,
+            droppedFrames: Int,
+            elapsedMs: Long,
+        ) {
+            if (!isCurrent()) return
+            logPlayer(
+                "DROPPED_VIDEO_FRAMES generation=" + generation +
+                    " droppedFrames=" + droppedFrames +
+                    " elapsedMs=" + elapsedMs +
+                    " positionMs=" + player.currentPosition,
+            )
+        }
+
+        override fun onVideoCodecError(
+            eventTime: AnalyticsListener.EventTime,
+            videoCodecError: Exception,
+        ) {
+            if (!isCurrent()) return
+            logPlayer(
+                "VIDEO_CODEC_ERROR generation=" + generation +
+                    " errorClass=" + videoCodecError::class.java.simpleName +
+                    " error=" + (videoCodecError.message?.trim().orEmpty()),
+            )
+        }
+
+        override fun onVideoDecoderInitialized(
                 eventTime: AnalyticsListener.EventTime,
                 decoderName: String,
                 initializedTimestampMs: Long,
@@ -2662,6 +2756,8 @@ override fun onCreate(savedInstanceState: Bundle?) {
         .put("mediaId", currentMediaId())
         .put("episodeId", currentEpisodeId())
         .put("playerState", if (::player.isInitialized) player.playbackStateLabel() else "STATE_IDLE")
+        .put("playWhenReady", if (::player.isInitialized) player.playWhenReady else false)
+        .put("playbackSuppressionReason", if (::player.isInitialized) player.playbackSuppressionReason else Player.PLAYBACK_SUPPRESSION_REASON_NONE)
         .put("isPlaying", if (::player.isInitialized) player.isPlaying else false)
         .put("displayName", mediaDisplayName.orEmpty())
         .put("mimeType", contentMimeType.orEmpty())
@@ -2674,8 +2770,7 @@ override fun onCreate(savedInstanceState: Bundle?) {
         .put("playbackSpeed", if (::player.isInitialized) player.playbackParameters.speed else 1f)
         .put("audioTrackCount", if (::player.isInitialized) player.currentTracks.groups.count { it.type == C.TRACK_TYPE_AUDIO && it.isSupported } else 0)
         .put("subtitleTrackCount", if (::player.isInitialized) player.currentTracks.groups.count { it.type == C.TRACK_TYPE_TEXT && it.isSupported } else 0)
-        .put("durationMs", if (::player.isInitialized) player.duration.coerceAtLeast(0L) else 0L)
-        .put("playWhenReady", if (::player.isInitialized) player.playWhenReady else false)
+.put("durationMs", if (::player.isInitialized) player.duration.coerceAtLeast(0L) else 0L)
         .put("firstFrameRendered", firstFrameRenderedForTesting)
         .put("sessionState", sessionState.name)
         .put("windowFocus", window.decorView.hasWindowFocus())

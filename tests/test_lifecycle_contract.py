@@ -78,6 +78,17 @@ class LifecycleContractTests(unittest.TestCase):
             "mailbox poller must be started through the tracked task handle exactly once",
         )
 
+    def test_python_page_disconnect_cancels_thumbnail_background_work(self):
+        source = MAIN_PY.read_text(encoding="utf-8")
+        start = source.index("def _handle_page_disconnect")
+        end = source.index("try:\n        page.on_disconnect", start)
+        block = source[start:end]
+        self.assertIn("nonlocal thumbnail_dispatch_task, thumbnail_reconciliation_task, thumbnail_reconciliation_pending", block)
+        self.assertIn("thumbnail_dispatch_task.cancel()", block)
+        self.assertIn("thumbnail_reconciliation_task.cancel()", block)
+        self.assertIn("thumbnail_dispatch_task = None", block)
+        self.assertIn("thumbnail_reconciliation_task = None", block)
+
     def test_navigation_state_writer_is_durable_and_disconnect_guarded(self):
         source = MAIN_PY.read_text(encoding="utf-8")
         state_start = source.index("def _write_navigation_state")

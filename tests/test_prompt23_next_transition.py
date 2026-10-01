@@ -20,6 +20,22 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         cls.request = REQUEST.read_text(encoding="utf-8")
         cls.native_request_state = (ROOT / "android/app/src/main/kotlin/com/reiflix/reiflix_local/NativeRequestState.kt").read_text(encoding="utf-8")
 
+    def test_native_transition_machine_has_explicit_runtime_phases(self):
+        for token in (
+            "TransitionPhase",
+            "REQUESTED",
+            "HANDOFF_DISPATCHED",
+            "TARGET_ACTIVITY_ACTIVE",
+            "PREPARING",
+            "READY",
+            "FIRST_FRAME",
+            "COMMITTED",
+            "FAILED",
+            "setTransitionPhase",
+            'transitionPhase.name',
+        ):
+            self.assertIn(token, self.player)
+
     def test_required_next_state_machine_markers_exist(self):
         for token in (
             "NEXT_REQUEST_ACCEPTED",

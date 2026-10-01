@@ -492,7 +492,13 @@ jobs:
           test -s build/ReiAnix-apk.zip
           unzip -Z1 build/ReiAnix-apk.zip | grep -Fx 'ReiAnix.apk'
 
+      # GitHub Actions artifact storage can be temporarily exhausted by
+      # artifacts from older runs. Artifact publication must never turn a
+      # successfully built/validated APK into a failed build; the APK remains
+      # available in the runner workspace and publication resumes automatically
+      # when the repository quota is recalculated.
       - name: Upload APK as direct artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           path: ${{ steps.apk.outputs.path }}
@@ -501,6 +507,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload APK ZIP
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           path: build/ReiAnix-apk.zip
@@ -509,6 +516,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload APK metadata
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: reiflix-release-metadata

@@ -122,29 +122,15 @@ jobs:
             echo "Valid JSON: $file"
           done < <(find . -path './.git' -prune -o -path './build' -prune -o -type f -name '*.json' -print0)
 
-      - name: Run Python regression suites concurrently
+      - name: Run Python regression suite
         shell: bash
         run: |
           set -o pipefail
-          pids=()
-          python -m pytest -q > build/pytest-first.txt 2>&1 &
-          pids+=("$!")
-          python -m pytest -q > build/pytest-second.txt 2>&1 &
-          pids+=("$!")
-          python -m unittest discover -s tests -v > build/unittest.txt 2>&1 &
-          pids+=("$!")
-
-          status=0
-          for pid in "${pids[@]}"; do
-            if ! wait "$pid"; then
-              status=1
-            fi
-          done
-
-          cat build/pytest-first.txt
-          cat build/pytest-second.txt
-          cat build/unittest.txt
-          exit "$status"
+          # pytest already discovers unittest.TestCase tests under tests/.
+          # Run the suite exactly once: the previous workflow launched two
+          # identical pytest processes plus unittest discover concurrently,
+          # tripling CPU/memory contention and making this step unnecessarily slow.
+          python -m pytest -q | tee build/pytest.txt
 
       - name: Validate Python application
         run: |
@@ -154,52 +140,6 @@ jobs:
           git diff --check
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git status --short
-
-      - name: Validate blocking runtime/player/lifecycle contracts
-        shell: bash
-        run: |
-          python - <<'PY'
-          import sys
-          import unittest
-
-          names = [
-              "tests.test_build_tools.AndroidHostVerificationTests.test_player_system_back_requires_reiflix_foreground_return",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_player_orientation_and_responsive_overlay_contract",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_back_logs_use_explicit_player_back_marker",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_native_host_and_player_use_immersive_system_bars",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_player_exit_is_not_suppressed_after_normal_completion",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_entry_requires_a_persisted_saf_document",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_entry_rejects_non_local_deep_link_uris",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_rechecks_saf_authorization_before_media3_start",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_player_preflight_uses_authorized_source_and_real_readability",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_player_recreates_with_track_selection_and_pip_is_optional",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_packaged_manifest_verifier_checks_native_player_pip_contract",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_player_rejects_removed_or_invalid_saf_documents_without_starting_media3",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_accepts_saf_media_store_and_broad_paths",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_error_does_not_emit_a_second_exit_event",
-              "tests.test_build_tools.AndroidHostVerificationTests.test_native_player_next_previous_suppress_normal_exit",
-              "tests.test_build_tools.TestNativePlayerHardening.test_native_player_reapplies_immersive_mode_on_resume",
-              "tests.test_build_tools.TestNativePlayerHardening.test_player_uses_media3_dependencies",
-              "tests.test_media_store.TestMediaStoreAndroidHost.test_player_accepts_saf_or_media_store_without_path_conversion",
-              "tests.test_back_lifecycle",
-              "tests.test_runtime_regressions",
-              "tests.test_runtime_android_contract",
-              "tests.test_player_consumption_cycle",
-              "tests.test_broad_storage.TestBroadStorageArchitecture.test_player_pip_has_manifest_and_device_feature_fallback",
-              "tests.test_playback_hardening",
-              "tests.test_lifecycle_contract",
-              "tests.test_regression_baseline.RegressionBaselineTests.test_player_contracts_and_horizontal_seek_are_present",
-          ]
-
-          suite = unittest.TestSuite(
-              unittest.defaultTestLoader.loadTestsFromName(name)
-              for name in names
-          )
-          result = unittest.TextTestRunner(verbosity=2).run(suite)
-          if not result.wasSuccessful():
-              sys.exit(1)
-          PY
-
 
       - name: Remove development caches before Flet packaging
         shell: bash

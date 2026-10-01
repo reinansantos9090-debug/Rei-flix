@@ -146,6 +146,31 @@ class PlaybackContractTests(unittest.TestCase):
         self.assertNotIn('prepare()', timeout_block)
         self.assertNotIn('startActivity(', timeout_block)
 
+    def test_progress_persistence_has_its_own_io_executor(self):
+        source = self.player
+        save_start = source.index("    private fun saveProgress(")
+        save_end = source.index("    override fun onStart()", save_start)
+        save_block = source[save_start:save_end]
+        self.assertIn("progressWorker.submit", save_block)
+        self.assertNotIn("playbackWorker.submit", save_block)
+        self.assertIn('Thread(runnable, "ReiAnix-ProgressIO")', source)
+        self.assertIn("progressWorker.shutdown()", source)
+        self.assertIn("lastProgressPersistAt = System.currentTimeMillis()", source)
+
+    def test_player_event_timestamps_are_monotonic_within_activity(self):
+        self.assertIn("lastPlayerEventCreatedAtMs", self.player)
+        self.assertIn("private fun nextPlayerEventCreatedAt()", self.player)
+        self.assertIn("max(wallClockMs, lastPlayerEventCreatedAtMs + 1L)", self.player)
+        self.assertIn('val startedAtMs = nextPlayerEventCreatedAt()', self.player)
+        self.assertIn('val exitCapturedAt = nextPlayerEventCreatedAt()', self.player)
+
+    def test_mailbox_best_effort_queue_is_bounded_and_not_globally_synchronized(self):
+        self.assertIn("BEST_EFFORT_QUEUE_CAPACITY = 128", self.mailbox)
+        self.assertIn("ArrayBlockingQueue(BEST_EFFORT_QUEUE_CAPACITY)", self.mailbox)
+        self.assertIn("ThreadPoolExecutor.AbortPolicy()", self.mailbox)
+        self.assertNotIn("@Synchronized\n    fun write(", self.mailbox)
+        self.assertNotIn("@Synchronized\n    fun writeOrThrow(", self.mailbox)
+
     def test_critical_player_state_events_stay_on_durable_mailbox_path(self):
         source = self.player
         save_start = source.index("    private fun saveProgress(")
@@ -181,6 +206,31 @@ class PlaybackContractTests(unittest.TestCase):
         diagnostic_end = main_activity.index("private fun publishNativeCommandError", diagnostic_start)
         diagnostic_block = main_activity[diagnostic_start:diagnostic_end]
         self.assertIn("NativeMailbox.write(", diagnostic_block)
+    def test_bridge_coalesces_only_consecutive_progress_for_same_identity(self):
+        from core.android_bridge import AndroidBridge
+
+        base = {
+            "eventType": "player_progress",
+            "requestId": "req-1",
+            "payload": {
+                "playerSessionId": "session-a",
+                "activityInstanceId": "activity-a",
+                "episodeId": "101",
+                "uri": "file:///a.mkv",
+                "playerGeneration": 2,
+                "transitionGeneration": 3,
+            },
+        }
+        later = {**base, "createdAt": 20, "payload": {**base["payload"], "positionMs": 20}}
+        newest = {**base, "createdAt": 30, "payload": {**base["payload"], "positionMs": 30}}
+        pause = {"eventType": "player_paused", "requestId": "req-1", "payload": dict(base["payload"])}
+        after_pause = {**base, "createdAt": 40, "payload": {**base["payload"], "positionMs": 40}}
+        events = AndroidBridge._coalesce_progress_events([base, later, newest, pause, after_pause])
+        self.assertEqual(3, len(events))
+        self.assertIs(events[0], newest)
+        self.assertIs(events[1], pause)
+        self.assertIs(events[2], after_pause)
+
     def test_consumption_pipeline_has_no_parallel_player_state(self):
         for token in (
             'ConsumptionState.UNWATCHED',

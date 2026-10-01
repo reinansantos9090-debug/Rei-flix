@@ -130,6 +130,7 @@ async def main(page: ft.Page):
         "scan_started_at": None,
         "scan_terminal": False,
         "db_updated": False,
+        "source": None,
     }
 
     def _handle_page_disconnect(_event=None):
@@ -222,18 +223,38 @@ async def main(page: ft.Page):
             home_refresh_context.get("request_id") is None
             or snapshot.request_id == home_refresh_context.get("request_id")
         ):
+            refresh_source = home_refresh_context.get("source") or "button"
             if state in {ScanState.RUNNING, ScanState.CANCELLING} and not home_refresh_context["scan_started"]:
                 home_refresh_context["scan_started"] = True
                 home_refresh_context["scan_started_at"] = time.monotonic()
-                diagnostics.record("HOME_REFRESH_STARTED", refreshId=home_refresh_context["refresh_id"], requestId=snapshot.request_id, source=snapshot.source or "all")
-                diagnostics.record("HOME_REFRESH_SCAN_STARTED", refreshId=home_refresh_context["refresh_id"], requestId=snapshot.request_id, source=snapshot.source or "all")
+                diagnostics.record(
+                    "HOME_REFRESH_STARTED",
+                    refreshId=home_refresh_context["refresh_id"],
+                    requestId=snapshot.request_id,
+                    source=refresh_source,
+                    scanSource=snapshot.source or "all",
+                )
+                diagnostics.record(
+                    "HOME_REFRESH_SCAN_STARTED",
+                    refreshId=home_refresh_context["refresh_id"],
+                    requestId=snapshot.request_id,
+                    source=refresh_source,
+                    scanSource=snapshot.source or "all",
+                )
                 performance.counter("home.refresh.started")
             if state == ScanState.BLOCKED and not home_refresh_context["scan_terminal"]:
                 home_refresh_context["scan_terminal"] = True
                 home_refresh_context["active"] = False
                 home_refresh_context["db_updated"] = False
                 home_refresh_context["request_id"] = None
-                diagnostics.record("HOME_REFRESH_FAILED", refreshId=home_refresh_context["refresh_id"], requestId=snapshot.request_id, source=snapshot.source or "all", reason="no_authorized_scan_source")
+                diagnostics.record(
+                    "HOME_REFRESH_FAILED",
+                    refreshId=home_refresh_context["refresh_id"],
+                    requestId=snapshot.request_id,
+                    source=refresh_source,
+                    scanSource=snapshot.source or "all",
+                    reason="no_authorized_scan_source",
+                )
                 performance.counter("home.refresh.failed")
                 _publish_home_refresh_state("ERROR")
                 resetter = home_state.get("_reset_refresh_state")
@@ -248,7 +269,8 @@ async def main(page: ft.Page):
                     refreshId=home_refresh_context["refresh_id"],
                     requestId=snapshot.request_id,
                     status=state.value,
-                    source=snapshot.source or "all",
+                    source=refresh_source,
+                    scanSource=snapshot.source or "all",
                     durationMs=int((time.monotonic() - scan_started) * 1000) if scan_started else None,
                 )
                 performance.counter("home.refresh.scan_completed" if terminal_success else "home.refresh.failed")
@@ -261,11 +283,10 @@ async def main(page: ft.Page):
                     if callable(resetter):
                         resetter("ERROR", 1.6)
                 elif navigation.current != "home":
-                    home_refresh_context["active"] = False
-                    home_refresh_context["db_updated"] = True
-                    home_refresh_context["request_id"] = None
-                    home_state["_manual_refresh_pending"] = False
-                    _publish_home_refresh_state("IDLE")
+                    # The scan may finish while Home is not mounted. Keep the
+                    # logical refresh alive until its durable catalog update has
+                    # been reflected when Home returns.
+                    home_state["_manual_refresh_pending"] = True
         safe_update()
 
     # Resolve the callback and its runtime capability state before constructing
@@ -363,7 +384,15 @@ async def main(page: ft.Page):
         if not home_refresh_context["active"]:
             return
         refresh_id = home_refresh_context.get("refresh_id")
-        diagnostics.record("HOME_REFRESH_FAILED", refreshId=refresh_id, requestId=request_id, source=source or "all", reason=str(reason))
+        refresh_source = home_refresh_context.get("source") or "button"
+        diagnostics.record(
+            "HOME_REFRESH_FAILED",
+            refreshId=refresh_id,
+            requestId=request_id,
+            source=refresh_source,
+            operationSource=source,
+            reason=str(reason),
+        )
         performance.counter("home.refresh.failed")
         home_refresh_context["active"] = False
         home_refresh_context["db_updated"] = False
@@ -1843,15 +1872,17 @@ async def main(page: ft.Page):
         # screen and losing its viewport/window state.
         if home_refresh_context["active"] and home_refresh_context["scan_terminal"]:
             refresh_id = home_refresh_context.get("refresh_id")
-            diagnostics.record("HOME_REFRESH_DB_UPDATED", refreshId=refresh_id, source=navigation.current)
+            refresh_source = home_refresh_context.get("source") or "button"
+            diagnostics.record(
+                "HOME_REFRESH_DB_UPDATED",
+                refreshId=refresh_id,
+                source=refresh_source,
+                screen=navigation.current,
+            )
             home_refresh_context["db_updated"] = True
-            if navigation.current == "home":
-                home_state["_manual_refresh_pending"] = True
-            else:
-                home_refresh_context["active"] = False
-                home_refresh_context["request_id"] = None
-                home_state["_manual_refresh_pending"] = True
-                _publish_home_refresh_state("IDLE")
+            # Whether Home is mounted or not, the refreshed catalog remains
+            # pending until the current Home control tree has consumed it.
+            home_state["_manual_refresh_pending"] = True
         if navigation.current == "home":
             refresh = home_state.get("_refresh_from_catalog")
             if callable(refresh):
@@ -2544,9 +2575,17 @@ async def main(page: ft.Page):
             return "Atualização enfileirada; a varredura atual será concluída primeiro.", True
         return "Atualização iniciada. Verificando as fontes locais…", True
 
-    async def refresh_home_library(_=None):
+    async def refresh_home_library(_=None, *, source="button"):
+        refresh_source = str(source or "button").strip().casefold()
+        if refresh_source not in {"button", "pull"}:
+            refresh_source = "button"
         if home_refresh_context["active"]:
-            diagnostics.record("HOME_REFRESH_REJECTED", refreshId=home_refresh_context.get("refresh_id"), reason="already_refreshing")
+            diagnostics.record(
+                "HOME_REFRESH_REJECTED",
+                refreshId=home_refresh_context.get("refresh_id"),
+                source=refresh_source,
+                reason="already_refreshing",
+            )
             performance.counter("home.refresh.rejected")
             return "Uma atualização da biblioteca já está em andamento.", True
         refresh_id = uuid.uuid4().hex
@@ -2560,10 +2599,11 @@ async def main(page: ft.Page):
             "scan_started_at": None,
             "scan_terminal": False,
             "db_updated": False,
+            "source": refresh_source,
         })
         home_state["_manual_refresh_pending"] = False
         _publish_home_refresh_state("REFRESHING")
-        diagnostics.record("HOME_REFRESH_REQUESTED", refreshId=refresh_id, source="home")
+        diagnostics.record("HOME_REFRESH_REQUESTED", refreshId=refresh_id, source=refresh_source)
         performance.counter("home.refresh.requested")
         try:
             message, waiting = await refresh_library(_home_refresh_context=home_refresh_context)
@@ -2572,7 +2612,12 @@ async def main(page: ft.Page):
             _fail_home_refresh("request_exception")
             return "Não foi possível atualizar a biblioteca agora.", False
         if waiting:
-            diagnostics.record("HOME_REFRESH_ACCEPTED", refreshId=refresh_id, reason="scan_coordinator_acceptance")
+            diagnostics.record(
+                "HOME_REFRESH_ACCEPTED",
+                refreshId=refresh_id,
+                source=refresh_source,
+                reason="scan_coordinator_acceptance",
+            )
             performance.counter("home.refresh.accepted")
             snapshot = scan_coordinator.snapshot
             if (
@@ -2583,11 +2628,28 @@ async def main(page: ft.Page):
             ):
                 home_refresh_context["scan_started"] = True
                 home_refresh_context["scan_started_at"] = time.monotonic()
-                diagnostics.record("HOME_REFRESH_STARTED", refreshId=refresh_id, requestId=snapshot.request_id, source=snapshot.source or "all")
-                diagnostics.record("HOME_REFRESH_SCAN_STARTED", refreshId=refresh_id, requestId=snapshot.request_id, source=snapshot.source or "all")
+                diagnostics.record(
+                    "HOME_REFRESH_STARTED",
+                    refreshId=refresh_id,
+                    requestId=snapshot.request_id,
+                    source=refresh_source,
+                    scanSource=snapshot.source or "all",
+                )
+                diagnostics.record(
+                    "HOME_REFRESH_SCAN_STARTED",
+                    refreshId=refresh_id,
+                    requestId=snapshot.request_id,
+                    source=refresh_source,
+                    scanSource=snapshot.source or "all",
+                )
                 performance.counter("home.refresh.started")
             return message, True
-        diagnostics.record("HOME_REFRESH_REJECTED", refreshId=refresh_id, reason=message or "coordinator_rejected")
+        diagnostics.record(
+            "HOME_REFRESH_REJECTED",
+            refreshId=refresh_id,
+            source=refresh_source,
+            reason=message or "coordinator_rejected",
+        )
         performance.counter("home.refresh.rejected")
         home_refresh_context["active"] = False
         home_refresh_context["request_id"] = None

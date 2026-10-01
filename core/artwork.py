@@ -468,8 +468,11 @@ class ArtworkEngine:
         artwork_type = self._type(artwork_type)
         if path is None and not external_url:
             raise ValueError("artwork manual exige path ou external_url")
-        if path is not None and not self._is_valid_image_file(path):
-            raise ValueError(f"arquivo de artwork inválido ou ilegível: {path}")
+        if path is not None:
+            if not self._is_file(path):
+                raise FileNotFoundError(path)
+            if not self._is_valid_image_file(path):
+                raise ValueError(f"arquivo de artwork inválido ou ilegível: {path}")
         source_ref = os.path.abspath(path).casefold() if path else external_url
         key = self._make_key("manual", source_ref, artwork_type, _VARIANT_PRIORITY.get(artwork_type, "default"))
         self._upsert(

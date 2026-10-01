@@ -272,7 +272,14 @@ jobs:
           log="$(find "$GITHUB_WORKSPACE/build" -type f -name 'connectedDebugAndroidTest.log' -print -quit)"
           if [ -n "$log" ]; then
             echo "===== CONNECTED_TEST_LOG_FAILURE_CONTEXT ====="
-            grep -n -E 'FAILED|FAILURE|There were failing tests|Test run failed|Exception|AssertionError' "$log" | tail -n 120 || true
+            set +e
+            grep -n -E 'FAILED|FAILURE|There were failing tests|Test run failed|Exception|AssertionError' "$log" | tail -n 120
+            grep_status=${PIPESTATUS[0]}
+            set -e
+            if [ "$grep_status" -gt 1 ]; then
+              echo "INSTRUMENTED_TEST_LOG_GREP_FAILED=$grep_status"
+              exit "$grep_status"
+            fi
           else
             echo "INSTRUMENTED_TEST_LOG=NOT_FOUND"
           fi

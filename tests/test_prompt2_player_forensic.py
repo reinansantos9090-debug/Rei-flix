@@ -88,6 +88,15 @@ class Prompt2PlayerForensicTests(unittest.TestCase):
         self.assertIn("exit_activity_instance_id", exit_block)
         self.assertIn("player_active_activity_instance_id", exit_block)
 
+    def test_next_and_previous_use_symmetric_session_validation(self):
+        transition = self.main[
+            self.main.index("elif event_type in {'player_next_request', 'player_previous_request'}:"):
+            self.main.index("elif event_type == 'player_error':")
+        ]
+        self.assertIn('if not source_player_session_id:', transition)
+        self.assertIn('NEXT_REQUEST_REJECTED" if is_next else "PREVIOUS_REQUEST_REJECTED', transition)
+        self.assertIn('PLAYER_NEXT_STALE_REJECTED" if is_next else "PLAYER_PREVIOUS_STALE_REJECTED', transition)
+
     def test_android_host_tracks_authorized_handoff_and_activity_identity(self):
         for token in (
             "activePlayerActivityInstanceId",

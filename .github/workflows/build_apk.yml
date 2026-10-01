@@ -482,12 +482,28 @@ jobs:
           test -s build/reiflix-release-metadata.txt
           test -s build/reiflix-build-identity.json
 
-      # The APK itself is the canonical release artifact; do not create a
-      # second compressed APK ZIP in the normal build path.
+      # Keep both download forms: the direct APK for immediate installation
+      # and a standalone ZIP for users who prefer a packaged download.
+      - name: Create downloadable APK ZIP
+        shell: bash
+        run: |
+          zip -j -9 build/ReiAnix-apk.zip ${{ steps.apk.outputs.path }}
+          unzip -tq build/ReiAnix-apk.zip
+          test -s build/ReiAnix-apk.zip
+          unzip -Z1 build/ReiAnix-apk.zip | grep -Fx 'ReiAnix.apk'
+
       - name: Upload APK as direct artifact
         uses: actions/upload-artifact@v7
         with:
           path: ${{ steps.apk.outputs.path }}
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload APK ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/ReiAnix-apk.zip
           archive: false
           retention-days: 7
           if-no-files-found: error

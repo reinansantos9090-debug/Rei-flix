@@ -950,6 +950,7 @@ async def main(page: ft.Page):
     player_transition_generation = {"value": 0}
     player_active_request_id = {"value": None}
     player_active_session_id = {"value": None}
+    player_active_activity_instance_id = {"value": None}
     player_active_episode_id = {"value": None}
     player_active_anime_id = {"value": None}
     player_active_uri = {"value": None}
@@ -1088,6 +1089,7 @@ async def main(page: ft.Page):
             logger.exception("[PLAYER] failed to invalidate durable playback session")
         player_session_active["value"] = False
         player_active_session_id["value"] = None
+        player_active_activity_instance_id["value"] = None
         player_active_request_id["value"] = None
         player_active_episode_id["value"] = None
         player_active_anime_id["value"] = None
@@ -1097,12 +1099,22 @@ async def main(page: ft.Page):
 
     def player_callback_is_current(event_request_id, payload, *, require_active=True, episode_id=None):
         session_id = str(payload.get("playerSessionId") or payload.get("player_session_id") or "").strip()
+        activity_instance_id = str(
+            payload.get("activityInstanceId")
+            or payload.get("activity_instance_id")
+            or ""
+        ).strip()
         generation = int(payload.get("generation") or payload.get("playerGeneration") or 0)
         transition_gen = int(payload.get("transitionGeneration") or 0)
         if require_active and not player_session_active["value"]:
             return False, "stale_session"
         if session_id and player_active_session_id["value"] not in (None, session_id):
             return False, "stale_session"
+        if (
+            activity_instance_id
+            and player_active_activity_instance_id["value"] not in (None, activity_instance_id)
+        ):
+            return False, "stale_activity_instance"
         if event_request_id and player_active_request_id["value"] not in (None, event_request_id):
             return False, "stale_request"
         if generation > 0 and player_active_player_generation["value"] > 0 and generation != player_active_player_generation["value"]:
@@ -2851,9 +2863,14 @@ async def main(page: ft.Page):
                             diagnostic_event = str(payload.get('event') or 'NATIVE_DIAGNOSTIC').strip()
                             if diagnostic_event == "PLAYER_SESSION_INVALIDATED":
                                 invalid_session = str(payload.get("playerSessionId") or "").strip()
+                                invalid_activity = str(payload.get("activityInstanceId") or "").strip()
                                 if (
                                     invalid_session
                                     and player_active_session_id["value"] == invalid_session
+                                    and (
+                                        not invalid_activity
+                                        or player_active_activity_instance_id["value"] in (None, invalid_activity)
+                                    )
                                 ):
                                     invalidate_player_session(
                                         str(payload.get("reason") or "native_session_invalidated"),
@@ -2868,12 +2885,15 @@ async def main(page: ft.Page):
                                         metadata={
                                             "request_id": event_request_id,
                                             "player_session_id": invalid_session,
+                                            "activity_instance_id": invalid_activity,
                                             "current_player_session_id": player_active_session_id["value"],
+                                            "current_activity_instance_id": player_active_activity_instance_id["value"],
                                             "reason": "stale_session_invalidated",
                                         },
                                     )
                             elif diagnostic_event == "PLAYER_SESSION_CREATED":
                                 session_id = str(payload.get("playerSessionId") or payload.get("result") or "").strip()
+                                activity_instance_id = str(payload.get("activityInstanceId") or "").strip()
                                 if session_id:
                                     if player_session_active["value"] and player_active_session_id["value"] not in (None, session_id):
                                         performance.event(
@@ -2895,6 +2915,8 @@ async def main(page: ft.Page):
                                         )
                                         continue
                                     player_active_session_id["value"] = session_id
+                                    if activity_instance_id:
+                                        player_active_activity_instance_id["value"] = activity_instance_id
                                     player_active_request_id["value"] = event_request_id or player_active_request_id["value"]
                                     player_session_active["value"] = True
                                     player_active_player_generation["value"] = int(payload.get("playerGeneration") or player_active_player_generation["value"])
@@ -2942,8 +2964,30 @@ async def main(page: ft.Page):
                             elif diagnostic_event == "PLAYER_LIFECYCLE":
                                 lifecycle = str(payload.get("lifecycle") or "").strip()
                                 lifecycle_session = str(payload.get("playerSessionId") or "").strip() or None
+                                lifecycle_instance = str(payload.get("activityInstanceId") or "").strip()
                                 lifecycle_state = str(payload.get("sessionState") or "").strip().upper()
+                                current_instance = player_active_activity_instance_id["value"]
+                                lifecycle_instance_mismatch = bool(
+                                    lifecycle_instance
+                                    and current_instance
+                                    and lifecycle_instance != current_instance
+                                )
                                 if lifecycle_session:
+                                    if lifecycle_instance_mismatch:
+                                        performance.event(
+                                            "PLAYER_CALLBACK_STALE",
+                                            screen=navigation.current,
+                                            status="ignored",
+                                            metadata={
+                                                "request_id": event_request_id,
+                                                "player_session_id": lifecycle_session,
+                                                "activity_instance_id": lifecycle_instance,
+                                                "current_activity_instance_id": current_instance,
+                                                "lifecycle": lifecycle,
+                                                "reason": "stale_activity_instance_lifecycle",
+                                            },
+                                        )
+                                        continue
                                     if lifecycle in {"onCreate", "onNewIntent", "onStart", "onResume"}:
                                         if player_active_session_id["value"] not in (None, lifecycle_session):
                                             performance.event(
@@ -2959,6 +3003,8 @@ async def main(page: ft.Page):
                                             )
                                         else:
                                             player_active_session_id["value"] = lifecycle_session
+                                            if lifecycle_instance:
+                                                player_active_activity_instance_id["value"] = lifecycle_instance
                                             if event_request_id:
                                                 player_active_request_id["value"] = event_request_id
                                             player_session_active["value"] = lifecycle_state not in {"EXITING", "DESTROYED"}
@@ -4590,6 +4636,7 @@ async def main(page: ft.Page):
                             safe_update()
                         elif event_type == 'player_exited':
                             exit_session_id = str(payload.get("playerSessionId") or "").strip()
+                            exit_activity_instance_id = str(payload.get("activityInstanceId") or "").strip()
                             exit_is_current = (
                                 player_session_active["value"]
                                 and (
@@ -4599,6 +4646,10 @@ async def main(page: ft.Page):
                                 and (
                                     not event_request_id
                                     or player_active_request_id["value"] in (None, event_request_id)
+                                )
+                                and (
+                                    not exit_activity_instance_id
+                                    or player_active_activity_instance_id["value"] in (None, exit_activity_instance_id)
                                 )
                             )
                             if exit_is_current:
@@ -4615,7 +4666,9 @@ async def main(page: ft.Page):
                                     metadata={
                                         "request_id": event_request_id,
                                         "player_session_id": exit_session_id,
+                                        "activity_instance_id": exit_activity_instance_id,
                                         "current_player_session_id": player_active_session_id["value"],
+                                        "current_activity_instance_id": player_active_activity_instance_id["value"],
                                         "reason": "stale_player_exit",
                                     },
                                 )

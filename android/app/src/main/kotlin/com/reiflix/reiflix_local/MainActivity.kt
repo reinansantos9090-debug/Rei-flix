@@ -81,6 +81,7 @@ class MainActivity : FlutterFragmentActivity() {
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
             val requestId = result.data?.getStringExtra("requestId") ?: activePlayerRequestId
             val reason = result.data?.getStringExtra("reason").orEmpty()
+            val activityInstanceId = result.data?.getStringExtra("activityInstanceId")
             val controlled = result.resultCode == RESULT_OK && reason.isNotBlank()
             Log.i(
                 tag,
@@ -100,6 +101,7 @@ class MainActivity : FlutterFragmentActivity() {
                             .put("resultCode", result.resultCode)
                             .put("controlled", controlled)
                             .put("reason", reason)
+                            .put("activityInstanceId", activityInstanceId ?: "")
                             .put("unexpectedCancellation", result.resultCode == RESULT_CANCELED && !controlled),
                     ),
             )
@@ -111,7 +113,7 @@ class MainActivity : FlutterFragmentActivity() {
                 )
             }
             if (controlled && requestId != null) {
-                notePlayerExit(requestId)
+                notePlayerExit(requestId, activityInstanceId = activityInstanceId)
             }
             if (requestId != null && activePlayerRequestId == requestId) {
                 activePlayerRequestId = null

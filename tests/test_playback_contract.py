@@ -158,9 +158,10 @@ class PlaybackContractTests(unittest.TestCase):
         self.assertIn("lastProgressPersistAt = System.currentTimeMillis()", source)
 
     def test_player_event_timestamps_are_monotonic_within_activity(self):
-        self.assertIn("lastPlayerEventCreatedAtMs", self.player)
+        self.assertIn("AtomicLong", self.player)
+        self.assertIn("PLAYER_EVENT_CLOCK_MS", self.player)
         self.assertIn("private fun nextPlayerEventCreatedAt()", self.player)
-        self.assertIn("max(wallClockMs, lastPlayerEventCreatedAtMs + 1L)", self.player)
+        self.assertIn("max(wallClockMs, previous + 1L)", self.player)
         self.assertIn('val transitionCreatedAtMs = nextPlayerEventCreatedAt()', self.player)
         self.assertIn('val exitCapturedAt = nextPlayerEventCreatedAt()', self.player)
 

@@ -123,6 +123,7 @@ async def main(page: ft.Page):
     home_refresh_context = {
         "active": False,
         "state": "IDLE",
+        "phase": "IDLE",
         "refresh_id": None,
         "request_id": None,
         "started_at": None,
@@ -132,6 +133,32 @@ async def main(page: ft.Page):
         "db_updated": False,
         "source": None,
     }
+    HOME_REFRESH_PHASES = {
+        "IDLE",
+        "REQUESTED",
+        "RUNNING",
+        "CATALOG_UPDATING",
+        "UI_COMMIT",
+        "SUCCESS",
+        "ERROR",
+        "CANCELLED",
+    }
+
+    def _set_home_refresh_phase(phase, *, request_id=None, reason=None):
+        normalized = str(phase or "IDLE").upper()
+        if normalized not in HOME_REFRESH_PHASES:
+            raise ValueError(f"invalid Home refresh phase: {phase!r}")
+        previous = home_refresh_context.get("phase") or "IDLE"
+        home_refresh_context["phase"] = normalized
+        if previous != normalized:
+            diagnostics.record(
+                "HOME_REFRESH_PHASE_CHANGED",
+                refreshId=home_refresh_context.get("refresh_id"),
+                requestId=request_id if request_id is not None else home_refresh_context.get("request_id"),
+                previous=previous,
+                state=normalized,
+                reason=reason or "",
+            )
 
     def _handle_page_disconnect(_event=None):
         nonlocal thumbnail_dispatch_task, thumbnail_reconciliation_task, thumbnail_reconciliation_pending
@@ -237,6 +264,11 @@ async def main(page: ft.Page):
             if state in {ScanState.RUNNING, ScanState.CANCELLING} and not home_refresh_context["scan_started"]:
                 home_refresh_context["scan_started"] = True
                 home_refresh_context["scan_started_at"] = time.monotonic()
+                _set_home_refresh_phase(
+                    "RUNNING",
+                    request_id=snapshot.request_id,
+                    reason="scan_started",
+                )
                 diagnostics.record(
                     "HOME_REFRESH_STARTED",
                     refreshId=home_refresh_context["refresh_id"],
@@ -254,6 +286,11 @@ async def main(page: ft.Page):
                 performance.counter("home.refresh.started")
             if state == ScanState.BLOCKED and not home_refresh_context["scan_terminal"]:
                 home_refresh_context["scan_terminal"] = True
+                _set_home_refresh_phase(
+                    "ERROR",
+                    request_id=snapshot.request_id,
+                    reason="no_authorized_scan_source",
+                )
                 home_refresh_context["active"] = False
                 home_refresh_context["db_updated"] = False
                 home_refresh_context["request_id"] = None
@@ -273,6 +310,12 @@ async def main(page: ft.Page):
             if state in {ScanState.COMPLETED, ScanState.PARTIAL, ScanState.FAILED, ScanState.CANCELLED} and not home_refresh_context["scan_terminal"]:
                 home_refresh_context["scan_terminal"] = True
                 terminal_success = state in {ScanState.COMPLETED, ScanState.PARTIAL}
+                if not terminal_success:
+                    _set_home_refresh_phase(
+                        "ERROR" if state in {ScanState.FAILED, ScanState.PARTIAL} else "CANCELLED",
+                        request_id=snapshot.request_id,
+                        reason=f"scan_terminal:{state.value}",
+                    )
                 scan_started = home_refresh_context.get("scan_started_at")
                 diagnostics.record(
                     "HOME_REFRESH_SCAN_COMPLETED" if terminal_success else "HOME_REFRESH_FAILED",
@@ -404,6 +447,7 @@ async def main(page: ft.Page):
             reason=str(reason),
         )
         performance.counter("home.refresh.failed")
+        _set_home_refresh_phase("ERROR", request_id=request_id, reason=str(reason))
         home_refresh_context["active"] = False
         home_refresh_context["db_updated"] = False
         home_refresh_context["request_id"] = None
@@ -419,12 +463,15 @@ async def main(page: ft.Page):
         if not (home_refresh_context["scan_terminal"] and home_refresh_context["db_updated"]):
             return
         refresh_id = home_refresh_context.get("refresh_id")
+        request_id = home_refresh_context.get("request_id")
+        _set_home_refresh_phase("UI_COMMIT", request_id=request_id, reason="home_ui_updated")
         total_started = home_refresh_context.get("started_at") or time.monotonic()
         duration_ms = int((time.monotonic() - total_started) * 1000)
         diagnostics.record("HOME_REFRESH_UI_UPDATED", refreshId=refresh_id, durationMs=duration_ms)
         diagnostics.record("HOME_REFRESH_COMPLETED", refreshId=refresh_id, durationMs=duration_ms)
         performance.counter("home.refresh.ui_updated")
         performance.event("home.refresh", duration_ms=(time.monotonic() - total_started) * 1000.0, screen="home", metadata={"refresh_id": refresh_id, "rebuild": False, "db_updated": True})
+        _set_home_refresh_phase("SUCCESS", request_id=request_id, reason="ui_commit_complete")
         home_refresh_context["active"] = False
         home_refresh_context["request_id"] = None
         home_state["_manual_refresh_pending"] = False
@@ -696,7 +743,7 @@ async def main(page: ft.Page):
                 navigate_organize, view_state=home_state,
                 on_request_thumbnail=request_missing_thumbnail,
                 on_open_collector=navigate_collector,
-                on_refresh_library=refresh_home_library,
+                on_refresh_library=request_home_refresh,
                 on_refresh_ui_updated=_home_refresh_ui_updated,
                 on_refresh_ui_failed=lambda: _fail_home_refresh("home_ui_refresh_failed"),
                 is_active=lambda: ui_alive[0] and navigation.current == "home",
@@ -1885,19 +1932,32 @@ async def main(page: ft.Page):
             page.snack_bar = ft.SnackBar(ft.Text("Não foi possível atualizar a metadata agora."))
             page.snack_bar.open = True
             safe_update()
-    def on_catalog_changed(*, refresh_details=True):
+    def on_catalog_changed(*, refresh_details=True, refresh_request_id=None):
         catalog_started = performance.now()
         schedule_thumbnail_reconciliation("catalog_changed")
         diagnostics.record("UI_REFRESHED", result="catalog_changed", source=navigation.current)
         # Home/Organize keep their cached control tree across Details/Player.
         # Refresh their current dataset in place instead of rebuilding the whole
         # screen and losing its viewport/window state.
-        if home_refresh_context["active"] and home_refresh_context["scan_terminal"]:
+        current_refresh_request_id = home_refresh_context.get("request_id")
+        refresh_matches = (
+            home_refresh_context["active"]
+            and home_refresh_context["scan_terminal"]
+            and refresh_request_id is not None
+            and current_refresh_request_id == refresh_request_id
+        )
+        if refresh_matches:
             refresh_id = home_refresh_context.get("refresh_id")
             refresh_source = home_refresh_context.get("source") or "button"
+            _set_home_refresh_phase(
+                "CATALOG_UPDATING",
+                request_id=refresh_request_id,
+                reason="catalog_changed",
+            )
             diagnostics.record(
                 "HOME_REFRESH_DB_UPDATED",
                 refreshId=refresh_id,
+                requestId=refresh_request_id,
                 source=refresh_source,
                 screen=navigation.current,
             )
@@ -2597,7 +2657,7 @@ async def main(page: ft.Page):
             return "Atualização enfileirada; a varredura atual será concluída primeiro.", True
         return "Atualização iniciada. Verificando as fontes locais…", True
 
-    async def refresh_home_library(_=None, *, source="button"):
+    async def request_home_refresh(*, source="button"):
         refresh_source = str(source or "button").strip().casefold()
         if refresh_source not in {"button", "pull"}:
             refresh_source = "button"
@@ -2614,6 +2674,7 @@ async def main(page: ft.Page):
         home_refresh_context.update({
             "active": True,
             "state": "REFRESHING",
+            "phase": "REQUESTED",
             "refresh_id": refresh_id,
             "request_id": None,
             "started_at": time.monotonic(),
@@ -2625,6 +2686,11 @@ async def main(page: ft.Page):
         })
         home_state["_manual_refresh_pending"] = False
         _publish_home_refresh_state("REFRESHING")
+        _set_home_refresh_phase(
+            "REQUESTED",
+            request_id=None,
+            reason=refresh_source,
+        )
         diagnostics.record("HOME_REFRESH_REQUESTED", refreshId=refresh_id, source=refresh_source)
         performance.counter("home.refresh.requested")
         try:
@@ -2673,6 +2739,11 @@ async def main(page: ft.Page):
             reason=message or "coordinator_rejected",
         )
         performance.counter("home.refresh.rejected")
+        _set_home_refresh_phase(
+            "ERROR",
+            request_id=home_refresh_context.get("request_id"),
+            reason=message or "coordinator_rejected",
+        )
         home_refresh_context["active"] = False
         home_refresh_context["request_id"] = None
         _publish_home_refresh_state("ERROR")
@@ -2680,6 +2751,10 @@ async def main(page: ft.Page):
         if callable(resetter):
             resetter("ERROR", 1.6)
         return message, False
+
+    async def refresh_home_library(_=None, *, source="button"):
+        """Compatibility wrapper for the single Home refresh intent entry point."""
+        return await request_home_refresh(source=source)
 
     async def login(_=None):
         if bridge.available:
@@ -4970,7 +5045,8 @@ async def main(page: ft.Page):
                                 payload,
                             )
                             if transition.refresh_required and transition.logical_finished:
-                                on_catalog_changed()
+                                refresh_request_id = getattr(transition, "request_id", None) or request_id
+                                on_catalog_changed(refresh_request_id=refresh_request_id)
                                 safe_update()
 
                         if operation_key:

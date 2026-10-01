@@ -11,6 +11,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   python-contracts:
@@ -127,7 +128,17 @@ jobs:
           set -euo pipefail
           tar -C build/flutter -czf build/reiflix-android-test-project.tgz android
           test -s build/reiflix-android-test-project.tgz
+      # The rendered project is transferred through the Actions cache so
+      # instrumented validation does not depend on the repository's artifact
+      # storage quota. Artifact upload remains best-effort for diagnostics.
+      - name: Cache rendered Android test project
+        uses: actions/cache/save@v4
+        with:
+          path: build/reiflix-android-test-project.tgz
+          key: reianix-android-test-project-${{ github.sha }}
+
       - name: Upload rendered Android test project
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: reiflix-android-test-project
@@ -163,11 +174,11 @@ jobs:
           yes | "$sdkmanager_path" --licenses >/dev/null
           set -o pipefail
           "$sdkmanager_path" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "platforms;android-${{ matrix.api }}" "emulator"
-      - name: Download rendered Android test project
-        uses: actions/download-artifact@v4
+      - name: Restore rendered Android test project
+        uses: actions/cache/restore@v4
         with:
-          name: reiflix-android-test-project
-          path: build
+          path: build/reiflix-android-test-project.tgz
+          key: reianix-android-test-project-${{ github.sha }}
       - name: Extract rendered Android test project
         shell: bash
         run: |
@@ -238,11 +249,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Download rendered Android test project
-        uses: actions/download-artifact@v4
+      - name: Restore rendered Android test project
+        uses: actions/cache/restore@v4
         with:
-          name: reiflix-android-test-project
-          path: build
+          path: build/reiflix-android-test-project.tgz
+          key: reianix-android-test-project-${{ github.sha }}
       - name: Extract rendered Android test project
         shell: bash
         run: |

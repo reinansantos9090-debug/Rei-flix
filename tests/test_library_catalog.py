@@ -7,6 +7,18 @@ from core.artwork import ArtworkEngine
 from core.library_service import LibraryService
 from core.library_store import LibraryStore
 
+import io
+from PIL import Image
+
+
+def _valid_jpeg_bytes():
+    output = io.BytesIO()
+    Image.new("RGB", (8, 8), (24, 48, 72)).save(output, format="JPEG", quality=85)
+    return output.getvalue()
+
+
+VALID_JPEG = _valid_jpeg_bytes()
+
 
 class LibraryCatalogTests(unittest.TestCase):
     def setUp(self):
@@ -95,8 +107,8 @@ class LibraryCatalogTests(unittest.TestCase):
             season_path = f"{media}/Season 1.jpg"
             poster_path = f"{media}/poster.jpg"
             Path(episode_path).write_bytes(b"video")
-            Path(season_path).write_bytes(b"image")
-            Path(poster_path).write_bytes(b"image")
+            Path(season_path).write_bytes(VALID_JPEG)
+            Path(poster_path).write_bytes(VALID_JPEG)
             anime = self.store.upsert_anime(
                 "art", {"title": "Art", "genres": "[]", "media_kind": "series"},
             )

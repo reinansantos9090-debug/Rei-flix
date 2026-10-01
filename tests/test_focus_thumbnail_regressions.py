@@ -42,7 +42,7 @@ class FocusAndThumbnailRegressionTests(unittest.TestCase):
         update = HOME[start:end]
         self.assertIn("artwork_bindings.get", update)
         self.assertIn('("episode", episode_id, "episode_thumbnail")', update)
-        self.assertIn('item["episode_thumbnail"] = thumbnail_path', update)
+        self.assertIn('node["episode_thumbnail"] = thumbnail_path', update)
         self.assertIn("holder.content = ft.Image", update)
         self.assertIn("schedule_artwork_ui_update()", update)
         self.assertNotIn('meta["cover_cache"] = thumbnail_path', update)

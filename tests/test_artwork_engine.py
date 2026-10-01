@@ -147,10 +147,7 @@ class ArtworkEngineTests(unittest.TestCase):
         anime_art = self.engine.resolve("anime", anime, "poster", allow_network=False)
         self.assertEqual(episode_art["source"], "generated")
         self.assertIsNone(anime_art)
-        self.assertEqual(
-            [],
-            self.engine.store.artwork_rows_for("anime", anime, "poster"),
-        )
+        self.assertEqual([], self.engine.list_for("anime", anime, "poster"))
 
     def test_cache_and_anilist_external_reference(self):
         anime = self._media()

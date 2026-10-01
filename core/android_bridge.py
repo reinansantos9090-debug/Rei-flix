@@ -562,7 +562,14 @@ class AndroidBridge:
             self._claimed = claimed
             self._retained = set()
             events.sort(key=self._event_time)
-            return events
+            coalesced = self._coalesce_progress_events(events)
+            if len(coalesced) != len(events):
+                logger.info(
+                    "[ANDROID] PLAYER_PROGRESS_COALESCED selected=%s retained=%s",
+                    len(events),
+                    len(coalesced),
+                )
+            return coalesced
         except OSError as exc:
             logger.error("[ANDROID] Native mailbox drain failed; claimed events will be restored/retried: %s", exc)
             for path in claimed:
@@ -574,6 +581,49 @@ class AndroidBridge:
             self._claimed = []
             self._retained = set()
             return []
+
+    @staticmethod
+    def _coalesce_progress_events(events: list[dict]) -> list[dict]:
+        """Collapse only consecutive progress samples for the exact playback identity.
+
+        Control-plane events (pause/completion/exit/transition) remain untouched,
+        and progress from different sessions/episodes/requests is never merged.
+        Claimed mailbox files still acknowledge normally because coalescing happens
+        after claim, inside the existing drain pipeline.
+        """
+        compacted: list[dict] = []
+        for event in events:
+            event_type = str(event.get("eventType") or event.get("type") or "").strip()
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            if (
+                compacted
+                and event_type == "player_progress"
+                and str(compacted[-1].get("eventType") or compacted[-1].get("type") or "").strip() == "player_progress"
+            ):
+                previous_payload = compacted[-1].get("payload") if isinstance(compacted[-1].get("payload"), dict) else {}
+                identity = (
+                    str(payload.get("playerSessionId") or "").strip(),
+                    str(payload.get("activityInstanceId") or "").strip(),
+                    str(event.get("requestId") or payload.get("requestId") or "").strip(),
+                    str(payload.get("episodeId") or "").strip(),
+                    str(payload.get("uri") or "").strip(),
+                    str(payload.get("generation") or payload.get("playerGeneration") or "").strip(),
+                    str(payload.get("transitionGeneration") or "").strip(),
+                )
+                previous_identity = (
+                    str(previous_payload.get("playerSessionId") or "").strip(),
+                    str(previous_payload.get("activityInstanceId") or "").strip(),
+                    str(compacted[-1].get("requestId") or previous_payload.get("requestId") or "").strip(),
+                    str(previous_payload.get("episodeId") or "").strip(),
+                    str(previous_payload.get("uri") or "").strip(),
+                    str(previous_payload.get("generation") or previous_payload.get("playerGeneration") or "").strip(),
+                    str(previous_payload.get("transitionGeneration") or "").strip(),
+                )
+                if identity == previous_identity:
+                    compacted[-1] = event
+                    continue
+            compacted.append(event)
+        return compacted
 
     def requeue_event_ids(self, event_ids: set[str]) -> None:
         wanted = {str(item).strip() for item in event_ids if str(item).strip()}

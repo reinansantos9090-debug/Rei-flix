@@ -417,7 +417,6 @@ class LibraryService:
                     cover_valid = bool(
                         resolved_cached
                         and resolved_cached.get('local_path')
-                        and self.artwork._is_valid_image_file(resolved_cached.get('local_path'))
                     )
                 except Exception:
                     logger.debug(

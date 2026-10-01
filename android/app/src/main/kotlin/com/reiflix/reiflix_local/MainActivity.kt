@@ -197,7 +197,7 @@ class MainActivity : FlutterFragmentActivity() {
             val request = originRequestId.trim()
             if (request.isBlank()) return false
             synchronized(revokedPlayerTransitions) {
-                val revokedSession = revokedPlayerTransitions[request] ?: return true
+                val revokedSession = revokedPlayerTransitions[request] ?: return false
                 val incomingSession = originPlayerSessionId?.trim().orEmpty()
                 return revokedSession.isNullOrBlank() || incomingSession.isBlank() || revokedSession == incomingSession
             }

@@ -45,8 +45,9 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
 
     def test_home_refresh_has_one_intent_entry_point_and_explicit_phases(self):
         source = self.read("main.py")
+        self.assertIn("async def request_home_refresh", source)
         self.assertIn("async def refresh_home_library", source)
-        self.assertIn("request_home_refresh = refresh_home_library", source)
+        self.assertIn("on_refresh_library=request_home_refresh", source)
         self.assertIn("on_refresh_library=request_home_refresh", source)
         for phase in (
             "IDLE",

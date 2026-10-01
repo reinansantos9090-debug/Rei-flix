@@ -941,7 +941,7 @@ class Prompt1BuildIdentityContractTests(unittest.TestCase):
         self.assertIn("scripts/verify_python_bundle.py", workflow)
         self.assertIn(".reiflix-build-identity.json", workflow)
         self.assertIn("Verify packaged Python identity and Back symbols", workflow)
-        self.assertIn("rm -rf build", workflow)
+        self.assertIn("mkdir -p build", workflow)
         self.assertIn("git checkout -- core/build_identity.py", workflow)
         self.assertIn('python-version "3.12"', workflow)
         self.assertIn('versionName=\'0.2.1\'', workflow)
@@ -949,7 +949,7 @@ class Prompt1BuildIdentityContractTests(unittest.TestCase):
     def test_flet_template_and_serious_python_path_are_not_hidden_by_legacy_build_outputs(self):
         workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
         self.assertIn("flet-build-template.zip", workflow)
-        self.assertIn("SERIOUS_PYTHON_SITE_PACKAGES", workflow)
+        self.assertNotIn("SERIOUS_PYTHON_SITE_PACKAGES", workflow)
         self.assertIn("assets/app.zip", workflow)
         self.assertNotIn("flet clear-cache", workflow)
 

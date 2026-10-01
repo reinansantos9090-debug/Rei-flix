@@ -88,6 +88,7 @@ class LifecycleContractTests(unittest.TestCase):
         self.assertIn("thumbnail_reconciliation_task.cancel()", block)
         self.assertIn("thumbnail_dispatch_task = None", block)
         self.assertIn("thumbnail_reconciliation_task = None", block)
+        self.assertIn("thumbnail_reconciliation_pending = False", block)
 
     def test_navigation_state_writer_is_durable_and_disconnect_guarded(self):
         source = MAIN_PY.read_text(encoding="utf-8")

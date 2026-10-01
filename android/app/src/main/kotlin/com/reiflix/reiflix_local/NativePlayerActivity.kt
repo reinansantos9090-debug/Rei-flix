@@ -3479,7 +3479,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             return
         }
 
-        val startedAtMs = nextPlayerEventCreatedAt()
+        val startedAtMs = System.currentTimeMillis()
         val monotonicNs = SystemClock.elapsedRealtimeNanos()
         transitionGeneration += 1L
         val generation = transitionGeneration
@@ -3585,10 +3585,11 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 ),
         )
 
+        val transitionCreatedAtMs = nextPlayerEventCreatedAt()
         val transitionEvent = JSONObject()
             .put("type", eventType)
             .put("requestId", requestId)
-            .put("createdAt", startedAtMs)
+            .put("createdAt", transitionCreatedAtMs)
             .put("payload", payload)
 
         try {

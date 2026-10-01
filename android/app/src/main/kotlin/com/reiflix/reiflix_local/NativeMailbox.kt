@@ -9,8 +9,12 @@ import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.UUID
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /** Crash-safe, atomic queue between the native Android host and embedded Python. */
 object NativeMailbox {
@@ -18,9 +22,18 @@ object NativeMailbox {
     private const val QUEUE = "reiflix-native-events"
     private const val PREFIX = "event-"
     private const val EVENT_VERSION = 2
-    private val bestEffortExecutor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "ReiFlix-MailboxTelemetry").apply { isDaemon = true }
-    }
+    private const val BEST_EFFORT_QUEUE_CAPACITY = 128
+    private val bestEffortExecutor: ExecutorService = ThreadPoolExecutor(
+        1,
+        1,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(BEST_EFFORT_QUEUE_CAPACITY),
+        { runnable ->
+            Thread(runnable, "ReiFlix-MailboxTelemetry").apply { isDaemon = true }
+        },
+        ThreadPoolExecutor.AbortPolicy(),
+    )
 
     private fun operationState(event: JSONObject): String {
         val type = event.optString("type")
@@ -86,12 +99,15 @@ object NativeMailbox {
         }
     }
 
-    @Synchronized
+    /**
+     * Each mailbox event gets its own temporary/target filename and is promoted
+     * atomically. No shared mutable envelope state exists, so global Java-level
+     * synchronization is unnecessary and would couple progress I/O to control I/O.
+     */
     fun writeOrThrow(context: Context, event: JSONObject) {
         check(write(context, event)) { "Could not publish native event to NativeMailbox" }
     }
 
-    @Synchronized
     fun write(context: Context, event: JSONObject): Boolean =
         writeInternal(context, event, durable = true)
 
@@ -112,6 +128,9 @@ object NativeMailbox {
                 writeInternal(context, snapshot, durable = false)
             }
             true
+        } catch (exception: RejectedExecutionException) {
+            Log.w(TAG, "Native mailbox best-effort queue is full; event was discarded", exception)
+            false
         } catch (exception: RuntimeException) {
             Log.w(TAG, "Unable to queue best-effort native event", exception)
             false

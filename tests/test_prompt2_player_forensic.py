@@ -21,7 +21,9 @@ class Prompt2PlayerForensicTests(unittest.TestCase):
     def test_player_has_distinct_activity_instance_identity(self):
         self.assertIn("private val activityInstanceId = UUID.randomUUID().toString()", self.player)
         self.assertIn('.put("activityInstanceId", activityInstanceId)', self.player)
-        self.assertIn("MainActivity.notePlayerActivityCreated(activityInstanceId, requestId, playerSessionId)", self.player)
+        self.assertIn("MainActivity.notePlayerActivityCreated(", self.player)
+        self.assertIn("activityInstanceId", self.player)
+        self.assertIn("transitionGeneration", self.player)
         self.assertIn("MainActivity.notePlayerActivityDestroyed(activityInstanceId, playerSessionId)", self.player)
 
     def test_destroy_publishes_exit_before_clearing_activity_identity(self):

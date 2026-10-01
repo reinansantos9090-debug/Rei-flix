@@ -3256,6 +3256,7 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             JSONObject()
                 .put("requestId", requestId)
                 .put("playerSessionId", playerSessionId)
+                .put("activityInstanceId", activityInstanceId)
                 .put("playerGeneration", playerGeneration)
                 .put("transitionGeneration", transitionGeneration),
         )

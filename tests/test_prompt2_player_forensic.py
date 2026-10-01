@@ -114,6 +114,14 @@ class Prompt2PlayerForensicTests(unittest.TestCase):
         self.assertIn("activePlayerActivityInstanceId", open_player)
         self.assertIn("PLAYER_HANDOFF_DISPATCHED", open_player)
 
+    def test_unlisted_player_transition_is_not_treated_as_revoked(self):
+        block = self.main_activity[
+            self.main_activity.index("fun isPlayerTransitionRevoked"):
+            self.main_activity.index("fun notePlayerExit")
+        ]
+        self.assertIn("revokedPlayerTransitions[request] ?: return false", block)
+        self.assertNotIn("?: return true", block)
+
     def test_bridge_keeps_transition_origin_correlation(self):
         for token in (
             "origin_request_id",

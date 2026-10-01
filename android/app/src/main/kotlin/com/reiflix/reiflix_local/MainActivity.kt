@@ -69,8 +69,6 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingPlayCommandCreatedAtMs: Long = 0L
     private var pendingPlayRequestId: String? = null
     private var activePlayerRequestId: String? = null
-    private var activePlayerSessionId: String? = null
-    private var activePlayerActivityInstanceId: String? = null
     private var activePlayerCommandCreatedAtMs: Long = 0L
     private val seenPlayerRequestIds = LinkedHashSet<String>()
     private var startupDiscoveryTriggered = false

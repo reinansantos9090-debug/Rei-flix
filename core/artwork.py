@@ -238,8 +238,37 @@ class ArtworkEngine:
             return False
         try:
             with open(path, "rb") as handle:
-                return bool(_detect_image_extension(handle.read(32 * 1024)))
-        except OSError:
+                payload = handle.read(32 * 1024)
+            detected = _detect_image_extension(payload)
+            if not detected:
+                return False
+            # Validate the actual decodability for common formats. AVIF support
+            # varies by Pillow build, so keep the existing signature validation
+            # as the conservative fallback for that format.
+            if detected == ".avif":
+                return True
+            with Image.open(path) as image:
+                image.verify()
+            return True
+        except (OSError, ValueError):
+            return False
+        except Exception:
+            logger.debug("Artwork image validation failed for %s", path, exc_info=True)
+            return False
+
+    @staticmethod
+    def _is_valid_image_payload(payload):
+        raw = bytes(payload or b"")
+        detected = _detect_image_extension(raw)
+        if not detected:
+            return False
+        if detected == ".avif":
+            return True
+        try:
+            with Image.open(BytesIO(raw)) as image:
+                image.verify()
+            return True
+        except Exception:
             return False
 
     @staticmethod
@@ -330,7 +359,7 @@ class ArtworkEngine:
     def add_local(self, entity_type, entity_id, artwork_type, path, *, manual=False):
         artwork_type = self._type(artwork_type)
         path = os.path.abspath(os.fspath(path))
-        if not self._is_file(path) or Path(path).suffix.casefold() not in IMAGE_EXTENSIONS:
+        if not self._is_valid_image_file(path) or Path(path).suffix.casefold() not in IMAGE_EXTENSIONS:
             return False
         key = self._make_key(
             "manual" if manual else "local", path.casefold(), artwork_type,
@@ -439,8 +468,8 @@ class ArtworkEngine:
         artwork_type = self._type(artwork_type)
         if path is None and not external_url:
             raise ValueError("artwork manual exige path ou external_url")
-        if path is not None and not self._is_file(path):
-            raise FileNotFoundError(path)
+        if path is not None and not self._is_valid_image_file(path):
+            raise ValueError(f"arquivo de artwork inválido ou ilegível: {path}")
         source_ref = os.path.abspath(path).casefold() if path else external_url
         key = self._make_key("manual", source_ref, artwork_type, _VARIANT_PRIORITY.get(artwork_type, "default"))
         self._upsert(
@@ -685,7 +714,7 @@ class ArtworkEngine:
             valid = False
             if path:
                 try:
-                    valid = self._is_valid_image_file(path) if row["source"] in {"cache", "anilist", "generated"} else os.path.isfile(path)
+                    valid = self._is_valid_image_file(path)
                 except OSError:
                     valid = False
             if valid:
@@ -700,7 +729,7 @@ class ArtworkEngine:
         for row in rows:
             if row.get("local_path"):
                 valid = self._is_file(row["local_path"])
-                if row.get("source") in {"cache", "anilist", "generated"}:
+                if row.get("local_path"):
                     valid = self._is_valid_image_file(row["local_path"])
                 if valid:
                     self._touch(row["id"])
@@ -731,7 +760,7 @@ class ArtworkEngine:
 
     def _first_usable(self, entity_type, entity_id, artwork_type, allow_network):
         for row in self.list_for(entity_type, entity_id, artwork_type):
-            if row.get("local_path") and self._is_file(row["local_path"]):
+            if row.get("local_path") and self._is_valid_image_file(row["local_path"]):
                 self._touch(row["id"])
                 return row
             if allow_network and row.get("external_url") and row.get("status") != STATUS_INVALID:
@@ -989,6 +1018,8 @@ class ArtworkEngine:
                 extension = _detect_image_extension(payload)
             if not extension:
                 raise ValueError("conteúdo recebido não é uma imagem suportada")
+            if not self._is_valid_image_payload(payload):
+                raise ValueError("payload recebido não é uma imagem decodificável")
             variant = row.get("variant") or _VARIANT_PRIORITY.get(row["artwork_type"], "default")
             payload, width, height = self._prepare_download_payload(
                 payload,
@@ -1006,30 +1037,33 @@ class ArtworkEngine:
             # Do not replace an existing cache entry until the generation check
             # has passed. Otherwise a stale refresh could overwrite a valid file
             # and then delete that file while aborting.
+            # Serialize generation invalidation with the file+SQLite commit. If a
+            # new generation starts, it waits until this atomic unit is complete;
+            # otherwise a stale task could replace a valid file between the guard
+            # and the database update.
             with self._lock:
-                stale = generation is not None and generation != self._generation
-            if stale:
-                try:
-                    temporary.unlink()
-                except FileNotFoundError:
-                    pass
-                self._log("cancel", key=key, reason="stale_generation_before_commit")
-                return None
-            os.replace(temporary, target)
-            now = time.time()
-            with self.store._conn() as con:
-                con.execute(
-                    """UPDATE artwork SET source='cache',local_path=?,status=?,priority=?,
-                       updated_at=?,last_access=?,byte_size=?,width=?,height=?,checksum=?,content_type=?,
-                       next_retry_at=NULL,http_status=?,failure_count=0 WHERE id=?""",
-                    (str(target), STATUS_READY, _SOURCE_PRIORITY["cache"], now, now, len(payload), width, height, checksum,
-                     content_type or _mime_from_path(str(target)), http_status, row_id),
-                )
-                if row["entity_type"] in {"anime", "movie"} and row["artwork_type"] == "poster":
+                if generation is not None and generation != self._generation:
+                    try:
+                        temporary.unlink()
+                    except FileNotFoundError:
+                        pass
+                    self._log("cancel", key=key, reason="stale_generation_before_commit")
+                    return None
+                os.replace(temporary, target)
+                now = time.time()
+                with self.store._conn() as con:
                     con.execute(
-                        "UPDATE anime SET cover_cache=? WHERE id=?",
-                        (str(target), int(row["entity_id"])),
+                        """UPDATE artwork SET source='cache',local_path=?,status=?,priority=?,
+                           updated_at=?,last_access=?,byte_size=?,width=?,height=?,checksum=?,content_type=?,
+                           next_retry_at=NULL,http_status=?,failure_count=0 WHERE id=?""",
+                        (str(target), STATUS_READY, _SOURCE_PRIORITY["cache"], now, now, len(payload), width, height, checksum,
+                         content_type or _mime_from_path(str(target)), http_status, row_id),
                     )
+                    if row["entity_type"] in {"anime", "movie"} and row["artwork_type"] == "poster":
+                        con.execute(
+                            "UPDATE anime SET cover_cache=? WHERE id=?",
+                            (str(target), int(row["entity_id"])),
+                        )
             self._log("success", key=key, bytes=len(payload))
             self._evict_if_needed(protected={str(target)})
             return self.get(row["entity_type"], row["entity_id"], row["artwork_type"], allow_network=False)
@@ -1043,7 +1077,9 @@ class ArtworkEngine:
                 self._failure(row_id, http_status=exc.code, retry=True, reason=f"http_{exc.code}")
             else:
                 self._failure(row_id, http_status=exc.code, retry=False, reason=f"http_{exc.code}")
-        except (TimeoutError, urllib.error.URLError, OSError, ValueError) as exc:
+        except ValueError as exc:
+            self._failure(row_id, retry=False, reason=type(exc).__name__)
+        except (TimeoutError, urllib.error.URLError, OSError) as exc:
             self._failure(row_id, retry=True, reason=type(exc).__name__)
         except Exception as exc:
             self._failure(row_id, retry=False, reason=type(exc).__name__)

@@ -24,6 +24,7 @@ import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.atomic.AtomicLong
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -145,7 +146,6 @@ class NativePlayerActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastSavedPosition = -1L
     private var lastProgressPersistAt = 0L
-    private var lastPlayerEventCreatedAtMs = 0L
     private var suppressExitEvent = false
     private var exitReported = false
     private var exitProgressPublished = false
@@ -3680,9 +3680,9 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
      */
     private fun nextPlayerEventCreatedAt(): Long {
         val wallClockMs = System.currentTimeMillis()
-        val createdAtMs = max(wallClockMs, lastPlayerEventCreatedAtMs + 1L)
-        lastPlayerEventCreatedAtMs = createdAtMs
-        return createdAtMs
+        return PLAYER_EVENT_CLOCK_MS.updateAndGet { previous ->
+            max(wallClockMs, previous + 1L)
+        }
     }
 
     private fun buildProgressEvent(eventType: String, force: Boolean): JSONObject? {
@@ -5159,6 +5159,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
                 "landscape" -> orientation == Configuration.ORIENTATION_LANDSCAPE
                 else -> true
             }
+
+        private val PLAYER_EVENT_CLOCK_MS = AtomicLong(0L)
 
         private const val PREF_GESTURES_VOLUME = "gesture_volume"
         private const val PREF_GESTURES_BRIGHTNESS = "gesture_brightness"

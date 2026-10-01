@@ -619,7 +619,7 @@ class AndroidBridge:
                     str(previous_payload.get("generation") or previous_payload.get("playerGeneration") or "").strip(),
                     str(previous_payload.get("transitionGeneration") or "").strip(),
                 )
-                if identity == previous_identity:
+                if any(identity) and identity == previous_identity:
                     compacted[-1] = event
                     continue
             compacted.append(event)

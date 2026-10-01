@@ -316,6 +316,7 @@ jobs:
           set -e
       - name: Upload API ${{ matrix.api }} instrumentation evidence
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: reiflix-android-api${{ matrix.api }}-evidence
@@ -408,6 +409,7 @@ jobs:
           set -e
       - name: Upload Android TV evidence
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: reiflix-android-tv-api36-evidence

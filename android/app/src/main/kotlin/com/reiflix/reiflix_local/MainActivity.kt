@@ -112,11 +112,20 @@ class MainActivity : FlutterFragmentActivity() {
                         " child ended without a controlled result; inspect NativePlayerActivity logcat for FATAL EXCEPTION/Media3 details.",
                 )
             }
-            if (controlled && requestId != null) {
+            val resultBelongsToCurrentActivity =
+                activityInstanceId.isNullOrBlank() ||
+                    activePlayerActivityInstanceId == activityInstanceId
+            if (controlled && requestId != null && resultBelongsToCurrentActivity) {
                 notePlayerExit(requestId, activityInstanceId = activityInstanceId)
             }
-            if (requestId != null && activePlayerRequestId == requestId) {
+            if (
+                requestId != null &&
+                activePlayerRequestId == requestId &&
+                resultBelongsToCurrentActivity
+            ) {
                 activePlayerRequestId = null
+                activePlayerSessionId = null
+                activePlayerActivityInstanceId = null
                 activePlayerCommandCreatedAtMs = 0L
             }
         }

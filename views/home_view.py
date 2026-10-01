@@ -368,8 +368,9 @@ class HomeView:
 
             async def flush():
                 try:
-                    # Batch local artwork completions over a short frame window.
-                    await asyncio.sleep(0.05)
+                    # Coalesce completions that arrive in the same event-loop turn
+                    # without introducing an artificial 50 ms rendering delay.
+                    await asyncio.sleep(0)
                     if not is_active():
                         return
                     update_started = time.perf_counter()

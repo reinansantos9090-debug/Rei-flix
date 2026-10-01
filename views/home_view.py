@@ -92,6 +92,7 @@ class HomeView:
         refresh_state = [str(view_state.get("_refresh_state") or "IDLE").upper()]
         refresh_button = [None]
         pull_refresh_indicator = [None]
+        pull_refresh_label = [None]
         pull_refresh_active = [False]
         pull_gesture_active = [False]
         pull_gesture_at_top = [False]
@@ -126,6 +127,20 @@ class HomeView:
                     except Exception:
                         logger.debug("Home task cancellation failed", exc_info=True)
 
+        def _set_pull_indicator(visible, message=None):
+            indicator = pull_refresh_indicator[0]
+            label = pull_refresh_label[0]
+            changed = False
+            if label is not None and message is not None and label.value != message:
+                label.value = message
+                changed = True
+            if indicator is not None and indicator.visible != bool(visible):
+                indicator.visible = bool(visible)
+                changed = True
+            if changed and is_active():
+                performance.counter("home.pull_refresh.indicator_updates")
+                page.update()
+
         def _schedule_refresh_reset(expected_state, delay=0.8):
             async def reset_state():
                 await asyncio.sleep(delay)
@@ -148,10 +163,30 @@ class HomeView:
             indicator = pull_refresh_indicator[0]
             if indicator is not None:
                 indicator.visible = bool(
-                    pull_refresh_active[0]
-                    and normalized == "REFRESHING"
-                    and is_active()
+                    is_active()
+                    and (
+                        (
+                            normalized == "REFRESHING"
+                            and pull_refresh_active[0]
+                        )
+                        or (
+                            normalized == "IDLE"
+                            and pull_gesture_active[0]
+                            and pull_gesture_at_top[0]
+                        )
+                    )
                 )
+            if pull_refresh_label[0] is not None:
+                if normalized == "REFRESHING":
+                    pull_refresh_label[0].value = "Atualizando biblioteca…"
+                elif normalized in {"SUCCESS", "ERROR"}:
+                    pull_refresh_label[0].value = "Atualizando biblioteca…"
+                elif pull_gesture_active[0] and pull_gesture_at_top[0]:
+                    pull_refresh_label[0].value = (
+                        "Solte para atualizar"
+                        if pull_overscroll[0] >= pull_threshold
+                        else "Puxe para atualizar"
+                    )
             button = refresh_button[0]
             if button is not None:
                 if normalized == "REFRESHING":
@@ -191,7 +226,7 @@ class HomeView:
                 performance.counter("home.refresh.button_tapped")
             set_refresh_state("REFRESHING", update=False)
             try:
-                result = await on_refresh_library()
+                result = await on_refresh_library(source=source)
                 if isinstance(result, tuple):
                     message, waiting = result
                 else:
@@ -713,10 +748,12 @@ class HomeView:
         async def _trigger_pull_refresh():
             if not is_active():
                 pull_refresh_active[0] = False
+                _set_pull_indicator(False)
                 return
             if refresh_state[0] == "REFRESHING":
                 performance.counter("home.pull_refresh.rejected")
                 pull_refresh_active[0] = False
+                _set_pull_indicator(False)
                 return
             await handle_manual_refresh(None, source="pull")
 
@@ -733,27 +770,54 @@ class HomeView:
             if not is_active():
                 return
 
-            # Pull-to-refresh only participates in the vertical Home scroll.
-            # Nested horizontal Rows have their own scrollables and therefore do
-            # not invoke this handler. We only arm when the gesture begins at the
-            # vertical start edge and accumulate negative overscroll until END.
+            # Flet reports negative overscroll at the start edge and positive
+            # overscroll at the end edge. We only accumulate the negative value
+            # while the gesture began at the vertical start of this scrollable.
             if event_type == "START":
                 pull_gesture_active[0] = True
                 pull_gesture_at_top[0] = (
                     extent_before <= 1.0
                     and pixels <= min_extent + 1.0
                     and not page_loading[0]
+                    and refresh_state[0] != "REFRESHING"
                 )
                 pull_overscroll[0] = 0.0
+                if pull_gesture_at_top[0]:
+                    _set_pull_indicator(True, "Puxe para atualizar")
+                else:
+                    _set_pull_indicator(False)
             elif event_type == "OVERSCROLL":
-                overscroll = float(getattr(event, "overscroll", 0.0) or 0.0)
+                overscroll_raw = getattr(event, "overscroll", None)
+                try:
+                    overscroll = float(overscroll_raw) if overscroll_raw is not None else 0.0
+                except (TypeError, ValueError):
+                    overscroll = 0.0
                 at_top = (
                     extent_before <= 1.0
                     and pixels <= min_extent + 1.0
                 )
-                if pull_gesture_active[0] and pull_gesture_at_top[0] and at_top and overscroll < 0.0:
+                if not at_top:
+                    pull_gesture_at_top[0] = False
+                    pull_overscroll[0] = 0.0
+                    _set_pull_indicator(False)
+                elif pull_gesture_active[0] and pull_gesture_at_top[0] and overscroll < 0.0:
+                    was_ready = pull_overscroll[0] >= pull_threshold
                     pull_overscroll[0] += -overscroll
                     performance.gauge("home.pull_refresh.overscroll", pull_overscroll[0])
+                    is_ready = pull_overscroll[0] >= pull_threshold
+                    if was_ready != is_ready:
+                        _set_pull_indicator(
+                            True,
+                            "Solte para atualizar" if is_ready else "Puxe para atualizar",
+                        )
+            elif event_type in {"UPDATE", "USER"}:
+                # A normal in-range scroll after leaving the top cancels the
+                # candidate gesture. This prevents a later/diagonal swipe from
+                # inheriting overscroll from an unrelated scroll.
+                if pixels > min_extent + 1.0 or extent_before > 1.0:
+                    pull_gesture_at_top[0] = False
+                    pull_overscroll[0] = 0.0
+                    _set_pull_indicator(False)
             elif event_type == "END":
                 should_refresh = (
                     pull_gesture_active[0]
@@ -764,17 +828,14 @@ class HomeView:
                 )
                 pull_gesture_active[0] = False
                 pull_gesture_at_top[0] = False
+                overscroll_ready = pull_overscroll[0] >= pull_threshold
                 pull_overscroll[0] = 0.0
+                _set_pull_indicator(False)
                 if should_refresh:
                     performance.counter("home.pull_refresh.armed")
                     _start_view_task(_trigger_pull_refresh)
-            elif event_type == "USER":
-                # A normal in-range scroll after leaving the top cancels the
-                # candidate gesture. This prevents a later diagonal/fast swipe
-                # from inheriting overscroll from an unrelated scroll.
-                if pixels > min_extent + 1.0 or extent_before > 1.0:
-                    pull_gesture_at_top[0] = False
-                    pull_overscroll[0] = 0.0
+                elif overscroll_ready:
+                    performance.counter("home.pull_refresh.cancelled_below_threshold")
 
             if remaining < 800 and has_more[0] and not page_loading[0] and not page_load_scheduled[0]:
                 page_load_scheduled[0] = True
@@ -1428,12 +1489,13 @@ class HomeView:
         pull_refresh_indicator[0] = ft.Row(
             [
                 ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
-                ft.Text("Atualizando biblioteca…", size=11, color=TEXT_MUTED),
+                ft.Text("Puxe para atualizar", size=11, color=TEXT_MUTED),
             ],
             spacing=8,
             alignment=ft.MainAxisAlignment.CENTER,
             visible=False,
         )
+        pull_refresh_label[0] = pull_refresh_indicator[0].controls[1]
         set_refresh_state(refresh_state[0], update=False)
         header = ft.Row([
             ft.Row([

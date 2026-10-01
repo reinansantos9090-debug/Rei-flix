@@ -292,11 +292,27 @@ jobs:
           set +e
           out="$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}"
           mkdir -p "$out"
-          adb devices -l >"$out/adb_devices.txt" 2>&1
-          adb shell getprop ro.build.version.sdk >"$out/sdk.txt" 2>&1
-          adb shell dumpsys activity top >"$out/activity_top.txt" 2>&1
-          adb shell dumpsys window >"$out/window.txt" 2>&1
-          adb logcat -d -v threadtime >"$out/logcat.txt" 2>&1
+
+          # Diagnostic collection must never hide or change the preceding
+          # instrumentation result. Each individual adb command is bounded so
+          # a wedged emulator cannot prevent the evidence directory from being
+          # uploaded after a real test failure.
+          capture() {
+            local output="$1"
+            shift
+            timeout --signal=TERM --kill-after=5s 30s "$@" >"$output" 2>&1
+            local status=$?
+            if [ "$status" -ne 0 ]; then
+              printf '\nCOMMAND_EXIT=%s\n' "$status" >>"$output"
+            fi
+            return 0
+          }
+
+          capture "$out/adb_devices.txt" adb devices -l
+          capture "$out/sdk.txt" adb shell getprop ro.build.version.sdk
+          capture "$out/activity_top.txt" adb shell dumpsys activity top
+          capture "$out/window.txt" adb shell dumpsys window
+          capture "$out/logcat.txt" adb logcat -d -v threadtime
           set -e
       - name: Upload API ${{ matrix.api }} instrumentation evidence
         if: always()
@@ -368,13 +384,27 @@ jobs:
           set +e
           out="$GITHUB_WORKSPACE/build/android-tv-api36"
           mkdir -p "$out"
-          adb devices -l >"$out/adb_devices.txt" 2>&1
-          adb shell getprop ro.build.version.sdk >"$out/sdk.txt" 2>&1
-          adb shell getprop ro.build.characteristics >"$out/characteristics.txt" 2>&1
-          adb shell dumpsys package com.reiflix.reiflix_local >"$out/package.txt" 2>&1
-          adb shell dumpsys activity top >"$out/activity_top.txt" 2>&1
-          adb shell dumpsys window >"$out/window.txt" 2>&1
-          adb logcat -d -v threadtime >"$out/logcat.txt" 2>&1
+
+          # Keep evidence collection bounded without changing the test result:
+          # this step is diagnostic-only and runs after instrumentation.
+          capture() {
+            local output="$1"
+            shift
+            timeout --signal=TERM --kill-after=5s 30s "$@" >"$output" 2>&1
+            local status=$?
+            if [ "$status" -ne 0 ]; then
+              printf '\nCOMMAND_EXIT=%s\n' "$status" >>"$output"
+            fi
+            return 0
+          }
+
+          capture "$out/adb_devices.txt" adb devices -l
+          capture "$out/sdk.txt" adb shell getprop ro.build.version.sdk
+          capture "$out/characteristics.txt" adb shell getprop ro.build.characteristics
+          capture "$out/package.txt" adb shell dumpsys package com.reiflix.reiflix_local
+          capture "$out/activity_top.txt" adb shell dumpsys activity top
+          capture "$out/window.txt" adb shell dumpsys window
+          capture "$out/logcat.txt" adb logcat -d -v threadtime
           set -e
       - name: Upload Android TV evidence
         if: always()

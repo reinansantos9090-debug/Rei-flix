@@ -1430,6 +1430,12 @@ class HomeView:
         async def refresh_from_catalog():
             if not is_active():
                 return
+            if page_loading[0]:
+                # The active catalog load owns the refresh of this control tree.
+                # Mark it pending and let load_library_page() schedule a single
+                # follow-up through the existing coalescing hook.
+                refresh_after_load_pending[0] = True
+                return
             save_view_state()
             filter_options_loaded[0] = False
             loaded = await load_library_page(reset=True)
@@ -1476,6 +1482,13 @@ class HomeView:
             home_sections_generation[0] = render_generation[0]
             status.visible = scan_active[0]
             _start_view_task(refresh_home_sections, render_generation[0])
+            if view_state.get("_manual_refresh_pending") and is_active():
+                # Returning to Home after a scan completed elsewhere already
+                # loaded the durable catalog above. Consume that pending refresh
+                # without launching a second catalog query or scan.
+                view_state["_manual_refresh_pending"] = False
+                if callable(on_refresh_ui_updated):
+                    on_refresh_ui_updated()
 
         search.on_change = on_search
         search.on_submit = on_search

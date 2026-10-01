@@ -79,13 +79,12 @@ class Prompt1HomeRefreshBehaviorTests(unittest.TestCase):
 
     def test_refresh_pipeline_stays_on_scan_coordinator(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
-        block = source[source.index("async def refresh_home_library"):source.index("async def login", source.index("async def refresh_home_library"))]
+        block = source[source.index("async def request_home_refresh"):source.index("async def refresh_home_library", source.index("async def request_home_refresh"))]
         self.assertIn("await refresh_library(_home_refresh_context=home_refresh_context)", block)
         self.assertIn("ScanOrigin.USER_REFRESH", source)
         self.assertNotIn("bridge.scan_all_storage()", block)
         self.assertNotIn("bridge.scan_media_store()", block)
         self.assertNotIn("bridge.rescan_tree(", block)
-
     def test_refresh_state_has_navigation_deferred_completion_guard(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")
         self.assertIn('home_state["_manual_refresh_pending"] = True', source)

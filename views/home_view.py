@@ -107,7 +107,7 @@ class HomeView:
         filter_options_loaded = [False]
         artwork_tasks: set[tuple] = set()
         artwork_pending_items: dict[tuple, dict] = {}
-        artwork_request_tokens: dict[tuple, int] = {}
+        artwork_request_tokens: dict[tuple, tuple] = {}
         artwork_token_counter = [0]
         artwork_bindings: dict[tuple, list] = {}
         catalog_focus_targets: dict[str, object] = {}
@@ -414,6 +414,29 @@ class HomeView:
             )
             return True
 
+        def _queue_artwork_resolution(entity, item_id, kind, item):
+            try:
+                normalized_id = int(item_id)
+            except (TypeError, ValueError):
+                return None
+            entity = str(entity or "").strip()
+            kind = str(kind or "").strip()
+            if not entity or not kind or item is None:
+                return None
+            key = (entity, normalized_id, kind)
+            artwork_token_counter[0] += 1
+            artwork_resolution_token = (
+                entity,
+                normalized_id,
+                kind,
+                artwork_token_counter[0],
+            )
+            artwork_tasks.add(key)
+            artwork_request_tokens[key] = artwork_resolution_token
+            artwork_pending_items[key] = item
+            performance.gauge("home.artwork.pending", len(artwork_tasks))
+            return artwork_resolution_token
+
         async def _flush_artwork_batch():
             if not is_active() or not artwork_tasks:
                 return
@@ -446,11 +469,12 @@ class HomeView:
                         if snapshot_tokens.get(key) != artwork_request_tokens.get(key):
                             performance.counter("home.artwork.stale_ignored")
                             logger.info(
-                                "STALE_ARTWORK_IGNORED entity=%s entity_id=%s type=%s generation=%s",
+                                "STALE_ARTWORK_IGNORED entity=%s entity_id=%s type=%s generation=%s request_generation=%s",
                                 entity,
                                 item_id,
                                 kind,
                                 generation,
+                                (snapshot_tokens.get(key) or ("", 0, "", 0))[-1],
                             )
                             continue
                         path = (row or {}).get("local_path")
@@ -513,13 +537,7 @@ class HomeView:
 
             item_id = item.get("anime_id") if item.get("anime_id") is not None and entity in {"anime", "movie"} else item.get("id")
             if item_id is not None and library is not None:
-                key = (binding_entity, int(item_id), kind)
-                artwork_token = artwork_token_counter[0] + 1
-                artwork_token_counter[0] = artwork_token
-                artwork_tasks.add(key)
-                artwork_request_tokens[key] = artwork_token
-                artwork_pending_items[key] = item
-                performance.gauge("home.artwork.pending", len(artwork_tasks))
+                _queue_artwork_resolution(binding_entity, item_id, kind, item)
             holder.content = ft.Icon(ft.Icons.MOVIE_OUTLINED, color=TEXT_MUTED, size=28)
             return holder
 
@@ -1401,19 +1419,13 @@ class HomeView:
                     if target is None or not metadata:
                         continue
                     target['meta'] = dict(metadata)
-                    cover_path = metadata.get('cover_cache')
-                    if not cover_path:
-                        continue
-                    entity = 'movie' if target.get('media_kind') == 'movie' else 'anime'
-                    for holder, width, height in artwork_bindings.get((entity, int(item_id), 'poster'), []):
-                        try:
-                            if _apply_artwork(holder, width, height, cover_path):
-                                updated += 1
-                        except Exception:
-                            logger.exception('Home localized artwork update failed')
+                    if metadata.get('cover_cache'):
+                        entity = 'movie' if target.get('media_kind') == 'movie' else 'anime'
+                        _queue_artwork_resolution(entity, item_id, 'poster', target)
+                        updated += 1
                 if updated:
-                    logger.info('HOME_ARTWORK_BATCH_UPDATED count=%s', updated)
-                    schedule_artwork_ui_update()
+                    logger.info('HOME_ARTWORK_BATCH_QUEUED count=%s', updated)
+                    schedule_artwork_batch_prefetch()
             except Exception:
                 logger.exception('Home metadata/artwork hydration failed', extra={'screen':'home','requestId':'-','library_items':len(items)})
             finally:

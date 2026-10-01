@@ -151,6 +151,7 @@ class Prompt23NextTransitionTests(unittest.TestCase):
         self.assertIn("originTransitionGeneration", self.main_activity)
         self.assertIn("originTransitionGeneration != activePlayerTransitionGeneration + 1L", self.main_activity)
         self.assertIn("activePlayerActivityInstanceId", self.main_activity)
+        self.assertIn("activePlayerTransitionGeneration = 0L", self.main_activity)
 
     def test_python_player_callbacks_are_activity_instance_scoped(self):
         for token in (

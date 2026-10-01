@@ -544,6 +544,12 @@ override fun onCreate(savedInstanceState: Bundle?) {
             )
             suppressExitEvent = true
             sessionState = SessionState.EXITING
+            logPlayer(
+                "PLAYER_EXIT_CLASSIFICATION=STALE_HANDOFF reason=stale_handoff" +
+                    " requestId=" + requestId.ifEmpty { "-" } +
+                    " traceId=" + traceId +
+                    " activityInstanceId=" + activityInstanceId,
+            )
             finish()
             return
         }
@@ -3316,10 +3322,20 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
     }
 
     private fun classifyPlayerExit(reason: String): String = when (reason.trim()) {
-        "back_button", "android_back" -> "USER_NAVIGATION"
-        "player_error_back" -> "ERROR_BACK"
-        "activity_finish" -> "ACTIVITY_FINISH"
-        else -> if (sessionState == SessionState.EXITING) "CONTROLLED_EXIT" else "UNEXPECTED_EXIT"
+        "back_button" -> "USER_BACK"
+        "user_button" -> "USER_BUTTON"
+        "android_back" -> "ANDROID_BACK"
+        "player_error_back" -> "ERROR_PANEL_BACK"
+        "valid_player_transition" -> "VALID_PLAYER_TRANSITION"
+        "stale_handoff" -> "STALE_HANDOFF"
+        "invalid_handoff" -> "INVALID_HANDOFF"
+        "player_error", "media3_error", "playback_error" -> "PLAYER_ERROR"
+        "system_task", "task_removed" -> "SYSTEM_TASK"
+        "process_death" -> "PROCESS_DEATH"
+        "activity_lifecycle" -> "ACTIVITY_LIFECYCLE"
+        "activity_finish" ->
+            if (episodeChangePending) "VALID_PLAYER_TRANSITION" else "ACTIVITY_LIFECYCLE"
+        else -> if (sessionState == SessionState.EXITING) "ACTIVITY_LIFECYCLE" else "UNKNOWN"
     }
 
     private fun reportPlayerExit(reason: String) {
@@ -3387,6 +3403,14 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
 
     private fun finishPlayer(reason: String) {
         if (sessionState == SessionState.DESTROYED) return
+        val exitClassification = classifyPlayerExit(reason)
+        logPlayer(
+            "PLAYER_FINISH_REQUEST reason=" + reason +
+                " classification=" + exitClassification +
+                " requestId=" + requestId.ifEmpty { "-" } +
+                " activityInstanceId=" + activityInstanceId +
+                " playerSessionId=" + playerSessionId,
+        )
         sessionState = SessionState.EXITING
         publishNavigationTransitionDiagnostic(
             "PLAYER_SESSION_INVALIDATED",

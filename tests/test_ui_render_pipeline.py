@@ -42,6 +42,14 @@ class UiRenderPipelineTests(unittest.TestCase):
         self.assertIn("updated_holder.update()", block)
         self.assertNotIn("page.update()", block)
 
+    def test_spoiler_artwork_updates_only_its_shield(self):
+        source = (ROOT / "core" / "ui.py").read_text(encoding="utf-8")
+        start = source.index("def spoiler_artwork(")
+        end = source.index("def empty_state(", start)
+        block = source[start:end]
+        self.assertIn("shield.update()", block)
+        self.assertNotIn("page.update()", block)
+
     def test_render_origins_are_traced(self):
         source = MAIN.read_text(encoding="utf-8")
         for reason in (

@@ -134,6 +134,7 @@ async def main(page: ft.Page):
     }
 
     def _handle_page_disconnect(_event=None):
+        nonlocal thumbnail_dispatch_task, thumbnail_reconciliation_task, thumbnail_reconciliation_pending
         ui_alive[0] = False
         task = native_poll_task[0]
         if task is not None:
@@ -148,6 +149,15 @@ async def main(page: ft.Page):
             except Exception as exc:
                 logger.debug("[FLET] player transition task cancellation failed: %s", exc)
         player_transition_task["task"] = None
+        for task in (thumbnail_dispatch_task, thumbnail_reconciliation_task):
+            if task is not None:
+                try:
+                    task.cancel()
+                except Exception as exc:
+                    logger.debug("[FLET] thumbnail background task cancellation failed: %s", exc)
+        thumbnail_dispatch_task = None
+        thumbnail_reconciliation_task = None
+        thumbnail_reconciliation_pending = False
         home_refresh_context["active"] = False
         home_refresh_context["db_updated"] = False
         home_refresh_context["request_id"] = None

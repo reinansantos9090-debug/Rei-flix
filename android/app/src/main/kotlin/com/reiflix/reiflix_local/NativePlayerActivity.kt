@@ -3274,7 +3274,8 @@ val codec = formatCodecLabel(format.sampleMimeType, format.codecs)
             RESULT_OK,
             Intent()
                 .putExtra("requestId", requestId)
-                .putExtra("reason", reason),
+                .putExtra("reason", reason)
+                .putExtra("activityInstanceId", activityInstanceId),
         )
         finish()
     }

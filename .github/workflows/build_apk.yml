@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -492,37 +492,35 @@ jobs:
           test -s build/ReiAnix-apk.zip
           unzip -Z1 build/ReiAnix-apk.zip | grep -Fx 'ReiAnix.apk'
 
-      # GitHub Actions artifact storage can be temporarily exhausted by
-      # artifacts from older runs. Artifact publication must never turn a
-      # successfully built/validated APK into a failed build; the APK remains
-      # available in the runner workspace and publication resumes automatically
-      # when the repository quota is recalculated.
-      - name: Upload APK as direct artifact
-        continue-on-error: true
-        uses: actions/upload-artifact@v7
-        with:
-          path: ${{ steps.apk.outputs.path }}
-          archive: false
-          retention-days: 7
-          if-no-files-found: error
+      # Actions artifact storage is a very small pooled quota. Publishing the
+      # same APK/ZIP on every push can exhaust that quota even when old runs
+      # are later deleted. A manual build is the explicit "I want a download"
+      # operation, so publish the current APK/ZIP/metadata to one rolling
+      # GitHub Release instead. Release assets have their own storage model and
+      # are not stored as Actions artifacts.
+      - name: Publish APK and ZIP to rolling GitHub Release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: reianix-ci-latest
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Upload APK ZIP
-        continue-on-error: true
-        uses: actions/upload-artifact@v7
-        with:
-          path: build/ReiAnix-apk.zip
-          archive: false
-          retention-days: 7
-          if-no-files-found: error
+          release_args=(
+            --repo "$GITHUB_REPOSITORY"
+            --title "ReiAnix CI — latest"
+            --notes "Latest manually requested ReiAnix APK build from commit $GITHUB_SHA."
+            --latest=false
+          )
 
-      - name: Upload APK metadata
-        continue-on-error: true
-        uses: actions/upload-artifact@v7
-        with:
-          name: reiflix-release-metadata
-          path: |
-            ${{ steps.apk.outputs.path }}.sha256
-            build/reiflix-release-metadata.txt
-            build/reiflix-build-identity.json
-          retention-days: 7
-          if-no-files-found: error
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" "${release_args[@]}"
+            gh release upload "$RELEASE_TAG"               build/ReiAnix.apk               build/ReiAnix-apk.zip               build/ReiAnix.apk.sha256               build/reiflix-release-metadata.txt               build/reiflix-build-identity.json               --clobber               --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG"               build/ReiAnix.apk               build/ReiAnix-apk.zip               build/ReiAnix.apk.sha256               build/reiflix-release-metadata.txt               build/reiflix-build-identity.json               "${release_args[@]}"               --target "$GITHUB_SHA"
+          fi
+
+      # Keep Actions artifact publication disabled for push/PR builds. The
+      # rolling release above is the supported download channel for manual
+      # APK builds, avoiding repeated consumption of the Actions artifact quota.

@@ -213,6 +213,70 @@ jobs:
             fi
             echo "connectedDebugAndroidTest VALIDATED api=${{ matrix.api }}"
             REIFLIX_ANDROID_INSTRUMENTED_SCRIPT
+      - name: Summarize instrumented test failures
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/build/flutter/android"
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          roots = [
+              Path("app/build/outputs/androidTest-results"),
+              Path("app/build/outputs/androidTest-results/connected"),
+              Path("app/build/test-results"),
+              Path("app/build/outputs"),
+          ]
+          xml_files = []
+          seen = set()
+          for root in roots:
+              if not root.exists():
+                  continue
+              for path in root.rglob("*.xml"):
+                  if path in seen:
+                      continue
+                  seen.add(path)
+                  xml_files.append(path)
+
+          failures = []
+          for path in xml_files:
+              try:
+                  root = ET.parse(path).getroot()
+              except (ET.ParseError, OSError):
+                  continue
+              for testcase in root.iter("testcase"):
+                  error_nodes = [child for child in testcase if child.tag.rsplit("}", 1)[-1] in {"failure", "error"}]
+                  if not error_nodes:
+                      continue
+                  classname = testcase.attrib.get("classname", "")
+                  name = testcase.attrib.get("name", "")
+                  detail = ""
+                  if error_nodes:
+                      detail = " ".join((error_nodes[0].text or "").split())[:1200]
+                  failures.append((classname, name, detail, str(path)))
+
+          print(f"INSTRUMENTED_RESULT_FILES={len(xml_files)}")
+          if not failures:
+              print("INSTRUMENTED_FAILURES=0")
+          else:
+              print(f"INSTRUMENTED_FAILURES={len(failures)}")
+              for classname, name, detail, path in failures:
+                  print(f"INSTRUMENTED_TEST_FAILURE={classname}#{name}")
+                  if detail:
+                      print(f"INSTRUMENTED_TEST_FAILURE_DETAIL={detail}")
+                  print(f"INSTRUMENTED_TEST_RESULT_FILE={path}")
+          PY
+
+          log="$(find "$GITHUB_WORKSPACE/build" -type f -name 'connectedDebugAndroidTest.log' -print -quit)"
+          if [ -n "$log" ]; then
+            echo "===== CONNECTED_TEST_LOG_FAILURE_CONTEXT ====="
+            grep -n -E 'FAILED|FAILURE|There were failing tests|Test run failed|Exception|AssertionError' "$log" | tail -n 120 || true
+          else
+            echo "INSTRUMENTED_TEST_LOG=NOT_FOUND"
+          fi
+
       - name: Capture Android runtime diagnostics
         if: always()
         shell: bash

@@ -41,8 +41,12 @@ class FocusAndThumbnailRegressionTests(unittest.TestCase):
         end = HOME.index("async def refresh_from_catalog", start)
         update = HOME[start:end]
         self.assertIn("artwork_bindings.get", update)
+        self.assertIn('("episode", episode_id, "episode_thumbnail")', update)
+        self.assertIn('item["episode_thumbnail"] = thumbnail_path', update)
         self.assertIn("holder.content = ft.Image", update)
         self.assertIn("schedule_artwork_ui_update()", update)
+        self.assertNotIn('meta["cover_cache"] = thumbnail_path', update)
+        self.assertNotIn('artwork_bindings.get((entity, anime_id, "poster")', update)
         self.assertNotIn("load_library_page", update)
         self.assertNotIn("grid.controls.clear", update)
         self.assertNotIn("browse_catalog_page", update)
@@ -64,7 +68,7 @@ class FocusAndThumbnailRegressionTests(unittest.TestCase):
         start = HOME.index("def update_thumbnail_in_place")
         end = HOME.index("async def refresh_from_catalog", start)
         update = HOME[start:end]
-        self.assertIn("if not affected_ids:", update)
+        self.assertIn("if not affected_episode_ids:", update)
         self.assertIn("return bool(updated)", update)
         self.assertNotIn("_refresh_from_catalog", update)
 

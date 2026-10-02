@@ -52,7 +52,10 @@ class HomeLibraryTests(unittest.TestCase):
     def test_home_continue_uses_configured_limit_without_secondary_slicing(self):
         source = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
         self.assertIn('settings.get("library.continue_watching_limit")', source)
-        self.assertIn('library.media_center_home,\n                    limit=continue_limit', source)
+        self.assertIn(
+            'library.media_center_home,\n                    limit=12,\n                    continue_limit=continue_limit',
+            source,
+        )
         self.assertIn("visible_items = list(continuing)", source)
         self.assertNotIn("visible_items = list(continuing[:6])", source)
 
@@ -99,7 +102,10 @@ class HomeLibraryTests(unittest.TestCase):
         source = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
 
         self.assertIn("], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True, run_spacing=8)", source)
-        self.assertIn("alignment=ft.MainAxisAlignment.SPACE_BETWEEN,\n            wrap=True,", source)
+        self.assertIn(
+            "alignment=ft.MainAxisAlignment.SPACE_BETWEEN,\n            wrap=True,",
+            source,
+        )
 
     def test_home_keeps_single_catalog_and_no_parallel_database(self):
         source = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")

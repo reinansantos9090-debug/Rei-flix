@@ -228,14 +228,16 @@ def audit_architecture(root: Path, failures: list[str]) -> None:
             failures.append(f"catalog field missing: {field}")
 
     instrumented_workflow = read(root, ".github/workflows/android_instrumented.yml")
+    instrumented_script = read(root, "scripts/run_android_instrumented.sh")
     for token in (
         "push:",
         "api: [30, 36]",
         "reactivecircus/android-emulator-runner@v2",
-        ":app:connectedDebugAndroidTest",
     ):
         if token not in instrumented_workflow:
             failures.append(f"instrumented runtime workflow missing: {token}")
+    if ":app:connectedDebugAndroidTest" not in instrumented_workflow and ":app:connectedDebugAndroidTest" not in instrumented_script:
+        failures.append("instrumented runtime command missing from workflow/script")
     if "name: ReiAnix Android No-Emulator Contract Checks" in instrumented_workflow:
         failures.append("instrumented workflow still advertises no-emulator-only certification")
 

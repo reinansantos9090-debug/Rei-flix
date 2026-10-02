@@ -159,6 +159,11 @@ object NativeCommandDispatcher {
                 return
             }
 
+            publishDiagnostic(
+                command,
+                "COMMAND_RECEIVED",
+                state = NativeRequestState.OperationState.RECEIVED.name,
+            )
             when (command.action) {
                 "play" -> dispatchPlay(command)
                 "extract_thumbnail" -> dispatchThumbnail(command)
@@ -209,7 +214,7 @@ object NativeCommandDispatcher {
                 command.action,
                 NativeRequestState.OperationState.COMPLETED,
             )
-            publishDiagnostic(
+            publishDurableDiagnostic(
                 command,
                 "PLAYER_HANDOFF_DISPATCHED",
                 state = NativeRequestState.OperationState.COMPLETED.name,
@@ -423,6 +428,28 @@ object NativeCommandDispatcher {
         )
     }
 
+    private fun publishDurableDiagnostic(
+        command: Command,
+        event: String,
+        state: String? = null,
+        result: String? = null,
+        playerSessionId: String? = null,
+    ) {
+        val payload = JSONObject()
+            .put("event", event)
+            .put("requestId", command.requestId)
+        if (!state.isNullOrBlank()) payload.put("state", state)
+        if (!result.isNullOrBlank()) payload.put("result", result)
+        if (!playerSessionId.isNullOrBlank()) payload.put("playerSessionId", playerSessionId)
+        NativeMailbox.write(
+            appContext,
+            JSONObject()
+                .put("type", "diagnostic")
+                .put("requestId", command.requestId)
+                .put("payload", payload),
+        )
+    }
+
     private fun publishDiagnostic(
         command: Command,
         event: String,
@@ -460,7 +487,7 @@ object NativeCommandDispatcher {
             .put("stage", "native_command_dispatch")
             .put("reason", errorCode)
         if (!detail.isNullOrBlank()) payload.put("error", detail)
-        NativeMailbox.writeBestEffort(
+        NativeMailbox.write(
             appContext,
             JSONObject()
                 .put("type", "diagnostic")
@@ -473,10 +500,7 @@ object NativeCommandDispatcher {
                         .put("reason", errorCode)
                         .put("message", message)
                         .put("detail", detail ?: ""),
-                )
-                .also {
-                    it.put("requestId", command.requestId)
-                },
+                ),
         )
         NativeMailbox.writeBestEffort(
             appContext,

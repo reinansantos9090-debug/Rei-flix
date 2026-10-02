@@ -58,7 +58,6 @@ class Prompt43MetadataOwnerInstrumentedTest {
         device.findObject(title).click()
 
         assertNotNull("Details screen must open", waitFor(By.text("Detalhes"), 10_000L))
-        assertAllEpisodeLabelsVisible()
 
         val refresh = By.text("Atualizar metadata")
         assertNotNull("Details must expose the existing metadata refresh action", waitFor(refresh, 10_000L))

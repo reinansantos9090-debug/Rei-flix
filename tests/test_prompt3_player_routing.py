@@ -18,8 +18,8 @@ class Prompt3PlayerRoutingTests(unittest.TestCase):
         source = BRIDGE.read_text(encoding="utf-8")
         dispatcher = DISPATCHER.read_text(encoding="utf-8")
         launch_start = source.index("            if action in self._internal_command_actions and self.available:")
-        launch_end = source.index("        except Exception as exc:", launch_start)
-        direct_block = source[launch_start:launch_end]
+        direct_end = source.index("            else:", launch_start)
+        direct_block = source[launch_start:direct_end]
         for action in ("play", "extract_thumbnail", "cancel_player_transition"):
             self.assertIn(f'"{action}"', source)
             self.assertIn(action, direct_block)

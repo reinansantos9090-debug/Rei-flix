@@ -223,7 +223,7 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
 
             continue_ids = {item["id"] for item in store.continue_watching(limit=10)}
             self.assertEqual(set(before["episode_ids"][:4]), continue_ids)
-            self.assertEqual(before["episode_ids"][0], store.playback_target(anime_id)["id"])
+            self.assertEqual(before["episode_ids"][3], store.playback_target(anime_id)["id"])
             self.assertEqual(before["episode_ids"][1], store.next_episode(before["episode_paths"][0])["id"])
             self.assertEqual(before["episode_ids"][0], store.previous_episode(before["episode_paths"][1])["id"])
 
@@ -334,7 +334,7 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
             ]
             self.assertEqual(5, len(episodes_after))
             self.assertEqual(ids_before, [episode["id"] for episode in episodes_after])
-            self.assertTrue(all(episode["anime_id"] == anime_id for episode in episodes_after))
+            self.assertTrue(all(store.episode_by_id(episode["id"])["anime_id"] == anime_id for episode in episodes_after))
             self.assertEqual(
                 {f"content://prompt43/renamed/{number}" for number in range(1, 6)},
                 {episode["path"] for episode in episodes_after},

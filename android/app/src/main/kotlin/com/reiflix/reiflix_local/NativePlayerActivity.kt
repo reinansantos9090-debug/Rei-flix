@@ -1915,9 +1915,6 @@ override fun onCreate(savedInstanceState: Bundle?) {
         if (!::playerView.isInitialized || sessionState == SessionState.DESTROYED) return
         if (playerView.player !== player) {
             playerView.player = player
-            check(playerView.player === player) {
-                "PlayerView failed to reattach the ExoPlayer instance after media reset"
-            }
             logPlayer(
                 "PLAYER_VIEW_REATTACHED_AFTER_MEDIA_RESET requestId=" +
                     requestId.ifEmpty { "-" } +

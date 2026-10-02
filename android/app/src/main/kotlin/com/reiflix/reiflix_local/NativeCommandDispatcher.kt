@@ -9,8 +9,6 @@ import android.util.Log
 import org.json.JSONObject
 import java.io.File
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -107,11 +105,7 @@ object NativeCommandDispatcher {
                     if (restored.exists()) {
                         processing.delete()
                     } else {
-                        Files.move(
-                            processing.toPath(),
-                            restored.toPath(),
-                            StandardCopyOption.ATOMIC_MOVE,
-                        )
+                        check(processing.renameTo(restored))
                     }
                 }.onFailure {
                     Log.e(TAG, "COMMAND_RECOVERY_FAILED file=${processing.name}", it)
@@ -132,24 +126,7 @@ object NativeCommandDispatcher {
             file.name.removeSuffix(".json") + "-" + UUID.randomUUID() + PROCESSING_SUFFIX,
         )
         return try {
-            Files.move(
-                file.toPath(),
-                processing.toPath(),
-                StandardCopyOption.ATOMIC_MOVE,
-            )
-            processing
-        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
-            try {
-                Files.move(
-                    file.toPath(),
-                    processing.toPath(),
-                )
-                processing
-            } catch (_: Exception) {
-                null
-            }
-        } catch (_: java.nio.file.NoSuchFileException) {
-            null
+            if (file.renameTo(processing)) processing else null
         } catch (_: Exception) {
             null
         }

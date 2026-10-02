@@ -390,8 +390,12 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
             )
 
             self.assertEqual(second_id, result)
-            self.assertEqual(first_anime, store.episode_by_id(first_id)["anime_id"])
-            self.assertEqual(second_anime, store.episode_by_id(second_id)["anime_id"])
+            first_row = store.episode_by_id(first_id)
+            second_row = store.episode_by_id(second_id)
+            self.assertEqual(first_anime, first_row["anime_id"])
+            self.assertEqual(second_anime, second_row["anime_id"])
+            self.assertNotEqual(first_row["media_identity"], second_row["media_identity"])
+            self.assertIn("#owner-conflict:", second_row["media_identity"])
 
 
 

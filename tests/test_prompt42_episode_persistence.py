@@ -67,6 +67,55 @@ class Prompt42EpisodePersistenceTests(unittest.TestCase):
             self.assertEqual(first["id"], target["id"])
             self.assertEqual(37, target["progress"])
 
+    def test_duplicate_identity_reconciliation_keeps_stronger_semantic_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            first_anime = store.upsert_anime(
+                "prompt42-dup-a",
+                {"title": "Prompt 42 Duplicate A", "media_kind": "series", "genres": "[]"},
+                source="local",
+            )
+            second_anime = store.upsert_anime(
+                "prompt42-dup-b",
+                {"title": "Prompt 42 Duplicate B", "media_kind": "series", "genres": "[]"},
+                source="local",
+            )
+            stable = "prompt42:duplicate"
+            old_id = store.upsert_episode(
+                first_anime,
+                "content://prompt42/old",
+                "Show S01E01.mkv",
+                1,
+                1,
+                source_folder="prompt42-source",
+                media_identity=stable,
+                episode_type="regular",
+                identification_source="sxxexx",
+                identification_confidence="high",
+                absolute_number=1,
+            )
+            store.save_progress("content://prompt42/old", 37, 100, episode_id=old_id, event_created_at=1000)
+            second_id = store.upsert_episode(
+                second_anime,
+                "content://prompt42/new",
+                "Show 07.mkv",
+                2,
+                7,
+                source_folder="prompt42-source",
+                media_identity=stable,
+                episode_type="regular",
+                identification_source="numeric_suffix",
+                identification_confidence="medium",
+                absolute_number=7,
+            )
+            self.assertEqual(old_id, second_id)
+            row = store.episode_by_id(old_id)
+            self.assertEqual(first_anime, row["anime_id"])
+            self.assertEqual(1, row["season"])
+            self.assertEqual(1, row["number"])
+            self.assertEqual(1, row["absolute_number"])
+            self.assertEqual(37, row["progress"])
+
     def test_lower_confidence_apply_identification_cannot_undo_canonical_state(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

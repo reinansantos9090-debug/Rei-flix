@@ -533,7 +533,7 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
-          name: ReiAnix-\${{ github.run_number }}-apk
+          name: ReiAnix-${{ github.run_number }}-apk
           path: |
             build/ReiAnix.apk
             build/ReiAnix-apk.zip

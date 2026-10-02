@@ -76,7 +76,7 @@ object NativeCommandDispatcher {
             ) {
                 override fun onEvent(event: Int, path: String?) {
                     if (path.isNullOrBlank()) return
-                    if (path.endsWith(TEMP_SUFFIX) || path.endsWith(PROCESSING_SUFFIX)) return
+                    if (path.endsWith(TEMP_SUFFIX)) return
                     if (!path.endsWith(".json")) return
                     enqueue(path)
                 }

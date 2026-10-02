@@ -1300,6 +1300,18 @@ class LibraryStore:
     def _identification_confidence_rank(value):
         return {"low": 0, "medium": 1, "high": 2}.get(str(value or "").strip().casefold(), 0)
 
+    @staticmethod
+    def _episode_identity_preference_key(row):
+        """Rank which duplicate row owns the durable semantic episode identity."""
+        return (
+            int(bool(row["manual_override"])),
+            LibraryStore._identification_confidence_rank(row["identification_confidence"]),
+            int(bool(row["identification_source"] and row["identification_source"] != "legacy")),
+            float(row["last_played_at"] or 0),
+            int(row["watched"] or 0),
+            -int(row["id"]),
+        )
+
     def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None,
                        modified_at=None, source_folder=None, media_identity=None, absolute_number=None,
                        episode_type="regular", episode_title=None, *, identification_source=None,
@@ -1492,24 +1504,32 @@ class LibraryStore:
         for identity in duplicate_keys:
             rows = c.execute(
                 """SELECT * FROM episodes WHERE media_identity=?
-                   ORDER BY CASE WHEN last_played_at IS NULL THEN 0 ELSE 1 END DESC,
-                            last_played_at DESC, watched DESC, id ASC""",
+                   ORDER BY id ASC""",
                 (identity,),
             ).fetchall()
             if len(rows) < 2:
                 continue
-            survivor = rows[0]
+            survivor = max(rows, key=self._episode_identity_preference_key)
             best_progress = max(float(row["progress"] or 0) for row in rows)
             best_watched = max(int(row["watched"] or 0) for row in rows)
             best_played = max((float(row["last_played_at"] or 0) for row in rows), default=0)
             c.execute(
-                "UPDATE episodes SET progress=?,watched=?,last_played_at=?,missing=? WHERE id=?",
-                (best_progress, best_watched, best_played or None, min(int(row["missing"] or 1) for row in rows), survivor["id"]),
+                """UPDATE episodes SET progress=?,watched=?,last_played_at=?,
+                   missing=?,availability_state=?
+                   WHERE id=?""",
+                (
+                    best_progress,
+                    best_watched,
+                    best_played or None,
+                    min(int(row["missing"] or 1) for row in rows),
+                    survivor["availability_state"] or "available",
+                    survivor["id"],
+                ),
             )
             survivor_id = survivor["id"]
-            for row in rows[1:]:
-                progress_value = max(best_progress, float(row["progress"] or 0))
-                watched_value = max(best_watched, int(row["watched"] or 0))
+            for row in rows:
+                if row["id"] == survivor_id:
+                    continue
                 c.execute(
                     """INSERT OR IGNORE INTO episode_observations(
                          episode_id,source_kind,scope_kind,scope_ref,uri,volume_id,native_generation,
@@ -1519,16 +1539,16 @@ class LibraryStore:
                        FROM episode_observations WHERE episode_id=?""",
                     (survivor_id, row["id"]),
                 )
-                if row["manual_override"] and not survivor["manual_override"]:
-                    c.execute(
-                        """UPDATE episodes SET season=?,number=?,episode_type=?,episode_title=?,
-                           identification_source=?,identification_confidence=?,manual_override=1 WHERE id=?""",
-                        (row["season"],row["number"],row["episode_type"],row["episode_title"],
-                         row["identification_source"],row["identification_confidence"],survivor_id),
-                    )
+                progress_value = max(best_progress, float(row["progress"] or 0))
+                watched_value = max(best_watched, int(row["watched"] or 0))
                 c.execute(
                     "UPDATE episodes SET progress=?,watched=?,last_played_at=? WHERE id=?",
-                    (progress_value,watched_value,max(best_played,float(row["last_played_at"] or 0)) or None,survivor_id),
+                    (
+                        progress_value,
+                        watched_value,
+                        max(best_played, float(row["last_played_at"] or 0)) or None,
+                        survivor_id,
+                    ),
                 )
                 c.execute("DELETE FROM episodes WHERE id=?", (row["id"],))
                 merged += 1
@@ -1581,18 +1601,27 @@ class LibraryStore:
                     float(target["last_played_at"] or 0),
                 ) or None
 
-                if bool(source["manual_override"]) and not bool(target["manual_override"]):
+                source_is_stronger = (
+                    self._episode_identity_preference_key(source)
+                    > self._episode_identity_preference_key(target)
+                )
+                if source_is_stronger:
+                    # The target is the currently valid physical observation. Keep
+                    # its path/native fields, but restore the stronger durable
+                    # semantic identity before deleting the weaker source row.
                     c.execute(
                         """UPDATE episodes
-                           SET season=?,number=?,episode_type=?,episode_title=?,
-                               identification_source=?,identification_confidence=?,
-                               manual_override=1,progress=?,watched=?,last_played_at=?
+                           SET anime_id=?,season=?,number=?,absolute_number=?,
+                               episode_type=?,episode_title=?,identification_source=?,
+                               identification_confidence=?,manual_override=?,
+                               progress=?,watched=?,last_played_at=?
                            WHERE id=?""",
                         (
-                            source["season"], source["number"], source["episode_type"],
+                            source["anime_id"], source["season"], source["number"],
+                            source["absolute_number"], source["episode_type"],
                             source["episode_title"], source["identification_source"],
-                            source["identification_confidence"], progress, watched,
-                            last_played, target_id,
+                            source["identification_confidence"], source["manual_override"],
+                            progress, watched, last_played, target_id,
                         ),
                     )
                 else:

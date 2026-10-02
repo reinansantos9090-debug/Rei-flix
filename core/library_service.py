@@ -298,7 +298,11 @@ class LibraryService:
                             "stale",
                             confidence=cached.get("metadata_confidence") or "high",
                         )
-                        return cached
+                        return (
+                            self.store.anime_metadata_by_id(owner_id)
+                            if owner_id
+                            else None
+                        ) or self.store.anime_metadata(local_lookup) or cached
                     return {
                         "title": display_title,
                         "genres": "[]",

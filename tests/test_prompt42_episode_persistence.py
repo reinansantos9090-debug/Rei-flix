@@ -67,6 +67,42 @@ class Prompt42EpisodePersistenceTests(unittest.TestCase):
             self.assertEqual(first["id"], target["id"])
             self.assertEqual(37, target["progress"])
 
+    def test_lower_confidence_apply_identification_cannot_undo_canonical_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            anime_id = store.upsert_anime(
+                "prompt42-apply",
+                {"title": "Prompt 42 Apply", "media_kind": "series", "genres": "[]"},
+                source="local",
+            )
+            path = "content://prompt42/apply"
+            episode_id = store.upsert_episode(
+                anime_id,
+                path,
+                "Apply S01E01.mkv",
+                1,
+                1,
+                source_folder="prompt42-source",
+                media_identity="prompt42:apply",
+                episode_type="regular",
+                identification_source="sxxexx",
+                identification_confidence="high",
+            )
+            store.apply_episode_identification(
+                path,
+                absolute_number=None,
+                relative_path="Apply S01E01.mkv",
+                episode_type="special",
+                episode_title="wrong weaker classification",
+                identification_source="legacy",
+                identification_confidence="low",
+            )
+            row = store.episode_by_id(episode_id)
+            self.assertEqual(1, row["season"])
+            self.assertEqual(1, row["number"])
+            self.assertEqual("regular", row["episode_type"])
+            self.assertEqual("high", row["identification_confidence"])
+
     def test_lower_confidence_rescan_does_not_reclassify_existing_stable_episode(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

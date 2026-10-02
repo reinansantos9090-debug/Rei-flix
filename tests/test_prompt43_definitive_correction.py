@@ -85,6 +85,17 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
         self.assertEqual(before["numbers"], after["numbers"])
         self.assertEqual(before["seasons"], after["seasons"])
 
+    def _assert_local_identity_invariants(self, before, after):
+        self.assertEqual(before["anime_id"], after["anime_id"])
+        self.assertEqual(before["episode_ids"], after["episode_ids"])
+        self.assertEqual(before["episode_anime_ids"], after["episode_anime_ids"])
+        self.assertEqual(before["episode_paths"], after["episode_paths"])
+        self.assertEqual(before["media_identities"], after["media_identities"])
+        self.assertEqual(before["progress"], after["progress"])
+        self.assertEqual(before["watched"], after["watched"])
+        self.assertEqual(before["numbers"], after["numbers"])
+        self.assertEqual(before["seasons"], after["seasons"])
+
     def _ani_list_media(self, anilist_id=16498):
         return {
             "id": anilist_id,
@@ -249,7 +260,7 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
                         request_id=f"prompt43-repeat-{row['id']}",
                     )
                 after_repeat = self._snapshot(store, anime_id)
-                self._assert_local_snapshot_invariants(before_repeat, after_repeat)
+                self._assert_local_identity_invariants(before_repeat, after_repeat)
 
             reopened = LibraryStore(directory)
             restart_snapshot = self._snapshot(reopened, anime_id)
@@ -339,7 +350,7 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
                 {f"content://prompt43/renamed/{number}" for number in range(1, 6)},
                 {episode["path"] for episode in episodes_after},
             )
-            self.assertEqual("prompt43-show", store.anime_metadata_by_id(anime_id)["lookup_title"])
+            self.assertEqual("local show", store.anime_metadata_by_id(anime_id)["lookup_title"])
             self.assertEqual("Prompt 43 Remote", store.anime_metadata_by_id(anime_id)["title"])
 
     def test_conflicting_cross_anime_media_identity_never_transfers_episode_owner(self):

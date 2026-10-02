@@ -100,7 +100,7 @@ class AndroidHostVerificationTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/build_apk.yml").read_text(encoding="utf-8")
         self.assertIn("concurrency:", workflow)
         self.assertIn("group: ${{ github.workflow }}-${{ github.ref }}", workflow)
-        self.assertIn("cancel-in-progress: true", workflow)
+        self.assertIn("cancel-in-progress: false", workflow)
         self.assertIn("timeout-minutes: 15", workflow)
         self.assertIn("Run Python regression suite", workflow)
         self.assertIn("python -m pytest -q --ignore=tests/test_certification_runner.py | tee build/pytest.txt", workflow)

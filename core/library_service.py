@@ -919,23 +919,21 @@ class LibraryService:
         if item.episode_type == "unknown" or not item.anime_title or item.anime_title == "Arquivo não identificado":
             result.unknown += 1
 
-        if key not in metadata:
-            try:
-                metadata[key] = self._identify(key, item.anime_title, lambda message: None, allow_network=False)
-            except Exception as exc:
-                metadata[key] = self.store.anime_metadata(key) or {"title": item.anime_title, "genres": "[]"}
-                result.errors.append(f"{item.anime_title}: metadata indisponível ({exc})")
-            metadata[key] = dict(metadata[key] or {})
-            if item.episode_type == "movie":
-                metadata[key]["media_kind"] = "movie"
-            elif item.episode_type == "unknown":
-                metadata[key]["media_kind"] = "unknown"
-            else:
-                metadata[key]["media_kind"] = metadata[key].get("media_kind") or "series"
-
         identity_uri = uri if uri.startswith(("file://", "content://")) else Path(uri).as_uri()
         native_identity = document.get("stableId")
-        identity = native_identity.strip() if isinstance(native_identity, str) and native_identity.strip() else identity_from_document(identity_uri, relative_path, volume_id, source_folder if source_kind == "saf" else None)
+        identity = (
+            native_identity.strip()
+            if isinstance(native_identity, str) and native_identity.strip()
+            else identity_from_document(
+                identity_uri,
+                relative_path,
+                volume_id,
+                source_folder if source_kind == "saf" else None,
+            )
+        )
+
+        # Resolve the local owner before consulting title-keyed metadata. Title is
+        # an editorial lookup fallback, never the primary owner identity.
         local_owner_id = (
             int(existing["anime_id"])
             if existing and existing.get("anime_id") is not None
@@ -953,6 +951,29 @@ class LibraryService:
                 "[EPISODE_OWNER_INVARIANT] scanner reused local anime owner anime_id=%s lookup_title=%s identity=%s path=%s",
                 local_owner_id, key, identity or "-", uri,
             )
+
+        if key not in metadata:
+            try:
+                metadata[key] = (
+                    self.store.anime_metadata_by_id(local_owner_id)
+                    if local_owner_id
+                    else None
+                ) or self._identify(key, item.anime_title, lambda message: None, allow_network=False)
+            except Exception as exc:
+                metadata[key] = (
+                    self.store.anime_metadata_by_id(local_owner_id)
+                    if local_owner_id
+                    else self.store.anime_metadata(key)
+                ) or {"title": item.anime_title, "genres": "[]"}
+                result.errors.append(f"{item.anime_title}: metadata indisponível ({exc})")
+            metadata[key] = dict(metadata[key] or {})
+            if item.episode_type == "movie":
+                metadata[key]["media_kind"] = "movie"
+            elif item.episode_type == "unknown":
+                metadata[key]["media_kind"] = "unknown"
+            else:
+                metadata[key]["media_kind"] = metadata[key].get("media_kind") or "series"
+
         anime_id = self.store.upsert_anime(
             key,
             metadata[key],

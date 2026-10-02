@@ -456,6 +456,43 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
                 )
                 self.assertTrue(all(owner == anime_id for owner in snapshot["episode_anime_ids"]))
                 self.assertEqual(37, snapshot["progress"][0])
+
+    def test_anilist_failures_never_remove_local_episodes(self):
+        failures = (
+            RuntimeError("network failure"),
+            TimeoutError("timeout"),
+            ValueError("http 429"),
+            ValueError("empty response"),
+        )
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
+                store = LibraryStore(directory)
+                service = LibraryService(store)
+                anime_id, _ = self._seed_five_episodes(store)
+                first = store.episode_by_id(
+                    store.catalog(anime_ids=[anime_id])[0]["seasons"][0]["episodes"][0]["id"]
+                )
+                store.save_progress(
+                    first["path"],
+                    37,
+                    100,
+                    episode_id=first["id"],
+                    event_created_at=6000,
+                )
+                before = self._snapshot(store, anime_id)
+                with patch.object(service.anilist, "search", side_effect=failure), \
+                     patch.object(service.anilist, "by_id", side_effect=failure):
+                    service.refresh_metadata(
+                        "prompt43-show",
+                        "Prompt 43 Failure Case",
+                        force=True,
+                        bypass_request_dedupe=True,
+                        local_anime_id=anime_id,
+                        request_id=f"prompt43-failure-{type(failure).__name__}",
+                    )
+                after = self._snapshot(store, anime_id)
+                self._assert_local_snapshot_invariants(before, after)
+
     def test_metadata_title_and_anilist_id_changes_preserve_local_owner(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

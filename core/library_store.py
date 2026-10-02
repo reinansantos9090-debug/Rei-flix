@@ -2376,7 +2376,7 @@ class LibraryStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def home_sections(self, limit=12):
+    def home_sections(self, limit=12, *, continue_limit=None):
         """Build only the bounded projections still displayed on Home."""
         started = time.perf_counter()
         page_limit = min(24, max(1, int(limit)))
@@ -2401,8 +2401,9 @@ class LibraryStore:
 
         hydrated = self.catalog(anime_ids=sorted(all_ids)) if all_ids else []
         by_id = {int(item["id"]): item for item in hydrated}
+        continue_page_limit = page_limit if continue_limit is None else min(24, max(1, int(continue_limit)))
         result = {
-            "continue_watching": self.continue_watching(limit=page_limit),
+            "continue_watching": self.continue_watching(limit=continue_page_limit),
             "favorites": [by_id[anime_id] for anime_id in section_ids["favorites"] if anime_id in by_id],
             "pinned": [by_id[anime_id] for anime_id in section_ids["pinned"] if anime_id in by_id],
             "movies": [by_id[anime_id] for anime_id in section_ids["movies"] if anime_id in by_id],

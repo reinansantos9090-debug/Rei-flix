@@ -72,7 +72,9 @@ object NativeCommandDispatcher {
 
             observer = object : FileObserver(
                 queueDir.absolutePath,
-                CLOSE_WRITE or MOVED_TO or CREATE,
+                FileObserver.CLOSE_WRITE or
+                    FileObserver.MOVED_TO or
+                    FileObserver.CREATE,
             ) {
                 override fun onEvent(event: Int, path: String?) {
                     if (path.isNullOrBlank()) return

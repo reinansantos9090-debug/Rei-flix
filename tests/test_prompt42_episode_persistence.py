@@ -252,5 +252,159 @@ class Prompt42EpisodePersistenceTests(unittest.TestCase):
             self.assertEqual("regular", row["episode_type"])
 
 
+    def test_stale_progress_event_cannot_roll_back_canonical_episode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            anime_id = store.upsert_anime(
+                "prompt42-stale",
+                {"title": "Prompt 42 Stale", "media_kind": "series", "genres": "[]"},
+                source="local",
+            )
+            first_id = store.upsert_episode(
+                anime_id,
+                "content://prompt42/stale-1",
+                "Show S01E01.mkv",
+                1,
+                1,
+                duration=100,
+                source_folder="prompt42-source",
+                media_identity="prompt42:stale:1",
+                identification_source="sxxexx",
+                identification_confidence="high",
+            )
+            second_id = store.upsert_episode(
+                anime_id,
+                "content://prompt42/stale-2",
+                "Show S01E02.mkv",
+                1,
+                2,
+                duration=100,
+                source_folder="prompt42-source",
+                media_identity="prompt42:stale:2",
+                identification_source="sxxexx",
+                identification_confidence="high",
+            )
+
+            self.assertTrue(
+                store.save_progress(
+                    "content://prompt42/stale-1",
+                    37,
+                    100,
+                    episode_id=first_id,
+                    event_created_at=2000,
+                    session_id="prompt42-session",
+                )
+            )
+            self.assertFalse(
+                store.save_progress(
+                    "content://prompt42/stale-1",
+                    2,
+                    100,
+                    episode_id=first_id,
+                    event_created_at=1500,
+                    session_id="prompt42-session",
+                )
+            )
+            self.assertTrue(
+                store.save_progress(
+                    "content://prompt42/stale-2",
+                    12,
+                    100,
+                    episode_id=second_id,
+                    event_created_at=2100,
+                    session_id="prompt42-session",
+                )
+            )
+
+            first = store.episode_by_id(first_id)
+            second = store.episode_by_id(second_id)
+            self.assertEqual(37, first["progress"])
+            self.assertEqual(12, second["progress"])
+
+    def test_reconciliation_merge_preserves_stronger_identity_on_valid_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            anime_id = store.upsert_anime(
+                "prompt42-reconcile",
+                {"title": "Prompt 42 Reconcile", "media_kind": "series", "genres": "[]"},
+                source="local",
+            )
+            strong_id = store.upsert_episode(
+                anime_id,
+                "content://prompt42/reconcile-strong",
+                "Show S01E01.mkv",
+                1,
+                1,
+                source_folder="prompt42-source",
+                media_identity="prompt42:reconcile",
+                episode_type="regular",
+                identification_source="sxxexx",
+                identification_confidence="high",
+                absolute_number=1,
+            )
+            store.save_progress(
+                "content://prompt42/reconcile-strong",
+                37,
+                100,
+                episode_id=strong_id,
+                event_created_at=1000,
+            )
+
+            with store._conn() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO episodes(
+                        anime_id,path,file_name,season,number,duration,progress,watched,
+                        mime_type,file_size,modified_at,source_folder,media_identity,
+                        missing,last_played_at,episode_type,episode_title,
+                        identification_source,identification_confidence,manual_override,
+                        availability_state,absolute_number
+                    )
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        anime_id,
+                        "content://prompt42/reconcile-valid",
+                        "Show 07.mkv",
+                        2,
+                        7,
+                        100,
+                        5,
+                        0,
+                        "video/mp4",
+                        1000,
+                        2000,
+                        "prompt42-source",
+                        "prompt42:reconcile",
+                        0,
+                        2000,
+                        "regular",
+                        None,
+                        "numeric_suffix",
+                        "medium",
+                        0,
+                        "available",
+                        7,
+                    ),
+                )
+
+            valid = store.physical_row("content://prompt42/reconcile-valid")
+            self.assertIsNotNone(valid)
+            result = store.apply_library_reconciliation(
+                [],
+                [{"source_id": strong_id, "target_id": valid["id"]}],
+            )
+
+            self.assertGreaterEqual(result["duplicates_merged"], 1)
+            survivor = store.physical_row("content://prompt42/reconcile-valid")
+            self.assertIsNotNone(survivor)
+            self.assertEqual(1, survivor["season"])
+            self.assertEqual(1, survivor["number"])
+            self.assertEqual(1, survivor["absolute_number"])
+            self.assertEqual("high", survivor["identification_confidence"])
+            self.assertEqual(37, survivor["progress"])
+            self.assertIsNone(store.episode_by_id(strong_id))
+
+
 if __name__ == "__main__":
     unittest.main()

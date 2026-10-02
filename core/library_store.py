@@ -1525,7 +1525,7 @@ class LibraryStore:
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                            episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0,availability_state='available' WHERE id=?""",
                         (effective_anime_id,new_path,file_name,effective_season,effective_number,effective_mime,effective_size,effective_modified,source_folder,
-                         media_identity,effective_absolute,effective_type,effective_title,effective_source,effective_confidence,row_id),
+                         effective_media_identity,effective_absolute,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )
                 return row_id
 

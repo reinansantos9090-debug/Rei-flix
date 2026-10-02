@@ -536,11 +536,18 @@ jobs:
           name: ReiAnix-apk-${{ github.run_number }}
           path: |
             build/ReiAnix.apk
-            build/ReiAnix-apk.zip
             build/ReiAnix.apk.sha256
           retention-days: 1
           if-no-files-found: error
-          continue-on-error: true
+
+      - name: Upload APK ZIP to Actions run
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReiAnix-apk-zip-${{ github.run_number }}
+          path: build/ReiAnix-apk.zip
+          retention-days: 1
+          if-no-files-found: error
 
       # Keep Actions artifact publication disabled for push/PR builds. The
       # rolling release above is the supported download channel for manual

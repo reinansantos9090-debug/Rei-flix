@@ -131,7 +131,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f build/flutter/android/gradlew
-          test -f build/flutter/android/settings.gradle
+          test -f build/flutter/android/settings.gradle.kts
           test -f build/flutter/android/app/build.gradle.kts
           test -d build/flutter/android/app/src/androidTest
       - name: Cache rendered Android test project
@@ -179,7 +179,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f build/flutter/android/gradlew
-          test -f build/flutter/android/settings.gradle
+          test -f build/flutter/android/settings.gradle.kts
           test -f build/flutter/android/app/build.gradle.kts
           test -d build/flutter/android/app/src/androidTest
           chmod +x build/flutter/android/gradlew
@@ -371,7 +371,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f build/flutter/android/gradlew
-          test -f build/flutter/android/settings.gradle
+          test -f build/flutter/android/settings.gradle.kts
           test -f build/flutter/android/app/build.gradle.kts
           test -d build/flutter/android/app/src/androidTest
           chmod +x build/flutter/android/gradlew

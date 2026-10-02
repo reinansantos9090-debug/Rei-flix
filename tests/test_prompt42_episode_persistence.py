@@ -349,6 +349,10 @@ class Prompt42EpisodePersistenceTests(unittest.TestCase):
             )
 
             with store._conn() as connection:
+                # Legacy databases can contain duplicate identities from before
+                # the current unique index. Recreate that historical condition
+                # explicitly so the migration/reconciliation path is tested.
+                connection.execute("DROP INDEX IF EXISTS idx_episodes_media_identity")
                 connection.execute(
                     """
                     INSERT INTO episodes(

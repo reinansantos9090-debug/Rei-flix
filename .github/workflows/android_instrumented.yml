@@ -158,6 +158,17 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.8"
+          channel: stable
+          cache: true
+      - name: Verify Flutter SDK
+        run: |
+          set -euo pipefail
+          flutter --version
+          test -d "$FLUTTER_ROOT/packages/flutter_tools/gradle"
       - name: Accept Android SDK licenses and install emulator dependencies
         shell: bash
         run: |
@@ -333,6 +344,17 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.8"
+          channel: stable
+          cache: true
+      - name: Verify Flutter SDK
+        run: |
+          set -euo pipefail
+          flutter --version
+          test -d "$FLUTTER_ROOT/packages/flutter_tools/gradle"
       - name: Restore rendered Android test project
         uses: actions/cache/restore@v4
         with:

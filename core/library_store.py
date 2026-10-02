@@ -3002,7 +3002,7 @@ class LibraryStore:
         return result
 
     def continue_watching(self, limit=12):
-        """Return only the latest resumable episode per anime without loading the full episode table."""
+        """Return bounded resumable episode rows ordered by their real playback activity."""
         started = time.perf_counter()
         try:
             limit = max(1, min(100, int(limit)))
@@ -3016,38 +3016,30 @@ class LibraryStore:
         with self._conn() as c:
             rows = c.execute(
                 f"""
-                WITH ranked AS (
-                    SELECT
-                        e.*,
-                        a.title AS anime_title,
-                        a.media_kind,
-                        a.cover_cache,
-                        a.cover_url,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY e.anime_id
-                            ORDER BY COALESCE(e.last_played_at, 0) DESC, e.id DESC
-                        ) AS resume_rank
-                    FROM episodes e
-                    JOIN anime a ON a.id=e.anime_id
-                    WHERE e.missing=0
-                      AND COALESCE(e.progress,0)>0
-                      AND NOT {completed_sql}
-                      AND (
-                          a.media_kind='movie'
-                          OR LOWER(COALESCE(e.episode_type,'regular'))
-                             NOT IN ('special','ova','oad','ona','extra','movie')
-                      )
-                )
-                SELECT *
-                FROM ranked
-                WHERE resume_rank=1
-                ORDER BY COALESCE(last_played_at,0) DESC, id DESC
+                SELECT
+                    e.*,
+                    a.title AS anime_title,
+                    a.media_kind,
+                    a.cover_cache,
+                    a.cover_url
+                FROM episodes e
+                JOIN anime a ON a.id=e.anime_id
+                WHERE e.missing=0
+                  AND COALESCE(e.progress,0)>0
+                  AND NOT {completed_sql}
+                  AND (
+                      a.media_kind='movie'
+                      OR LOWER(COALESCE(e.episode_type,'regular'))
+                         NOT IN ('special','ova','oad','ona','extra','movie')
+                  )
+                ORDER BY COALESCE(e.last_played_at,0) DESC, e.id DESC
                 LIMIT ?
                 """,
                 (limit,),
             ).fetchall()
         result = [
             {
+                "episode_id": row["id"],
                 "anime_id": row["anime_id"],
                 "anime_title": row["anime_title"],
                 "cover": row["cover_cache"] or row["cover_url"],

@@ -378,6 +378,7 @@ def main() -> int:
         source / "src/main/kotlin/com/reiflix/reiflix_local/NativePlayerActivity.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/GoogleIdentity.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/NativeRequestState.kt",
+        source / "src/main/kotlin/com/reiflix/reiflix_local/NativeCommandDispatcher.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/StorageAuthorization.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/NativeIndex.kt",
         source / "src/main/kotlin/com/reiflix/reiflix_local/NativeScanController.kt",

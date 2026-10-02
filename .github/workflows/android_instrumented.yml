@@ -3,6 +3,8 @@ name: ReiAnix Android Instrumented Runtime Matrix
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -85,6 +87,8 @@ jobs:
         run: |
           python scripts/create_player_fixture.py
           test -s android/app/src/androidTest/assets/player_fixture.mp4
+          python scripts/create_prompt43_library_fixture.py
+          test -s android/app/src/androidTest/assets/prompt43_library.sqlite3
       - name: Prepare Flet template with ReiAnix Android host
         shell: bash
         run: |
@@ -120,7 +124,8 @@ jobs:
             BackAndSettingsReturnInstrumentedTest.kt \
             DeviceFlowInstrumentedTest.kt \
             NativeIndexInstrumentedTest.kt \
-            NativeMailboxInstrumentedTest.kt; do
+            NativeMailboxInstrumentedTest.kt \
+            Prompt43MetadataOwnerInstrumentedTest.kt; do
             test -f "build/flutter/android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/$test_file"
           done
       # Cache the rendered Android project directly. This avoids a second
@@ -140,6 +145,94 @@ jobs:
           path: build/flutter/android
           key: reianix-android-test-project-v2-${{ github.sha }}
 
+
+  instrumented-tv:
+    name: Android TV API 36
+    needs: prepare-android-test-project
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.8"
+          channel: stable
+          cache: true
+      - name: Verify Flutter SDK
+        run: |
+          set -euo pipefail
+          flutter --version
+          test -d "$FLUTTER_ROOT/packages/flutter_tools/gradle"
+      - name: Accept Android SDK licenses and install emulator dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager_path="$(find "$sdk_root/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          test -n "$sdkmanager_path"
+          set +o pipefail
+          yes | "$sdkmanager_path" --licenses >/dev/null
+          set -o pipefail
+          "$sdkmanager_path" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "emulator"
+      - name: Restore rendered Android test project
+        uses: actions/cache/restore@v4
+        with:
+          path: build/flutter/android
+          key: reianix-android-test-project-v2-${{ github.sha }}
+      - name: Verify restored Android test project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f build/flutter/android/gradlew
+          test -f build/flutter/android/settings.gradle.kts
+          test -f build/flutter/android/app/build.gradle.kts
+          test -d build/flutter/android/app/src/androidTest
+          chmod +x build/flutter/android/gradlew
+      - name: Enable KVM for Android TV emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-reianix-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+      - name: Run instrumented tests on Android TV API 36
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: android-tv
+          arch: x86_64
+          profile: tv
+          force-avd-creation: true
+          emulator-boot-timeout: 1500
+          disable-animations: false
+          disable-linux-hw-accel: false
+          emulator-options: "-no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -camera-back none -camera-front none"
+          script: bash "$GITHUB_WORKSPACE/scripts/run_android_instrumented.sh" "36" "$GITHUB_WORKSPACE/build/android-tv-api36"
+      - name: Capture Android TV runtime diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          out="$GITHUB_WORKSPACE/build/android-tv-api36"
+          mkdir -p "$out"
+          adb devices -l >"$out/adb_devices.txt" 2>&1
+          adb shell getprop ro.build.version.sdk >"$out/sdk.txt" 2>&1
+          adb logcat -d -v threadtime >"$out/logcat.txt" 2>&1
+      - name: Upload Android TV diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reianix-android-tv-api36-diagnostics-${{ github.run_id }}
+          path: build/android-tv-api36/
+          if-no-files-found: ignore
 
   instrumented:
     name: Android API ${{ matrix.api }}

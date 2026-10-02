@@ -1095,6 +1095,93 @@ class LibraryStore:
             r = c.execute("SELECT anilist_id FROM associations WHERE lookup_title=?", (lookup,)).fetchone()
             return r[0] if r else None
 
+    def anime_metadata_by_id(self, anime_id):
+        """Return one local anime row by its canonical internal identity."""
+        try:
+            anime_id = int(anime_id)
+        except (TypeError, ValueError):
+            return None
+        if anime_id <= 0:
+            return None
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM anime WHERE id=?", (anime_id,)).fetchone()
+            return dict(row) if row else None
+
+    def resolve_local_anime_owner(
+        self,
+        *,
+        anime_id=None,
+        media_identity=None,
+        path=None,
+        source_folder=None,
+        relative_path=None,
+        volume_id=None,
+        lookup_title=None,
+    ):
+        """Resolve the canonical local anime owner without making title the primary identity."""
+        normalized_identity = str(media_identity or "").strip()
+        normalized_path = str(path or "").strip()
+        normalized_source = str(source_folder or "").strip()
+        normalized_relative = str(relative_path or "").strip().replace(chr(92), "/").strip("/")
+        normalized_volume = str(volume_id or "").strip()
+        normalized_lookup = str(lookup_title or "").strip()
+
+        with self._conn() as c:
+            try:
+                candidate_id = int(anime_id) if anime_id is not None else None
+            except (TypeError, ValueError):
+                candidate_id = None
+            if candidate_id and candidate_id > 0:
+                row = c.execute("SELECT id FROM anime WHERE id=?", (candidate_id,)).fetchone()
+                if row:
+                    return int(row["id"])
+
+            if normalized_identity:
+                rows = c.execute(
+                    "SELECT DISTINCT anime_id FROM episodes WHERE media_identity=? ORDER BY anime_id",
+                    (normalized_identity,),
+                ).fetchall()
+                owner_ids = {int(row["anime_id"]) for row in rows if row["anime_id"] is not None}
+                if len(owner_ids) == 1:
+                    return next(iter(owner_ids))
+
+            if normalized_path:
+                rows = c.execute(
+                    "SELECT DISTINCT anime_id FROM episodes WHERE path=? ORDER BY anime_id",
+                    (normalized_path,),
+                ).fetchall()
+                owner_ids = {int(row["anime_id"]) for row in rows if row["anime_id"] is not None}
+                if len(owner_ids) == 1:
+                    return next(iter(owner_ids))
+
+            if normalized_source and normalized_relative:
+                if normalized_volume:
+                    rows = c.execute(
+                        """SELECT DISTINCT anime_id FROM episodes
+                           WHERE source_folder=? AND relative_path=? AND volume_id=?
+                           ORDER BY anime_id""",
+                        (normalized_source, normalized_relative, normalized_volume),
+                    ).fetchall()
+                else:
+                    rows = c.execute(
+                        """SELECT DISTINCT anime_id FROM episodes
+                           WHERE source_folder=? AND relative_path=?
+                           ORDER BY anime_id""",
+                        (normalized_source, normalized_relative),
+                    ).fetchall()
+                owner_ids = {int(row["anime_id"]) for row in rows if row["anime_id"] is not None}
+                if len(owner_ids) == 1:
+                    return next(iter(owner_ids))
+
+            if normalized_lookup:
+                row = c.execute(
+                    "SELECT id FROM anime WHERE lookup_title=?",
+                    (normalized_lookup,),
+                ).fetchone()
+                if row:
+                    return int(row["id"])
+        return None
+
     def anime_metadata(self, lookup):
         """Return the cached AniList-derived metadata for a local title."""
         with self._conn() as c:
@@ -1154,7 +1241,7 @@ class LibraryStore:
                 raise ValueError("Anime local não encontrado.")
         return normalized
 
-    def upsert_anime(self, lookup, metadata, *, source=None, confidence=None, status=None, fetched_at=None):
+    def upsert_anime(self, lookup, metadata, *, source=None, confidence=None, status=None, fetched_at=None, local_anime_id=None):
         """Upsert editorial metadata with source-aware, field-level merge safety.
 
         User metadata (favorites, tags, pins, notes) is stored in separate columns.
@@ -1199,7 +1286,15 @@ class LibraryStore:
             "studio": metadata.get("studio"),
         }
         with self._conn() as c:
-            row = c.execute("SELECT * FROM anime WHERE lookup_title=?", (lookup,)).fetchone()
+            row = None
+            try:
+                owner_id = int(local_anime_id) if local_anime_id is not None else None
+            except (TypeError, ValueError):
+                owner_id = None
+            if owner_id and owner_id > 0:
+                row = c.execute("SELECT * FROM anime WHERE id=?", (owner_id,)).fetchone()
+            if row is None:
+                row = c.execute("SELECT * FROM anime WHERE lookup_title=?", (lookup,)).fetchone()
             if row:
                 if source != "anilist" and "description_original" not in metadata:
                     values["description_original"] = row["description_original"]
@@ -1245,7 +1340,7 @@ class LibraryStore:
                 metadata_conf = confidence if source in {"anilist", "manual"} else row["metadata_confidence"]
                 metadata_updated = now if source in {"anilist", "manual"} else row["metadata_updated_at"]
                 c.execute("""UPDATE anime SET anilist_id=?,title=?,romaji=?,english=?,native=?,aliases=?,description=?,description_original=?,cover_url=?,cover_cache=?,banner_url=?,genres=?,year=?,season=?,status=?,episodes_count=?,duration=?,score=?,format=?,studio=?,metadata_updated_at=?,metadata_fetched_at=?,metadata_source=?,metadata_confidence=?,metadata_status=?,metadata_manual_fields=?,media_kind=? WHERE id=?""",
-                          (values["anilist_id"], values["title"] or lookup, values["romaji"], values["english"], values["native"], values["aliases"], values["description"], values["description_original"], values["cover_url"], values["cover_cache"], values["banner_url"], values["genres"], values["year"], values["season"], values["status"], values["episodes_count"], values["duration"], values["score"], values["format"], values["studio"], metadata_updated, metadata_fetched, metadata_source, metadata_conf, metadata_status, json.dumps(sorted(manual_fields), ensure_ascii=False), media_kind, row["id"]))
+                          (values["anilist_id"], values["title"] or row["title"] or lookup, values["romaji"], values["english"], values["native"], values["aliases"], values["description"], values["description_original"], values["cover_url"], values["cover_cache"], values["banner_url"], values["genres"], values["year"], values["season"], values["status"], values["episodes_count"], values["duration"], values["score"], values["format"], values["studio"], metadata_updated, metadata_fetched, metadata_source, metadata_conf, metadata_status, json.dumps(sorted(manual_fields), ensure_ascii=False), media_kind, row["id"]))
                 return row["id"]
             c.execute("""INSERT INTO anime(lookup_title,anilist_id,title,romaji,english,native,aliases,description,description_original,cover_url,cover_cache,banner_url,genres,year,season,status,episodes_count,duration,score,format,studio,metadata_updated_at,metadata_fetched_at,metadata_source,metadata_confidence,metadata_status,metadata_manual_fields,media_kind,added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                       (lookup, values["anilist_id"], values["title"], values["romaji"], values["english"], values["native"], values["aliases"], values["description"], values["description_original"], values["cover_url"], values["cover_cache"], values["banner_url"], values["genres"], values["year"], values["season"], values["status"], values["episodes_count"], values["duration"], values["score"], values["format"], values["studio"], metadata_updated_at, fetched_at, source, confidence, status, json.dumps(sorted(k for k in editorial if source == "manual" and k in metadata), ensure_ascii=False), incoming_kind, now))
@@ -1402,7 +1497,10 @@ class LibraryStore:
                     if preserve_existing_identity
                     else absolute_number if absolute_number is not None else (existing["absolute_number"] if existing else None)
                 )
-                effective_anime_id = existing["anime_id"] if preserve_existing_identity else anime_id
+                # Local episode ownership is canonical once persisted. A rescan,
+                # title change, metadata refresh, or weaker parser evidence may
+                # never transfer an existing episode to another anime.
+                effective_anime_id = existing["anime_id"]
                 if new_path is None:
                     c.execute(
                         """UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,
@@ -1422,50 +1520,60 @@ class LibraryStore:
                 return row_id
 
             if by_path and by_identity and by_path["id"] != by_identity["id"]:
+                # A physical file may have two legacy rows after an older identity
+                # migration. Metadata/scanner updates are never allowed to transfer
+                # ownership between local anime entities.
+                if int(by_path["anime_id"]) != int(by_identity["anime_id"]):
+                    logger.warning(
+                        "[EPISODE_OWNER_INVARIANT] conflicting legacy owners path_id=%s path_anime=%s identity_id=%s identity_anime=%s",
+                        by_path["id"], by_path["anime_id"], by_identity["id"], by_identity["anime_id"],
+                    )
+                    return update_existing(by_path["id"])
+
                 progress = max(float(by_path["progress"] or 0), float(by_identity["progress"] or 0))
                 watched = max(int(by_path["watched"] or 0), int(by_identity["watched"] or 0))
                 last_played = max(float(by_path["last_played_at"] or 0), float(by_identity["last_played_at"] or 0)) or None
-                preferred_existing = (
-                    by_identity if by_identity["manual_override"]
-                    else by_path if by_path["manual_override"]
-                    else by_identity
-                    if self._identification_confidence_rank(by_identity["identification_confidence"])
-                    >= self._identification_confidence_rank(by_path["identification_confidence"])
-                    else by_path
+                preferred_existing = max(
+                    (by_path, by_identity),
+                    key=self._episode_identity_preference_key,
                 )
                 incoming_confidence = identification_confidence or "medium"
-                preserve_existing_identity = (
-                    bool(preferred_existing)
-                    and self._identification_confidence_rank(incoming_confidence)
+                (
+                    duplicate_season,
+                    duplicate_number,
+                    duplicate_type,
+                    duplicate_title,
+                    duplicate_source,
+                    duplicate_confidence,
+                ) = effective_identification(preferred_existing)
+                duplicate_absolute = (
+                    preferred_existing["absolute_number"]
+                    if self._identification_confidence_rank(incoming_confidence)
                     < self._identification_confidence_rank(preferred_existing["identification_confidence"])
+                    else absolute_number
+                    if absolute_number is not None
+                    else preferred_existing["absolute_number"]
                 )
-                if preserve_existing_identity:
-                    duplicate_anime_id = preferred_existing["anime_id"]
-                    duplicate_source = preferred_existing["identification_source"]
-                    duplicate_confidence = preferred_existing["identification_confidence"]
-                    duplicate_season = preferred_existing["season"]
-                    duplicate_number = preferred_existing["number"]
-                    duplicate_absolute = preferred_existing["absolute_number"]
-                    duplicate_type = preferred_existing["episode_type"]
-                    duplicate_title = preferred_existing["episode_title"]
-                else:
-                    duplicate_anime_id = anime_id
-                    duplicate_source = identification_source or "legacy"
-                    duplicate_confidence = incoming_confidence
-                    duplicate_season = season
-                    duplicate_number = number
-                    duplicate_absolute = absolute_number
-                    duplicate_type = episode_type
-                    duplicate_title = episode_title
-                survivor_id = by_identity["id"]
+                survivor_id = int(preferred_existing["id"])
+                duplicate_id = int(by_identity["id"] if survivor_id == int(by_path["id"]) else by_path["id"])
+                effective_mime = (
+                    str(mime_type).strip()
+                    if mime_type is not None and str(mime_type).strip()
+                    else preferred_existing["mime_type"]
+                )
+                effective_size = file_size if file_size is not None else preferred_existing["file_size"]
+                effective_modified = modified_at if modified_at is not None else preferred_existing["modified_at"]
                 c.execute(
                     """UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,
                        file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                        episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,
                        missing=0,progress=?,watched=?,last_played_at=? WHERE id=?""",
-                    (duplicate_anime_id,path,file_name,duplicate_season,duplicate_number,mime_type,file_size,modified_at,source_folder,
-                     media_identity,duplicate_absolute,duplicate_type,duplicate_title,duplicate_source,
-                     duplicate_confidence,progress,watched,last_played,survivor_id),
+                    (
+                        preferred_existing["anime_id"], path, file_name, duplicate_season, duplicate_number,
+                        effective_mime, effective_size, effective_modified, source_folder, media_identity,
+                        duplicate_absolute, duplicate_type, duplicate_title, duplicate_source,
+                        duplicate_confidence, progress, watched, last_played, survivor_id,
+                    ),
                 )
                 c.execute(
                     """INSERT OR IGNORE INTO episode_observations(
@@ -1474,9 +1582,9 @@ class LibraryStore:
                        SELECT ?,source_kind,scope_kind,scope_ref,uri,volume_id,native_generation,
                          fingerprint,first_seen,last_seen,last_checked_at,state,error
                        FROM episode_observations WHERE episode_id=?""",
-                    (survivor_id, by_path["id"]),
+                    (survivor_id, duplicate_id),
                 )
-                c.execute("DELETE FROM episodes WHERE id=?", (by_path["id"],))
+                c.execute("DELETE FROM episodes WHERE id=?", (duplicate_id,))
                 self._recompute_episode_availability_locked(c, survivor_id)
                 return survivor_id
 
@@ -1507,6 +1615,18 @@ class LibraryStore:
                    ORDER BY id ASC""",
                 (identity,),
             ).fetchall()
+            if len(rows) < 2:
+                continue
+            owner_groups = {}
+            for row in rows:
+                owner_groups.setdefault(int(row["anime_id"]), []).append(row)
+            if len(owner_groups) > 1:
+                logger.warning(
+                    "[EPISODE_OWNER_INVARIANT] skip cross-anime duplicate merge identity=%s owners=%s",
+                    identity, sorted(owner_groups),
+                )
+                continue
+            rows = next(iter(owner_groups.values()))
             if len(rows) < 2:
                 continue
             survivor = max(rows, key=self._episode_identity_preference_key)
@@ -1592,6 +1712,12 @@ class LibraryStore:
                 source = c.execute("SELECT * FROM episodes WHERE id=?", (source_id,)).fetchone()
                 target = c.execute("SELECT * FROM episodes WHERE id=?", (target_id,)).fetchone()
                 if not source or not target:
+                    continue
+                if int(source["anime_id"]) != int(target["anime_id"]):
+                    logger.warning(
+                        "[EPISODE_OWNER_INVARIANT] skip reconciliation merge across anime source_id=%s source_anime=%s target_id=%s target_anime=%s",
+                        source_id, source["anime_id"], target_id, target["anime_id"],
+                    )
                     continue
 
                 progress = max(float(source["progress"] or 0), float(target["progress"] or 0))

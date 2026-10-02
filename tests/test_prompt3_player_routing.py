@@ -17,12 +17,15 @@ class Prompt3PlayerRoutingTests(unittest.TestCase):
     def test_internal_player_actions_use_private_command_channel(self):
         source = BRIDGE.read_text(encoding="utf-8")
         dispatcher = DISPATCHER.read_text(encoding="utf-8")
+        action_set_start = source.index("        self._internal_command_actions = {")
+        action_set_end = source.index("        self._recover_unacknowledged_batches()", action_set_start)
+        action_set = source[action_set_start:action_set_end]
         launch_start = source.index("            if action in self._internal_command_actions and self.available:")
         direct_end = source.index("            else:", launch_start)
         direct_block = source[launch_start:direct_end]
         for action in ("play", "extract_thumbnail", "cancel_player_transition"):
-            self.assertIn(f'"{action}"', source)
-            self.assertIn(action, direct_block)
+            self.assertIn(f'"{action}"', action_set)
+            self.assertIn("self._write_internal_command(", direct_block)
         self.assertIn('reiflix-native-commands', source)
         self.assertIn('FileObserver', dispatcher)
         self.assertIn('FILE_PREFIX = "command-"', dispatcher)

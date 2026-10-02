@@ -87,6 +87,8 @@ jobs:
         run: |
           python scripts/create_player_fixture.py
           test -s android/app/src/androidTest/assets/player_fixture.mp4
+          python scripts/create_prompt43_library_fixture.py
+          test -s android/app/src/androidTest/assets/prompt43_library.sqlite3
       - name: Prepare Flet template with ReiAnix Android host
         shell: bash
         run: |
@@ -122,7 +124,7 @@ jobs:
             BackAndSettingsReturnInstrumentedTest.kt \
             DeviceFlowInstrumentedTest.kt \
             NativeIndexInstrumentedTest.kt \
-            NativeMailboxInstrumentedTest.kt; do
+            NativeMailboxInstrumentedTest.kt             Prompt43MetadataOwnerInstrumentedTest.kt; do
             test -f "build/flutter/android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/$test_file"
           done
       # Cache the rendered Android project directly. This avoids a second

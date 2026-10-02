@@ -47,6 +47,21 @@ class Prompt13NativePlayerLifecycleTests(unittest.TestCase):
         self.assertIn("initialSeekApplied = true", ready)
         self.assertEqual(1, ready.count("seekToSavedPosition(restoredPositionMs ?: savedPosition)"))
 
+    def test_media_reset_rebinds_texture_view_between_media_items(self):
+        prepare = self.player[
+            self.player.index("private fun prepareCurrentMedia"):
+            self.player.index("private fun createPlayerListener")
+        ]
+        detach_index = prepare.index("detachPlayerViewForMediaReset(reason)")
+        set_media_index = prepare.index("player.setMediaItem(mediaItem)")
+        reattach_index = prepare.index("reattachPlayerViewAfterMediaReset(reason)")
+        self.assertLess(detach_index, set_media_index)
+        self.assertLess(set_media_index, reattach_index)
+        self.assertIn("private fun detachPlayerViewForMediaReset(reason: String)", self.player)
+        self.assertIn("private fun reattachPlayerViewAfterMediaReset(reason: String)", self.player)
+        self.assertIn("playerView.player = null", self.player)
+        self.assertIn("playerView.player = player", self.player)
+
     def test_new_intent_cannot_inherit_stale_foreground_resume_state(self):
         reuse = self.player[
             self.player.index("override fun onNewIntent"):

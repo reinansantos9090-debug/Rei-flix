@@ -50,13 +50,13 @@ pasta específica. O app não converte URIs content:// em caminhos artificiais.
 
 ## Licença e autoria
 
-O **ReiAnix** é distribuído sob a **GNU General Public License v3.0 ou posterior (GPL-3.0-or-later)**.
+O **ReiAnix** é distribuído sob a **Apache License 2.0 (Apache-2.0)**.
 
 Copyright © 2026 Reinan Santos.
 
-A licença completa está disponível no arquivo [LICENSE](LICENSE). Ela permite usar, estudar, modificar e redistribuir o software sob os termos da GPL, incluindo a obrigação de preservar os avisos de copyright e, para versões modificadas distribuídas, cumprir as condições de distribuição de código-fonte previstas pela licença.
+A licença completa está disponível no arquivo [LICENSE](LICENSE). O código próprio do ReiAnix pode ser usado, estudado, modificado e redistribuído sob os termos da Apache-2.0, observando as condições de preservação de avisos de copyright, licença e demais atribuições aplicáveis.
 
-O nome **ReiAnix** e quaisquer marcas, logos, artes ou conteúdos de terceiros não são automaticamente licenciados pelo GPL apenas por estarem no repositório. As respectivas permissões e licenças aplicáveis devem ser respeitadas.
+O nome **ReiAnix** e quaisquer marcas, logos, artes ou conteúdos de terceiros não são automaticamente licenciados pela Apache-2.0 apenas por estarem no repositório. As respectivas permissões e licenças aplicáveis devem ser respeitadas. Dependências e componentes de terceiros continuam sujeitos às suas próprias licenças.
 
 ## Google Cloud
 

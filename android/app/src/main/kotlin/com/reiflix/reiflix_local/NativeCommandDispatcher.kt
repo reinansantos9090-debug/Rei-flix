@@ -29,7 +29,6 @@ object NativeCommandDispatcher {
     private const val TAG = "[REIANIX][NATIVE_COMMAND]"
     private const val QUEUE = "reiflix-native-commands"
     private const val TEMP_SUFFIX = ".tmp"
-    private const val PROCESSING_SUFFIX = ".processing"
     private const val FILE_PREFIX = "command-"
 
     private val lock = Any()
@@ -82,7 +81,6 @@ object NativeCommandDispatcher {
                     enqueue(path)
                 }
             }
-            recoverClaimedCommands()
             observer?.startWatching()
             started = true
             commandExecutor.execute { drainPendingCommands() }
@@ -95,24 +93,6 @@ object NativeCommandDispatcher {
         commandExecutor.execute { processFile(fileName) }
     }
 
-    private fun recoverClaimedCommands() {
-        queueDir.listFiles()
-            ?.filter { it.isFile && it.name.endsWith(PROCESSING_SUFFIX) }
-            ?.forEach { processing ->
-                val restoredName = processing.name.removeSuffix(PROCESSING_SUFFIX) + ".json"
-                val restored = File(queueDir, restoredName)
-                runCatching {
-                    if (restored.exists()) {
-                        processing.delete()
-                    } else {
-                        check(processing.renameTo(restored))
-                    }
-                }.onFailure {
-                    Log.e(TAG, "COMMAND_RECOVERY_FAILED file=${processing.name}", it)
-                }
-            }
-    }
-
     private fun drainPendingCommands() {
         queueDir.listFiles()
             ?.filter { it.isFile && it.name.startsWith(FILE_PREFIX) && it.extension == "json" }
@@ -120,26 +100,13 @@ object NativeCommandDispatcher {
             ?.forEach { processFile(it.name) }
     }
 
-    private fun claim(file: File): File? {
-        val processing = File(
-            queueDir,
-            file.name.removeSuffix(".json") + "-" + UUID.randomUUID() + PROCESSING_SUFFIX,
-        )
-        return try {
-            if (file.renameTo(processing)) processing else null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
     private fun processFile(fileName: String) {
         val file = File(queueDir, fileName)
         if (!file.isFile) return
-        val claimed = claim(file) ?: return
         try {
-            val command = parse(claimed.readText(StandardCharsets.UTF_8))
+            val command = parse(file.readText(StandardCharsets.UTF_8))
             if (command == null) {
-                Log.e(TAG, "COMMAND_REJECTED file=${claimed.name} reason=invalid_envelope")
+                Log.e(TAG, "COMMAND_REJECTED file=${file.name} reason=invalid_envelope")
                 return
             }
             if (!NativeRequestState.isSupportedAction(command.action)) {

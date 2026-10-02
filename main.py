@@ -1911,10 +1911,18 @@ async def main(page: ft.Page):
     async def refresh_current_metadata(e=None):
         """Refresh only editorial metadata; never rescans or mutates playback state."""
         metadata_started = performance.now()
+        request_id = str(uuid.uuid4())
         anime = current[0] or {}
         anime_id = anime.get("id")
         lookup = (anime.get("meta") or {}).get("lookup_title")
         title = anime.get("main_title") or (anime.get("meta") or {}).get("title") or "Anime local"
+        logger.info(
+            "METADATA_ACTION_START requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=details",
+            request_id,
+            anime_id or "-",
+            lookup or "-",
+            (anime.get("meta") or {}).get("anilist_id") or "-",
+        )
         if not lookup:
             return
         if not settings.get("metadata.anilist_enabled"):
@@ -1923,18 +1931,53 @@ async def main(page: ft.Page):
             safe_update()
             return
         try:
-            await asyncio.to_thread(library.refresh_metadata, lookup, title, force=True)
+            logger.info(
+                "METADATA_ACTION_LOOKUP requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=details",
+                request_id,
+                anime_id or "-",
+                lookup,
+                (anime.get("meta") or {}).get("anilist_id") or "-",
+            )
+            await asyncio.to_thread(
+                library.refresh_metadata,
+                lookup,
+                title,
+                force=True,
+                local_anime_id=anime_id,
+                request_id=request_id,
+            )
+            logger.info(
+                "METADATA_ACTION_CATALOG_REFRESH requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=details",
+                request_id,
+                anime_id or "-",
+                lookup,
+                (anime.get("meta") or {}).get("anilist_id") or "-",
+            )
             if navigation.current != "details" or (current[0] or {}).get("id") != anime_id:
-                logger.info("[METADATA] stale refresh result ignored anime_id=%s", anime_id)
+                logger.info("[METADATA] stale refresh result ignored anime_id=%s request_id=%s", anime_id, request_id)
                 return
             await refresh_current_details()
+            logger.info(
+                "METADATA_ACTION_UI_COMMIT requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=details",
+                request_id,
+                anime_id or "-",
+                lookup,
+                (anime.get("meta") or {}).get("anilist_id") or "-",
+            )
             performance.event("details.metadata_refresh", duration_ms=(performance.now()-metadata_started)*1000.0,
                               screen="details", status="ok", metadata={"anime_id": anime_id})
-            page.snack_bar = ft.SnackBar(ft.Text("Metadata atualizada."))
             page.snack_bar.open = True
             safe_update()
-        except Exception:
-            logger.exception("[METADATA] refresh failed anime_id=%s", anime_id)
+        except Exception as exc:
+            logger.exception("[METADATA] refresh failed anime_id=%s request_id=%s", anime_id, request_id)
+            logger.info(
+                "METADATA_ACTION_ERROR requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=details error=%s",
+                request_id,
+                anime_id or "-",
+                lookup or "-",
+                (anime.get("meta") or {}).get("anilist_id") or "-",
+                exc,
+            )
             page.snack_bar = ft.SnackBar(ft.Text("Não foi possível atualizar a metadata agora."))
             page.snack_bar.open = True
             safe_update()
@@ -2039,12 +2082,39 @@ async def main(page: ft.Page):
         store.remove_folder(reference)
         on_catalog_changed()
     async def resolve_match(lookup_title, anilist_id):
+        request_id = str(uuid.uuid4())
+        local_row = store.anime_metadata(lookup_title) or {}
+        anime_id = local_row.get("id")
+        logger.info(
+            "METADATA_ACTION_START requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=settings",
+            request_id, anime_id or "-", lookup_title, anilist_id,
+        )
         try:
-            await asyncio.to_thread(library.resolve_match, lookup_title, anilist_id)
-            page.snack_bar = ft.SnackBar(ft.Text("Associação AniList salva. Atualize a biblioteca para aplicar os metadados ao catálogo."))
+            await asyncio.to_thread(
+                library.resolve_match,
+                lookup_title,
+                anilist_id,
+                local_anime_id=anime_id,
+                request_id=request_id,
+            )
+            logger.info(
+                "METADATA_ACTION_CATALOG_REFRESH requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=settings",
+                request_id, anime_id or "-", lookup_title, anilist_id,
+            )
+            on_catalog_changed(refresh_details=False)
+            logger.info(
+                "METADATA_ACTION_UI_COMMIT requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=settings",
+                request_id, anime_id or "-", lookup_title, anilist_id,
+            )
+            page.snack_bar = ft.SnackBar(ft.Text("Associação AniList salva e catálogo local preservado."))
             page.snack_bar.open = True
             refresh_settings_if_active()
         except Exception as exc:
+            logger.exception("[METADATA] manual resolve failed request_id=%s", request_id)
+            logger.info(
+                "METADATA_ACTION_ERROR requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=settings error=%s",
+                request_id, anime_id or "-", lookup_title, anilist_id, exc,
+            )
             page.snack_bar = ft.SnackBar(ft.Text(str(exc)))
             page.snack_bar.open = True
             safe_update()

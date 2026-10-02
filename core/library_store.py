@@ -1,6 +1,7 @@
 """SQLite persistence for the local library and its document-folder diagnostics."""
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -1418,6 +1419,15 @@ class LibraryStore:
         """
         season = 0 if season is None else season
         media_identity = media_identity or identity_key
+        effective_media_identity = media_identity
+
+        def scoped_conflict_identity(owner_id, identity):
+            raw = str(identity or "").strip()
+            digest = hashlib.sha1(
+                f"{int(owner_id)}\0{raw}".encode("utf-8", "replace")
+            ).hexdigest()[:16]
+            return f"{raw}#owner-conflict:{int(owner_id)}:{digest}"
+
         with self._conn() as c:
             by_path = c.execute("SELECT * FROM episodes WHERE path=?", (path,)).fetchone()
             by_identity = None
@@ -1441,9 +1451,9 @@ class LibraryStore:
                     )
                 if (
                     existing
-                    and media_identity
+                    and effective_media_identity
                     and existing["media_identity"]
-                    and str(existing["media_identity"]) == str(media_identity)
+                    and str(existing["media_identity"]) == str(effective_media_identity)
                     and self._identification_confidence_rank(incoming_confidence)
                     < self._identification_confidence_rank(existing["identification_confidence"])
                 ):
@@ -1507,7 +1517,7 @@ class LibraryStore:
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                            episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0,availability_state='available' WHERE id=?""",
                         (effective_anime_id,file_name,effective_season,effective_number,effective_mime,effective_size,effective_modified,source_folder,
-                         media_identity,effective_absolute,effective_type,effective_title,effective_source,effective_confidence,row_id),
+                         effective_media_identity,effective_absolute,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )
                 else:
                     c.execute(
@@ -1515,7 +1525,7 @@ class LibraryStore:
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                            episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0,availability_state='available' WHERE id=?""",
                         (effective_anime_id,new_path,file_name,effective_season,effective_number,effective_mime,effective_size,effective_modified,source_folder,
-                         media_identity,effective_absolute,effective_type,effective_title,effective_source,effective_confidence,row_id),
+                         effective_media_identity,effective_absolute,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )
                 return row_id
 
@@ -1524,9 +1534,11 @@ class LibraryStore:
                 # migration. Metadata/scanner updates are never allowed to transfer
                 # ownership between local anime entities.
                 if int(by_path["anime_id"]) != int(by_identity["anime_id"]):
+                    effective_media_identity = scoped_conflict_identity(anime_id, media_identity)
                     logger.warning(
-                        "[EPISODE_OWNER_INVARIANT] conflicting legacy owners path_id=%s path_anime=%s identity_id=%s identity_anime=%s",
+                        "[EPISODE_OWNER_INVARIANT] conflicting legacy owners path_id=%s path_anime=%s identity_id=%s identity_anime=%s scoped_identity=%s",
                         by_path["id"], by_path["anime_id"], by_identity["id"], by_identity["anime_id"],
+                        effective_media_identity,
                     )
                     return update_existing(by_path["id"])
 
@@ -1588,6 +1600,15 @@ class LibraryStore:
                 self._recompute_episode_availability_locked(c, survivor_id)
                 return survivor_id
 
+            if by_identity and int(by_identity["anime_id"]) != int(anime_id):
+                effective_media_identity = scoped_conflict_identity(anime_id, media_identity)
+                logger.warning(
+                    "[EPISODE_OWNER_INVARIANT] cross-anime media identity conflict identity=%s existing_episode=%s existing_anime=%s incoming_anime=%s scoped_identity=%s",
+                    media_identity, by_identity["id"], by_identity["anime_id"], anime_id,
+                    effective_media_identity,
+                )
+                by_identity = None
+
             if by_path:
                 return update_existing(by_path["id"])
             if by_identity:
@@ -1599,7 +1620,7 @@ class LibraryStore:
                                          identification_source,identification_confidence)
                    VALUES(?,?,?,?,?,?,?,?,?,0,?,'available',?,?,?,?,?)""",
                 (anime_id,path,file_name,season,number,mime_type,file_size,modified_at,source_folder,
-                 media_identity,absolute_number,episode_type,episode_title,
+                 effective_media_identity,absolute_number,episode_type,episode_title,
                  identification_source or "legacy", identification_confidence or "medium"),
             )
             return cur.lastrowid

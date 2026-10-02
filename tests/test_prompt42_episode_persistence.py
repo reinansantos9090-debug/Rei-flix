@@ -155,8 +155,12 @@ class Prompt42EpisodePersistenceTests(unittest.TestCase):
                 identification_confidence="medium",
                 absolute_number=7,
             )
-            self.assertEqual(old_id, second_id)
+            self.assertNotEqual(old_id, second_id)
             row = store.episode_by_id(old_id)
+            incoming = store.episode_by_id(second_id)
+            self.assertEqual(second_anime, incoming["anime_id"])
+            self.assertNotEqual(row["media_identity"], incoming["media_identity"])
+            self.assertIn("#owner-conflict:", incoming["media_identity"])
             self.assertEqual(first_anime, row["anime_id"])
             self.assertEqual(1, row["season"])
             self.assertEqual(1, row["number"])

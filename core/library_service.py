@@ -177,7 +177,7 @@ class LibraryService:
             stale = True
         return "stale" if stale else "available"
 
-    def _ensure_cached_description_pt_br(self, lookup_title, cached):
+    def _ensure_cached_description_pt_br(self, lookup_title, cached, *, local_anime_id=None):
         if not cached:
             return cached
         # Only AniList-owned descriptions are eligible for automatic localization.
@@ -201,8 +201,13 @@ class LibraryService:
             source="anilist",
             confidence=cached.get("metadata_confidence") or "medium",
             status=cached.get("metadata_status") or "available",
+            local_anime_id=local_anime_id,
         )
-        return self.store.anime_metadata(lookup_title) or cached
+        return (
+            self.store.anime_metadata_by_id(local_anime_id)
+            if local_anime_id
+            else None
+        ) or self.store.anime_metadata(lookup_title) or cached
 
     def refresh_metadata(
         self,
@@ -228,7 +233,11 @@ class LibraryService:
                 request_id, owner_id or "-", local_lookup, (cached or {}).get("anilist_id") or "-",
             )
             if cached and anilist_enabled:
-                cached = self._ensure_cached_description_pt_br(local_lookup, cached)
+                cached = self._ensure_cached_description_pt_br(
+                    local_lookup,
+                    cached,
+                    local_anime_id=owner_id,
+                )
             if not anilist_enabled:
                 return cached or {
                     "title": display_title,
@@ -289,7 +298,11 @@ class LibraryService:
                             "stale",
                             confidence=cached.get("metadata_confidence") or "high",
                         )
-                        return cached
+                        return (
+                            self.store.anime_metadata_by_id(owner_id)
+                            if owner_id
+                            else None
+                        ) or self.store.anime_metadata(local_lookup) or cached
                     return {
                         "title": display_title,
                         "genres": "[]",
@@ -593,7 +606,11 @@ class LibraryService:
                             allow_network=True,
                             blocking=True,
                         )
-                        cached = self.store.anime_metadata(lookup_title) or cached
+                        cached = (
+                            self.store.anime_metadata_by_id(local_anime_id)
+                            if local_anime_id
+                            else None
+                        ) or self.store.anime_metadata(effective_lookup) or cached
                         cover_attempt_failed = not bool(
                             resolved and resolved.get('local_path')
                             and os.path.isfile(resolved.get('local_path'))
@@ -602,7 +619,7 @@ class LibraryService:
                     self.artwork.sync_anime_metadata(cached['id'], cached)
                     if cover_attempt_failed:
                         self.artwork.mark_download_failure(entity_type, cached['id'], 'poster', cover_url)
-                hydrated.append({'lookup_title': lookup_title, 'id': cached.get('id'), 'metadata': cached})
+                hydrated.append({'lookup_title': effective_lookup, 'id': cached.get('id'), 'metadata': cached})
             except Exception:
                 logger.exception('Local metadata/artwork hydration failed', extra={'screen':'home','lookup_title':lookup_title,'library_items':len(catalog)})
         return hydrated

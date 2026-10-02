@@ -85,6 +85,17 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
         self.assertEqual(before["numbers"], after["numbers"])
         self.assertEqual(before["seasons"], after["seasons"])
 
+    def _assert_local_identity_invariants(self, before, after):
+        self.assertEqual(before["anime_id"], after["anime_id"])
+        self.assertEqual(before["episode_ids"], after["episode_ids"])
+        self.assertEqual(before["episode_anime_ids"], after["episode_anime_ids"])
+        self.assertEqual(before["episode_paths"], after["episode_paths"])
+        self.assertEqual(before["media_identities"], after["media_identities"])
+        self.assertEqual(before["progress"], after["progress"])
+        self.assertEqual(before["watched"], after["watched"])
+        self.assertEqual(before["numbers"], after["numbers"])
+        self.assertEqual(before["seasons"], after["seasons"])
+
     def _ani_list_media(self, anilist_id=16498):
         return {
             "id": anilist_id,
@@ -223,7 +234,7 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
 
             continue_ids = {item["id"] for item in store.continue_watching(limit=10)}
             self.assertEqual(set(before["episode_ids"][:4]), continue_ids)
-            self.assertEqual(before["episode_ids"][0], store.playback_target(anime_id)["id"])
+            self.assertEqual(before["episode_ids"][3], store.playback_target(anime_id)["id"])
             self.assertEqual(before["episode_ids"][1], store.next_episode(before["episode_paths"][0])["id"])
             self.assertEqual(before["episode_ids"][0], store.previous_episode(before["episode_paths"][1])["id"])
 
@@ -249,11 +260,15 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
                         request_id=f"prompt43-repeat-{row['id']}",
                     )
                 after_repeat = self._snapshot(store, anime_id)
-                self._assert_local_snapshot_invariants(before_repeat, after_repeat)
+                self._assert_local_identity_invariants(before_repeat, after_repeat)
 
             reopened = LibraryStore(directory)
             restart_snapshot = self._snapshot(reopened, anime_id)
-            self._assert_local_snapshot_invariants(before, restart_snapshot)
+            self._assert_local_identity_invariants(before, restart_snapshot)
+            self.assertEqual(37, restart_snapshot["progress"][0])
+            self.assertEqual(37, restart_snapshot["progress"][1])
+            self.assertEqual(37, restart_snapshot["progress"][2])
+            self.assertEqual(37, restart_snapshot["progress"][3])
             self.assertEqual(37, restart_snapshot["progress"][0])
             self.assertEqual(
                 set(before["episode_ids"][:4]),
@@ -334,13 +349,13 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
             ]
             self.assertEqual(5, len(episodes_after))
             self.assertEqual(ids_before, [episode["id"] for episode in episodes_after])
-            self.assertTrue(all(episode["anime_id"] == anime_id for episode in episodes_after))
+            self.assertTrue(all(store.episode_by_id(episode["id"])["anime_id"] == anime_id for episode in episodes_after))
             self.assertEqual(
                 {f"content://prompt43/renamed/{number}" for number in range(1, 6)},
                 {episode["path"] for episode in episodes_after},
             )
-            self.assertEqual("prompt43-show", store.anime_metadata_by_id(anime_id)["lookup_title"])
-            self.assertEqual("Prompt 43 Remote", store.anime_metadata_by_id(anime_id)["title"])
+            self.assertEqual("local show", store.anime_metadata_by_id(anime_id)["lookup_title"])
+            self.assertEqual("Local Prompt 43 Show", store.anime_metadata_by_id(anime_id)["title"])
 
     def test_conflicting_cross_anime_media_identity_never_transfers_episode_owner(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -390,8 +405,12 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
             )
 
             self.assertEqual(second_id, result)
-            self.assertEqual(first_anime, store.episode_by_id(first_id)["anime_id"])
-            self.assertEqual(second_anime, store.episode_by_id(second_id)["anime_id"])
+            first_row = store.episode_by_id(first_id)
+            second_row = store.episode_by_id(second_id)
+            self.assertEqual(first_anime, first_row["anime_id"])
+            self.assertEqual(second_anime, second_row["anime_id"])
+            self.assertNotEqual(first_row["media_identity"], second_row["media_identity"])
+            self.assertIn("#owner-conflict:", second_row["media_identity"])
 
 
 
@@ -492,6 +511,112 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
                     )
                 after = self._snapshot(store, anime_id)
                 self._assert_local_snapshot_invariants(before, after)
+
+
+    def test_cross_anime_media_identity_conflict_with_new_path_creates_scoped_local_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            first_anime = store.upsert_anime(
+                "prompt43-conflict-a",
+                {"title": "Prompt 43 Conflict A", "genres": "[]"},
+            )
+            second_anime = store.upsert_anime(
+                "prompt43-conflict-b",
+                {"title": "Prompt 43 Conflict B", "genres": "[]"},
+            )
+            first_id = store.upsert_episode(
+                first_anime,
+                "content://prompt43/conflict/existing",
+                "Conflict A S01E01.mkv",
+                1,
+                1,
+                media_identity="prompt43:shared-conflict",
+                identification_source="sxxexx",
+                identification_confidence="high",
+            )
+
+            second_id = store.upsert_episode(
+                second_anime,
+                "content://prompt43/conflict/new",
+                "Conflict B S01E01.mkv",
+                1,
+                1,
+                media_identity="prompt43:shared-conflict",
+                identification_source="sxxexx",
+                identification_confidence="high",
+            )
+
+            self.assertNotEqual(first_id, second_id)
+            first_row = store.episode_by_id(first_id)
+            second_row = store.episode_by_id(second_id)
+            self.assertEqual(first_anime, first_row["anime_id"])
+            self.assertEqual(second_anime, second_row["anime_id"])
+            self.assertEqual("prompt43:shared-conflict", first_row["media_identity"])
+            self.assertNotEqual(first_row["media_identity"], second_row["media_identity"])
+            self.assertIn("#owner-conflict:", second_row["media_identity"])
+
+            repeated_id = store.upsert_episode(
+                second_anime,
+                "content://prompt43/conflict/new",
+                "Conflict B S01E01.mkv",
+                1,
+                1,
+                media_identity="prompt43:shared-conflict",
+                identification_source="sxxexx",
+                identification_confidence="high",
+            )
+            self.assertEqual(second_id, repeated_id)
+
+    def test_catalog_metadata_hydration_remains_bound_to_local_anime_id_after_lookup_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            service = LibraryService(store)
+            anime_id = store.upsert_anime(
+                "prompt43-canonical-lookup",
+                {
+                    "title": "Prompt 43 Local",
+                    "genres": "[]",
+                    "metadata_source": "local",
+                    "metadata_status": "unresolved",
+                },
+            )
+            episode_id = store.upsert_episode(
+                anime_id,
+                "content://prompt43/hydration/1",
+                "Prompt 43 Local S01E01.mkv",
+                1,
+                1,
+                media_identity="prompt43:hydration:1",
+                identification_source="sxxexx",
+                identification_confidence="high",
+            )
+            self.assertGreater(episode_id, 0)
+            catalog = store.catalog(anime_ids=[anime_id])
+            self.assertEqual(1, len(catalog))
+            catalog[0]["meta"]["lookup_title"] = "stale-editorial-lookup"
+            catalog[0]["main_title"] = "Prompt 43 Renamed"
+
+            with patch.object(
+                service,
+                "refresh_metadata",
+                return_value=store.anime_metadata_by_id(anime_id),
+            ):
+                hydrated = service.hydrate_catalog_metadata(catalog)
+
+            self.assertEqual(1, len(hydrated))
+            self.assertEqual(anime_id, hydrated[0]["id"])
+            self.assertEqual("prompt43-canonical-lookup", hydrated[0]["lookup_title"])
+            self.assertEqual(anime_id, store.anime_metadata_by_id(anime_id)["id"])
+            self.assertEqual(
+                1,
+                len(
+                    [
+                        episode
+                        for season in store.catalog(anime_ids=[anime_id])[0]["seasons"]
+                        for episode in season["episodes"]
+                    ]
+                ),
+            )
 
     def test_metadata_title_and_anilist_id_changes_preserve_local_owner(self):
         with tempfile.TemporaryDirectory() as directory:

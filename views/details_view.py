@@ -845,19 +845,19 @@ class DetailView:
 
         progress_bars = []
         progress_section = []
-        if current:
+        # current_episode also represents the next unwatched episode. Only a
+        # genuinely in-progress episode is eligible for the "CONTINUAR" section.
+        if current and is_in_progress(current):
             current_ratio = ratio(current)
             season = current.get("season")
             number = current.get("number")
-            current_state = consumption_state(current)
-            progress_label = "Concluído" if current_state.value in {"completed", "watched"} else (f"{int((current_ratio or 0) * 100)}% assistido" if current_ratio is not None else "Em andamento")
             progress_section = [
                 ft.Text("CONTINUAR", size=12, weight=ft.FontWeight.BOLD, color=theme.text_muted),
                 ft.Container(content=ft.Column([
                     ft.Text(("Filme" if is_movie else f"Temporada {season or '—'} • Episódio {number if number is not None else '—'}"), color=theme.text, size=13, weight=ft.FontWeight.BOLD),
-                    ft.Text(progress_label, color=theme.secondary, size=11),
+                    ft.Text(f"{int((current_ratio or 0) * 100)}% assistido" if current_ratio is not None else "Em andamento", color=theme.secondary, size=11),
                     ft.ProgressBar(value=current_ratio, color=contextual_accent[0], bgcolor=theme.surface_variant, bar_height=4,
-                                   visible=current_ratio is not None and current_state.value == "in_progress"),
+                                   visible=current_ratio is not None),
                 ], spacing=6), padding=12, bgcolor=SURFACE, border_radius=RADIUS),
             ]
 

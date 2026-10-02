@@ -28,6 +28,53 @@ class Prompt42EpisodePersistenceTests(unittest.TestCase):
             self.assertEqual(episode_id, rows[-1]["id"])
         return rows
 
+    def test_service_rescan_with_weaker_season_evidence_keeps_episode_in_original_season(self):
+        from unittest.mock import patch
+        from core.library_service import LibraryService
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            service = LibraryService(store)
+            metadata = {"title": "Prompt 42 Show", "genres": "[]"}
+            first_scan = []
+            for number in range(1, 6):
+                first_scan.append({
+                    "uri": f"content://prompt42/service-{number}",
+                    "stableId": f"shared:primary:Prompt42/Show/{number}",
+                    "name": f"Show S01E{number:02d}.mkv",
+                    "relativePath": f"Show/Season 1/Show S01E{number:02d}.mkv",
+                    "mimeType": "video/x-matroska",
+                    "size": 1000 + number,
+                    "modifiedAt": 1000 + number,
+                })
+
+            with patch.object(service, "_identify", return_value=metadata):
+                service.ingest_documents("content://tree/prompt42", first_scan, folder_name="Prompt42")
+            before = store.catalog()[0]
+            first = before["seasons"][0]["episodes"][0]
+            self.assertTrue(store.save_progress(first["path"], 37, 100, episode_id=first["id"], event_created_at=1000))
+
+            second_scan = list(first_scan)
+            second_scan[0] = {
+                **second_scan[0],
+                "name": "Show 07.mkv",
+                "relativePath": "Show/Season 2/Show 07.mkv",
+                "modifiedAt": 2000,
+            }
+            with patch.object(service, "_identify", return_value=metadata):
+                service.ingest_documents("content://tree/prompt42", second_scan, folder_name="Prompt42")
+
+            reopened = LibraryStore(directory)
+            group = reopened.catalog()[0]
+            season_1 = next(season for season in group["seasons"] if int(season["season"]) == 1)
+            episodes = season_1["episodes"]
+            self.assertEqual([int(item["number"]) for item in episodes], [1, 2, 3, 4, 5])
+            persisted = reopened.episode_by_id(first["id"])
+            self.assertEqual(1, persisted["season"])
+            self.assertEqual(1, persisted["number"])
+            self.assertEqual(37, persisted["progress"])
+            self.assertEqual([first["id"]], [item["id"] for item in reopened.continue_watching()])
+
     def test_five_episode_restart_keeps_canonical_collection_continue_and_target(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

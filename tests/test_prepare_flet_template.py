@@ -66,6 +66,7 @@ class FletTemplateManifestTests(unittest.TestCase):
             self.assertIn(":app:testDebugUnitTest", hook)
             prepare_source = (Path(__file__).parents[1] / "scripts" / "prepare_flet_template.py").read_text(encoding="utf-8")
             self.assertIn("NativeRequestState.kt", prepare_source)
+            self.assertIn("NativeCommandDispatcher.kt", prepare_source)
             self.assertIn("StorageAuthorization.kt", prepare_source)
             self.assertIn("native_player_view.xml", prepare_source)
             self.assertTrue(

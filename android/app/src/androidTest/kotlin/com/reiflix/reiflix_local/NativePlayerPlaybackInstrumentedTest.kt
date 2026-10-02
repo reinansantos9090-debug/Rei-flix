@@ -10,6 +10,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.provider.MediaStore
+import org.json.JSONObject
 import android.view.MotionEvent
 import android.view.TextureView
 import android.view.View
@@ -31,6 +32,7 @@ import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class NativePlayerPlaybackInstrumentedTest {
@@ -161,6 +163,107 @@ class NativePlayerPlaybackInstrumentedTest {
         assertTrue(
             "NativePlayerActivity must remain alive after a MainActivity deep-link handoff",
             !activity!!.isFinishing && !activity!!.isDestroyed,
+        )
+    }
+
+    @Test
+    fun nativeCommandDispatcher_playUsesNativePlayerOwnershipWithoutMainActivityRouting() {
+        launchMainActivityForPlayer()
+        val uri = insertFixtureIntoMediaStore()
+        fixtureUri = uri
+
+        val requestId = "instrumented-native-command-play"
+        val commandUri = android.net.Uri.Builder()
+            .scheme("reiflix")
+            .authority("native")
+            .appendQueryParameter("action", "play")
+            .appendQueryParameter("request_id", requestId)
+            .appendQueryParameter("protocol_version", "2")
+            .appendQueryParameter("created_at", System.currentTimeMillis().toString())
+            .appendQueryParameter("player_session_id", "instrumented-native-command-session")
+            .appendQueryParameter("episode_id", "1")
+            .appendQueryParameter("uri", uri.toString())
+            .appendQueryParameter("title", "Fixture native command")
+            .appendQueryParameter("position_ms", "0")
+            .appendQueryParameter("can_next", "false")
+            .appendQueryParameter("can_previous", "false")
+            .appendQueryParameter("autoplay", "false")
+            .build()
+
+        writeInternalNativeCommand(requestId, "play", commandUri)
+        await("Private native command dispatcher must launch NativePlayerActivity") {
+            val resumed = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+                .getInstance()
+                .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                .firstOrNull { it is NativePlayerActivity } as? NativePlayerActivity
+            if (resumed != null) {
+                activity = resumed
+                true
+            } else {
+                false
+            }
+        }
+        assertEquals(requestId, onMain { requireNotNull(activity).intent.getStringExtra("requestId") })
+        val playerView = awaitView<PlayerView>("reiflix_player_view")
+        val player = onMain { requireNotNull(playerView.player) }
+        await("Native command player must reach READY") {
+            player.playbackState == Player.STATE_READY
+        }
+        assertTrue(
+            "Native command handoff must leave NativePlayerActivity alive",
+            onMain { !requireNotNull(activity).isFinishing && !requireNotNull(activity).isDestroyed },
+        )
+    }
+
+    @Test
+    fun nativeCommandDispatcher_thumbnailWhilePlayerOpenDoesNotTearDownPlayer() {
+        launchMainActivityForPlayer()
+        val uri = insertFixtureIntoMediaStore()
+        fixtureUri = uri
+
+        val playRequestId = "instrumented-native-command-thumbnail-player"
+        val playIntent = Intent(target, NativePlayerActivity::class.java)
+            .putExtra("requestId", playRequestId)
+            .putExtra("playerSessionId", "instrumented-thumbnail-session")
+            .putExtra("uri", uri.toString())
+            .putExtra("episodeId", "1")
+            .putExtra("title", "Fixture thumbnail overlap")
+            .putExtra("positionMs", 0L)
+            .putExtra("autoplay", false)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        activity = InstrumentationRegistry.getInstrumentation().startActivitySync(playIntent) as NativePlayerActivity
+
+        val playerView = awaitView<PlayerView>("reiflix_player_view")
+        val player = onMain { requireNotNull(playerView.player) }
+        await("Player must reach READY before thumbnail command") {
+            player.playbackState == Player.STATE_READY
+        }
+        val requestId = "instrumented-native-command-thumbnail"
+        val commandUri = android.net.Uri.Builder()
+            .scheme("reiflix")
+            .authority("native")
+            .appendQueryParameter("action", "extract_thumbnail")
+            .appendQueryParameter("request_id", requestId)
+            .appendQueryParameter("protocol_version", "2")
+            .appendQueryParameter("created_at", System.currentTimeMillis().toString())
+            .appendQueryParameter("uri", uri.toString())
+            .appendQueryParameter("size", "320")
+            .appendQueryParameter("modified_at", "0")
+            .appendQueryParameter("media_identity", "instrumented-native-command-thumbnail")
+            .build()
+
+        writeInternalNativeCommand(requestId, "extract_thumbnail", commandUri)
+        await("Thumbnail command must be consumed independently of MainActivity") {
+            nativeMailboxEventExists(requestId, "thumbnail_ready") ||
+                nativeMailboxEventExists(requestId, "thumbnail_error")
+        }
+        assertTrue(
+            "Thumbnail command must not finish or destroy the active NativePlayerActivity",
+            onMain { !requireNotNull(activity).isFinishing && !requireNotNull(activity).isDestroyed },
+        )
+        assertTrue(
+            "Thumbnail processing must not release the active player",
+            onMain { requireNotNull(playerView.player) === player && !requireNotNull(activity).isFinishing },
         )
     }
 
@@ -670,6 +773,37 @@ class NativePlayerPlaybackInstrumentedTest {
                 .findViewWithTag<View>("reiflix_controls_root"))
             controls.paddingRight >= safeRight
         }
+
+    private fun nativeMailboxEventExists(requestId: String, type: String): Boolean {
+        val dir = File(target.filesDir, "data/reiflix-native-events")
+        val files = dir.listFiles()?.filter { it.isFile && it.extension == "json" } ?: return false
+        return files.any { file ->
+            runCatching {
+                val json = JSONObject(file.readText(Charsets.UTF_8))
+                json.optString("type") == type && json.optString("requestId") == requestId
+            }.getOrDefault(false)
+        }
+    }
+
+    private fun writeInternalNativeCommand(requestId: String, action: String, commandUri: android.net.Uri) {
+        val queue = File(target.filesDir, "data/reiflix-native-commands")
+        check(queue.isDirectory || queue.mkdirs()) {
+            "Unable to create native command queue: ${queue.absolutePath}"
+        }
+        val payload = JSONObject()
+            .put("version", 1)
+            .put("requestId", requestId)
+            .put("action", action)
+            .put("createdAt", System.currentTimeMillis())
+            .put("url", commandUri.toString())
+            .toString()
+        val temp = File(queue, ".command-${requestId}.tmp")
+        val targetFile = File(queue, "command-${requestId}.json")
+        temp.writeText(payload, Charsets.UTF_8)
+        check(temp.renameTo(targetFile)) {
+            "Unable to atomically publish native command file"
+        }
+    }
 
     private fun currentPlayerRequestId(): String =
         onMain {

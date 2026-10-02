@@ -719,6 +719,7 @@ class MainActivity : FlutterFragmentActivity() {
         PerformanceDiagnostics.sampleMemory(this, "main_on_create")
         installSystemBackHandler()
         nativeRequestState.bind(this)
+        NativeCommandDispatcher.start(this)
         nativeRequestState.restore(
             savedInstanceState?.getString(STATE_LAST_NATIVE_REQUEST_ID),
             savedInstanceState?.getString(STATE_PENDING_LIFECYCLE_ACTION),

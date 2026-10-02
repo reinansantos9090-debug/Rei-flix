@@ -329,6 +329,9 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
             )
 
             with store._conn() as connection:
+                # Recreate the legacy duplicate-identity state that older databases
+                # could contain before idx_episodes_media_identity became enforced.
+                connection.execute("DROP INDEX IF EXISTS idx_episodes_media_identity")
                 connection.execute(
                     "UPDATE episodes SET media_identity=? WHERE id=?",
                     ("prompt43:conflict", second_id),

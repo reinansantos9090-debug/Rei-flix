@@ -1,8 +1,10 @@
 """Bridge protocol shared with the Android host without ever fabricating paths.
 
 The Android overlay writes short JSON events into the application's private
-files directory. Flet invokes it through the app-owned `reiflix://` intent;
-Python periodically drains the mailbox and inserts document URIs into SQLite.
+files directory. Normal host commands retain the app-owned `reiflix://`
+intent contract, while player/thumbnail operations use a private command
+mailbox so they never resolve through MainActivity's singleTask route.
+Python drains the event mailbox and inserts document URIs into SQLite.
 Desktop deliberately reports this bridge as unavailable.
 """
 from __future__ import annotations

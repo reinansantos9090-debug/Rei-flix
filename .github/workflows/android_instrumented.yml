@@ -423,11 +423,15 @@ jobs:
           {
             echo "## Android runtime diagnostics"
             echo '```
-            cat "$out/sdk.txt" || true
+            if [ -f "$out/sdk.txt" ]; then
+              cat "$out/sdk.txt"
+            fi
             echo "--- adb devices ---"
-            cat "$out/adb_devices.txt" || true
+            if [ -f "$out/adb_devices.txt" ]; then
+              cat "$out/adb_devices.txt"
+            fi
             echo "--- command exit markers ---"
-            grep -h "COMMAND_EXIT=" "$out"/*.txt || true
+            grep -h "COMMAND_EXIT=" "$out"/*.txt
             echo '```
           } >> "$GITHUB_STEP_SUMMARY"
           set -e

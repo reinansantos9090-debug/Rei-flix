@@ -130,13 +130,14 @@ jobs:
             Prompt43MetadataOwnerInstrumentedTest.kt; do
             test -f "build/flutter/android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/$test_file"
           done
-      # Cache the rendered Android project directly. This avoids a second
-      # tar/extract layer and guarantees every matrix job receives the same
-      # generated Gradle wrapper and source tree.
+      # Cache the entire rendered Flutter project. Gradle's Flutter task
+      # resolves pubspec.yaml from the Flutter project root; restoring only
+      # build/flutter/android makes connected tests fail with no pubspec.
       - name: Verify rendered Android project integrity
         shell: bash
         run: |
           set -euo pipefail
+          test -f build/flutter/pubspec.yaml
           test -f build/flutter/android/gradlew
           test -f build/flutter/android/settings.gradle.kts
           test -f build/flutter/android/app/build.gradle.kts
@@ -144,8 +145,8 @@ jobs:
       - name: Cache rendered Android test project
         uses: actions/cache/save@v4
         with:
-          path: build/flutter/android
-          key: reianix-android-test-project-v2-${{ github.sha }}
+          path: build/flutter
+          key: reianix-android-test-project-v3-${{ github.sha }}
 
 
   instrumented-tv:
@@ -186,8 +187,8 @@ jobs:
       - name: Restore rendered Android test project
         uses: actions/cache/restore@v4
         with:
-          path: build/flutter/android
-          key: reianix-android-test-project-v2-${{ github.sha }}
+          path: build/flutter
+          key: reianix-android-test-project-v3-${{ github.sha }}
       - name: Verify restored Android test project
         shell: bash
         run: |
@@ -278,8 +279,8 @@ jobs:
       - name: Restore rendered Android test project
         uses: actions/cache/restore@v4
         with:
-          path: build/flutter/android
-          key: reianix-android-test-project-v2-${{ github.sha }}
+          path: build/flutter
+          key: reianix-android-test-project-v3-${{ github.sha }}
       - name: Verify restored Android test project
         shell: bash
         run: |

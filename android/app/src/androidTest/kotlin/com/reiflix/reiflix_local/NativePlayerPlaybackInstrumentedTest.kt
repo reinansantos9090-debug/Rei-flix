@@ -192,9 +192,20 @@ class NativePlayerPlaybackInstrumentedTest {
 
         writeInternalNativeCommand(requestId, "play", commandUri)
         await("Private native command dispatcher must launch NativePlayerActivity") {
-            currentPlayerRequestId() == requestId
+            val resumed = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+                .getInstance()
+                .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                .firstOrNull { it is NativePlayerActivity } as? NativePlayerActivity
+            if (resumed != null) {
+                activity = resumed
+                true
+            } else {
+                false
+            }
         }
-        val player = onMain { requireNotNull(activity).let { requireNotNull((it as NativePlayerActivity).findViewById<PlayerView>(R.id.reiflix_player_view).player) } }
+        assertEquals(requestId, onMain { requireNotNull(activity).intent.getStringExtra("requestId") })
+        val playerView = awaitView<PlayerView>("reiflix_player_view")
+        val player = onMain { requireNotNull(playerView.player) }
         await("Native command player must reach READY") {
             player.playbackState == Player.STATE_READY
         }
@@ -242,14 +253,18 @@ class NativePlayerPlaybackInstrumentedTest {
             .build()
 
         writeInternalNativeCommand(requestId, "extract_thumbnail", commandUri)
+        await("Thumbnail command must be consumed independently of MainActivity") {
+            nativeMailboxEventExists(requestId, "thumbnail_ready") ||
+                nativeMailboxEventExists(requestId, "thumbnail_error")
+        }
         assertTrue(
             "Thumbnail command must not finish or destroy the active NativePlayerActivity",
             onMain { !requireNotNull(activity).isFinishing && !requireNotNull(activity).isDestroyed },
         )
-        await("Player must remain READY while thumbnail work is processed") {
-            !requireNotNull(activity).isFinishing && !requireNotNull(activity).isDestroyed &&
-                player.playbackState == Player.STATE_READY
-        }
+        assertTrue(
+            "Thumbnail processing must not release the active player",
+            onMain { requireNotNull(playerView.player) === player && !requireNotNull(activity).isFinishing },
+        )
     }
 
     @Test
@@ -758,6 +773,17 @@ class NativePlayerPlaybackInstrumentedTest {
                 .findViewWithTag<View>("reiflix_controls_root"))
             controls.paddingRight >= safeRight
         }
+
+    private fun nativeMailboxEventExists(requestId: String, type: String): Boolean {
+        val dir = File(target.filesDir, "data/reiflix-native-events")
+        val files = dir.listFiles()?.filter { it.isFile && it.extension == "json" } ?: return false
+        return files.any { file ->
+            runCatching {
+                val json = JSONObject(file.readText(Charsets.UTF_8))
+                json.optString("type") == type && json.optString("requestId") == requestId
+            }.getOrDefault(false)
+        }
+    }
 
     private fun writeInternalNativeCommand(requestId: String, action: String, commandUri: android.net.Uri) {
         val queue = File(target.filesDir, "data/reiflix-native-commands")

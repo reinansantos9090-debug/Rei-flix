@@ -1661,47 +1661,70 @@ class LibraryService:
         }
         return self.store.record_native_volume_change(enriched)
 
-    def resolve_match(self, lookup_title, anilist_id):
-        """Persist an explicit manual AniList choice with precedence over auto-matching."""
-        try:
-            anilist_id = int(anilist_id)
-        except (TypeError, ValueError):
-            raise ValueError("ID AniList inválido.")
+    def resolve_match(self, lookup_title, anilist_id, *, local_anime_id=None, request_id=None):
+        """Apply a manual AniList match to the existing local anime entity."""
+        request_id = str(request_id or uuid.uuid4())
+        local_row = self.store.anime_metadata_by_id(local_anime_id) if local_anime_id else None
+        owner_id = int(local_row["id"]) if local_row else self.store.resolve_local_anime_owner(lookup_title=lookup_title)
+        local_row = self.store.anime_metadata_by_id(owner_id) if owner_id else self.store.anime_metadata(lookup_title)
+        local_lookup = str(local_row["lookup_title"]) if local_row else str(lookup_title)
         pending = next(
-            (item for item in self.store.pending_matches() if item["lookup_title"] == lookup_title),
+            (item for item in self.store.pending_matches() if item["lookup_title"] == local_lookup),
             None,
         )
-        display_title = pending["display_title"] if pending else (self.store.anime_metadata(lookup_title) or {}).get("title") or lookup_title
-        if not pending and not self.store.anilist_match(lookup_title):
+        display_title = (
+            pending["display_title"]
+            if pending
+            else (local_row or {}).get("title") or lookup_title
+        )
+        logger.info(
+            "METADATA_ACTION_START requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=manual_match",
+            request_id, owner_id or "-", local_lookup, anilist_id,
+        )
+        if not pending and not self.store.anilist_match(local_lookup):
             raise ValueError("Este candidato não está mais pendente.")
+        logger.info(
+            "METADATA_ACTION_LOOKUP requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=manual_match",
+            request_id, owner_id or "-", local_lookup, anilist_id,
+        )
         media = self.anilist.by_id(anilist_id)
         if not media or media.get("id") != anilist_id:
             raise ValueError("O anime escolhido não está disponível no AniList.")
         metadata = self.anilist.metadata_from_media(display_title, media, localize_description=True)
         metadata["anilist_id"] = anilist_id
+        logger.info(
+            "METADATA_ACTION_DB_WRITE requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=manual_match",
+            request_id, owner_id or "-", local_lookup, anilist_id,
+        )
         self.store.upsert_anime(
-            lookup_title,
+            local_lookup,
             metadata,
             source="anilist",
             confidence="high",
             status="available",
             fetched_at=time.time(),
+            local_anime_id=owner_id,
         )
         self.store.set_anilist_match(
-            lookup_title,
+            local_lookup,
             anilist_id,
             status="manual",
             score=1.0,
             margin=1.0,
             manual=True,
         )
-        self.store.resolve_match(lookup_title, anilist_id)
-        row = self.store.anime_metadata(lookup_title)
+        self.store.resolve_match(local_lookup, anilist_id)
+        row = self.store.anime_metadata_by_id(owner_id) if owner_id else self.store.anime_metadata(local_lookup)
         if row:
             self._sync_genres(row["id"], row, source="anilist")
             self.artwork.sync_anime_metadata(row["id"], row)
+        logger.info(
+            "METADATA_ACTION_UI_COMMIT requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=manual_match",
+            request_id, owner_id or "-", local_lookup, anilist_id,
+        )
         logger.info("ANILIST_MATCH_MANUAL title=%s id=%s", display_title, anilist_id)
-        return self.store.anime_metadata(lookup_title) or metadata
+        return row or metadata
+
 
     def unlink_match(self, lookup_title):
         self.store.clear_anilist_match(lookup_title)

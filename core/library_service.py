@@ -204,13 +204,31 @@ class LibraryService:
         )
         return self.store.anime_metadata(lookup_title) or cached
 
-    def refresh_metadata(self, lookup_title, display_title, *, force=False, bypass_request_dedupe=False, match_context=None):
-        """Resolve AniList metadata explicitly, conservatively and offline-safe."""
+    def refresh_metadata(
+        self,
+        lookup_title,
+        display_title,
+        *,
+        force=False,
+        bypass_request_dedupe=False,
+        match_context=None,
+        local_anime_id=None,
+        request_id=None,
+    ):
+        """Refresh editorial metadata without changing the canonical local owner."""
+        request_id = str(request_id or uuid.uuid4())
         with self._metadata_lock:
+            local_row = self.store.anime_metadata_by_id(local_anime_id) if local_anime_id else None
+            owner_id = int(local_row["id"]) if local_row else None
+            local_lookup = str(local_row["lookup_title"]) if local_row else str(lookup_title)
             anilist_enabled = bool(self._setting("metadata.anilist_enabled", True))
-            cached = self.store.anime_metadata(lookup_title)
+            cached = local_row or self.store.anime_metadata(local_lookup)
+            logger.info(
+                "METADATA_ACTION_START requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=library_service",
+                request_id, owner_id or "-", local_lookup, (cached or {}).get("anilist_id") or "-",
+            )
             if cached and anilist_enabled:
-                cached = self._ensure_cached_description_pt_br(lookup_title, cached)
+                cached = self._ensure_cached_description_pt_br(local_lookup, cached)
             if not anilist_enabled:
                 return cached or {
                     "title": display_title,
@@ -219,10 +237,16 @@ class LibraryService:
                     "metadata_status": "unresolved",
                     "metadata_confidence": "low",
                 }
-            match_state = self.store.anilist_match(lookup_title) or {}
-            associated_id = match_state.get("anilist_id") or self.store.association(lookup_title)
+
+            match_state = self.store.anilist_match(local_lookup) or {}
+            associated_id = (cached or {}).get("anilist_id") or match_state.get("anilist_id") or self.store.association(local_lookup)
             cached_id = cached.get("anilist_id") if cached else None
             refresh_id = associated_id or cached_id
+            logger.info(
+                "METADATA_ACTION_LOOKUP requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=library_service",
+                request_id, owner_id or "-", local_lookup, refresh_id or "-",
+            )
+
             if cached and cached.get("metadata_fetched_at") and not bypass_request_dedupe:
                 try:
                     if time.time() - float(cached["metadata_fetched_at"]) < self.REQUEST_DEDUPE_SECONDS:
@@ -231,34 +255,59 @@ class LibraryService:
                     pass
             if not force and self._cached_metadata_is_current(cached, refresh_id):
                 return cached
-            self.store.set_metadata_status(lookup_title, "refreshing") if cached else None
+
+            if cached:
+                self.store.set_metadata_status(local_lookup, "refreshing")
+
             try:
                 if refresh_id:
                     media = self.anilist.by_id(refresh_id)
                     if media:
                         refreshed = self.anilist.metadata_from_media(display_title, media, localize_description=True)
                         refreshed["anilist_id"] = refresh_id
-                        self.store.upsert_anime(lookup_title, refreshed, source="anilist", confidence="high", status="available", fetched_at=time.time())
-                        row = self.store.anime_metadata(lookup_title)
+                        logger.info(
+                            "METADATA_ACTION_DB_WRITE requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=library_service",
+                            request_id, owner_id or "-", local_lookup, refresh_id,
+                        )
+                        self.store.upsert_anime(
+                            local_lookup,
+                            refreshed,
+                            source="anilist",
+                            confidence="high",
+                            status="available",
+                            fetched_at=time.time(),
+                            local_anime_id=owner_id,
+                        )
+                        row = self.store.anime_metadata_by_id(owner_id) if owner_id else self.store.anime_metadata(local_lookup)
                         if row:
                             self._sync_genres(row["id"], row, source="anilist")
-                        if row:
                             self.artwork.sync_anime_metadata(row["id"], row)
-                        return self.store.anime_metadata(lookup_title) or refreshed
+                        return row or refreshed
                     if cached:
-                        self.store.set_metadata_status(lookup_title, "stale", confidence=cached.get("metadata_confidence") or "high")
-                        return self.store.anime_metadata(lookup_title) or cached
-                    return {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "unresolved", "metadata_confidence": "low"}
+                        self.store.set_metadata_status(
+                            local_lookup,
+                            "stale",
+                            confidence=cached.get("metadata_confidence") or "high",
+                        )
+                        return cached
+                    return {
+                        "title": display_title,
+                        "genres": "[]",
+                        "metadata_source": "local",
+                        "metadata_status": "unresolved",
+                        "metadata_confidence": "low",
+                    }
 
                 candidates = self.anilist.search(display_title)
                 search_status = str(self.anilist.last_request_status or "idle")
                 if search_status in {"network_error", "rate_limited", "invalid_response", "http_error"}:
-                    if search_status in {"network_error", "rate_limited"} and self.store.anilist_match(lookup_title):
+                    existing_match = self.store.anilist_match(local_lookup)
+                    if search_status in {"network_error", "rate_limited"} and existing_match:
                         self.store.set_anilist_match(
-                            lookup_title,
-                            self.store.anilist_match(lookup_title).get("anilist_id"),
+                            local_lookup,
+                            existing_match.get("anilist_id"),
                             status="rate_limited" if search_status == "rate_limited" else "network_error",
-                            manual=bool(self.store.anilist_match(lookup_title).get("anilist_match_manual")),
+                            manual=bool(existing_match.get("anilist_match_manual")),
                         )
                     logger.info("ANILIST_MATCH_%s title=%s", search_status.upper(), display_title)
                     return cached or {
@@ -279,6 +328,7 @@ class LibraryService:
                     )
                 else:
                     context = match_context or MatchContext()
+
                 selected, confident, ranked = AnimeOrganizer.choose(
                     display_title,
                     candidates,
@@ -291,23 +341,28 @@ class LibraryService:
                     refreshed = self.anilist.metadata_from_media(display_title, selected, localize_description=True)
                     refreshed["anilist_id"] = selected["id"]
                     confidence = "high" if score >= 0.9 else "medium"
+                    logger.info(
+                        "METADATA_ACTION_DB_WRITE requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=library_service",
+                        request_id, owner_id or "-", local_lookup, selected["id"],
+                    )
                     self.store.upsert_anime(
-                        lookup_title,
+                        local_lookup,
                         refreshed,
                         source="anilist",
                         confidence=confidence,
                         status="available",
                         fetched_at=time.time(),
+                        local_anime_id=owner_id,
                     )
                     self.store.set_anilist_match(
-                        lookup_title,
+                        local_lookup,
                         selected["id"],
                         status="matched",
                         score=score,
                         margin=margin,
                         manual=False,
                     )
-                    row = self.store.anime_metadata(lookup_title)
+                    row = self.store.anime_metadata_by_id(owner_id) if owner_id else self.store.anime_metadata(local_lookup)
                     if row:
                         self._sync_genres(row["id"], row, source="anilist")
                         self.artwork.sync_anime_metadata(row["id"], row)
@@ -318,14 +373,15 @@ class LibraryService:
                         score,
                         margin,
                     )
-                    return self.store.anime_metadata(lookup_title) or refreshed
+                    return row or refreshed
+
                 if ranked:
                     best_score = float(ranked[0].get("match_score") or 0.0)
                     second_score = float(ranked[1].get("match_score") or 0.0) if len(ranked) > 1 else 0.0
-                    self.store.set_pending_match(lookup_title, display_title, ranked[:5])
-                    if self.store.anime_metadata(lookup_title):
+                    self.store.set_pending_match(local_lookup, display_title, ranked[:5])
+                    if self.store.anime_metadata(local_lookup):
                         self.store.set_anilist_match(
-                            lookup_title,
+                            local_lookup,
                             None,
                             status="ambiguous",
                             score=best_score,
@@ -333,40 +389,94 @@ class LibraryService:
                         )
                     logger.info("ANILIST_MATCH_AMBIGUOUS title=%s candidates=%d", display_title, len(ranked))
                     if cached:
-                        self.store.set_metadata_status(lookup_title, "ambiguous", confidence="medium")
+                        self.store.set_metadata_status(local_lookup, "ambiguous", confidence="medium")
                         return cached
-                    local = {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "ambiguous", "metadata_confidence": "low"}
-                    self.store.upsert_anime(lookup_title, local, source="local", confidence="low", status="ambiguous")
-                    self.store.set_anilist_match(lookup_title, None, status="ambiguous", score=best_score, margin=round(best_score - second_score, 3))
-                    row = self.store.anime_metadata(lookup_title)
+                    local = {
+                        "title": display_title,
+                        "genres": "[]",
+                        "metadata_source": "local",
+                        "metadata_status": "ambiguous",
+                        "metadata_confidence": "low",
+                    }
+                    self.store.upsert_anime(
+                        local_lookup,
+                        local,
+                        source="local",
+                        confidence="low",
+                        status="ambiguous",
+                        local_anime_id=owner_id,
+                    )
+                    self.store.set_anilist_match(
+                        local_lookup,
+                        None,
+                        status="ambiguous",
+                        score=best_score,
+                        margin=round(best_score - second_score, 3),
+                    )
+                    row = self.store.anime_metadata_by_id(owner_id) if owner_id else self.store.anime_metadata(local_lookup)
                     if row:
                         self.artwork.sync_anime_metadata(row["id"], row)
-                    return self.store.anime_metadata(lookup_title) or local
+                    return row or local
+
                 if cached:
-                    self.store.set_metadata_status(lookup_title, "unresolved", confidence="low")
-                    self.store.set_anilist_match(lookup_title, None, status="not_found")
+                    self.store.set_metadata_status(local_lookup, "unresolved", confidence="low")
+                    self.store.set_anilist_match(local_lookup, None, status="not_found")
                     logger.info("ANILIST_MATCH_NOT_FOUND title=%s", display_title)
                     return cached
-                local = {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "unresolved", "metadata_confidence": "low"}
-                self.store.upsert_anime(lookup_title, local, source="local", confidence="low", status="unresolved")
-                self.store.set_anilist_match(lookup_title, None, status="not_found")
-                row = self.store.anime_metadata(lookup_title)
+
+                local = {
+                    "title": display_title,
+                    "genres": "[]",
+                    "metadata_source": "local",
+                    "metadata_status": "unresolved",
+                    "metadata_confidence": "low",
+                }
+                self.store.upsert_anime(
+                    local_lookup,
+                    local,
+                    source="local",
+                    confidence="low",
+                    status="unresolved",
+                    local_anime_id=owner_id,
+                )
+                self.store.set_anilist_match(local_lookup, None, status="not_found")
+                row = self.store.anime_metadata_by_id(owner_id) if owner_id else self.store.anime_metadata(local_lookup)
                 if row:
                     self.artwork.sync_anime_metadata(row["id"], row)
                 logger.info("ANILIST_MATCH_NOT_FOUND title=%s", display_title)
-                return self.store.anime_metadata(lookup_title) or local
+                return row or local
             except Exception as exc:
+                logger.warning(
+                    "METADATA_ACTION_ERROR requestId=%s animeId=%s lookupTitle=%s anilistId=%s screen=library_service error=%s",
+                    request_id, owner_id or "-", local_lookup, refresh_id or "-", exc,
+                )
                 logger.warning("Metadata AniList indisponível para %s: %s", display_title, exc)
                 if cached:
-                    self.store.set_metadata_status(lookup_title, "stale", confidence=cached.get("metadata_confidence") or "low")
+                    self.store.set_metadata_status(
+                        local_lookup,
+                        "stale",
+                        confidence=cached.get("metadata_confidence") or "low",
+                    )
                     return cached
-                local = {"title": display_title, "genres": "[]", "metadata_source": "local", "metadata_status": "unresolved", "metadata_confidence": "low"}
-                self.store.upsert_anime(lookup_title, local, source="local", confidence="low", status="unresolved")
-                row = self.store.anime_metadata(lookup_title)
+                local = {
+                    "title": display_title,
+                    "genres": "[]",
+                    "metadata_source": "local",
+                    "metadata_status": "unresolved",
+                    "metadata_confidence": "low",
+                }
+                self.store.upsert_anime(
+                    local_lookup,
+                    local,
+                    source="local",
+                    confidence="low",
+                    status="unresolved",
+                    local_anime_id=owner_id,
+                )
+                row = self.store.anime_metadata_by_id(owner_id) if owner_id else self.store.anime_metadata(local_lookup)
                 if row:
                     self.artwork.sync_anime_metadata(row["id"], row)
-                return local
-
+                return row or local
     @staticmethod
     def _match_context_from_catalog(item):
         media_kind = str(item.get("media_kind") or (item.get("meta") or {}).get("media_kind") or "series").casefold()
@@ -395,8 +505,18 @@ class LibraryService:
             display_title = str(item.get('main_title') or metadata.get('title') or lookup_title).strip()
             if not lookup_title or not display_title: continue
 
-            cached = self.store.anime_metadata(lookup_title) or metadata
-            anilist_id = self.store.association(lookup_title) or cached.get('anilist_id')
+            local_anime_id = item.get("id")
+            try:
+                local_anime_id = int(local_anime_id) if local_anime_id is not None else None
+            except (TypeError, ValueError):
+                local_anime_id = None
+            cached = (
+                self.store.anime_metadata_by_id(local_anime_id)
+                if local_anime_id
+                else None
+            ) or self.store.anime_metadata(lookup_title) or metadata
+            effective_lookup = str(cached.get("lookup_title") or lookup_title)
+            anilist_id = cached.get('anilist_id') or self.store.association(effective_lookup)
             if cached and anilist_id:
                 cached = self._ensure_cached_description_pt_br(lookup_title, cached)
             status = str(cached.get('metadata_status') or 'unresolved').casefold()
@@ -436,17 +556,24 @@ class LibraryService:
                 cover_attempt_failed = False
                 if needs_metadata:
                     cached = self.refresh_metadata(
-                        lookup_title,
+                        effective_lookup,
                         display_title,
                         # Hydration may be scheduled again while a Home view is
                         # cached. Respect the short request dedupe window so a
                         # still-fresh result does not make another AniList call.
                         force=True,
                         match_context=self._match_context_from_catalog(item),
+                        local_anime_id=local_anime_id,
+                        request_id=str(uuid.uuid4()),
                     )
-                    cached = self.store.anime_metadata(lookup_title) or cached or {}
+                    cached = (
+                        self.store.anime_metadata_by_id(local_anime_id)
+                        if local_anime_id
+                        else None
+                    ) or self.store.anime_metadata(effective_lookup) or cached or {}
                     status = str(cached.get('metadata_status') or status).casefold()
-                    anilist_id = self.store.association(lookup_title) or cached.get('anilist_id')
+                    effective_lookup = str(cached.get("lookup_title") or effective_lookup)
+                    anilist_id = cached.get('anilist_id') or self.store.association(effective_lookup)
                     metadata_refreshed = True
                 cover_cache = str(cached.get('cover_cache') or '').strip()
                 cover_valid = bool(cover_cache and os.path.isfile(cover_cache) and os.path.getsize(cover_cache) > 0)
@@ -809,7 +936,31 @@ class LibraryService:
         identity_uri = uri if uri.startswith(("file://", "content://")) else Path(uri).as_uri()
         native_identity = document.get("stableId")
         identity = native_identity.strip() if isinstance(native_identity, str) and native_identity.strip() else identity_from_document(identity_uri, relative_path, volume_id, source_folder if source_kind == "saf" else None)
-        anime_id = self.store.upsert_anime(key, metadata[key], source=metadata[key].get("metadata_source") or "local", confidence=metadata[key].get("metadata_confidence"), status=metadata[key].get("metadata_status"))
+        local_owner_id = (
+            int(existing["anime_id"])
+            if existing and existing.get("anime_id") is not None
+            else self.store.resolve_local_anime_owner(
+                media_identity=identity,
+                path=uri,
+                source_folder=source_folder,
+                relative_path=relative_path,
+                volume_id=volume_id,
+                lookup_title=key,
+            )
+        )
+        if local_owner_id:
+            logger.info(
+                "[EPISODE_OWNER_INVARIANT] scanner reused local anime owner anime_id=%s lookup_title=%s identity=%s path=%s",
+                local_owner_id, key, identity or "-", uri,
+            )
+        anime_id = self.store.upsert_anime(
+            key,
+            metadata[key],
+            source=metadata[key].get("metadata_source") or "local",
+            confidence=metadata[key].get("metadata_confidence"),
+            status=metadata[key].get("metadata_status"),
+            local_anime_id=local_owner_id,
+        )
 
         # A move/rename changes the path-derived identity. When Android/storage
         # metadata proves that exactly one missing row for the same title/source/

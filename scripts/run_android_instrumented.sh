@@ -32,6 +32,13 @@ adb shell settings get global transition_animation_scale
 adb shell settings get global animator_duration_scale
 
 cd "$GITHUB_WORKSPACE/build/flutter/android"
+
+# The rendered Flet Android Gradle project requires the staged Python site-packages path.
+# Keep this scoped to the rendered test project so instrumented builds are reproducible.
+site_packages="$GITHUB_WORKSPACE/build/flutter/site-packages"
+test -d "$site_packages"
+export SERIOUS_PYTHON_SITE_PACKAGES="$site_packages"
+
 chmod +x gradlew
 
 log="$output_dir/connectedDebugAndroidTest.log"

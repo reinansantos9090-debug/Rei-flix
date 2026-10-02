@@ -49,7 +49,11 @@ class Prompt43MetadataOwnerInstrumentedTest {
 
     @Test
     fun metadata_refresh_preserves_five_local_episodes_and_progress() {
-        val title = By.text("Prompt 43 Fixture")
+        val before = readDatabaseSnapshot()
+        assertEquals("Fixture must contain exactly five local episodes", 5, before.episodeIds.size)
+        assertEquals("Fixture EP01 must start at 37%", 37.0, before.progress.first(), 0.01)
+
+        val title = By.text(before.title)
         assertNotNull("Fixture anime must be rendered on Home", waitFor(title, 20_000L))
         device.findObject(title).click()
 
@@ -65,16 +69,18 @@ class Prompt43MetadataOwnerInstrumentedTest {
         waitFor(By.text("Atualizar metadata"), 10_000L)
         SystemClock.sleep(750L)
 
-        assertDatabaseInvariant()
+        val after = readDatabaseSnapshot()
+        assertLocalSnapshotUnchanged(before, after)
         assertAllEpisodeLabelsVisible()
 
         device.pressBack()
         waitForForegroundPackage(target.packageName)
-        assertNotNull("Home must remain mounted after metadata refresh", waitFor(title, 10_000L))
-        device.findObject(title).click()
+        val afterTitle = By.text(after.title)
+        assertNotNull("Home must remain mounted after metadata refresh", waitFor(afterTitle, 10_000L))
+        device.findObject(afterTitle).click()
         assertNotNull("Details must reopen after metadata refresh", waitFor(By.text("Detalhes"), 10_000L))
         assertAllEpisodeLabelsVisible()
-        assertDatabaseInvariant()
+        assertLocalSnapshotUnchanged(before, readDatabaseSnapshot())
     }
 
     private fun installFixture() {
@@ -89,7 +95,18 @@ class Prompt43MetadataOwnerInstrumentedTest {
         assertTrue("Prompt 43 SQLite fixture must exist", databaseFile.isFile)
     }
 
-    private fun assertDatabaseInvariant() {
+    private data class DbSnapshot(
+        val animeId: Long,
+        val title: String,
+        val anilistId: Long?,
+        val episodeIds: List<Long>,
+        val episodeAnimeIds: List<Long>,
+        val episodePaths: List<String>,
+        val mediaIdentities: List<String>,
+        val progress: List<Double>,
+    )
+
+    private fun readDatabaseSnapshot(): DbSnapshot {
         val db = SQLiteDatabase.openDatabase(databaseFile.path, null, SQLiteDatabase.OPEN_READONLY)
         db.use { database ->
             database.rawQuery(
@@ -99,31 +116,46 @@ class Prompt43MetadataOwnerInstrumentedTest {
                 assertTrue("Fixture anime row must exist", animeCursor.moveToFirst())
                 val animeId = animeCursor.getLong(animeCursor.getColumnIndexOrThrow("id"))
                 val title = animeCursor.getString(animeCursor.getColumnIndexOrThrow("title"))
-                assertEquals("Prompt 43 Fixture", title)
+                val anilistIndex = animeCursor.getColumnIndexOrThrow("anilist_id")
+                val anilistId = if (animeCursor.isNull(anilistIndex)) {
+                    null
+                } else {
+                    animeCursor.getLong(anilistIndex)
+                }
+                val ids = mutableListOf<Long>()
+                val owners = mutableListOf<Long>()
+                val paths = mutableListOf<String>()
+                val identities = mutableListOf<String>()
+                val progress = mutableListOf<Double>()
+
                 database.rawQuery(
-                    "SELECT id, anime_id, path, media_identity, progress, watched FROM episodes WHERE anime_id=? ORDER BY number",
+                    "SELECT id, anime_id, path, media_identity, progress FROM episodes WHERE anime_id=? ORDER BY number",
                     arrayOf(animeId.toString()),
                 ).use { episodeCursor ->
-                    var count = 0
-                    var firstId = -1L
-                    var firstProgress = -1.0
                     while (episodeCursor.moveToNext()) {
-                        count += 1
-                        val episodeId = episodeCursor.getLong(episodeCursor.getColumnIndexOrThrow("id"))
-                        val episodeAnimeId = episodeCursor.getLong(episodeCursor.getColumnIndexOrThrow("anime_id"))
-                        assertEquals("Every episode must retain the canonical local owner", animeId, episodeAnimeId)
-                        assertTrue("Each fixture episode must retain a media identity", episodeCursor.getString(episodeCursor.getColumnIndexOrThrow("media_identity")).isNotBlank())
-                        if (count == 1) {
-                            firstId = episodeId
-                            firstProgress = episodeCursor.getDouble(episodeCursor.getColumnIndexOrThrow("progress"))
-                        }
+                        ids += episodeCursor.getLong(episodeCursor.getColumnIndexOrThrow("id"))
+                        owners += episodeCursor.getLong(episodeCursor.getColumnIndexOrThrow("anime_id"))
+                        paths += episodeCursor.getString(episodeCursor.getColumnIndexOrThrow("path"))
+                        identities += episodeCursor.getString(episodeCursor.getColumnIndexOrThrow("media_identity"))
+                        progress += episodeCursor.getDouble(episodeCursor.getColumnIndexOrThrow("progress"))
                     }
-                    assertEquals("All five local episodes must remain in SQLite", 5, count)
-                    assertTrue("EP01 must keep its canonical local id", firstId > 0)
-                    assertEquals("EP01 progress must remain 37%", 37.0, firstProgress, 0.01)
                 }
+                return DbSnapshot(animeId, title, anilistId, ids, owners, paths, identities, progress)
             }
         }
+    }
+
+    private fun assertLocalSnapshotUnchanged(before: DbSnapshot, after: DbSnapshot) {
+        assertEquals("anime.id must remain canonical", before.animeId, after.animeId)
+        assertEquals("episode IDs must remain canonical", before.episodeIds, after.episodeIds)
+        assertEquals("episode anime_id ownership must remain canonical", before.episodeAnimeIds, after.episodeAnimeIds)
+        assertEquals("episode paths must remain stable", before.episodePaths, after.episodePaths)
+        assertEquals("media_identity values must remain stable", before.mediaIdentities, after.mediaIdentities)
+        assertEquals("progress must remain stable", before.progress, after.progress)
+        assertEquals("AniList ID must be persisted only as external metadata identity", 16498L, after.anilistId)
+        assertTrue("Metadata title may change, but it must remain non-empty", after.title.isNotBlank())
+        assertEquals("All five episodes must remain in SQLite", 5, after.episodeIds.size)
+        assertTrue("Every episode must retain its local owner", after.episodeAnimeIds.all { it == after.animeId })
     }
 
     private fun assertAllEpisodeLabelsVisible() {

@@ -151,7 +151,10 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
             )
 
     def _apply_metadata_fixture(self, service, anime_id):
-        with patch.object(service.anilist, "by_id", return_value=self._ani_list_media()), \
+        candidate = dict(self._ani_list_media())
+        candidate["match_score"] = 1.0
+        with patch.object(service.anilist, "search", return_value=[candidate]), \
+             patch.object(service.anilist, "by_id", return_value=self._ani_list_media()), \
              patch.object(service.anilist, "metadata_from_media", return_value=self._ani_list_metadata()):
             service.refresh_metadata(
                 "prompt43-show",

@@ -80,6 +80,27 @@ class Prompt43MetadataOwnerInstrumentedTest {
         assertNotNull("Details must reopen after metadata refresh", waitFor(By.text("Detalhes"), 10_000L))
         assertAllEpisodeLabelsVisible()
         assertLocalSnapshotUnchanged(before, readDatabaseSnapshot())
+
+        // Process restart regression: metadata must not depend on in-memory
+        // catalog state or the previous Details instance.
+        device.executeShellCommand("am force-stop ${target.packageName}")
+        val restartIntent = android.content.Intent(target, MainActivity::class.java)
+            .addFlags(
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+            )
+        InstrumentationRegistry.getInstrumentation().startActivitySync(restartIntent)
+        waitForForegroundPackage(target.packageName)
+        val afterRestart = readDatabaseSnapshot()
+        assertLocalSnapshotUnchanged(before, afterRestart)
+        assertNotNull(
+            "Home must remount the local anime after process restart",
+            waitFor(By.text(afterRestart.title), 20_000L)
+        )
+        device.findObject(By.text(afterRestart.title)).click()
+        assertNotNull("Details must reopen after process restart", waitFor(By.text("Detalhes"), 10_000L))
+        assertAllEpisodeLabelsVisible()
+        assertLocalSnapshotUnchanged(before, readDatabaseSnapshot())
     }
 
     private fun installFixture() {

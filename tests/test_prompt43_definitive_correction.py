@@ -129,7 +129,7 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
         documents = [
             {
                 "uri": f"content://prompt43/matrix/{number}",
-                "stableId": f"prompt43:matrix:{number}",
+                "stableId": f"prompt43:stable:{number}",
                 "name": f"{title} S01E{number:02d}.mkv",
                 "relativePath": f"{title}/Season 1/{title} S01E{number:02d}.mkv",
                 "mimeType": "video/mp4",

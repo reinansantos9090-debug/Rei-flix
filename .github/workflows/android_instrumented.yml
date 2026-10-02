@@ -124,7 +124,8 @@ jobs:
             BackAndSettingsReturnInstrumentedTest.kt \
             DeviceFlowInstrumentedTest.kt \
             NativeIndexInstrumentedTest.kt \
-            NativeMailboxInstrumentedTest.kt             Prompt43MetadataOwnerInstrumentedTest.kt; do
+            NativeMailboxInstrumentedTest.kt \
+            Prompt43MetadataOwnerInstrumentedTest.kt; do
             test -f "build/flutter/android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/$test_file"
           done
       # Cache the rendered Android project directly. This avoids a second

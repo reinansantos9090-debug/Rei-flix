@@ -826,6 +826,8 @@ class LibraryService:
             anime_id, uri, name, item.season, item.episode,
             document.get("mimeType"), file_size, modified_at, source_folder,
             media_identity=identity,
+            identification_source=item.identification_source,
+            identification_confidence=item.confidence,
         )
         self.store.apply_episode_identification(
             uri, absolute_number=item.absolute_number, relative_path=relative_path,

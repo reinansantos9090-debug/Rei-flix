@@ -518,7 +518,7 @@ class LibraryService:
             effective_lookup = str(cached.get("lookup_title") or lookup_title)
             anilist_id = cached.get('anilist_id') or self.store.association(effective_lookup)
             if cached and anilist_id:
-                cached = self._ensure_cached_description_pt_br(lookup_title, cached)
+                cached = self._ensure_cached_description_pt_br(effective_lookup, cached)
             status = str(cached.get('metadata_status') or 'unresolved').casefold()
             if status == 'manual' and not anilist_id:
                 continue
@@ -548,7 +548,7 @@ class LibraryService:
             needs_metadata = not anilist_id or status in {'unresolved', 'error', 'stale'}
             if status == 'ambiguous' and not anilist_id:
                 if pending_cache is None: pending_cache = self.store.pending_matches()
-                needs_metadata = not any(p.get('lookup_title') == lookup_title for p in pending_cache)
+                needs_metadata = not any(p.get('lookup_title') == effective_lookup for p in pending_cache)
             needs_cover = bool(anilist_id and str(cached.get('cover_url') or '').strip() and not cover_valid)
             if not needs_metadata and not needs_cover: continue
             try:

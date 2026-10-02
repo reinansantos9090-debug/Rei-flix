@@ -845,8 +845,8 @@ class DetailView:
 
         progress_bars = []
         progress_section = []
-        # current_episode also represents the next unwatched episode. Only a
-        # genuinely in-progress episode is eligible for the "CONTINUAR" section.
+        # current_episode also represents the next unwatched episode.  Only an
+        # actual in-progress episode is a valid "CONTINUAR" projection.
         if current and is_in_progress(current):
             current_ratio = ratio(current)
             season = current.get("season")

@@ -500,14 +500,6 @@ jobs:
       # operation, so publish the current APK/ZIP/metadata to one rolling
       # GitHub Release instead. Release assets have their own storage model and
       # are not stored as Actions artifacts.
-      - name: Upload APK to Actions run
-        uses: actions/upload-artifact@v4
-        continue-on-error: true
-        with:
-          name: ReiAnix-apk-${{ github.run_number }}
-          path: build/ReiAnix.apk
-          retention-days: 1
-          if-no-files-found: error
 
       # Manual builds also publish a persistent copy to the rolling Release.
       - name: Publish APK and ZIP to rolling GitHub Release

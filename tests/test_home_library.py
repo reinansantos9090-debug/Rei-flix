@@ -40,6 +40,22 @@ class HomeLibraryTests(unittest.TestCase):
             self.assertEqual("content://second/1", continuation[0]["path"])
             self.assertEqual([second], [item["id"] for item in projected])
 
+    def test_continue_watching_home_identity_targets_episode_and_anime_separately(self):
+        source = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
+        start = source.index("        def play_continuation(item):")
+        end = source.index("        async def reveal_focus", start)
+        block = source[start:end]
+        self.assertIn('episode_id=episode.get("id")', block)
+        self.assertIn('anime_id=item.get("anime_id")', block)
+        self.assertNotIn('anime_id=item.get("id")', block)
+
+    def test_home_continue_uses_configured_limit_without_secondary_slicing(self):
+        source = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
+        self.assertIn('settings.get("library.continue_watching_limit")', source)
+        self.assertIn('library.media_center_home,\n                    limit=continue_limit', source)
+        self.assertIn("visible_items = list(continuing)", source)
+        self.assertNotIn("visible_items = list(continuing[:6])", source)
+
     def test_home_uses_bounded_pages_and_incremental_loading(self):
         source = (ROOT / "views" / "home_view.py").read_text(encoding="utf-8")
 

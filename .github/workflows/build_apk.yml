@@ -529,17 +529,18 @@ jobs:
       # so the APK and standalone ZIP are downloadable directly from the run.
       # One-day retention prevents repeated push builds from accumulating in
       # the small Actions artifact storage pool.
-      - name: Upload APK and ZIP as workflow artifacts
+      - name: Upload APK to Actions run
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
-          name: ReiAnix-${{ github.run_number }}-apk
+          name: ReiAnix-apk-${{ github.run_number }}
           path: |
             build/ReiAnix.apk
             build/ReiAnix-apk.zip
             build/ReiAnix.apk.sha256
           retention-days: 1
           if-no-files-found: error
+          continue-on-error: true
 
       # Keep Actions artifact publication disabled for push/PR builds. The
       # rolling release above is the supported download channel for manual

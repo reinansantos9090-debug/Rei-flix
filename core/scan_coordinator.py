@@ -203,8 +203,14 @@ class ScanCoordinator:
         )
 
     def _emit(self) -> None:
-        if self.on_state:
+        if not self.on_state:
+            return
+        try:
             self.on_state(self.snapshot)
+        except Exception:
+            # State observers are informational/UI plumbing. A broken observer
+            # must never abort the real scan state machine or native dispatch.
+            logger.exception("[SCAN] on_state listener failed")
 
     def _log(self, event: str, request: ScanRequest, **extra) -> None:
         details = {

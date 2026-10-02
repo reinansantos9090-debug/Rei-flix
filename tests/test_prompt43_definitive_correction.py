@@ -558,9 +558,9 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
         self.assertIn("details_instance_generation[0] != details_token", main_source)
         self.assertIn("settings_generation_provider", self.read("views/settings_view.py"))
         self.assertIn("register_settings_task", self.read("views/settings_view.py"))
-        self.assertIn("anime_group[\"seasons\"]", details_source)
+        self.assertIn("selected.get(\"episodes\", [])", details_source)
+        self.assertIn("episode_column.controls.extend(episode_item(item) for item in visible_regular)", details_source)
         self.assertIn("library.browse_catalog_page", home_source)
-        self.assertNotIn("episode_count", details_source)
 
     def test_home_metadata_hydration_uses_the_canonical_artwork_resolver(self):
         source = self.read("views/home_view.py")

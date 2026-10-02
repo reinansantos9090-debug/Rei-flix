@@ -38,6 +38,11 @@ class AndroidBridge:
         )
         self._command_delivery_waiters: dict[str, asyncio.Future] = {}
         self._command_delivery_expected_events: dict[str, str] = {}
+        self._internal_command_actions = {
+            "play",
+            "extract_thumbnail",
+            "cancel_player_transition",
+        }
         self._recover_unacknowledged_batches()
 
     def _recover_unacknowledged_batches(self) -> None:
@@ -183,50 +188,80 @@ class AndroidBridge:
             ",".join(sorted(str(key) for key, value in params.items() if value is not None)) or "-",
         )
         try:
-            launcher = getattr(self.page, "url_launcher", None)
-            launch_mode_type = getattr(ft, "LaunchMode", None)
-            external_non_browser = getattr(
-                launch_mode_type,
-                "EXTERNAL_NON_BROWSER_APPLICATION",
-                None,
-            )
-            if launcher is None or external_non_browser is None:
-                raise RuntimeError(
-                    "Flet 0.86.5 não expôs UrlLauncher/EXTERNAL_NON_BROWSER_APPLICATION."
+            if action in self._internal_command_actions and self.available:
+                self._write_internal_command(
+                    request_id=request_id,
+                    action=action,
+                    created_at=created_at,
+                    url=url,
                 )
-            await launcher.launch_url(url, mode=external_non_browser)
-            performance.event(
-                "NATIVE_COMMAND_SENT",
-                duration_ms=(performance.now()-launch_started)*1000.0,
-                screen="android_bridge",
-                metadata={
-                    "request_id": request_id,
-                    "operation": action,
-                    "commandCreatedAtMs": created_at,
-                    "player_session_id": params.get("player_session_id"),
-                    "episode_id": params.get("episode_id"),
-                    "anime_id": params.get("anime_id"),
-                },
-            )
-            performance.event(
-                "android.launch_url",
-                duration_ms=(performance.now()-launch_started)*1000.0,
-                screen="android_bridge",
-                metadata={
-                    "action": action,
-                    "request_id": request_id,
-                    "player_session_id": params.get("player_session_id"),
-                    "episode_id": params.get("episode_id"),
-                    "anime_id": params.get("anime_id"),
-                },
-            )
-            logger.info(
-                "[ANDROID_BRIDGE] COMMAND_LAUNCH_ACCEPTED request_id=%s action=%s "
-                "timestamp=%s launcher=UrlLauncher mode=EXTERNAL_NON_BROWSER_APPLICATION",
-                request_id,
-                action,
-                int(time.time() * 1000),
-            )
+                performance.event(
+                    "NATIVE_COMMAND_SENT",
+                    duration_ms=(performance.now()-launch_started)*1000.0,
+                    screen="android_bridge",
+                    metadata={
+                        "request_id": request_id,
+                        "operation": action,
+                        "commandCreatedAtMs": created_at,
+                        "player_session_id": params.get("player_session_id"),
+                        "episode_id": params.get("episode_id"),
+                        "anime_id": params.get("anime_id"),
+                        "transport": "native_command_mailbox",
+                    },
+                )
+                logger.info(
+                    "[ANDROID_BRIDGE] COMMAND_FILE_WRITE_ACCEPTED request_id=%s action=%s "
+                    "timestamp=%s transport=native_command_mailbox",
+                    request_id,
+                    action,
+                    int(time.time() * 1000),
+                )
+            else:
+                launcher = getattr(self.page, "url_launcher", None)
+                launch_mode_type = getattr(ft, "LaunchMode", None)
+                external_non_browser = getattr(
+                    launch_mode_type,
+                    "EXTERNAL_NON_BROWSER_APPLICATION",
+                    None,
+                )
+                if launcher is None or external_non_browser is None:
+                    raise RuntimeError(
+                        "Flet 0.86.5 não expôs UrlLauncher/EXTERNAL_NON_BROWSER_APPLICATION."
+                    )
+                await launcher.launch_url(url, mode=external_non_browser)
+                performance.event(
+                    "NATIVE_COMMAND_SENT",
+                    duration_ms=(performance.now()-launch_started)*1000.0,
+                    screen="android_bridge",
+                    metadata={
+                        "request_id": request_id,
+                        "operation": action,
+                        "commandCreatedAtMs": created_at,
+                        "player_session_id": params.get("player_session_id"),
+                        "episode_id": params.get("episode_id"),
+                        "anime_id": params.get("anime_id"),
+                        "transport": "url_launcher",
+                    },
+                )
+                performance.event(
+                    "android.launch_url",
+                    duration_ms=(performance.now()-launch_started)*1000.0,
+                    screen="android_bridge",
+                    metadata={
+                        "action": action,
+                        "request_id": request_id,
+                        "player_session_id": params.get("player_session_id"),
+                        "episode_id": params.get("episode_id"),
+                        "anime_id": params.get("anime_id"),
+                    },
+                )
+                logger.info(
+                    "[ANDROID_BRIDGE] COMMAND_LAUNCH_ACCEPTED request_id=%s action=%s "
+                    "timestamp=%s launcher=UrlLauncher mode=EXTERNAL_NON_BROWSER_APPLICATION",
+                    request_id,
+                    action,
+                    int(time.time() * 1000),
+                )
         except Exception as exc:
             self._command_delivery_waiters.pop(request_id, None)
             self._command_delivery_expected_events.pop(request_id, None)
@@ -328,6 +363,41 @@ class AndroidBridge:
             expected_event,
         )
         return request_id
+
+    def _write_internal_command(self, *, request_id: str, action: str, created_at: int, url: str) -> None:
+        command_dir = self.data_dir / "reiflix-native-commands"
+        command_dir.mkdir(parents=True, exist_ok=True)
+        target = command_dir / f"command-{request_id}.json"
+        temporary = command_dir / f".command-{request_id}.tmp"
+        payload = json.dumps(
+            {
+                "version": 1,
+                "requestId": request_id,
+                "action": action,
+                "createdAt": created_at,
+                "url": url,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        try:
+            with temporary.open("w", encoding="utf-8") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+        except Exception:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+        logger.info(
+            "[ANDROID_BRIDGE] INTERNAL_COMMAND_FILE_WRITTEN request_id=%s action=%s path=%s",
+            request_id,
+            action,
+            target,
+        )
 
     async def select_tree(self): return await self._launch("select_tree")
     async def rescan_tree(self, tree_uri: str): return await self._launch("scan_tree", tree_uri=tree_uri)

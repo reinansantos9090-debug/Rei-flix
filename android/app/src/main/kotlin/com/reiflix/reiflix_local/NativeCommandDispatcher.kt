@@ -161,9 +161,9 @@ object NativeCommandDispatcher {
                 }
             }
         } catch (error: Exception) {
-            Log.e(TAG, "COMMAND_PROCESSING_FAILED requestId=${claimed.name}", error)
+            Log.e(TAG, "COMMAND_PROCESSING_FAILED file=${file.name}", error)
         } finally {
-            claimed.delete()
+            file.delete()
         }
     }
 

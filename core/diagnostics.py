@@ -26,6 +26,7 @@ class DiagnosticEvent:
     result: str | None = None
     counts: dict[str, int] | None = None
     error: str | None = None
+    extra: dict[str, Any] | None = None
 
 
 class DiagnosticTimeline:
@@ -36,13 +37,18 @@ class DiagnosticTimeline:
 
     def record(self, name: str, *, request_id: Any = None, scan_id: Any = None,
                source: Any = None, result: Any = None,
-               counts: dict[str, Any] | None = None, error: Any = None) -> DiagnosticEvent:
+               counts: dict[str, Any] | None = None, error: Any = None,
+               **extra: Any) -> DiagnosticEvent:
         normalized_counts = None
         if isinstance(counts, dict):
             normalized_counts = {
                 str(k): int(v) for k, v in counts.items()
                 if isinstance(v, (int, float)) and not isinstance(v, bool)
             } or None
+        normalized_extra = None
+        if extra:
+            normalized_extra = {str(key): self._normalize_extra(value) for key, value in extra.items()}
+
         event = DiagnosticEvent(
             name=str(name),
             timestamp_ms=int(time.time() * 1000),
@@ -52,10 +58,21 @@ class DiagnosticTimeline:
             result=str(result).strip() or None if result is not None else None,
             counts=normalized_counts,
             error=str(error)[:500] if error else None,
+            extra=normalized_extra,
         )
         self._events.append(event)
         logger.info("[E2E] %s", json.dumps(asdict(event), ensure_ascii=False, sort_keys=True))
         return event
+
+    @classmethod
+    def _normalize_extra(cls, value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, dict):
+            return {str(key): cls._normalize_extra(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [cls._normalize_extra(item) for item in value]
+        return str(value)
 
     def snapshot(self) -> list[dict[str, Any]]:
         return [asdict(event) for event in self._events]

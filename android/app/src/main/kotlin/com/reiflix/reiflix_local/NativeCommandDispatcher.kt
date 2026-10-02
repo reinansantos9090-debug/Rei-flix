@@ -84,6 +84,7 @@ object NativeCommandDispatcher {
                     enqueue(path)
                 }
             }
+            recoverClaimedCommands()
             observer?.startWatching()
             started = true
             commandExecutor.execute { drainPendingCommands() }
@@ -94,6 +95,28 @@ object NativeCommandDispatcher {
     private fun enqueue(fileName: String) {
         if (!started || fileName.isBlank()) return
         commandExecutor.execute { processFile(fileName) }
+    }
+
+    private fun recoverClaimedCommands() {
+        queueDir.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(PROCESSING_SUFFIX) }
+            ?.forEach { processing ->
+                val restoredName = processing.name.removeSuffix(PROCESSING_SUFFIX) + ".json"
+                val restored = File(queueDir, restoredName)
+                runCatching {
+                    if (restored.exists()) {
+                        processing.delete()
+                    } else {
+                        Files.move(
+                            processing.toPath(),
+                            restored.toPath(),
+                            StandardCopyOption.ATOMIC_MOVE,
+                        )
+                    }
+                }.onFailure {
+                    Log.e(TAG, "COMMAND_RECOVERY_FAILED file=${processing.name}", it)
+                }
+            }
     }
 
     private fun drainPendingCommands() {

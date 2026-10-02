@@ -562,7 +562,7 @@ class HomeView:
                 player_episode_title(anime_title, episode),
                 progress_seconds=episode.get("progress", 0) or 0,
                 episode_id=episode.get("id"),
-                anime_id=item.get("id"),
+                anime_id=item.get("anime_id"),
             )
 
         async def reveal_focus(scrollable, scroll_key):
@@ -1067,7 +1067,7 @@ class HomeView:
 
         def render_continue():
             nonlocal continue_signature
-            visible_items = list(continuing[:6])
+            visible_items = list(continuing)
             signature = tuple(_visible_item_signature(item, episode=True) for item in visible_items)
             if continue_signature[0] == signature:
                 continuation_section.visible = bool(visible_items)
@@ -1441,7 +1441,14 @@ class HomeView:
             performance.event("HOME_INITIAL_LOAD_START", screen="home",
                               metadata={"generation": token})
             try:
-                loaded = await asyncio.to_thread(library.media_center_home, limit=12)
+                try:
+                    continue_limit = int(settings.get("library.continue_watching_limit"))
+                except (TypeError, ValueError):
+                    continue_limit = 10
+                loaded = await asyncio.to_thread(
+                    library.media_center_home,
+                    limit=continue_limit,
+                )
             except Exception:
                 logger.exception("Home secondary sections load failed", extra={"screen":"home"})
                 return

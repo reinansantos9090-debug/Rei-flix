@@ -138,14 +138,6 @@ jobs:
           path: build/reiflix-android-test-project.tgz
           key: reianix-android-test-project-${{ github.sha }}
 
-      - name: Upload rendered Android test project
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: reiflix-android-test-project
-          path: build/reiflix-android-test-project.tgz
-          if-no-files-found: error
-          retention-days: 7
 
   instrumented:
     name: Android API ${{ matrix.api }}
@@ -196,11 +188,20 @@ jobs:
           arch: x86_64
           profile: pixel_2
           force-avd-creation: true
-          disable-animations: true
-          emulator-options: "-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect"
+          disable-animations: false
+          emulator-options: "-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back none -camera-front none"
           script: |
             bash -euo pipefail <<'REIFLIX_ANDROID_INSTRUMENTED_SCRIPT'
             mkdir -p "$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}"
+            # Do not use the runner disable-animations hook: it sends an input keyevent
+            # during the fragile boot window, where the input service may not exist yet.
+            adb wait-for-device
+            adb shell settings put global window_animation_scale 0.0
+            adb shell settings put global transition_animation_scale 0.0
+            adb shell settings put global animator_duration_scale 0.0
+            adb shell settings get global window_animation_scale
+            adb shell settings get global transition_animation_scale
+            adb shell settings get global animator_duration_scale
             cd "$GITHUB_WORKSPACE/build/flutter/android"
             chmod +x gradlew
             log="$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}/connectedDebugAndroidTest.log"
@@ -313,17 +314,17 @@ jobs:
           capture "$out/activity_top.txt" adb shell dumpsys activity top
           capture "$out/window.txt" adb shell dumpsys window
           capture "$out/logcat.txt" adb logcat -d -v threadtime
+          {
+            echo "## Android runtime diagnostics"
+            echo '```
+            cat "$out/sdk.txt" || true
+            echo "--- adb devices ---"
+            cat "$out/adb_devices.txt" || true
+            echo "--- command exit markers ---"
+            grep -h "COMMAND_EXIT=" "$out"/*.txt || true
+            echo '```
+          } >> "$GITHUB_STEP_SUMMARY"
           set -e
-      - name: Upload API ${{ matrix.api }} instrumentation evidence
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: reiflix-android-api${{ matrix.api }}-evidence
-          path: build/android-api${{ matrix.api }}
-          if-no-files-found: warn
-          retention-days: 7
-
 
   instrumented-tv:
     name: Android TV API 36
@@ -360,11 +361,20 @@ jobs:
           arch: x86_64
           force-avd-creation: true
           emulator-boot-timeout: 600
-          disable-animations: true
-          emulator-options: "-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect"
+          disable-animations: false
+          emulator-options: "-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back none -camera-front none"
           script: |
             bash -euo pipefail <<'REIFLIX_ANDROID_TV_SCRIPT'
             mkdir -p "$GITHUB_WORKSPACE/build/android-tv-api36"
+            # Android TV can publish boot completion before the input service is available.
+            # Keep animation disabling explicit instead of using the runner keyevent hook.
+            adb wait-for-device
+            adb shell settings put global window_animation_scale 0.0
+            adb shell settings put global transition_animation_scale 0.0
+            adb shell settings put global animator_duration_scale 0.0
+            adb shell settings get global window_animation_scale
+            adb shell settings get global transition_animation_scale
+            adb shell settings get global animator_duration_scale
             cd "$GITHUB_WORKSPACE/build/flutter/android"
             chmod +x gradlew
             log="$GITHUB_WORKSPACE/build/android-tv-api36/connectedDebugAndroidTest.log"
@@ -406,13 +416,14 @@ jobs:
           capture "$out/activity_top.txt" adb shell dumpsys activity top
           capture "$out/window.txt" adb shell dumpsys window
           capture "$out/logcat.txt" adb logcat -d -v threadtime
+          {
+            echo "## Android runtime diagnostics"
+            echo '```
+            cat "$out/sdk.txt" || true
+            echo "--- adb devices ---"
+            cat "$out/adb_devices.txt" || true
+            echo "--- command exit markers ---"
+            grep -h "COMMAND_EXIT=" "$out"/*.txt || true
+            echo '```
+          } >> "$GITHUB_STEP_SUMMARY"
           set -e
-      - name: Upload Android TV evidence
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: reiflix-android-tv-api36-evidence
-          path: build/android-tv-api36
-          if-no-files-found: warn
-          retention-days: 7

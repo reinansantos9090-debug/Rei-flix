@@ -85,7 +85,10 @@ class LibraryIntelligenceTests(unittest.TestCase):
         self.store.save_progress("content://demo/2", 100, 100)
         self.store.save_progress("content://demo/3", 20, 100)
         rows = self.store.continue_watching()
-        self.assertEqual(["content://demo/3"], [row["path"] for row in rows])
+        self.assertEqual(
+            ["content://demo/3", "content://demo/1"],
+            [row["path"] for row in rows],
+        )
 
     def test_next_episode_remains_a_player_navigation_contract(self):
         self.store.upsert_episode(self.anime, "content://demo/2", "Demo E02.mkv", 1, 2)

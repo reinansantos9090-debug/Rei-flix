@@ -1203,11 +1203,15 @@ override fun onCreate(savedInstanceState: Bundle?) {
                             " subtitleCount=" + subtitleTracks.size +
                             " reason=" + reason,
                     )
-                    // Resume must be applied after READY and before playback starts.
-                    // Setting playWhenReady before prepare can race the initial seek.
+                    // The reused player must relinquish the current TextureView surface before
+                    // resetting the media item. PlayerView.clear/setPlayer is the Media3-supported
+                    // ownership boundary for TextureView; keeping the old surface attached across
+                    // the media reset can leave the renderer targeting the previous surface.
                     player.pause()
+                    detachPlayerViewForMediaReset(reason)
                     player.setMediaItem(mediaItem)
                     player.playWhenReady = false
+                    reattachPlayerViewAfterMediaReset(reason)
                     logPlayer(
                         "PLAY_WHEN_READY_DEFERRED requested=" + shouldPlayWhenReady +
                             " requestId=" + requestId.ifEmpty { "-" } +
@@ -1894,6 +1898,35 @@ override fun onCreate(savedInstanceState: Bundle?) {
                 )
             }
         }
+
+    private fun detachPlayerViewForMediaReset(reason: String) {
+        if (!::playerView.isInitialized || playerView.player !== player) return
+        playerView.player = null
+        logPlayer(
+            "PLAYER_VIEW_DETACHED_FOR_MEDIA_RESET requestId=" +
+                requestId.ifEmpty { "-" } +
+                " generation=" + playerGeneration +
+                " transitionGeneration=" + transitionGeneration +
+                " reason=" + reason,
+        )
+    }
+
+    private fun reattachPlayerViewAfterMediaReset(reason: String) {
+        if (!::playerView.isInitialized || sessionState == SessionState.DESTROYED) return
+        if (playerView.player !== player) {
+            playerView.player = player
+            check(playerView.player === player) {
+                "PlayerView failed to reattach the ExoPlayer instance after media reset"
+            }
+            logPlayer(
+                "PLAYER_VIEW_REATTACHED_AFTER_MEDIA_RESET requestId=" +
+                    requestId.ifEmpty { "-" } +
+                    " generation=" + playerGeneration +
+                    " transitionGeneration=" + transitionGeneration +
+                    " reason=" + reason,
+            )
+        }
+    }
 
     private fun beginPlayerGeneration(reason: String) {
         if (!::player.isInitialized || sessionState == SessionState.DESTROYED) return

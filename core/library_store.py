@@ -1371,13 +1371,32 @@ class LibraryStore:
                     effective_mime = existing["mime_type"]
                 effective_size = file_size if file_size is not None else (existing["file_size"] if existing else None)
                 effective_modified = modified_at if modified_at is not None else (existing["modified_at"] if existing else None)
-                effective_absolute = absolute_number if absolute_number is not None else (existing["absolute_number"] if existing else None)
+                preserve_existing_identity = bool(
+                    existing
+                    and (
+                        existing["manual_override"]
+                        or (
+                            media_identity
+                            and existing["media_identity"]
+                            and str(existing["media_identity"]) == str(media_identity)
+                            and self._identification_confidence_rank(
+                                identification_confidence or existing["identification_confidence"]
+                            ) < self._identification_confidence_rank(existing["identification_confidence"])
+                        )
+                    )
+                )
+                effective_absolute = (
+                    existing["absolute_number"]
+                    if preserve_existing_identity
+                    else absolute_number if absolute_number is not None else (existing["absolute_number"] if existing else None)
+                )
+                effective_anime_id = existing["anime_id"] if preserve_existing_identity else anime_id
                 if new_path is None:
                     c.execute(
                         """UPDATE episodes SET anime_id=?,file_name=?,season=?,number=?,mime_type=?,
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                            episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0,availability_state='available' WHERE id=?""",
-                        (anime_id,file_name,effective_season,effective_number,effective_mime,effective_size,effective_modified,source_folder,
+                        (effective_anime_id,file_name,effective_season,effective_number,effective_mime,effective_size,effective_modified,source_folder,
                          media_identity,effective_absolute,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )
                 else:
@@ -1385,7 +1404,7 @@ class LibraryStore:
                         """UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,
                            file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                            episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0,availability_state='available' WHERE id=?""",
-                        (anime_id,new_path,file_name,effective_season,effective_number,effective_mime,effective_size,effective_modified,source_folder,
+                        (effective_anime_id,new_path,file_name,effective_season,effective_number,effective_mime,effective_size,effective_modified,source_folder,
                          media_identity,effective_absolute,effective_type,effective_title,effective_source,effective_confidence,row_id),
                     )
                 return row_id
@@ -1394,44 +1413,46 @@ class LibraryStore:
                 progress = max(float(by_path["progress"] or 0), float(by_identity["progress"] or 0))
                 watched = max(int(by_path["watched"] or 0), int(by_identity["watched"] or 0))
                 last_played = max(float(by_path["last_played_at"] or 0), float(by_identity["last_played_at"] or 0)) or None
-                duplicate_source = (
-                    by_identity["identification_source"] if by_identity["manual_override"]
-                    else by_path["identification_source"] if by_path["manual_override"]
-                    else identification_source or "legacy"
+                preferred_existing = (
+                    by_identity if by_identity["manual_override"]
+                    else by_path if by_path["manual_override"]
+                    else by_identity
+                    if self._identification_confidence_rank(by_identity["identification_confidence"])
+                    >= self._identification_confidence_rank(by_path["identification_confidence"])
+                    else by_path
                 )
-                duplicate_confidence = (
-                    by_identity["identification_confidence"] if by_identity["manual_override"]
-                    else by_path["identification_confidence"] if by_path["manual_override"]
-                    else identification_confidence or "medium"
+                incoming_confidence = identification_confidence or "medium"
+                preserve_existing_identity = (
+                    bool(preferred_existing)
+                    and self._identification_confidence_rank(incoming_confidence)
+                    < self._identification_confidence_rank(preferred_existing["identification_confidence"])
                 )
-                duplicate_season = (
-                    by_identity["season"] if by_identity["manual_override"]
-                    else by_path["season"] if by_path["manual_override"]
-                    else season
-                )
-                duplicate_number = (
-                    by_identity["number"] if by_identity["manual_override"]
-                    else by_path["number"] if by_path["manual_override"]
-                    else number
-                )
-                duplicate_type = (
-                    by_identity["episode_type"] if by_identity["manual_override"]
-                    else by_path["episode_type"] if by_path["manual_override"]
-                    else episode_type
-                )
-                duplicate_title = (
-                    by_identity["episode_title"] if by_identity["manual_override"]
-                    else by_path["episode_title"] if by_path["manual_override"]
-                    else episode_title
-                )
+                if preserve_existing_identity:
+                    duplicate_anime_id = preferred_existing["anime_id"]
+                    duplicate_source = preferred_existing["identification_source"]
+                    duplicate_confidence = preferred_existing["identification_confidence"]
+                    duplicate_season = preferred_existing["season"]
+                    duplicate_number = preferred_existing["number"]
+                    duplicate_absolute = preferred_existing["absolute_number"]
+                    duplicate_type = preferred_existing["episode_type"]
+                    duplicate_title = preferred_existing["episode_title"]
+                else:
+                    duplicate_anime_id = anime_id
+                    duplicate_source = identification_source or "legacy"
+                    duplicate_confidence = incoming_confidence
+                    duplicate_season = season
+                    duplicate_number = number
+                    duplicate_absolute = absolute_number
+                    duplicate_type = episode_type
+                    duplicate_title = episode_title
                 survivor_id = by_identity["id"]
                 c.execute(
                     """UPDATE episodes SET anime_id=?,path=?,file_name=?,season=?,number=?,mime_type=?,
                        file_size=?,modified_at=?,source_folder=?,media_identity=?,absolute_number=?,
                        episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,
                        missing=0,progress=?,watched=?,last_played_at=? WHERE id=?""",
-                    (anime_id,path,file_name,duplicate_season,duplicate_number,mime_type,file_size,modified_at,source_folder,
-                     media_identity,absolute_number,duplicate_type,duplicate_title,duplicate_source,
+                    (duplicate_anime_id,path,file_name,duplicate_season,duplicate_number,mime_type,file_size,modified_at,source_folder,
+                     media_identity,duplicate_absolute,duplicate_type,duplicate_title,duplicate_source,
                      duplicate_confidence,progress,watched,last_played,survivor_id),
                 )
                 c.execute(

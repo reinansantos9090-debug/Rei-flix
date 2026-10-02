@@ -124,6 +124,44 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
             "media_kind": "series",
         }
 
+
+    def _scan_five(self, service, title):
+        documents = [
+            {
+                "uri": f"content://prompt43/matrix/{number}",
+                "stableId": f"prompt43:matrix:{number}",
+                "name": f"{title} S01E{number:02d}.mkv",
+                "relativePath": f"{title}/Season 1/{title} S01E{number:02d}.mkv",
+                "mimeType": "video/mp4",
+                "size": 2000 + number,
+                "modifiedAt": 2000 + number,
+            }
+            for number in range(1, 6)
+        ]
+        with patch.object(
+            service,
+            "_identify",
+            return_value={"title": title, "genres": "[]", "media_kind": "series"},
+        ):
+            service.ingest_documents(
+                "content://prompt43/matrix-tree",
+                documents,
+                folder_name="Prompt43Matrix",
+                source_kind="saf",
+            )
+
+    def _apply_metadata_fixture(self, service, anime_id):
+        with patch.object(service.anilist, "by_id", return_value=self._ani_list_media()), \
+             patch.object(service.anilist, "metadata_from_media", return_value=self._ani_list_metadata()):
+            service.refresh_metadata(
+                "prompt43-show",
+                "Prompt 43 Remote",
+                force=True,
+                bypass_request_dedupe=True,
+                local_anime_id=anime_id,
+                request_id="prompt43-matrix-refresh",
+            )
+
     def test_metadata_authorization_and_refresh_preserve_five_episode_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)
@@ -353,6 +391,68 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
             self.assertEqual(second_anime, store.episode_by_id(second_id)["anime_id"])
 
 
+
+    def test_metadata_scan_restart_order_matrix_preserves_identity(self):
+        scenarios = (
+            "metadata_before_scan",
+            "scan_before_metadata",
+            "scan_metadata_scan",
+            "restart_metadata",
+            "metadata_restart",
+            "metadata_restart_scan",
+        )
+        for scenario in scenarios:
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as directory:
+                store = LibraryStore(directory)
+                service = LibraryService(store)
+                if scenario == "metadata_before_scan":
+                    anime_id, _ = self._seed_five_episodes(store)
+                    first = store.episode_by_id(
+                        store.catalog(anime_ids=[anime_id])[0]["seasons"][0]["episodes"][0]["id"]
+                    )
+                    store.save_progress(
+                        first["path"],
+                        37,
+                        100,
+                        episode_id=first["id"],
+                        event_created_at=3000,
+                    )
+                    self._apply_metadata_fixture(service, anime_id)
+                    self._scan_five(service, "Prompt 43 Remote")
+                else:
+                    self._scan_five(service, "Local Prompt 43 Show")
+                    anime_id = store.catalog()[0]["id"]
+                    first = store.catalog(anime_ids=[anime_id])[0]["seasons"][0]["episodes"][0]
+                    store.save_progress(
+                        first["path"],
+                        37,
+                        100,
+                        episode_id=first["id"],
+                        event_created_at=3000,
+                    )
+                    if scenario in {"scan_before_metadata", "scan_metadata_scan", "restart_metadata", "metadata_restart", "metadata_restart_scan"}:
+                        self._apply_metadata_fixture(service, anime_id)
+                    if scenario in {"restart_metadata", "metadata_restart", "metadata_restart_scan"}:
+                        store = LibraryStore(directory)
+                        service = LibraryService(store)
+                        anime_id = store.catalog()[0]["id"]
+                    if scenario == "restart_metadata":
+                        self._apply_metadata_fixture(service, anime_id)
+                    if scenario in {"scan_metadata_scan", "metadata_restart_scan"}:
+                        self._scan_five(service, "Prompt 43 Remote")
+
+                snapshot = self._snapshot(store, anime_id)
+                self.assertEqual(5, len(snapshot["episode_ids"]))
+                self.assertEqual(
+                    snapshot["episode_ids"],
+                    [
+                        episode["id"]
+                        for season in store.catalog(anime_ids=[anime_id])[0]["seasons"]
+                        for episode in season["episodes"]
+                    ],
+                )
+                self.assertTrue(all(owner == anime_id for owner in snapshot["episode_anime_ids"]))
+                self.assertEqual(37, snapshot["progress"][0])
     def test_metadata_title_and_anilist_id_changes_preserve_local_owner(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)

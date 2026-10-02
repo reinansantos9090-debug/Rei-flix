@@ -23,9 +23,9 @@ jobs:
       PYTHONPATH: ${{ github.workspace }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -48,13 +48,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -123,20 +123,22 @@ jobs:
             NativeMailboxInstrumentedTest.kt; do
             test -f "build/flutter/android/app/src/androidTest/kotlin/com/reiflix/reiflix_local/$test_file"
           done
-      - name: Pack rendered Android project
+      # Cache the rendered Android project directly. This avoids a second
+      # tar/extract layer and guarantees every matrix job receives the same
+      # generated Gradle wrapper and source tree.
+      - name: Verify rendered Android project integrity
         shell: bash
         run: |
           set -euo pipefail
-          tar -C build/flutter -czf build/reiflix-android-test-project.tgz android
-          test -s build/reiflix-android-test-project.tgz
-      # The rendered project is transferred through the Actions cache so
-      # instrumented validation does not depend on the repository's artifact
-      # storage quota. Artifact upload remains best-effort for diagnostics.
+          test -f build/flutter/android/gradlew
+          test -f build/flutter/android/settings.gradle
+          test -f build/flutter/android/app/build.gradle.kts
+          test -d build/flutter/android/app/src/androidTest
       - name: Cache rendered Android test project
         uses: actions/cache/save@v4
         with:
-          path: build/reiflix-android-test-project.tgz
-          key: reianix-android-test-project-${{ github.sha }}
+          path: build/flutter/android
+          key: reianix-android-test-project-v2-${{ github.sha }}
 
 
   instrumented:
@@ -150,9 +152,9 @@ jobs:
         api: [30, 36]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -170,16 +172,17 @@ jobs:
       - name: Restore rendered Android test project
         uses: actions/cache/restore@v4
         with:
-          path: build/reiflix-android-test-project.tgz
-          key: reianix-android-test-project-${{ github.sha }}
-      - name: Extract rendered Android test project
+          path: build/flutter/android
+          key: reianix-android-test-project-v2-${{ github.sha }}
+      - name: Verify restored Android test project
         shell: bash
         run: |
           set -euo pipefail
-          test -s build/reiflix-android-test-project.tgz
-          mkdir -p build/flutter
-          tar -xzf build/reiflix-android-test-project.tgz -C build/flutter
-          test -x build/flutter/android/gradlew || chmod +x build/flutter/android/gradlew
+          test -f build/flutter/android/gradlew
+          test -f build/flutter/android/settings.gradle
+          test -f build/flutter/android/app/build.gradle.kts
+          test -d build/flutter/android/app/src/androidTest
+          chmod +x build/flutter/android/gradlew
       - name: Run instrumented tests on API ${{ matrix.api }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -189,13 +192,25 @@ jobs:
           profile: pixel_2
           force-avd-creation: true
           disable-animations: false
-          emulator-options: "-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back none -camera-front none"
+          emulator-options: "-no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -camera-back none -camera-front none"
           script: |
             bash -euo pipefail <<'REIFLIX_ANDROID_INSTRUMENTED_SCRIPT'
             mkdir -p "$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}"
-            # Do not use the runner disable-animations hook: it sends an input keyevent
-            # during the fragile boot window, where the input service may not exist yet.
-            adb wait-for-device
+            # The emulator runner can report boot completion while adb is still
+            # temporarily offline. Do not start Gradle until adb is actually ready.
+            wait_for_adb_ready() {
+              for attempt in $(seq 1 90); do
+                state="$(adb get-state 2>/dev/null || true)"
+                if [ "$state" = "device" ] && adb shell getprop sys.boot_completed 2>/dev/null | grep -qx "1"; then
+                  return 0
+                fi
+                sleep 2
+              done
+              echo "ADB did not become ready in time."
+              adb devices -l || true
+              return 1
+            }
+            wait_for_adb_ready
             adb shell settings put global window_animation_scale 0.0
             adb shell settings put global transition_animation_scale 0.0
             adb shell settings put global animator_duration_scale 0.0
@@ -316,7 +331,7 @@ jobs:
           capture "$out/logcat.txt" adb logcat -d -v threadtime
           {
             echo "## Android runtime diagnostics"
-            echo '```
+            echo '```'
             if [ -f "$out/sdk.txt" ]; then
               cat "$out/sdk.txt"
             fi
@@ -326,7 +341,7 @@ jobs:
             fi
             echo "--- command exit markers ---"
             grep -h "COMMAND_EXIT=" "$out"/*.txt
-            echo '```
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           set -e
 
@@ -337,25 +352,26 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
       - name: Restore rendered Android test project
         uses: actions/cache/restore@v4
         with:
-          path: build/reiflix-android-test-project.tgz
-          key: reianix-android-test-project-${{ github.sha }}
-      - name: Extract rendered Android test project
+          path: build/flutter/android
+          key: reianix-android-test-project-v2-${{ github.sha }}
+      - name: Verify restored Android test project
         shell: bash
         run: |
           set -euo pipefail
-          test -s build/reiflix-android-test-project.tgz
-          mkdir -p build/flutter
-          tar -xzf build/reiflix-android-test-project.tgz -C build/flutter
-          test -x build/flutter/android/gradlew || chmod +x build/flutter/android/gradlew
+          test -f build/flutter/android/gradlew
+          test -f build/flutter/android/settings.gradle
+          test -f build/flutter/android/app/build.gradle.kts
+          test -d build/flutter/android/app/src/androidTest
+          chmod +x build/flutter/android/gradlew
       - name: Run instrumented tests on Android TV API 36
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -366,13 +382,24 @@ jobs:
           force-avd-creation: true
           emulator-boot-timeout: 600
           disable-animations: false
-          emulator-options: "-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back none -camera-front none"
+          emulator-options: "-no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -camera-back none -camera-front none"
           script: |
             bash -euo pipefail <<'REIFLIX_ANDROID_TV_SCRIPT'
             mkdir -p "$GITHUB_WORKSPACE/build/android-tv-api36"
-            # Android TV can publish boot completion before the input service is available.
-            # Keep animation disabling explicit instead of using the runner keyevent hook.
-            adb wait-for-device
+            # Android TV can publish boot completion before adb/input services are ready.
+            wait_for_adb_ready() {
+              for attempt in $(seq 1 120); do
+                state="$(adb get-state 2>/dev/null || true)"
+                if [ "$state" = "device" ] && adb shell getprop sys.boot_completed 2>/dev/null | grep -qx "1"; then
+                  return 0
+                fi
+                sleep 2
+              done
+              echo "ADB did not become ready in time."
+              adb devices -l || true
+              return 1
+            }
+            wait_for_adb_ready
             adb shell settings put global window_animation_scale 0.0
             adb shell settings put global transition_animation_scale 0.0
             adb shell settings put global animator_duration_scale 0.0
@@ -422,7 +449,7 @@ jobs:
           capture "$out/logcat.txt" adb logcat -d -v threadtime
           {
             echo "## Android runtime diagnostics"
-            echo '```
+            echo '```'
             if [ -f "$out/sdk.txt" ]; then
               cat "$out/sdk.txt"
             fi
@@ -432,6 +459,6 @@ jobs:
             fi
             echo "--- command exit markers ---"
             grep -h "COMMAND_EXIT=" "$out"/*.txt
-            echo '```
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           set -e

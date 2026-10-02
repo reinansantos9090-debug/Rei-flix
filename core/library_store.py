@@ -1296,6 +1296,10 @@ class LibraryStore:
             c.execute("UPDATE anime SET metadata_manual_fields=?,metadata_status=?,metadata_source=? WHERE id=?", (json.dumps(sorted(manual_fields), ensure_ascii=False), "available" if row["anilist_id"] else "unresolved", "anilist" if row["anilist_id"] else "local", row["id"]))
             return True
 
+    @staticmethod
+    def _identification_confidence_rank(value):
+        return {"low": 0, "medium": 1, "high": 2}.get(str(value or "").strip().casefold(), 0)
+
     def upsert_episode(self, anime_id, path, file_name, season, number, mime_type=None, file_size=None,
                        modified_at=None, source_folder=None, media_identity=None, absolute_number=None,
                        episode_type="regular", episode_title=None, *, identification_source=None,
@@ -1318,7 +1322,27 @@ class LibraryStore:
 
             def effective_identification(existing):
                 manual = bool(existing and existing["manual_override"])
+                incoming_confidence = identification_confidence or (existing["identification_confidence"] if existing else "medium")
                 if manual:
+                    return (
+                        existing["season"],
+                        existing["number"],
+                        existing["episode_type"],
+                        existing["episode_title"],
+                        existing["identification_source"],
+                        existing["identification_confidence"],
+                    )
+                if (
+                    existing
+                    and media_identity
+                    and existing["media_identity"]
+                    and str(existing["media_identity"]) == str(media_identity)
+                    and self._identification_confidence_rank(incoming_confidence)
+                    < self._identification_confidence_rank(existing["identification_confidence"])
+                ):
+                    # A restart/rescan may have weaker filename/path evidence than
+                    # the canonical episode already stored. Never let that weaker
+                    # evidence move or reclassify the same stable media item.
                     return (
                         existing["season"],
                         existing["number"],
@@ -1333,7 +1357,7 @@ class LibraryStore:
                     episode_type,
                     episode_title,
                     identification_source or (existing["identification_source"] if existing else "legacy"),
-                    identification_confidence or (existing["identification_confidence"] if existing else "medium"),
+                    incoming_confidence,
                 )
 
             def update_existing(row_id, new_path=None):
@@ -2548,11 +2572,21 @@ class LibraryStore:
 
     def apply_episode_identification(self, path, *, absolute_number=None, relative_path=None, volume_id=None, volume_uuid=None, episode_type="regular", episode_title=None, identification_source="legacy", identification_confidence="medium"):
         with self._conn() as c:
-            row=c.execute("SELECT manual_override FROM episodes WHERE path=?",(path,)).fetchone()
+            row=c.execute(
+                "SELECT manual_override,season,number,episode_type,episode_title,identification_source,identification_confidence FROM episodes WHERE path=?",
+                (path,),
+            ).fetchone()
             if not row:
                 raise ValueError("Arquivo local não encontrado.")
             if row["manual_override"]:
                 c.execute("UPDATE episodes SET absolute_number=COALESCE(?,absolute_number),relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),missing=0 WHERE path=?",(absolute_number,relative_path,volume_id,volume_uuid,path))
+            elif self._identification_confidence_rank(identification_confidence) < self._identification_confidence_rank(row["identification_confidence"]):
+                # Keep the durable semantic identity when the follow-up parser has
+                # less evidence; still refresh non-semantic native fields.
+                c.execute(
+                    "UPDATE episodes SET absolute_number=COALESCE(?,absolute_number),relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),missing=0 WHERE path=?",
+                    (absolute_number, relative_path, volume_id, volume_uuid, path),
+                )
             else:
                 c.execute("UPDATE episodes SET absolute_number=?,relative_path=COALESCE(?,relative_path),volume_id=COALESCE(?,volume_id),volume_uuid=COALESCE(?,volume_uuid),episode_type=?,episode_title=?,identification_source=?,identification_confidence=?,missing=0 WHERE path=?",(absolute_number,relative_path,volume_id,volume_uuid,episode_type,episode_title,identification_source,identification_confidence,path))
             return True

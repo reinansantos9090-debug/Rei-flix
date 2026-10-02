@@ -72,6 +72,22 @@ class ScanCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             on_state=self.snapshots.append,
         )
 
+    async def test_broken_state_listener_cannot_break_scan_request(self):
+        def broken_listener(_snapshot):
+            raise RuntimeError("diagnostic listener failed")
+
+        coordinator = ScanCoordinator(
+            self.bridge,
+            self.store,
+            self.coordinator.target_provider,
+            on_state=broken_listener,
+        )
+        transition = await coordinator.request(ScanOrigin.USER_REFRESH, source="mediastore")
+
+        self.assertEqual("started", transition.kind)
+        self.assertEqual(1, len(self.bridge.calls))
+        self.assertEqual(ScanState.RUNNING, coordinator.snapshot.state)
+
     async def test_startup_does_not_rescan_an_already_indexed_catalog(self):
         transition = await self.coordinator.request(ScanOrigin.STARTUP)
         self.assertEqual("deduped", transition.kind)

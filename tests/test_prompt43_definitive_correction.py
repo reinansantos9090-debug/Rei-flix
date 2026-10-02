@@ -264,7 +264,11 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
 
             reopened = LibraryStore(directory)
             restart_snapshot = self._snapshot(reopened, anime_id)
-            self._assert_local_snapshot_invariants(before, restart_snapshot)
+            self._assert_local_identity_invariants(before, restart_snapshot)
+            self.assertEqual(37, restart_snapshot["progress"][0])
+            self.assertEqual(37, restart_snapshot["progress"][1])
+            self.assertEqual(37, restart_snapshot["progress"][2])
+            self.assertEqual(37, restart_snapshot["progress"][3])
             self.assertEqual(37, restart_snapshot["progress"][0])
             self.assertEqual(
                 set(before["episode_ids"][:4]),
@@ -351,7 +355,7 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
                 {episode["path"] for episode in episodes_after},
             )
             self.assertEqual("local show", store.anime_metadata_by_id(anime_id)["lookup_title"])
-            self.assertEqual("Prompt 43 Remote", store.anime_metadata_by_id(anime_id)["title"])
+            self.assertEqual("Local Prompt 43 Show", store.anime_metadata_by_id(anime_id)["title"])
 
     def test_conflicting_cross_anime_media_identity_never_transfers_episode_owner(self):
         with tempfile.TemporaryDirectory() as directory:

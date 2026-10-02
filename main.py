@@ -3895,6 +3895,7 @@ async def main(page: ft.Page):
                                     pre_current, pre_reason = player_callback_is_current(
                                         event_request_id,
                                         payload,
+                                        require_active=bool(player_session_active["value"]),
                                         episode_id=payload.get("episodeId"),
                                     )
                                     if not pre_current:
@@ -3929,6 +3930,7 @@ async def main(page: ft.Page):
                                     callback_current, callback_reason = player_callback_is_current(
                                         event_request_id,
                                         payload,
+                                        require_active=bool(player_session_active["value"]),
                                         episode_id=payload.get("episodeId"),
                                     )
                                     if not callback_current:

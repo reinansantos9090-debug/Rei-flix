@@ -9,8 +9,8 @@ mkdir -p "$output_dir"
 echo "Waiting for adb/emulator readiness (API $api_level)..."
 ready=0
 for attempt in $(seq 1 90); do
-  state="$(adb get-state 2>/dev/null || true)"
-  boot="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+  state="$(adb get-state 2>/dev/null)" || state=""
+  boot="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" || boot=""
   if [ "$state" = "device" ] && [ "$boot" = "1" ]; then
     ready=1
     break
@@ -20,7 +20,7 @@ done
 
 if [ "$ready" -ne 1 ]; then
   echo "ADB did not become ready after the post-boot readiness window."
-  adb devices -l || true
+  adb devices -l || adb_status=$?
   exit 1
 fi
 

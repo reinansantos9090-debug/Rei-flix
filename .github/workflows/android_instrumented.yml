@@ -183,6 +183,15 @@ jobs:
           test -f build/flutter/android/app/build.gradle.kts
           test -d build/flutter/android/app/src/androidTest
           chmod +x build/flutter/android/gradlew
+      - name: Enable KVM for Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-reianix-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+          ls -l /dev/kvm
       - name: Run instrumented tests on API ${{ matrix.api }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -191,48 +200,11 @@ jobs:
           arch: x86_64
           profile: pixel_2
           force-avd-creation: true
+          emulator-boot-timeout: 1200
           disable-animations: false
+          disable-linux-hw-accel: false
           emulator-options: "-no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -camera-back none -camera-front none"
-          script: |
-            bash -euo pipefail <<'REIFLIX_ANDROID_INSTRUMENTED_SCRIPT'
-            mkdir -p "$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}"
-            # The emulator runner can report boot completion while adb is still
-            # temporarily offline. Do not start Gradle until adb is actually ready.
-            wait_for_adb_ready() {
-              for attempt in $(seq 1 90); do
-                state=""
-                if ! state="$(adb get-state 2>/dev/null)"; then
-                  state=""
-                fi
-                if [ "$state" = "device" ] && adb shell getprop sys.boot_completed 2>/dev/null | grep -qx "1"; then
-                  return 0
-                fi
-                sleep 2
-              done
-              echo "ADB did not become ready in time."
-              adb devices -l
-              return 1
-            }
-            wait_for_adb_ready
-            adb shell settings put global window_animation_scale 0.0
-            adb shell settings put global transition_animation_scale 0.0
-            adb shell settings put global animator_duration_scale 0.0
-            adb shell settings get global window_animation_scale
-            adb shell settings get global transition_animation_scale
-            adb shell settings get global animator_duration_scale
-            cd "$GITHUB_WORKSPACE/build/flutter/android"
-            chmod +x gradlew
-            log="$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}/connectedDebugAndroidTest.log"
-            set +e
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee "$log"
-            status=${PIPESTATUS[0]}
-            set -e
-            if [ "$status" -ne 0 ]; then
-              echo "connectedDebugAndroidTest failed with exit=$status"
-              exit "$status"
-            fi
-            echo "connectedDebugAndroidTest VALIDATED api=${{ matrix.api }}"
-            REIFLIX_ANDROID_INSTRUMENTED_SCRIPT
+          script: bash "$GITHUB_WORKSPACE/scripts/run_android_instrumented.sh" "${{ matrix.api }}" "$GITHUB_WORKSPACE/build/android-api${{ matrix.api }}"
       - name: Summarize instrumented test failures
         if: always()
         shell: bash
@@ -375,6 +347,15 @@ jobs:
           test -f build/flutter/android/app/build.gradle.kts
           test -d build/flutter/android/app/src/androidTest
           chmod +x build/flutter/android/gradlew
+      - name: Enable KVM for Android TV emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-reianix-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+          ls -l /dev/kvm
       - name: Run instrumented tests on Android TV API 36
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -383,48 +364,11 @@ jobs:
           target: android-tv
           arch: x86_64
           force-avd-creation: true
-          emulator-boot-timeout: 600
+          emulator-boot-timeout: 1200
           disable-animations: false
+          disable-linux-hw-accel: false
           emulator-options: "-no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -gpu swiftshader_indirect -camera-back none -camera-front none"
-          script: |
-            bash -euo pipefail <<'REIFLIX_ANDROID_TV_SCRIPT'
-            mkdir -p "$GITHUB_WORKSPACE/build/android-tv-api36"
-            # Android TV can publish boot completion before adb/input services are ready.
-            wait_for_adb_ready() {
-              for attempt in $(seq 1 120); do
-                state=""
-                if ! state="$(adb get-state 2>/dev/null)"; then
-                  state=""
-                fi
-                if [ "$state" = "device" ] && adb shell getprop sys.boot_completed 2>/dev/null | grep -qx "1"; then
-                  return 0
-                fi
-                sleep 2
-              done
-              echo "ADB did not become ready in time."
-              adb devices -l
-              return 1
-            }
-            wait_for_adb_ready
-            adb shell settings put global window_animation_scale 0.0
-            adb shell settings put global transition_animation_scale 0.0
-            adb shell settings put global animator_duration_scale 0.0
-            adb shell settings get global window_animation_scale
-            adb shell settings get global transition_animation_scale
-            adb shell settings get global animator_duration_scale
-            cd "$GITHUB_WORKSPACE/build/flutter/android"
-            chmod +x gradlew
-            log="$GITHUB_WORKSPACE/build/android-tv-api36/connectedDebugAndroidTest.log"
-            set +e
-            ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace 2>&1 | tee "$log"
-            status=${PIPESTATUS[0]}
-            set -e
-            if [ "$status" -ne 0 ]; then
-              echo "connectedDebugAndroidTest failed on Android TV with exit=$status"
-              exit "$status"
-            fi
-            echo "connectedDebugAndroidTest VALIDATED android-tv api=36"
-            REIFLIX_ANDROID_TV_SCRIPT
+          script: bash "$GITHUB_WORKSPACE/scripts/run_android_instrumented.sh" "36" "$GITHUB_WORKSPACE/build/android-tv-api36"
       - name: Capture Android TV runtime diagnostics
         if: always()
         shell: bash

@@ -151,12 +151,29 @@ object NativeCommandDispatcher {
                 return
             }
             if (!requestState.acceptRequest(command.requestId, command.action, command.createdAt)) {
+                val previousState = requestState.operationState(command.requestId)
+                val terminal = previousState == NativeRequestState.OperationState.COMPLETED ||
+                    previousState == NativeRequestState.OperationState.CANCELLED ||
+                    previousState == NativeRequestState.OperationState.FAILED
+                if (terminal) {
+                    publishDiagnostic(
+                        command,
+                        "COMMAND_DUPLICATE",
+                        result = "ignored_duplicate",
+                    )
+                    return
+                }
+                requestState.markOperationState(
+                    command.requestId,
+                    command.action,
+                    NativeRequestState.OperationState.QUEUED,
+                )
                 publishDiagnostic(
                     command,
-                    "COMMAND_DUPLICATE",
-                    result = "ignored_duplicate",
+                    "COMMAND_RECOVERED",
+                    state = NativeRequestState.OperationState.QUEUED.name,
+                    result = previousState?.name ?: "unknown",
                 )
-                return
             }
 
             publishDiagnostic(

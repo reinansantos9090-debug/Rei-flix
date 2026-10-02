@@ -33,6 +33,12 @@ class Prompt3CertificationTests(unittest.TestCase):
         for path in paths:
             self.assertNotIn("|| true", path.read_text(encoding="utf-8"), str(path))
 
+    def test_release_audit_accepts_runtime_command_from_executable_script(self):
+        audit = (ROOT / "scripts/audit_release.py").read_text(encoding="utf-8")
+        self.assertIn("scripts/run_android_instrumented.sh", audit)
+        self.assertIn("instrumented runtime command missing from workflow/script", audit)
+        self.assertIn("instrumented_script", audit)
+
     def test_audit_script_checks_runtime_matrix_and_exception_suppression(self):
         source = (ROOT / "scripts/audit_release.py").read_text(encoding="utf-8")
         self.assertIn("reactivecircus/android-emulator-runner@v2", source)

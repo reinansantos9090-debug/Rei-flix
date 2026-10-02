@@ -47,6 +47,21 @@ class LibraryIntelligenceTests(unittest.TestCase):
         self.assertEqual("Demo", home["favorites"][0]["main_title"])
         self.assertEqual(1, home["favorites"][0]["active_count"])
 
+    def test_continue_limit_does_not_change_other_home_section_limits(self):
+        for index in range(1, 4):
+            anime_id = self.store.upsert_anime(
+                f"favorite-{index}",
+                {"title": f"Favorite {index}", "genres": "[]"},
+            )
+            path = f"content://favorites/{index}"
+            self.store.upsert_episode(anime_id, path, f"Favorite {index} E01.mkv", 1, 1)
+            self.store.save_progress(path, 20, 100)
+            self.store.toggle_favorite(anime_id)
+
+        home = self.service.media_center_home(limit=3, continue_limit=1)
+        self.assertEqual(1, len(home["continue_watching"]))
+        self.assertEqual(3, len(home["favorites"]))
+
     def test_media_center_home_empty_is_safe(self):
         empty_tmp = tempfile.TemporaryDirectory()
         try:

@@ -189,6 +189,9 @@ jobs:
         with:
           path: build/flutter
           key: reianix-android-test-project-v3-${{ github.sha }}
+      - name: Restore Flutter pub dependencies
+        working-directory: build/flutter
+        run: flutter pub get
       - name: Verify restored Android test project
         shell: bash
         run: |
@@ -281,6 +284,9 @@ jobs:
         with:
           path: build/flutter
           key: reianix-android-test-project-v3-${{ github.sha }}
+      - name: Restore Flutter pub dependencies
+        working-directory: build/flutter
+        run: flutter pub get
       - name: Verify restored Android test project
         shell: bash
         run: |

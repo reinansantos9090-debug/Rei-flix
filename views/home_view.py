@@ -1447,7 +1447,8 @@ class HomeView:
                     continue_limit = 10
                 loaded = await asyncio.to_thread(
                     library.media_center_home,
-                    limit=continue_limit,
+                    limit=12,
+                    continue_limit=continue_limit,
                 )
             except Exception:
                 logger.exception("Home secondary sections load failed", extra={"screen":"home"})

@@ -1643,10 +1643,10 @@ class LibraryService:
             current_path=current_path,
         )
 
-    def media_center_home(self, limit=12, *, catalog=None):
+    def media_center_home(self, limit=12, *, catalog=None, continue_limit=None):
         """Build only the Home projections that remain visible."""
         if catalog is None:
-            sections = self.store.home_sections(limit=limit)
+            sections = self.store.home_sections(limit=limit, continue_limit=continue_limit)
             enrich_keys = ("favorites", "pinned", "movies")
             enrich_items = []
             for key in enrich_keys:
@@ -1656,7 +1656,7 @@ class LibraryService:
             return sections
 
         catalog = catalog
-        continue_items = self.store.continue_watching(limit=limit)
+        continue_items = self.store.continue_watching(limit=limit if continue_limit is None else continue_limit)
         favorites = [a for a in catalog if a.get("favorite")]
         pinned = [a for a in catalog if a.get("is_pinned")]
         movies = [a for a in catalog if a.get("media_kind") == "movie"]

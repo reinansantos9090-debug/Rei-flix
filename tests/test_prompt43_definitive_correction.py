@@ -352,6 +352,59 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
             self.assertEqual(first_anime, store.episode_by_id(first_id)["anime_id"])
             self.assertEqual(second_anime, store.episode_by_id(second_id)["anime_id"])
 
+
+    def test_metadata_title_and_anilist_id_changes_preserve_local_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LibraryStore(directory)
+            anime_id = store.upsert_anime(
+                "prompt43-stable-local",
+                {"title": "Original Local Title", "anilist_id": 111, "genres": "[]"},
+                source="anilist",
+            )
+            episode_id = store.upsert_episode(
+                anime_id,
+                "content://prompt43/stable-local",
+                "Original Local Title S01E01.mkv",
+                1,
+                1,
+                media_identity="prompt43:stable-local",
+                identification_confidence="high",
+            )
+            store.save_progress(
+                "content://prompt43/stable-local",
+                37,
+                100,
+                episode_id=episode_id,
+                event_created_at=1000,
+            )
+
+            store.upsert_anime(
+                "prompt43-remote-title",
+                {
+                    "title": "Remote Editorial Title",
+                    "romaji": "Remote Editorial Title",
+                    "english": "Remote Editorial Title",
+                    "native": "Remote Editorial Title",
+                    "anilist_id": 222,
+                    "genres": "[]",
+                    "metadata_source": "anilist",
+                    "metadata_status": "available",
+                },
+                source="anilist",
+                local_anime_id=anime_id,
+            )
+
+            anime = store.anime_metadata_by_id(anime_id)
+            episode = store.episode_by_id(episode_id)
+            self.assertEqual(anime_id, anime["id"])
+            self.assertEqual("prompt43-stable-local", anime["lookup_title"])
+            self.assertEqual("Remote Editorial Title", anime["title"])
+            self.assertEqual(222, anime["anilist_id"])
+            self.assertEqual(anime_id, episode["anime_id"])
+            self.assertEqual(episode_id, episode["id"])
+            self.assertEqual(37, episode["progress"])
+            self.assertEqual("prompt43:stable-local", episode["media_identity"])
+
     def test_owner_resolution_prioritizes_local_identity_before_lookup_title(self):
         with tempfile.TemporaryDirectory() as directory:
             store = LibraryStore(directory)
@@ -401,6 +454,13 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
         self.assertIn("METADATA_ACTION_DB_WRITE", main_source + service_source)
         self.assertIn("METADATA_ACTION_CATALOG_REFRESH", main_source + service_source)
         self.assertIn("METADATA_ACTION_UI_COMMIT", main_source + service_source)
+        self.assertIn("navigation.current != \"details\"", main_source)
+        self.assertIn("details_instance_generation[0] != details_token", main_source)
+        self.assertIn("settings_generation_provider", self.read("views/settings_view.py"))
+        self.assertIn("register_settings_task", self.read("views/settings_view.py"))
+        self.assertIn("anime_group[\"seasons\"]", details_source)
+        self.assertIn("library.browse_catalog_page", home_source)
+        self.assertNotIn("episode_count", details_source)
 
     def test_home_metadata_hydration_uses_the_canonical_artwork_resolver(self):
         source = self.read("views/home_view.py")

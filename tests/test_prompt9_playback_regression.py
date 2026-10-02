@@ -27,7 +27,8 @@ class Prompt9PlaybackRegressionTests(unittest.TestCase):
 
     def test_home_passes_canonical_episode_and_anime_ids_to_player_trace(self):
         self.assertIn('episode_id=episode.get("id")', HOME)
-        self.assertIn('anime_id=item.get("id")', HOME)
+        self.assertIn('anime_id=item.get("anime_id")', HOME)
+        self.assertNotIn('anime_id=item.get("id")', HOME)
 
     def test_python_player_launch_preserves_nonzero_resume_position(self):
         block = MAIN[MAIN.index("def play_episode"):MAIN.index("def open_marathon")]

@@ -22,7 +22,8 @@ class Prompt3CertificationTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/android_instrumented.yml").read_text(encoding="utf-8")
         self.assertIn("api: [30, 36]", workflow)
         self.assertIn("reactivecircus/android-emulator-runner@v2", workflow)
-        self.assertIn(":app:connectedDebugAndroidTest", workflow)
+        script = (ROOT / "scripts" / "run_android_instrumented.sh").read_text(encoding="utf-8")
+        self.assertIn(":app:connectedDebugAndroidTest", script)
         self.assertIn("push:", workflow)
         self.assertNotIn("No-Emulator Contract Checks", workflow)
 

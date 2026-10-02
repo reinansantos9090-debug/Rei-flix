@@ -48,6 +48,16 @@ biblioteca que procura vídeos em várias pastas, também pode conceder o acesso
 especial de armazenamento amplo. O SAF continua disponível para autorizar uma
 pasta específica. O app não converte URIs content:// em caminhos artificiais.
 
+## Licença e autoria
+
+O **ReiAnix** é distribuído sob a **GNU General Public License v3.0 ou posterior (GPL-3.0-or-later)**.
+
+Copyright © 2026 Reinan Santos.
+
+A licença completa está disponível no arquivo [LICENSE](LICENSE). Ela permite usar, estudar, modificar e redistribuir o software sob os termos da GPL, incluindo a obrigação de preservar os avisos de copyright e, para versões modificadas distribuídas, cumprir as condições de distribuição de código-fonte previstas pela licença.
+
+O nome **ReiAnix** e quaisquer marcas, logos, artes ou conteúdos de terceiros não são automaticamente licenciados pelo GPL apenas por estarem no repositório. As respectivas permissões e licenças aplicáveis devem ser respeitadas.
+
 ## Google Cloud
 
 Copie `.env.example` para o ambiente e forneça somente IDs públicos:

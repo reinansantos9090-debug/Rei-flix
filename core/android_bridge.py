@@ -410,6 +410,8 @@ class AndroidBridge:
     async def scan_all_storage(self): return await self._launch("scan_all_storage")
     async def request_thumbnail(self, uri: str, size: int = 0, modified_at: int = 0, media_identity: str = ""): return await self._launch("extract_thumbnail", uri=uri, size=max(0, int(size)), modified_at=max(0, int(modified_at)), media_identity=str(media_identity or ""))
     async def cancel_scans(self): return await self._launch("cancel_scan")
+    async def open_library(self): return await self._launch("open_library")
+    async def hide_library(self): return await self._launch("hide_library")
     async def verify_tree(self, tree_uri: str): return await self._launch("verify_tree", tree_uri=tree_uri)
     async def release_tree(self, tree_uri: str): return await self._launch("release_tree", tree_uri=tree_uri)
     async def sign_in(self, server_client_id: str): return await self._launch("google_sign_in", server_client_id=server_client_id)

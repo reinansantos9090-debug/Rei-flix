@@ -47,7 +47,6 @@ import com.reiflix.reiflix_local.viewmodel.ReiAnixLibraryViewModel
 fun ReiAnixStorageRoute(
     viewModel: ReiAnixLibraryViewModel,
     onBack: () -> Unit,
-    onSelectSaf: () -> Boolean,
     onRequestMediaAccess: () -> Boolean,
     onOpenBroadSettings: () -> Boolean,
     onCheckAccess: () -> Boolean,
@@ -56,7 +55,7 @@ fun ReiAnixStorageRoute(
     ReiAnixStorageScreen(
         state = state,
         onBack = onBack,
-        onSelectSaf = onSelectSaf,
+        onSelectSaf = viewModel::selectSafTree,
         onRequestMediaAccess = onRequestMediaAccess,
         onOpenBroadSettings = onOpenBroadSettings,
         onCheckAccess = onCheckAccess,

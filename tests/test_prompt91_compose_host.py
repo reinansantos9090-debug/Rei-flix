@@ -91,6 +91,7 @@ class Prompt91ComposeHostTests(unittest.TestCase):
         self.assertIn("composeLibraryHost.handleBack()", source)
         self.assertIn("fun handleBack(): Boolean", host)
         self.assertIn("controller.previousBackStackEntry != null", host)
+        self.assertIn("controller.popBackStack(ReiAnixRoutes.LIBRARY, false)", host)
 
     def test_main_activity_does_not_replace_flutter_host(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")

@@ -7,10 +7,26 @@ output_dir="${2:?missing diagnostics output directory}"
 mkdir -p "$output_dir"
 
 echo "Waiting for adb/emulator readiness (API $api_level)..."
+serial="${ANDROID_SERIAL:-}"
+if [ -z "$serial" ]; then
+  serial="$(adb devices | awk '$1 ~ /^emulator-[0-9]+$/ { print $1; exit }')"
+fi
+serial="${serial:-emulator-5554}"
+echo "Using emulator serial: $serial"
+
+# The emulator runner can briefly expose the transport as offline even after
+# the emulator itself has booted. Reset the host-side connection and then wait
+# for the selected transport to become operational.
+adb start-server >/dev/null 2>&1 || true
+adb reconnect offline >/dev/null 2>&1 || true
+
 ready=0
-for attempt in $(seq 1 90); do
-  state="$(adb get-state 2>/dev/null)" || state=""
-  boot="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" || boot=""
+for attempt in $(seq 1 120); do
+  state="$(adb -s "$serial" get-state 2>/dev/null)" || state=""
+  if [ "$state" = "offline" ]; then
+    adb reconnect offline >/dev/null 2>&1 || true
+  fi
+  boot="$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" || boot=""
   if [ "$state" = "device" ] && [ "$boot" = "1" ]; then
     ready=1
     break
@@ -24,12 +40,12 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
-adb shell settings put global window_animation_scale 0.0
-adb shell settings put global transition_animation_scale 0.0
-adb shell settings put global animator_duration_scale 0.0
-adb shell settings get global window_animation_scale
-adb shell settings get global transition_animation_scale
-adb shell settings get global animator_duration_scale
+adb -s "$serial" shell settings put global window_animation_scale 0.0
+adb -s "$serial" shell settings put global transition_animation_scale 0.0
+adb -s "$serial" shell settings put global animator_duration_scale 0.0
+adb -s "$serial" shell settings get global window_animation_scale
+adb -s "$serial" shell settings get global transition_animation_scale
+adb -s "$serial" shell settings get global animator_duration_scale
 
 cd "$GITHUB_WORKSPACE/build/flutter/android"
 

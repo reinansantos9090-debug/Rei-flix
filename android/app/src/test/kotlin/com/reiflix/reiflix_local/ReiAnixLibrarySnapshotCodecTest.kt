@@ -3,6 +3,7 @@ package com.reiflix.reiflix_local
 import com.reiflix.reiflix_local.data.library.ReiAnixLibrarySnapshotCodec
 import com.reiflix.reiflix_local.ui.model.ReiAnixConsumptionState
 import com.reiflix.reiflix_local.ui.model.ReiAnixHomeLibraryUiState
+import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows

@@ -121,6 +121,29 @@ class ComposeLibraryBridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual("UNAVAILABLE", payload["sourceState"])
             self.assertFalse(payload["sourceAvailable"])
 
+    async def test_scanner_state_is_published_from_real_state_provider(self):
+        with tempfile.TemporaryDirectory() as directory:
+            scan = {"state": "SCANNING"}
+            bridge = ComposeLibraryBridge(
+                directory,
+                FakeLibrary([]),
+                FakeStore([]),
+            )
+            bridge.set_scan_state_provider(lambda: scan)
+            bridge.request_publish("scan_started")
+            await bridge.wait_for_idle()
+
+            payload = json.loads((Path(directory) / "reianix-compose/library.json").read_text())
+            self.assertTrue(payload["scanInProgress"])
+            self.assertEqual("SCANNING", payload["scanState"])
+
+            scan["state"] = "COMPLETED"
+            bridge.request_publish("scan_completed")
+            await bridge.wait_for_idle()
+            payload = json.loads((Path(directory) / "reianix-compose/library.json").read_text())
+            self.assertFalse(payload["scanInProgress"])
+            self.assertEqual("COMPLETED", payload["scanState"])
+
     async def test_projection_error_is_explicit(self):
         class BrokenLibrary:
             def catalog(self):

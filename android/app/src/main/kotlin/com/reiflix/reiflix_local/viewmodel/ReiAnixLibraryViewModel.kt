@@ -2,6 +2,7 @@ package com.reiflix.reiflix_local.viewmodel
 
 import android.content.Context
 import androidx.annotation.Keep
+import androidx.lifecycle.viewModelScope
 import com.reiflix.reiflix_local.data.library.ReiAnixLibraryRepository
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
 import kotlinx.coroutines.flow.SharingStarted

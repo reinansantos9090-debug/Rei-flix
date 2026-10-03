@@ -10,6 +10,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.reiflix.reiflix_local.ui.ReiAnixComposeRoot
 import com.reiflix.reiflix_local.ui.model.ReiAnixAnimeUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixArtworkUiModel
+import com.reiflix.reiflix_local.ui.model.ReiAnixConsumptionState
 import com.reiflix.reiflix_local.ui.model.ReiAnixEpisodeUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixGenreUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus

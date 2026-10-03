@@ -889,8 +889,7 @@ class DetailView:
 
         def render_episodes():
             # Rebuilds after the initial mount replace the collection atomically.
-            # There is intentionally no controls.clear()/extend() + page.update()
-            # sequence here.
+            # There is intentionally no controls.clear()/extend() sequence here.
             episode_column.controls = build_episode_controls()
             if getattr(episode_column, "page", None) is not None:
                 episode_column.update()
@@ -1061,7 +1060,8 @@ class DetailView:
             page.update()
 
         layout = ft.Column(layout_controls, scroll=ft.ScrollMode.AUTO, expand=True, spacing=14)
-        render_episodes()
+        # episode_column was already built declaratively above. Do not invoke
+        # render_episodes() during build: the control is not mounted yet.
         run_task = getattr(page, "run_task", None)
         if callable(run_task):
             run_task(load_contextual_palette)

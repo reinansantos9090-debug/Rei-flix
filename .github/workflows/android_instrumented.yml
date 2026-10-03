@@ -133,6 +133,14 @@ jobs:
       # Cache the entire rendered Flutter project. Gradle's Flutter task
       # resolves pubspec.yaml from the Flutter project root; restoring only
       # build/flutter/android makes connected tests fail with no pubspec.
+      - name: Run Kotlin unit tests
+        working-directory: build/flutter/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
       - name: Verify rendered Android project integrity
         shell: bash
         run: |

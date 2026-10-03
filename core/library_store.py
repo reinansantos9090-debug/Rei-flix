@@ -2227,7 +2227,7 @@ class LibraryStore:
             result = []
             for a in anime_rows:
                 eps = by_anime.get(a["id"], [])
-                if not eps:
+                if not eps and not normalized_ids:
                     continue
                 projected = eps
                 special_eps = [e for e in projected if e["episode_type"] in special_types]

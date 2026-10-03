@@ -36,6 +36,8 @@ def main() -> int:
         matches = list(args.classes_root.rglob(filename))
         if not matches:
             missing_classes.append(filename)
+        else:
+            print(f"COMPOSE_COMPILED_CLASS={matches[0]}")
     if missing_classes:
         print("Compose Kotlin classes were not produced by the generated Android module:", file=sys.stderr)
         print(", ".join(missing_classes), file=sys.stderr)

@@ -54,3 +54,6 @@ Compose 1.12.x requires compileSdk 37 and AGP 9.1.2+, so Prompt 01 intentionally
 ## Official packaging gate
 
 The official APK workflow runs `scripts/verify_compose_packaging.py` after the real Flet/Gradle APK build. It verifies that the three Prompt 01 Compose Kotlin classes were actually generated under the rendered Android module and that their descriptors survived into the final APK DEX. The existing `scripts/verify_android_host.py` then verifies the complete native host contract.
+
+
+The packaging gate deliberately scans the complete rendered Flet project (`build/flutter`) for the expected compiled Compose class files, because Gradle's intermediate output path is implementation-specific. It then inspects the final APK DEX.

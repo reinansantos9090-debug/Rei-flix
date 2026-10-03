@@ -425,7 +425,10 @@ jobs:
         shell: bash
         run: |
           apk="${{ steps.apk.outputs.path }}"
-          classes_root="build/flutter/android/app/build"
+          # Search the entire real Flet-rendered Android project so the gate
+          # follows Gradle's actual build-output location instead of assuming a
+          # fixed intermediate directory.
+          classes_root="build/flutter"
           test -d "$classes_root"
           python scripts/verify_compose_packaging.py "$apk" --classes-root "$classes_root"
 

@@ -66,7 +66,9 @@ class DetailView:
         visible_special_count = [48]
         episode_artwork = {}
         episode_thumbnail_bindings = {}
-        # Every episode card registers its stable progress bar here.\n        progress_bars = []\n        expanded_description = [False]
+        # Every episode card registers its stable progress bar here.
+        progress_bars = []
+        expanded_description = [False]
         current = anime_group.get("current_episode") or {}
         duration_warning = None
         try:

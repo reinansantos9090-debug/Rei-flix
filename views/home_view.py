@@ -48,7 +48,7 @@ class HomeView:
     @staticmethod
     def build(page: ft.Page, library, on_select_anime, on_open_settings, on_play_episode, on_open_organize=None,
               view_state=None, on_request_thumbnail=None, on_open_collector=None, on_refresh_library=None,
-              on_refresh_ui_updated=None, on_refresh_ui_failed=None, is_active=None):
+              on_refresh_ui_updated=None, on_refresh_ui_failed=None, on_open_library=None, is_active=None):
         performance = get_performance_monitor()
         build_started = performance.now()
         performance.counter("ui.builds_requested.home")
@@ -1673,6 +1673,7 @@ class HomeView:
             ft.Row([
                 refresh_button[0],
                 ft.IconButton(icon=ft.Icons.SEARCH, icon_color=TEXT, tooltip="Pesquisar", on_click=toggle_search),
+                ft.IconButton(icon=ft.Icons.GRID_VIEW, icon_color=TEXT, tooltip="Biblioteca", visible=on_open_library is not None, on_click=lambda _: on_open_library() if on_open_library else None),
                 ft.IconButton(icon=ft.Icons.DASHBOARD_OUTLINED, icon_color=TEXT, tooltip="Organizar", visible=on_open_organize is not None, on_click=lambda _: on_open_organize() if on_open_organize else None),
                 ft.IconButton(icon=ft.Icons.SETTINGS_OUTLINED, icon_color=TEXT, tooltip="Configurações", on_click=lambda _: on_open_settings()),
             ], spacing=0),

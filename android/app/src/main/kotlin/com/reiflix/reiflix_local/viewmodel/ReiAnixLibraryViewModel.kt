@@ -18,8 +18,10 @@ import com.reiflix.reiflix_local.ui.model.ReiAnixContinueWatchingUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixGenreUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixDetailsUiState
 import com.reiflix.reiflix_local.ui.model.ReiAnixDetailsUiStateProjection
+import com.reiflix.reiflix_local.ui.model.ReiAnixSearchUiState
 import com.reiflix.reiflix_local.ui.library.ReiAnixLibraryFilterEngine
 import com.reiflix.reiflix_local.ui.library.ReiAnixLibraryFilters
+import com.reiflix.reiflix_local.ui.search.ReiAnixSearchEngine
 @Keep
 class ReiAnixLibraryViewModel(context: Context) :
     ReiAnixViewModel<ReiAnixLibraryUiState>() {
@@ -109,6 +111,44 @@ class ReiAnixLibraryViewModel(context: Context) :
             SharingStarted.Eagerly,
             uiState.value.continueWatching.isNotEmpty(),
         )
+
+    /**
+     * Search index is rebuilt only when the canonical library snapshot changes.
+     * Query changes operate against the in-memory index and never touch SQLite
+     * or remote services from the UI layer.
+     */
+    private val searchIndex: StateFlow<com.reiflix.reiflix_local.ui.search.ReiAnixSearchIndex> = uiState
+        .map { state -> ReiAnixSearchEngine.buildIndex(state.animes) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            ReiAnixSearchEngine.buildIndex(uiState.value.animes),
+        )
+
+    private val _searchQuery = MutableStateFlow("")
+
+    val searchState: StateFlow<ReiAnixSearchUiState> = combine(
+        searchIndex,
+        _searchQuery,
+    ) { index, query ->
+        ReiAnixSearchUiState(
+            query = query,
+            results = index.search(query),
+        )
+    }
+        .distinctUntilChanged()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            ReiAnixSearchUiState(
+                query = "",
+                results = emptyList(),
+            ),
+        )
+
+    fun setSearchQuery(value: String) {
+        _searchQuery.value = value
+    }
 
     fun refresh() = repository.refresh()
 

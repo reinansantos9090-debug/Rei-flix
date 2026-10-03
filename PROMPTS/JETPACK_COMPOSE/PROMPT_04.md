@@ -1,19 +1,24 @@
-# APP SHELL E BARRA INFERIOR
+# 04 — APP SHELL E BARRA INFERIOR
 
+## CONTRATO
+ReiAnix é uma biblioteca/reprodutor LOCAL. Preserve toda infraestrutura de dados, scanner, armazenamento, artwork, progresso e Media3. Não inventar funcionalidades. Leia o código real e preserve a correção do episódio desaparecido.
 
-Construir o shell principal do ReiAnix em Compose.
+## OBJETIVO
+Construir o shell persistente e a bottom navigation nativa.
 
-A barra inferior deve reproduzir os screenshots:
-- quatro destinos principais quando suportados pela funcionalidade real;
-- ícone;
-- texto;
-- estado selecionado com fundo/indicador azul;
-- estado não selecionado discreto;
-- área segura para navigation bar;
-- comportamento correto em telas com scroll.
+## IMPLEMENTAÇÃO
+Usar Scaffold ou equivalente, separando área de conteúdo e bottom navigation. A barra deve ter quatro destinos principais somente se todos existirem de verdade, ícone, rótulo, estado selecionado em azul e área segura para navigation bar. O conteúdo rolável não pode ficar sob a barra. Integrar o Design System do Prompt 02. Details e Player não devem exibir a barra quando forem destinos de tela inteira, salvo se a arquitetura real exigir o contrário.
 
-O conteúdo deve ocupar a área disponível sem sobreposição com a barra.
+Testar mudanças de aba, restauração de scroll/estado, abertura de Details a partir de cada aba e retorno. O shell deve permanecer leve e não recompor toda a aplicação por qualquer mudança de conteúdo.
 
-Criar componentes reutilizáveis e integrar com Navigation Compose.
+## NÃO FAZER
+Não implementar conteúdo definitivo de Home/Biblioteca/Busca/Ajustes neste prompt. Não adicionar abas artificiais.
 
-Não implementar ainda o conteúdo definitivo de Home/Biblioteca/Busca/Ajustes.
+## ACEITAÇÃO
+[ ] barra estável; [ ] seleção correta; [ ] Insets corretos; [ ] scroll não é coberto; [ ] Details/Player respeitam shell; [ ] back funciona.
+
+## VALIDAÇÃO
+Executar testes Compose/navegação e build. Verificar gesture navigation quando possível.
+
+## RELATÓRIO
+Informar diff, testes, componentes reutilizados e limitações.

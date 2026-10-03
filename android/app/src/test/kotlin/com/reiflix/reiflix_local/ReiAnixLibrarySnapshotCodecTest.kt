@@ -2,6 +2,8 @@ package com.reiflix.reiflix_local
 
 import com.reiflix.reiflix_local.data.library.ReiAnixLibrarySnapshotCodec
 import com.reiflix.reiflix_local.ui.model.ReiAnixConsumptionState
+import com.reiflix.reiflix_local.ui.model.ReiAnixHomeLibraryUiState
+import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -73,6 +75,68 @@ class ReiAnixLibrarySnapshotCodecTest {
         assertEquals("/storage/emulated/0/E01.mkv", state.animes.single().seasons[1].episodes.single().media.path)
         assertEquals("identity-71", state.animes.single().seasons[1].episodes.single().media.mediaIdentity)
         assertEquals(ReiAnixConsumptionState.WATCHED, state.animes.single().seasons[1].episodes.single().consumptionState)
+    }
+
+    @Test
+    fun homeProjectionIgnoresContinueWatchingProgressChanges() {
+        val base = ReiAnixLibraryUiState(
+            status = ReiAnixLibraryLoadStatus.READY,
+            revision = 1L,
+            continueWatching = listOf(
+                com.reiflix.reiflix_local.ui.model.ReiAnixContinueWatchingUiModel(
+                    episodeId = 72L,
+                    animeId = 7L,
+                    animeTitle = "Example",
+                    seasonNumber = 1,
+                    number = 7.0,
+                    title = "E07",
+                    fileName = "E07.mkv",
+                    progressSeconds = 100.0,
+                    durationSeconds = 1000.0,
+                    artwork = null,
+                ),
+            ),
+        )
+        val advanced = base.copy(
+            continueWatching = listOf(
+                base.continueWatching.single().copy(progressSeconds = 200.0),
+            ),
+        )
+
+        assertEquals(
+            ReiAnixHomeLibraryUiState.from(base),
+            ReiAnixHomeLibraryUiState.from(advanced),
+        )
+    }
+
+    @Test
+    fun homeProjectionIgnoresEpisodeLevelProgressChanges() {
+        val first = """
+            {"schemaVersion":1,"revision":1,"status":"READY","sourceState":"AVAILABLE","sourceAvailable":true,
+             "animes":[{"id":7,"main_title":"Example","media_kind":"series","favorite":false,
+                       "year":2026,"genres":[],"genre_ids":[],
+                       "meta":{"year":2026,"metadata_status":"available","cover_cache":null},
+                       "seasons":[{"season":1,"season_name":"Season 1","episodes":[
+                         {"id":71,"anime_id":7,"season":1,"number":7,"episode_title":"E07",
+                          "file_name":"E07.mkv","path":"content://media/71","media_identity":"identity-71",
+                          "availability_state":"available","missing":false,
+                          "progress":100.0,"duration":1000.0,"watched":false,
+                          "consumption_state":"in_progress"}]}],
+                       "specials":[],"media_files":[]}],
+             "continue_watching":[{"episode_id":71,"anime_id":7,"anime_title":"Example","season":1,"number":7,
+                                  "episode_title":"E07","file_name":"E07.mkv","progress":100.0,"duration":1000.0}]
+            }
+        """.trimIndent()
+        val second = first.replace("\"progress\":100.0", "\"progress\":200.0")
+
+        val firstHome = ReiAnixHomeLibraryUiState.from(
+            ReiAnixLibrarySnapshotCodec.decode(first),
+        )
+        val secondHome = ReiAnixHomeLibraryUiState.from(
+            ReiAnixLibrarySnapshotCodec.decode(second),
+        )
+
+        assertEquals(firstHome, secondHome)
     }
 
     @Test

@@ -136,3 +136,18 @@ data class ReiAnixAnimeUiModel(
     val stableKey: String
         get() = "anime:" + id
 }
+
+data class ReiAnixHomeAnimeUiModel(
+    val id: Long,
+    val title: String,
+    val year: Int?,
+    val genres: List<ReiAnixGenreUiModel>,
+    val favorite: Boolean,
+    val mediaKind: ReiAnixMediaKind,
+    val artwork: ReiAnixArtworkUiModel?,
+    val playbackTargetEpisodeId: Long?,
+    val availableContentCount: Int,
+) {
+    val stableKey: String
+        get() = "anime:" + id
+}

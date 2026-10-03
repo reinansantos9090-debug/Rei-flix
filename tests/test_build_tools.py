@@ -189,6 +189,8 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("reactivecircus/android-emulator-runner@v2", workflow)
         self.assertIn("connectedDebugAndroidTest", workflow)
         self.assertIn("flet build apk", workflow)
+        self.assertIn("SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/site-packages", workflow)
+        self.assertIn('test -d "$SERIOUS_PYTHON_SITE_PACKAGES"', workflow)
         self.assertNotIn("ReiAnix Android No-Emulator Contract Checks", workflow)
 
     def test_android_build_declares_runtime_python_dependencies(self):

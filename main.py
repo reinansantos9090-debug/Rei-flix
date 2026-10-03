@@ -4153,7 +4153,8 @@ async def main(page: ft.Page):
                                             "event": event_type,
                                         },
                                     )
-                                    compose_library_bridge.request_publish('player_progress')
+                                    if updated:
+                                        compose_library_bridge.request_publish('player_progress')
                                     performance.event("player.progress_persist", duration_ms=(performance.now()-progress_started)*1000.0,
                                                       screen=navigation.current,
                                                       metadata={"episode_id": payload.get("episodeId"), "media_identity": payload.get("mediaId"),

@@ -133,7 +133,7 @@ fun ReiAnixLibraryScreen(
     onRefresh: () -> Unit,
     onOpenDetails: (Long) -> Unit,
     onToggleFavorite: (Long) -> Unit = {},
-    onSearch: () -> Unit = {},
+    onSearch: (() -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier
@@ -189,7 +189,7 @@ fun ReiAnixLibraryScreen(
 @Composable
 private fun LibraryHeader(
     onRefresh: () -> Unit,
-    onSearch: () -> Unit,
+    onSearch: (() -> Unit)?,
 ) {
     Row(
         modifier = Modifier
@@ -213,16 +213,18 @@ private fun LibraryHeader(
                 color = ReiAnixTokens.Colors.textMuted,
             )
         }
-        IconButton(
-            onClick = onSearch,
-            modifier = Modifier.semantics {
-                contentDescription = "Pesquisar na biblioteca"
-            },
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Search,
-                contentDescription = null,
-            )
+        if (onSearch != null) {
+            IconButton(
+                onClick = onSearch,
+                modifier = Modifier.semantics {
+                    contentDescription = "Pesquisar na biblioteca"
+                },
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = null,
+                )
+            }
         }
 
         IconButton(

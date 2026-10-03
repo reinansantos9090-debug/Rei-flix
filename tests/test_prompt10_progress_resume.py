@@ -36,6 +36,71 @@ class Prompt10ProgressResumeTests(unittest.TestCase):
         self.assertTrue(self.store.save_progress(None, 20, 100, episode_id=first["id"], event_created_at=1200))
         self.assertEqual(20, self.store.physical_row("content://prompt10/a-e1-renamed")["progress"])
 
+    def test_favorite_persists_after_store_reopen_without_parallel_state(self):
+        anime_id = self.anime_a
+        initial = self.store.catalog(anime_ids=[anime_id])[0]
+        self.assertFalse(initial["favorite"])
+
+        self.store.toggle_favorite(anime_id)
+        self.assertTrue(self.store.catalog(anime_ids=[anime_id])[0]["favorite"])
+
+        reopened = LibraryStore(self.tmp.name)
+        self.assertTrue(reopened.catalog(anime_ids=[anime_id])[0]["favorite"])
+
+        reopened.toggle_favorite(anime_id)
+        self.assertFalse(reopened.catalog(anime_ids=[anime_id])[0]["favorite"])
+
+    def test_prompt10_state_combinations_keep_favorite_and_consumption_independent(self):
+        unwatched = self.episode(
+            self.anime_a,
+            "content://prompt10/unwatched",
+            1,
+            "prompt10:unwatched",
+        )
+        partial = self.episode(
+            self.anime_a,
+            "content://prompt10/partial",
+            2,
+            "prompt10:partial",
+        )
+        completed = self.episode(
+            self.anime_a,
+            "content://prompt10/completed",
+            3,
+            "prompt10:completed",
+        )
+
+        self.store.toggle_favorite(self.anime_a)
+        self.store.save_progress(
+            partial["path"],
+            25,
+            100,
+            episode_id=partial["id"],
+            event_created_at=10,
+        )
+        self.store.save_progress(
+            completed["path"],
+            90,
+            100,
+            episode_id=completed["id"],
+            event_created_at=11,
+        )
+
+        catalog = self.store.catalog(anime_ids=[self.anime_a])[0]
+        self.assertTrue(catalog["favorite"])
+
+        episodes = {
+            episode["id"]: episode
+            for season in catalog["seasons"]
+            for episode in season["episodes"]
+        }
+        self.assertEqual("unwatched", episodes[unwatched["id"]]["consumption_state"])
+        self.assertEqual("in_progress", episodes[partial["id"]]["consumption_state"])
+        self.assertIn(
+            episodes[completed["id"]]["consumption_state"],
+            {"completed", "watched"},
+        )
+
     def test_progress_boundaries_and_completion_threshold_are_consistent(self):
         ep = self.episode(self.anime_a, "content://prompt10/bounds", 3, "prompt10:bounds")
         for stamp, position in enumerate((0, 1, 2, 10, 50, 90, 99, 100), start=1):

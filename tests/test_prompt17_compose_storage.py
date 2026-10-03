@@ -57,7 +57,7 @@ class Prompt17ComposeStorageBridgeTest(unittest.TestCase):
                     lifecycle_state="revalidated",
                     api=36,
                 ),
-            ),
+            )
             bridge.request_publish("prompt17")
             asyncio.run(bridge.wait_for_idle())
 

@@ -659,6 +659,7 @@ async def main(page: ft.Page):
     def _route_for_screen(screen):
         return {
             "home": "/",
+            "library": "/library",
             "organize": "/organize",
             "details": "/details",
             "collector": "/collector",
@@ -763,12 +764,17 @@ async def main(page: ft.Page):
                 page, library, navigate_details, navigate_settings, play_episode,
                 navigate_organize, view_state=home_state,
                 on_request_thumbnail=request_missing_thumbnail,
+                on_open_library=navigate_library,
                 on_open_collector=navigate_collector,
                 on_refresh_library=request_home_refresh,
                 on_refresh_ui_updated=_home_refresh_ui_updated,
                 on_refresh_ui_failed=lambda: _fail_home_refresh("home_ui_refresh_failed"),
                 is_active=lambda: ui_alive[0] and navigation.current == "home",
             )
+        elif route == "library":
+            # The existing Python NavigationController owns the logical route;
+            # Compose is mounted by MainActivity as its reversible visual host.
+            control = ft.Container(expand=True)
         elif route == "organize":
             control = OrganizeView.build(
                 page, library, navigate_details,
@@ -992,6 +998,29 @@ async def main(page: ft.Page):
             page_views_replaced,
         )
 
+    async def _show_compose_library():
+        if not bridge.available or navigation.current != "library" or not ui_alive[0]:
+            return
+        try:
+            await bridge.open_library()
+        except Exception as exc:
+            logger.exception("[COMPOSE_LIBRARY] host open failed", exc_info=True)
+            if navigation.current == "library" and ui_alive[0]:
+                navigation.back()
+                render_current(reason="compose_library_open_failed")
+                persist_navigation_state()
+                page.snack_bar = ft.SnackBar(ft.Text("Não foi possível abrir a Biblioteca Compose agora."))
+                page.snack_bar.open = True
+                safe_update()
+
+    async def _hide_compose_library():
+        if not bridge.available:
+            return
+        try:
+            await bridge.hide_library()
+        except Exception:
+            logger.exception("[COMPOSE_LIBRARY] host hide failed", exc_info=True)
+
     def handle_flet_view_pop(_event):
         back_state["flet_pop_count"] += 1
         pop_id = back_state["flet_pop_count"]
@@ -1007,9 +1036,26 @@ async def main(page: ft.Page):
     def navigate_home():
         previous = navigation.current
         with performance.interaction("return_home", source=previous, target="home"):
+            if previous == "library":
+                page.run_task(_hide_compose_library)
             navigation.reset_to_root()
             render_current(reason="return_home")
             persist_navigation_state()
+
+    def navigate_library():
+        if not bridge.available:
+            page.snack_bar = ft.SnackBar(ft.Text("A Biblioteca Compose está disponível somente no APK Android."))
+            page.snack_bar.open = True
+            safe_update()
+            return
+        if navigation.current == "library":
+            return
+        previous = navigation.current
+        with performance.interaction("open_library", source=previous, target="library"):
+            navigation.push("library")
+            render_current(reason="open_library")
+            persist_navigation_state()
+            page.run_task(_show_compose_library)
 
     def navigate_organize():
         previous = navigation.current
@@ -2337,6 +2383,8 @@ async def main(page: ft.Page):
             if navigation.current == "organize":
                 _drop_screen_cache("organize")
             render_current(reason="back")
+            if navigation.current == "library" and route_before != "library":
+                page.run_task(_show_compose_library)
             persist_navigation_state()
         elif action == "prompt_exit":
             persist_navigation_state()
@@ -3001,6 +3049,36 @@ async def main(page: ft.Page):
                             native_operation_states[str(event_request_id)] = operation_state
                             if len(native_operation_states) > 128:
                                 native_operation_states.pop(next(iter(native_operation_states)))
+                        if event_type == 'compose_library_navigation':
+                            destination = str(payload.get('destination') or '').strip().lower()
+                            if destination == 'back':
+                                navigate_back('compose_library_back')
+                            elif destination == 'details':
+                                try:
+                                    anime_id = int(payload.get('animeId') or 0)
+                                except (TypeError, ValueError):
+                                    anime_id = 0
+                                if anime_id > 0:
+                                    catalog = await asyncio.to_thread(library.catalog)
+                                    anime = next(
+                                        (item for item in (catalog or []) if int(item.get('id') or 0) == anime_id),
+                                        None,
+                                    )
+                                    if anime is not None:
+                                        navigate_details(anime)
+                                    else:
+                                        logger.warning(
+                                            "[COMPOSE_LIBRARY] details request ignored; anime not found id=%s",
+                                            anime_id,
+                                        )
+                                else:
+                                    logger.warning("[COMPOSE_LIBRARY] details request rejected; invalid animeId")
+                            else:
+                                logger.warning(
+                                    "[COMPOSE_LIBRARY] navigation event ignored destination=%s",
+                                    destination or '-',
+                                )
+
                         if event_type == 'compose_library_command':
                             action = str(payload.get('action') or '').strip().lower()
                             command_request_id = str(

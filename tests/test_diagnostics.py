@@ -4,23 +4,29 @@ from core.diagnostics import DiagnosticTimeline
 
 
 class DiagnosticTimelineTests(unittest.TestCase):
-    def test_record_accepts_legacy_home_refresh_fields_without_crashing(self):
+    def test_home_refresh_phase_uses_supported_record_fields(self):
         timeline = DiagnosticTimeline()
         event = timeline.record(
             "HOME_REFRESH_PHASE_CHANGED",
-            refreshId="refresh-1",
-            requestId="scan-1",
-            previous="REQUESTED",
-            state="RUNNING",
-            reason="scan_started",
+            request_id="scan-1",
+            source="scan_started",
+            result="RUNNING",
+            extra={
+                "refresh_id": "refresh-1",
+                "previous_phase": "REQUESTED",
+                "phase": "RUNNING",
+                "transition_reason": "scan_started",
+            },
         )
 
         self.assertEqual("HOME_REFRESH_PHASE_CHANGED", event.name)
-        self.assertEqual("refresh-1", event.extra["refreshId"])
-        self.assertEqual("scan-1", event.extra["requestId"])
-        self.assertEqual("REQUESTED", event.extra["previous"])
-        self.assertEqual("RUNNING", event.extra["state"])
-        self.assertEqual("scan_started", event.extra["reason"])
+        self.assertEqual("scan-1", event.request_id)
+        self.assertEqual("scan_started", event.source)
+        self.assertEqual("RUNNING", event.result)
+        self.assertEqual("refresh-1", event.extra["refresh_id"])
+        self.assertEqual("REQUESTED", event.extra["previous_phase"])
+        self.assertEqual("RUNNING", event.extra["phase"])
+        self.assertEqual("scan_started", event.extra["transition_reason"])
 
     def test_record_preserves_existing_fields_and_numeric_extra_data(self):
         timeline = DiagnosticTimeline()
@@ -51,3 +57,21 @@ class DiagnosticTimelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_home_refresh_phase_callsite_does_not_use_legacy_keyword_aliases(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        start = source.index("    def _set_home_refresh_phase(")
+        end = source.index("    def _handle_page_disconnect", start)
+        block = source[start:end]
+
+        self.assertNotIn("refreshId=", block)
+        self.assertNotIn("requestId=", block)
+        self.assertNotIn("previous=", block)
+        self.assertNotIn("state=", block)
+        self.assertNotIn("reason=", block)
+        self.assertIn("request_id=", block)
+        self.assertIn("result=normalized", block)
+        self.assertIn('"previous_phase"', block)
+        self.assertIn('"phase"', block)

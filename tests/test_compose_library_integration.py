@@ -9,7 +9,7 @@ BRIDGE = (ROOT / "core/compose_library_bridge.py").read_text(encoding="utf-8")
 class ComposeLibraryIntegrationTests(unittest.TestCase):
     def test_main_uses_real_library_projection_and_compose_command_boundary(self):
         self.assertIn("ComposeLibraryBridge(", MAIN)
-        self.assertIn("compose_library_bridge.request_publish("startup")", MAIN)
+        self.assertIn('compose_library_bridge.request_publish("startup")', MAIN)
         self.assertIn("if event_type == 'compose_library_command':", MAIN)
         for action in ("toggle_favorite", "set_watched", "refresh", "open_media"):
             self.assertIn(f"action == '{action}'", MAIN)

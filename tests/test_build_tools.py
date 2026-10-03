@@ -15,6 +15,7 @@ VERIFY = ROOT / "scripts" / "verify_android_host.py"
 PREPARE_TEMPLATE = ROOT / "scripts" / "prepare_flet_template.py"
 DESCRIPTORS = (
     b"Lcom/reiflix/reiflix_local/MainActivity;",
+    b"Lcom/reiflix/reiflix_local/ReiAnixComposeLibraryHost;",
     b"Lcom/reiflix/reiflix_local/NativeMailbox;",
     b"Lcom/reiflix/reiflix_local/NativeRequestState;",
     b"Lcom/reiflix/reiflix_local/SafScanner;",

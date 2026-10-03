@@ -1,22 +1,28 @@
-# DETALHES E EPISÓDIOS SEM DESAPARECIMENTO
+# 24 — DETAILS E EPISÓDIOS SEM DESAPARECIMENTO
 
+## CONTRATO
+ReiAnix continua sendo biblioteca/reprodutor LOCAL. Leia o código real. Preserve SQLite, scanner, SAF, MediaStore, permissões, artwork/cache, progresso e Media3. Não criar streaming, download, catálogo remoto, banco paralelo ou dados fictícios. Não duplicar regras no Compose. Use IDs estáveis. Considere lifecycle, cancelamento e estado obsoleto. Preserve correções anteriores.
 
-Fazer uma auditoria específica do bug histórico de episódios desaparecendo.
+## PROCESSO
+Inspecione → implemente → integre → teste → compile → relate.
 
-Cenário obrigatório:
-1. Biblioteca com pelo menos 10 episódios.
-2. Abrir Details.
-3. Reproduzir EP07.
-4. Salvar cerca de 18%.
-5. Sair do player.
-6. Voltar para Details.
-7. EP07 continua presente.
-8. EP06 e EP08 continuam presentes.
-9. ordem permanece correta.
-10. Continue aponta para EP07.
-11. progresso permanece.
-12. reabrir Details repetidamente sem alterar a lista.
+## OBJETIVO
+Fazer regressão dedicada ao bug histórico de episódio que desaparecia visualmente.
 
-Implementar testes Compose/instrumentados apropriados.
+## IMPLEMENTAÇÃO
+Reproduzir: dez ou mais episódios → Details → EP07 → cerca de 18% → sair → Details. Confirmar EP06, EP07 e EP08 presentes, ordem correta, Continue apontando para EP07 e progresso persistente. Reabrir Details repetidamente. Garantir identidade estável, lista derivada de fonte estável e nenhuma reconstrução imperativa insegura. Criar testes unitários/ViewModel/Compose/instrumentados conforme possível.
 
-Não aceitar correção baseada em esconder episódios.
+## NÃO FAZER
+Não esconder episódio, trocar o atual por outro ou congelar a lista. Não colocar side effects de atualização dentro do caminho de composição.
+
+## CRITÉRIOS DE ACEITAÇÃO
+- [ ] Integração usa dados reais.
+- [ ] Estado persiste.
+- [ ] IDs estáveis.
+- [ ] Lifecycle e cancelamento corretos.
+- [ ] Nenhuma funcionalidade local removida.
+- [ ] Compilação validada.
+- [ ] Testes relevantes executados e registrados.
+
+## RELATÓRIO FINAL
+Descrever diff de arquivos/pastas, componentes reutilizados, funcionalidades preservadas, testes, resultado da compilação e limitações de ambiente.

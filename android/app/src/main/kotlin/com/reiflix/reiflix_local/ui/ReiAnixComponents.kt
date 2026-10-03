@@ -75,7 +75,7 @@ fun ReiAnixPrimaryButton(
             text = text,
             style = MaterialTheme.typography.labelLarge,
             maxLines = 1,
-            overflow = TextOverflow.EllIPSIS,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -104,7 +104,7 @@ fun ReiAnixSecondaryButton(
             text = text,
             style = MaterialTheme.typography.labelLarge,
             maxLines = 1,
-            overflow = TextOverflow.EllIPSIS,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -125,7 +125,7 @@ fun ReiAnixChip(
                 text = text,
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 1,
-                overflow = TextOverflow.EllIPSIS,
+                overflow = TextOverflow.Ellipsis,
             )
         },
         shape = ReiAnixTokens.Shapes.chip,
@@ -157,7 +157,7 @@ fun ReiAnixSectionTitle(
             style = MaterialTheme.typography.titleLarge,
             color = ReiAnixTokens.Colors.text,
             maxLines = 1,
-            overflow = TextOverflow.EllIPSIS,
+            overflow = TextOverflow.Ellipsis,
         )
         if (!subtitle.isNullOrBlank()) {
             Text(
@@ -166,7 +166,7 @@ fun ReiAnixSectionTitle(
                 color = ReiAnixTokens.Colors.textMuted,
                 modifier = Modifier.padding(top = ReiAnixTokens.Spacing.xs),
                 maxLines = 2,
-                overflow = TextOverflow.EllIPSIS,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

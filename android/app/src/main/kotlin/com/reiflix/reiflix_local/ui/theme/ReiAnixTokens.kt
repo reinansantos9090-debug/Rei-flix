@@ -145,11 +145,11 @@ object ReiAnixTokens {
         ),
     )
 
-    val shapes = Shapes(
+    val shapes = androidx.compose.material3.Shapes(
         extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
-        small = small,
-        medium = card,
-        large = large,
+        small = ReiAnixTokens.Shapes.small,
+        medium = ReiAnixTokens.Shapes.card,
+        large = ReiAnixTokens.Shapes.large,
         extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
     )
 }

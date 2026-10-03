@@ -34,7 +34,7 @@ class ReiAnixLibraryRepository(context: Context) : AutoCloseable {
     private val _state = MutableStateFlow(ReiAnixLibraryUiState())
     val state: StateFlow<ReiAnixLibraryUiState> = _state.asStateFlow()
 
-    private val snapshotObserver = object : FileObserver(bridgeDirectory.path, MOVED_TO or CLOSE_WRITE or CREATE) {
+    private val snapshotObserver = object : FileObserver(bridgeDirectory.path, FileObserver.MOVED_TO or FileObserver.CLOSE_WRITE or FileObserver.CREATE) {
         override fun onEvent(event: Int, path: String?) {
             if (path == snapshotFile.name) {
                 scope.launch { loadSnapshot() }
@@ -42,7 +42,7 @@ class ReiAnixLibraryRepository(context: Context) : AutoCloseable {
         }
     }
 
-    private val commandResultObserver = object : FileObserver(commandResultDirectory.path, MOVED_TO or CLOSE_WRITE or CREATE) {
+    private val commandResultObserver = object : FileObserver(commandResultDirectory.path, FileObserver.MOVED_TO or FileObserver.CLOSE_WRITE or FileObserver.CREATE) {
         override fun onEvent(event: Int, path: String?) {
             if (path?.startsWith("command-") == true && path.endsWith(".json")) {
                 scope.launch { loadCommandResult(File(commandResultDirectory, path)) }
@@ -151,6 +151,9 @@ class ReiAnixLibraryRepository(context: Context) : AutoCloseable {
             lastCommandStatus = result.status,
             lastCommandError = result.error,
         )
+        if (result.status in setOf("COMPLETED", "QUEUED")) {
+            loadSnapshot()
+        }
         file.delete()
     }
 

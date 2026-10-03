@@ -10,6 +10,7 @@ import flet as ft
 from flet.auth import OAuthProvider
 from app_config import GOOGLE_CLIENT_ID as CONFIG_GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URL as CONFIG_GOOGLE_REDIRECT_URL, GOOGLE_WEB_CLIENT_ID as CONFIG_GOOGLE_WEB_CLIENT_ID
 from core.android_bridge import AndroidBridge
+from core.compose_library_bridge import ComposeLibraryBridge
 from core.navigation import NavigationController, SafSelectionState
 from core.scan_coordinator import ScanCoordinator, ScanOrigin, ScanState, ScanTarget
 from core.storage_access import (
@@ -97,6 +98,14 @@ async def main(page: ft.Page):
     bridge_started = performance.now()
     bridge=AndroidBridge(data_dir, page)
     performance.event("startup.android_bridge", duration_ms=(performance.now()-bridge_started)*1000.0)
+    compose_library_bridge = ComposeLibraryBridge(
+        data_dir,
+        library,
+        store,
+        enabled=bridge.available,
+    )
+    if compose_library_bridge.enabled:
+        compose_library_bridge.request_publish("startup")
     current=[None]
     account_state=["connected" if store.account().get("email") else "disconnected"]
     diagnostics = DiagnosticTimeline()
@@ -1982,6 +1991,7 @@ async def main(page: ft.Page):
             page.snack_bar.open = True
             safe_update()
     def on_catalog_changed(*, refresh_details=True, refresh_request_id=None):
+        compose_library_bridge.request_publish("catalog_changed")
         catalog_started = performance.now()
         schedule_thumbnail_reconciliation("catalog_changed")
         diagnostics.record("UI_REFRESHED", result="catalog_changed", source=navigation.current)
@@ -2985,6 +2995,101 @@ async def main(page: ft.Page):
                             native_operation_states[str(event_request_id)] = operation_state
                             if len(native_operation_states) > 128:
                                 native_operation_states.pop(next(iter(native_operation_states)))
+                        if event_type == 'compose_library_command':
+                            action = str(payload.get('action') or '').strip().lower()
+                            command_request_id = str(
+                                event_request_id or payload.get('requestId') or ''
+                            ).strip()
+                            command_status = 'COMPLETED'
+                            command_error = None
+                            try:
+                                if action == 'toggle_favorite':
+                                    anime_id = int(payload.get('animeId') or 0)
+                                    if anime_id <= 0:
+                                        raise ValueError('animeId inválido.')
+                                    updated = await asyncio.to_thread(store.toggle_favorite, anime_id)
+                                    if not updated:
+                                        raise ValueError('Anime não encontrado.')
+                                    compose_library_bridge.request_publish('compose_toggle_favorite')
+                                    on_catalog_changed(refresh_details=False)
+                                elif action == 'set_watched':
+                                    episode_id = int(payload.get('episodeId') or 0)
+                                    if episode_id <= 0:
+                                        raise ValueError('episodeId inválido.')
+                                    watched = bool(payload.get('watched'))
+                                    updated = await asyncio.to_thread(
+                                        store.set_watched,
+                                        str(payload.get('uri') or '').strip(),
+                                        watched,
+                                        episode_id=episode_id,
+                                    )
+                                    if not updated:
+                                        raise ValueError('Episódio não encontrado ou referência local incompatível.')
+                                    compose_library_bridge.request_publish('compose_set_watched')
+                                    on_catalog_changed(refresh_details=False)
+                                elif action == 'refresh':
+                                    source = str(payload.get('source') or '').strip() or None
+                                    transition = await scan_coordinator.request(
+                                        ScanOrigin.USER_REFRESH,
+                                        source=source,
+                                        full=False,
+                                        reason='compose_refresh',
+                                        request_id=command_request_id or None,
+                                    )
+                                    if transition.kind not in {'accepted', 'queued', 'running', 'completed'}:
+                                        command_status = 'FAILED'
+                                        command_error = str(transition.message or transition.kind)
+                                elif action == 'open_media':
+                                    episode_id = int(payload.get('episodeId') or 0)
+                                    if episode_id <= 0:
+                                        raise ValueError('episodeId inválido.')
+                                    fresh_episode = await asyncio.to_thread(store.episode_by_id, episode_id)
+                                    if not fresh_episode:
+                                        raise ValueError('Episódio não encontrado.')
+                                    path_ref = str(fresh_episode.get('path') or '').strip()
+                                    if not path_ref or bool(fresh_episode.get('missing')):
+                                        raise ValueError('Este episódio não possui uma mídia local disponível.')
+                                    anime_id = fresh_episode.get('anime_id')
+                                    title = (
+                                        str(fresh_episode.get('episode_title') or '').strip()
+                                        or str(fresh_episode.get('file_name') or '').strip()
+                                        or 'Episódio'
+                                    )
+                                    try:
+                                        progress_seconds = float(fresh_episode.get('progress') or 0.0)
+                                    except (TypeError, ValueError):
+                                        progress_seconds = 0.0
+                                    play_episode(
+                                        path_ref,
+                                        title,
+                                        progress_seconds=max(0.0, progress_seconds),
+                                        episode_id=episode_id,
+                                        anime_id=anime_id,
+                                    )
+                                else:
+                                    command_status = 'FAILED'
+                                    command_error = 'Comando de biblioteca Compose desconhecido.'
+                            except Exception as exc:
+                                command_status = 'FAILED'
+                                command_error = str(exc)[:500]
+                                logger.exception(
+                                    "[COMPOSE_LIBRARY] command failed action=%s requestId=%s",
+                                    action or '-',
+                                    command_request_id or '-',
+                                )
+                            compose_library_bridge.write_command_result(
+                                command_request_id,
+                                action,
+                                command_status,
+                                error=command_error,
+                            )
+                            logger.info(
+                                "[COMPOSE_LIBRARY] command=%s requestId=%s status=%s",
+                                action or '-',
+                                command_request_id or '-',
+                                command_status,
+                            )
+
                         player_event_types = {
                             "player_progress",
                             "player_paused",
@@ -4039,6 +4144,7 @@ async def main(page: ft.Page):
                                             "event": event_type,
                                         },
                                     )
+                                    compose_library_bridge.request_publish('player_progress')
                                     performance.event("player.progress_persist", duration_ms=(performance.now()-progress_started)*1000.0,
                                                       screen=navigation.current,
                                                       metadata={"episode_id": payload.get("episodeId"), "media_identity": payload.get("mediaId"),
@@ -4062,6 +4168,8 @@ async def main(page: ft.Page):
                                 updated = await asyncio.to_thread(
                                     store.set_watched, path_ref, True, episode_id=payload.get("episodeId")
                                 )
+                            if updated:
+                                compose_library_bridge.request_publish('player_mark_watched')
                             diagnostics.record(
                                 "PLAYER_MARK_WATCHED",
                                 request_id=event_request_id,
@@ -4075,6 +4183,8 @@ async def main(page: ft.Page):
                                 updated = await asyncio.to_thread(
                                     store.set_watched, path_ref, False, episode_id=payload.get("episodeId")
                                 )
+                            if updated:
+                                compose_library_bridge.request_publish('player_mark_unwatched')
                             diagnostics.record(
                                 "PLAYER_MARK_UNWATCHED",
                                 request_id=event_request_id,

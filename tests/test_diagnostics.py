@@ -55,9 +55,6 @@ class DiagnosticTimelineTests(unittest.TestCase):
         self.assertIsInstance(event.extra["nested"]["items"][1], str)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_home_refresh_phase_callsite_does_not_use_legacy_keyword_aliases(self):
         from pathlib import Path
 
@@ -75,3 +72,7 @@ if __name__ == "__main__":
         self.assertIn("result=normalized", block)
         self.assertIn('"previous_phase"', block)
         self.assertIn('"phase"', block)
+
+
+if __name__ == "__main__":
+    unittest.main()

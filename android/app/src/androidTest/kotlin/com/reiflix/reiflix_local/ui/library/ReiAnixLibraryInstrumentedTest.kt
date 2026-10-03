@@ -1,7 +1,9 @@
 package com.reiflix.reiflix_local.ui.library
 
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -81,6 +83,111 @@ class ReiAnixLibraryInstrumentedTest {
         composeRule.onNodeWithText("Example Anime").assertIsDisplayed()
         composeRule.onNodeWithText("1 episódio").assertIsDisplayed()
         composeRule.onNodeWithText("Action").assertIsDisplayed()
+    }
+
+    @Test
+    fun stateBadgesReflectRealStateAndFavoriteActionUsesCanonicalId() {
+        var toggledId = -1L
+        composeRule.setContent {
+            ReiAnixComposeRoot {
+                ReiAnixLibraryScreen(
+                    state = readyState(),
+                    filters = ReiAnixLibraryFilters(),
+                    visibleAnimes = listOf(
+                        anime(
+                            7L,
+                            "Watching Favorite",
+                            favorite = true,
+                            episodeState = ReiAnixConsumptionState.IN_PROGRESS,
+                        ),
+                    ),
+                    genres = emptyList(),
+                    onQueryChange = {},
+                    onGenreSelected = {},
+                    onToggleFavorites = {},
+                    onToggleWatching = {},
+                    onToggleCompleted = {},
+                    onClearFilters = {},
+                    onRefresh = {},
+                    onOpenDetails = {},
+                    onToggleFavorite = { toggledId = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Assistindo").assertIsDisplayed()
+        composeRule.onNodeWithText("Na lista").assertIsDisplayed()
+        composeRule.onNodeWithText("Concluído").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Remover da Minha Lista").performClick()
+        assertEquals(7L, toggledId)
+    }
+
+    @Test
+    fun completedStateShowsOnlyCompletedBadge() {
+        composeRule.setContent {
+            ReiAnixComposeRoot {
+                ReiAnixLibraryScreen(
+                    state = readyState(),
+                    filters = ReiAnixLibraryFilters(),
+                    visibleAnimes = listOf(
+                        anime(
+                            8L,
+                            "Completed",
+                            episodeState = ReiAnixConsumptionState.WATCHED,
+                        ),
+                    ),
+                    genres = emptyList(),
+                    onQueryChange = {},
+                    onGenreSelected = {},
+                    onToggleFavorites = {},
+                    onToggleWatching = {},
+                    onToggleCompleted = {},
+                    onClearFilters = {},
+                    onRefresh = {},
+                    onOpenDetails = {},
+                    onToggleFavorite = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Concluído").assertIsDisplayed()
+        composeRule.onNodeWithText("Assistindo").assertDoesNotExist()
+        composeRule.onNodeWithText("Na lista").assertDoesNotExist()
+    }
+
+    @Test
+    fun favoriteWithoutProgressAndMissingArtworkShowsOnlyFavoriteState() {
+        composeRule.setContent {
+            ReiAnixComposeRoot {
+                ReiAnixLibraryScreen(
+                    state = readyState(),
+                    filters = ReiAnixLibraryFilters(),
+                    visibleAnimes = listOf(
+                        anime(
+                            9L,
+                            "Favorite Without Progress",
+                            artwork = null,
+                            favorite = true,
+                        ),
+                    ),
+                    genres = emptyList(),
+                    onQueryChange = {},
+                    onGenreSelected = {},
+                    onToggleFavorites = {},
+                    onToggleWatching = {},
+                    onToggleCompleted = {},
+                    onClearFilters = {},
+                    onRefresh = {},
+                    onOpenDetails = {},
+                    onToggleFavorite = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Sem arte").assertIsDisplayed()
+        composeRule.onNodeWithText("Na lista").assertIsDisplayed()
+        composeRule.onNodeWithText("Assistindo").assertDoesNotExist()
+        composeRule.onNodeWithText("Concluído").assertDoesNotExist()
     }
 
     @Test
@@ -201,12 +308,14 @@ class ReiAnixLibraryInstrumentedTest {
         id: Long,
         title: String,
         artwork: ReiAnixArtworkUiModel? = ReiAnixArtworkUiModel(null, null),
+        favorite: Boolean = false,
+        episodeState: ReiAnixConsumptionState? = null,
     ) = ReiAnixAnimeUiModel(
         id = id,
         title = title,
         year = 2026,
         genres = listOf(ReiAnixGenreUiModel("action", "Action")),
-        favorite = false,
+        favorite = favorite,
         mediaKind = ReiAnixMediaKind.SERIES,
         artwork = artwork,
         metadataAvailability = ReiAnixMetadataAvailability.UNRESOLVED,
@@ -231,10 +340,17 @@ class ReiAnixLibraryInstrumentedTest {
                             sourceAvailabilityState = "available",
                             availability = ReiAnixMediaAvailability.AVAILABLE,
                         ),
-                        progressSeconds = null,
+                        progressSeconds = episodeState?.let { state ->
+                            when (state) {
+                                ReiAnixConsumptionState.IN_PROGRESS -> 10.0
+                                ReiAnixConsumptionState.WATCHED -> 100.0
+                                ReiAnixConsumptionState.UNWATCHED -> 0.0
+                                else -> 0.0
+                            }
+                        },
                         durationSeconds = 100.0,
-                        watched = false,
-                        consumptionState = null,
+                        watched = episodeState == ReiAnixConsumptionState.WATCHED,
+                        consumptionState = episodeState,
                         artwork = null,
                     ),
                 ),

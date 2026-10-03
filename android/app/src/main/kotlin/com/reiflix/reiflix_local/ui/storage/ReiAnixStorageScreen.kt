@@ -101,6 +101,22 @@ fun ReiAnixStorageScreen(
             if (storage.lifecycleState == "unknown" || storage.api == null) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
+            if (storage.safSelectionPending) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = ReiAnixTokens.Colors.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth().padding(
+                        horizontal = ReiAnixTokens.Dimensions.screenHorizontalPadding,
+                        vertical = ReiAnixTokens.Spacing.xs,
+                    ),
+                ) {
+                    Text(
+                        text = "Seleção de pasta em andamento…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(

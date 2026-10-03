@@ -24,7 +24,9 @@ class Prompt91ComposeHostTests(unittest.TestCase):
         self.assertIn("composeLibraryHost.hide()", source)
         self.assertIn("ComposeView", host)
         self.assertIn("ReiAnixComposeRoot", host)
-        self.assertIn("ReiAnixLibraryRoute", host)
+        self.assertIn("ReiAnixNavigationHost", host)
+        self.assertIn("startDestination = ReiAnixRoutes.LIBRARY", host)
+        self.assertIn("showBottomNavigation = false", host)
 
     def test_library_is_a_single_existing_navigation_route(self):
         navigation = NAVIGATION.read_text(encoding="utf-8")
@@ -62,8 +64,33 @@ class Prompt91ComposeHostTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("ReiAnixLibraryRoute(", host)
         self.assertIn("anime.stableKey", library)
+        self.assertIn("navController.navigateToDetails", library)
+        self.assertIn('origin = ReiAnixRoutes.LIBRARY', library)
         self.assertIn("val stableKey: String", models)
         self.assertIn('get() = "anime:" + id', models)
+
+    def test_details_route_is_the_real_compose_destination_for_library_host(self):
+        navigation_host = (
+            ROOT
+            / "android/app/src/main/kotlin/com/reiflix/reiflix_local/ui/navigation/ReiAnixNavigation.kt"
+        ).read_text(encoding="utf-8")
+        details = (
+            ROOT
+            / "android/app/src/main/kotlin/com/reiflix/reiflix_local/ui/details/ReiAnixDetails.kt"
+        ).read_text(encoding="utf-8")
+        self.assertIn('const val DETAILS = "details/{animeId}?origin={origin}"', navigation_host)
+        self.assertIn("ReiAnixDetailsRoute(", navigation_host)
+        self.assertIn("animeId = args.animeId", navigation_host)
+        self.assertIn("viewModel.detailsState(animeId)", details)
+        self.assertIn("viewModel::openEpisode", details)
+        self.assertIn("viewModel::toggleFavorite", details)
+
+    def test_main_activity_back_can_pop_nested_compose_destination(self):
+        source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+        host = HOST.read_text(encoding="utf-8")
+        self.assertIn("composeLibraryHost.handleBack()", source)
+        self.assertIn("fun handleBack(): Boolean", host)
+        self.assertIn("controller.previousBackStackEntry != null", host)
 
     def test_main_activity_does_not_replace_flutter_host(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")

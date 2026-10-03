@@ -6,12 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-concurrency:
-  # Do not cancel an active APK build merely because another push arrived.
-  # A newer commit queues behind the current build so the APK can finish.
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   build:
     timeout-minutes: 15

@@ -170,7 +170,12 @@ fun ReiAnixSearchScreen(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         )
 
-        when (libraryState.status) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+        ) {
+            when (libraryState.status) {
             ReiAnixLibraryLoadStatus.LOADING -> SearchLoading(
                 scanInProgress = libraryState.scanInProgress,
             )

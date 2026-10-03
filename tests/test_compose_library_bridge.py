@@ -28,6 +28,25 @@ class FakeLibrary:
 
 
 class ComposeLibraryBridgeTests(unittest.IsolatedAsyncioTestCase):
+    def test_anime_projection_preserves_real_score_metadata(self):
+        source = {
+            "id": 1,
+            "main_title": "Score Anime",
+            "meta": {
+                "score": 86,
+                "cover_cache": None,
+                "cover_url": None,
+                "banner_url": None,
+            },
+            "seasons": [],
+            "specials": [],
+            "media_files": [],
+        }
+
+        projected = ComposeLibraryBridge._project_anime(source)
+
+        self.assertEqual(86, projected["meta"]["score"])
+
     def anime_fixture(self):
         return {
             "id": 7,

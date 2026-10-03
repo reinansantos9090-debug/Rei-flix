@@ -31,6 +31,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navOptions
+import com.reiflix.reiflix_local.ui.details.ReiAnixDetailsRoute
 import com.reiflix.reiflix_local.ui.home.ReiAnixHomeRoute
 import com.reiflix.reiflix_local.ui.library.ReiAnixLibraryRoute
 import com.reiflix.reiflix_local.ui.library.rememberReiAnixLibraryViewModel
@@ -169,6 +170,8 @@ fun ReiAnixNavigationHost(
     details: @Composable (ReiAnixDetailsArgs) -> Unit = {},
     player: @Composable (ReiAnixPlayerArgs) -> Unit = {},
     modifier: Modifier = Modifier,
+    startDestination: String = ReiAnixRoutes.HOME,
+    showBottomNavigation: Boolean = true,
 ) {
     ReiAnixNavigationHost(
         home = {
@@ -185,10 +188,19 @@ fun ReiAnixNavigationHost(
         },
         search = search,
         settings = settings,
-        details = details,
+        details = { args ->
+            ReiAnixDetailsRoute(
+                navController = navController,
+                viewModel = homeViewModel,
+                animeId = args.animeId,
+                origin = args.origin,
+            )
+        },
         player = player,
         modifier = modifier,
         navController = navController,
+        startDestination = startDestination,
+        showBottomNavigation = showBottomNavigation,
     )
 }
 
@@ -202,6 +214,8 @@ fun ReiAnixNavigationHost(
     player: @Composable (ReiAnixPlayerArgs) -> Unit,
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
+    startDestination: String = ReiAnixRoutes.HOME,
+    showBottomNavigation: Boolean = true,
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -209,7 +223,7 @@ fun ReiAnixNavigationHost(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         bottomBar = {
-            if (topLevelDestinations.any { it.route == currentRoute }) {
+            if (showBottomNavigation && topLevelDestinations.any { it.route == currentRoute }) {
                 NavigationBar(
                     modifier = Modifier.semantics {
                         contentDescription = ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION
@@ -241,7 +255,7 @@ fun ReiAnixNavigationHost(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = ReiAnixRoutes.HOME,
+            startDestination = startDestination,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)

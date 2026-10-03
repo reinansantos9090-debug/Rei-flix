@@ -179,6 +179,7 @@ class ComposeLibraryBridge:
             "meta": {
                 "year": meta.get("year", source.get("year")),
                 "metadata_status": meta.get("metadata_status") or source.get("metadata_status"),
+                "score": meta.get("score", source.get("score")),
                 "cover_cache": meta.get("cover_cache"),
                 "cover_url": meta.get("cover_url"),
                 "banner_url": meta.get("banner_url"),

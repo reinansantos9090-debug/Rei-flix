@@ -135,6 +135,8 @@ data class ReiAnixAnimeUiModel(
     val specials: List<ReiAnixEpisodeUiModel>,
     val mediaFiles: List<ReiAnixEpisodeUiModel>,
     val playbackTargetEpisodeId: Long? = null,
+    /** Source score in the library metadata (0..100), when actually stored. */
+    val score: Double? = null,
 ) {
     val stableKey: String
         get() = "anime:" + id

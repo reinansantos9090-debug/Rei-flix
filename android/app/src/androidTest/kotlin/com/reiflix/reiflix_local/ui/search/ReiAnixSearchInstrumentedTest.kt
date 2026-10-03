@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import org.junit.Assert.assertEquals
 import com.reiflix.reiflix_local.ui.model.ReiAnixAnimeUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
@@ -83,7 +84,7 @@ class ReiAnixSearchInstrumentedTest {
         }
 
         composeRule.onNodeWithContentDescription("Abrir Local Anime").performClick()
-        assert(openedId == 42L)
+        assertEquals(42L, openedId)
     }
 
     @Test

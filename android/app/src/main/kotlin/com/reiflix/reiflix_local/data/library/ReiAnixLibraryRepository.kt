@@ -62,6 +62,10 @@ class ReiAnixLibraryRepository(context: Context) : AutoCloseable {
         send(ReiAnixLibraryCommandCodec.Action.REFRESH)
     }
 
+    fun selectSafTree() {
+        send(ReiAnixLibraryCommandCodec.Action.SELECT_SAF)
+    }
+
     fun toggleFavorite(animeId: Long) {
         send(ReiAnixLibraryCommandCodec.Action.TOGGLE_FAVORITE, animeId = animeId)
     }

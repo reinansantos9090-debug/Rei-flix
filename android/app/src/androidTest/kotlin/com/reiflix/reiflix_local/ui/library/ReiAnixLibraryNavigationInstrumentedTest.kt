@@ -24,6 +24,8 @@ import com.reiflix.reiflix_local.ui.model.ReiAnixSeasonUiModel
 import com.reiflix.reiflix_local.ui.navigation.ReiAnixNavigationHost
 import com.reiflix.reiflix_local.ui.navigation.ReiAnixRoutes
 import com.reiflix.reiflix_local.ui.navigation.navigateToDetails
+import com.reiflix.reiflix_local.ui.navigation.navigateToDetails
+import androidx.activity.ComponentActivity
 import androidx.activity.ComponentActivity
 import androidx.navigation.compose.ComposeNavigator
 import androidx.navigation.testing.TestNavHostController

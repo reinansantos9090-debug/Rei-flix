@@ -220,7 +220,7 @@ class DetailsEpisodeReconciliationTests(unittest.TestCase):
     def test_details_build_contract_is_declarative_and_progress_bar_is_structurally_stable(self):
         source = DETAILS_SOURCE.read_text(encoding="utf-8")
 
-        self.assertIn("ft.ValueKey(f"{scope}:{identity}")", source)
+        self.assertIn('ft.ValueKey(f"{scope}:{identity}")', source)
         self.assertIn("controls=build_episode_controls()", source)
         self.assertIn("episode_column.controls = build_episode_controls()", source)
         self.assertNotIn("episode_column.controls.clear()", source)
@@ -237,7 +237,7 @@ class DetailsEpisodeReconciliationTests(unittest.TestCase):
         # There must not be a second tree shape that appends the progress bar only
         # on an in-progress episode.
         self.assertNotIn(
-            "if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing") and state.value == "in_progress":",
+            'if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing") and state.value == "in_progress":',
             episode_item,
         )
 
@@ -267,7 +267,7 @@ class DetailsEpisodeReconciliationTests(unittest.TestCase):
         details_block = block[details_start:]
         self.assertIn("if not refresh_details:", details_block)
         self.assertIn("page.run_task(refresh_current_details)", details_block)
-        self.assertNotIn("render_current(reason="catalog_changed")", details_block)
+        self.assertNotIn('render_current(reason="catalog_changed")', details_block)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,14 @@ class ComposeLibraryIntegrationTests(unittest.TestCase):
         for action in ("toggle_favorite", "set_watched", "refresh", "open_media"):
             self.assertIn(f"action == '{action}'", MAIN)
 
+    def test_favorite_command_does_not_treat_false_new_state_as_failure(self):
+        start = MAIN.index("if action == 'toggle_favorite':")
+        end = MAIN.index("elif action == 'set_watched':", start)
+        block = MAIN[start:end]
+        self.assertIn("existing = await asyncio.to_thread(store.catalog, anime_ids=[anime_id])", block)
+        self.assertIn("await asyncio.to_thread(store.toggle_favorite, anime_id)", block)
+        self.assertNotIn("if not updated:", block)
+
     def test_mutations_run_outside_python_ui_event_thread(self):
         for token in (
             "await asyncio.to_thread(store.toggle_favorite",

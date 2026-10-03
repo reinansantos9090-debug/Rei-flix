@@ -129,7 +129,8 @@ class ReiAnixLibraryNavigationInstrumentedTest {
             navController.currentBackStackEntry?.arguments
                 ?.getString(ReiAnixRoutes.ARG_ANIME_ID),
         )
-        composeRule.onNodeWithText("animeId=$animeId").assertIsDisplayed()
+        composeRule.onNodeWithText("Integration Anime").assertIsDisplayed()
+        composeRule.onNodeWithText("Detalhes").assertIsDisplayed()
         composeRule.onNodeWithText("Biblioteca").assertDoesNotExist()
 
         composeRule.onNodeWithContentDescription("Voltar").performClick()

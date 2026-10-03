@@ -34,7 +34,7 @@ class ComposeLibraryIntegrationTests(unittest.TestCase):
 
     def test_existing_player_bridge_owns_compose_media_open(self):
         start = MAIN.index("elif action == 'open_media':")
-        end = MAIN.index("else:", start)
+        end = MAIN.index("                            compose_library_bridge.write_command_result", start)
         block = MAIN[start:end]
         self.assertIn("play_episode(", block)
         self.assertIn("store.episode_by_id", block)

@@ -100,6 +100,7 @@ internal object ReiAnixLibrarySnapshotCodec {
             mediaReadState = capabilities.optString("mediaReadState", "denied").trim().lowercase(),
             broadStorageState = capabilities.optString("broadStorageState", "unavailable").trim().lowercase(),
             safRoots = capabilities.stringList("safRoots"),
+            safSelectionPending = raw.optBoolean("safSelectionPending", false),
             safRootIdentities = capabilities.stringList("safRootIdentities"),
             removableVolumes = capabilities.stringList("removableVolumes"),
             scannerCapabilities = capabilities.stringList("scannerCapabilities").sorted(),

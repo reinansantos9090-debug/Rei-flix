@@ -145,8 +145,10 @@ jobs:
       - name: Cache rendered Android test project
         uses: actions/cache/save@v4
         with:
-          path: build/flutter
-          key: reianix-android-test-project-v3-${{ github.sha }}
+          path: |
+            build/flutter
+            build/site-packages
+          key: reianix-android-test-project-v4-${{ github.sha }}
 
 
   instrumented-tv:
@@ -188,7 +190,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: build/flutter
-          key: reianix-android-test-project-v3-${{ github.sha }}
+          key: reianix-android-test-project-v4-${{ github.sha }}
       - name: Restore Flutter pub dependencies
         working-directory: build/flutter
         run: flutter pub get
@@ -283,7 +285,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: build/flutter
-          key: reianix-android-test-project-v3-${{ github.sha }}
+          key: reianix-android-test-project-v4-${{ github.sha }}
       - name: Restore Flutter pub dependencies
         working-directory: build/flutter
         run: flutter pub get

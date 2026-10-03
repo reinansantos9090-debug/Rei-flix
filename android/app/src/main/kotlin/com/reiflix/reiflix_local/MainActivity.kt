@@ -761,15 +761,7 @@ class MainActivity : FlutterFragmentActivity() {
         logLifecycle("onCreate", intent)
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
-        composeLibraryHost = ReiAnixComposeLibraryHost(this) { animeId ->
-            composeLibraryHost.hide()
-            NativeMailbox.writeBestEffort(
-                this,
-                JSONObject()
-                    .put("type", "compose_library_navigation")
-                    .put("payload", JSONObject().put("destination", "details").put("animeId", animeId)),
-            )
-        }
+        composeLibraryHost = ReiAnixComposeLibraryHost(this)
         // Flet owns the visual theme/system-overlay appearance; the native host
         // owns edge-to-edge + normal system-bar visibility.
         systemUiController.applyApplicationPolicy(useContextAppearance = false)
@@ -1030,6 +1022,10 @@ class MainActivity : FlutterFragmentActivity() {
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     if (::composeLibraryHost.isInitialized && composeLibraryHost.isVisible) {
+                        if (composeLibraryHost.handleBack()) {
+                            Log.i(tag, "BACK_COMPOSE_DETAILS_POPPED")
+                            return
+                        }
                         composeLibraryHost.hide()
                         NativeMailbox.writeBestEffort(
                             this@MainActivity,

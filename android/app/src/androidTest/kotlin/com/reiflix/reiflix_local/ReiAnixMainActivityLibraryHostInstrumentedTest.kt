@@ -39,7 +39,7 @@ class ReiAnixMainActivityLibraryHostInstrumentedTest {
             Uri.parse(
                 "reiflix://native?action=open_library" +
                     "&request_id=prompt91-runtime-back" +
-                    "&protocol_version=2",
+                    "",
             ),
         )
         composeRule.activity.onNewIntent(intent)

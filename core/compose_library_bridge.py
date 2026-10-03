@@ -70,6 +70,8 @@ class ComposeLibraryBridge:
             catalog = self.library.catalog()
             folders = self.store.folders()
             source_state = self._source_state(folders)
+            continue_method = getattr(self.library, "continue_watching", None)
+            continue_rows = continue_method(limit=12) if callable(continue_method) else []
             status = "READY" if catalog else "EMPTY"
             payload = {
                 "schemaVersion": self.SCHEMA_VERSION,
@@ -81,6 +83,11 @@ class ComposeLibraryBridge:
                 "sourceAvailable": source_state == "AVAILABLE",
                 "error": None,
                 "animes": [self._project_anime(item) for item in catalog],
+                "continue_watching": [
+                    self._project_continue_watching(item)
+                    for item in (continue_rows or [])
+                    if isinstance(item, dict)
+                ],
             }
         except Exception as exc:
             payload = {
@@ -93,6 +100,7 @@ class ComposeLibraryBridge:
                 "sourceAvailable": False,
                 "error": str(exc)[:500],
                 "animes": [],
+                "continue_watching": [],
             }
         self._atomic_write_json(self.snapshot_path, payload)
 
@@ -126,6 +134,11 @@ class ComposeLibraryBridge:
             "favorite": source.get("favorite"),
             "media_kind": source.get("media_kind") or meta.get("media_kind"),
             "year": source.get("year"),
+            "playback_target_episode_id": (
+                (source.get("current_episode") or {}).get("id")
+                if isinstance(source.get("current_episode"), dict)
+                else None
+            ),
             "genres": list(source.get("genres") or []),
             "genre_ids": list(source.get("genre_ids") or []),
             "meta": {
@@ -188,6 +201,28 @@ class ComposeLibraryBridge:
             "cover_cache": source.get("cover_cache"),
             "cover_url": source.get("cover_url"),
             "banner_url": source.get("banner_url"),
+        }
+
+    @staticmethod
+    def _project_continue_watching(source: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "episode_id": source.get("episode_id") or source.get("id"),
+            "anime_id": source.get("anime_id"),
+            "anime_title": source.get("anime_title"),
+            "season": source.get("season"),
+            "number": source.get("number"),
+            "episode_title": source.get("episode_title") or source.get("title"),
+            "file_name": source.get("file_name") or source.get("title"),
+            "path": source.get("path"),
+            "uri": source.get("uri"),
+            "media_identity": source.get("media_identity"),
+            "availability_state": source.get("availability_state"),
+            "progress": source.get("progress"),
+            "duration": source.get("duration"),
+            "watched": source.get("watched"),
+            "consumption_state": source.get("consumption_state"),
+            "artwork_local_path": source.get("cover_cache"),
+            "artwork_external_url": source.get("cover_url"),
         }
 
     @staticmethod

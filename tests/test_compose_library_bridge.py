@@ -16,11 +16,15 @@ class FakeStore:
 
 
 class FakeLibrary:
-    def __init__(self, catalog):
+    def __init__(self, catalog, continue_watching=None):
         self._catalog = catalog
+        self._continue_watching = list(continue_watching or [])
 
     def catalog(self):
         return list(self._catalog)
+
+    def continue_watching(self, limit=12):
+        return list(self._continue_watching)[:limit]
 
 
 class ComposeLibraryBridgeTests(unittest.IsolatedAsyncioTestCase):
@@ -38,6 +42,10 @@ class ComposeLibraryBridgeTests(unittest.IsolatedAsyncioTestCase):
                 "metadata_status": "available",
                 "cover_cache": "/cache/reianix.jpg",
                 "description": "MUST NOT CROSS THE COMPOSE BRIDGE",
+            },
+            "current_episode": {
+                "id": 71,
+                "anime_id": 7,
             },
             "seasons": [{
                 "season": 1,
@@ -86,6 +94,8 @@ class ComposeLibraryBridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual("content://media/external/video/71", episode["path"])
             self.assertEqual("identity-71", episode["media_identity"])
             self.assertEqual(12.5, episode["progress"])
+            self.assertEqual(71, snapshot["animes"][0]["playback_target_episode_id"])
+            self.assertEqual([], snapshot["continue_watching"])
             self.assertNotIn("description", snapshot["animes"][0]["meta"])
             self.assertEqual([], list((Path(directory) / "reianix-compose").glob(".*.tmp*")))
 

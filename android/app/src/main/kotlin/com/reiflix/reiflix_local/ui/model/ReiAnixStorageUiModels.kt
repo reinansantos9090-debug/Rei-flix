@@ -22,6 +22,7 @@ data class ReiAnixStorageUiState(
     val mediaReadState: String = "denied",
     val broadStorageState: String = "unavailable",
     val safRoots: List<String> = emptyList(),
+    val safSelectionPending: Boolean = false,
     val safRootIdentities: List<String> = emptyList(),
     val removableVolumes: List<String> = emptyList(),
     val scannerCapabilities: List<String> = emptyList(),

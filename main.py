@@ -1890,7 +1890,7 @@ async def main(page: ft.Page):
             render_current(reason="open_details")
             persist_navigation_state()
     async def refresh_current_details():
-        """Reload the durable record after an in-place Details edit."""
+        """Reload the current Details anime from the canonical catalog by anime id."""
         refresh_started = performance.now()
         anime_id = current[0].get("id") if current[0] else None
         details_token = details_instance_generation[0]
@@ -2024,7 +2024,18 @@ async def main(page: ft.Page):
             if callable(refresh):
                 refresh()
                 return
-        if navigation.current == "details" and not refresh_details:
+        if navigation.current == "details":
+            if not refresh_details:
+                return
+            # Details must rehydrate from the canonical catalog by anime_id.
+            # The async refresh already guards against navigation/detail-instance
+            # changes, so stale catalog snapshots cannot replace a newer screen.
+            page.run_task(refresh_current_details)
+            performance.event(
+                "ui.catalog_changed.details_refresh_scheduled",
+                screen="details",
+                metadata={"refresh_details": refresh_details},
+            )
             return
         _drop_screen_cache(navigation.current)
         render_current(reason="catalog_changed")

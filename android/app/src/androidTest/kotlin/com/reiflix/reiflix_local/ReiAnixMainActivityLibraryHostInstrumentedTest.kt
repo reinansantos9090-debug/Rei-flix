@@ -2,6 +2,7 @@ package com.reiflix.reiflix_local
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText

@@ -1,0 +1,153 @@
+import asyncio
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from core.compose_library_bridge import ComposeLibraryBridge
+
+
+class FakeStore:
+    def __init__(self, folders=None):
+        self._folders = list(folders or [])
+
+    def folders(self):
+        return list(self._folders)
+
+
+class FakeLibrary:
+    def __init__(self, catalog):
+        self._catalog = catalog
+
+    def catalog(self):
+        return list(self._catalog)
+
+
+class ComposeLibraryBridgeTests(unittest.IsolatedAsyncioTestCase):
+    def anime_fixture(self):
+        return {
+            "id": 7,
+            "main_title": "ReiAnix Test",
+            "lookup_title": "reianix-test",
+            "favorite": True,
+            "media_kind": "series",
+            "genres": ["Action"],
+            "genre_ids": ["action"],
+            "meta": {
+                "year": 2026,
+                "metadata_status": "available",
+                "cover_cache": "/cache/reianix.jpg",
+                "description": "MUST NOT CROSS THE COMPOSE BRIDGE",
+            },
+            "seasons": [{
+                "season": 1,
+                "season_name": "Season 1",
+                "episodes": [{
+                    "id": 71,
+                    "anime_id": 7,
+                    "season": 1,
+                    "number": 1,
+                    "episode_title": "Episode 1",
+                    "file_name": "episode-01.mkv",
+                    "path": "content://media/external/video/71",
+                    "media_identity": "identity-71",
+                    "availability_state": "available",
+                    "missing": False,
+                    "progress": 12.5,
+                    "duration": 100.0,
+                    "watched": False,
+                    "consumption_state": "in_progress",
+                    "cover_cache": "/cache/episode-71.jpg",
+                }],
+            }],
+            "specials": [],
+            "media_files": [],
+        }
+
+    async def test_snapshot_is_real_derived_compact_projection_and_atomic_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = ComposeLibraryBridge(
+                directory,
+                FakeLibrary([self.anime_fixture()]),
+                FakeStore([{"path": "content://tree", "status": "granted", "authorization": "granted"}]),
+            )
+            bridge.request_publish("test")
+            await bridge.wait_for_idle()
+
+            snapshot = json.loads((Path(directory) / "reianix-compose/library.json").read_text())
+            self.assertEqual(1, snapshot["schemaVersion"])
+            self.assertEqual(1, snapshot["revision"])
+            self.assertEqual("READY", snapshot["status"])
+            self.assertEqual("AVAILABLE", snapshot["sourceState"])
+            self.assertTrue(snapshot["sourceAvailable"])
+            self.assertEqual([7], [item["id"] for item in snapshot["animes"]])
+            episode = snapshot["animes"][0]["seasons"][0]["episodes"][0]
+            self.assertEqual(71, episode["id"])
+            self.assertEqual("content://media/external/video/71", episode["path"])
+            self.assertEqual("identity-71", episode["media_identity"])
+            self.assertEqual(12.5, episode["progress"])
+            self.assertNotIn("description", snapshot["animes"][0]["meta"])
+            self.assertEqual([], list((Path(directory) / "reianix-compose").glob(".*.tmp*")))
+
+    async def test_empty_and_unavailable_states_are_distinct(self):
+        with tempfile.TemporaryDirectory() as directory:
+            empty = ComposeLibraryBridge(directory, FakeLibrary([]), FakeStore([]))
+            empty.request_publish("empty")
+            await empty.wait_for_idle()
+            payload = json.loads((Path(directory) / "reianix-compose/library.json").read_text())
+            self.assertEqual("EMPTY", payload["status"])
+            self.assertEqual("NOT_CONFIGURED", payload["sourceState"])
+            self.assertFalse(payload["sourceAvailable"])
+
+            unavailable = ComposeLibraryBridge(
+                directory,
+                FakeLibrary([]),
+                FakeStore([{"path": "tree", "status": "revoked", "authorization": "revoked"}]),
+            )
+            unavailable.request_publish("unavailable")
+            await unavailable.wait_for_idle()
+            payload = json.loads((Path(directory) / "reianix-compose/library.json").read_text())
+            self.assertEqual("EMPTY", payload["status"])
+            self.assertEqual("UNAVAILABLE", payload["sourceState"])
+            self.assertFalse(payload["sourceAvailable"])
+
+    async def test_projection_error_is_explicit(self):
+        class BrokenLibrary:
+            def catalog(self):
+                raise RuntimeError("sqlite unavailable")
+
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = ComposeLibraryBridge(directory, BrokenLibrary(), FakeStore())
+            bridge.request_publish("error")
+            await bridge.wait_for_idle()
+            payload = json.loads((Path(directory) / "reianix-compose/library.json").read_text())
+            self.assertEqual("ERROR", payload["status"])
+            self.assertEqual("sqlite unavailable", payload["error"])
+            self.assertEqual([], payload["animes"])
+
+    async def test_revision_requests_coalesce_without_losing_latest_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            library = FakeLibrary([self.anime_fixture()])
+            bridge = ComposeLibraryBridge(directory, library, FakeStore())
+            bridge.request_publish("first")
+            bridge.request_publish("second")
+            bridge.request_publish("third")
+            await bridge.wait_for_idle()
+            payload = json.loads((Path(directory) / "reianix-compose/library.json").read_text())
+            self.assertEqual(3, payload["revision"])
+            self.assertEqual("third", payload["reason"])
+
+    def test_command_results_are_small_and_atomic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = ComposeLibraryBridge(directory, FakeLibrary([]), FakeStore())
+            bridge.write_command_result("req-1", "toggle_favorite", "COMPLETED")
+            files = list((Path(directory) / "reianix-compose/command-results").glob("command-*.json"))
+            self.assertEqual(1, len(files))
+            payload = json.loads(files[0].read_text())
+            self.assertEqual("req-1", payload["requestId"])
+            self.assertEqual("toggle_favorite", payload["action"])
+            self.assertEqual("COMPLETED", payload["status"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -123,6 +123,8 @@ class AndroidHostVerificationTests(unittest.TestCase):
         self.assertIn("FLET_ANDROID_SIGNING_KEY_STORE", workflow)
         self.assertNotIn("flet build apk --template .", workflow)
         self.assertIn('python scripts/verify_android_host.py "$apk"', workflow)
+        self.assertIn("Verify Compose compiled classes and APK DEX packaging", workflow)
+        self.assertIn('python scripts/verify_compose_packaging.py "$apk" --classes-root "$classes_root"', workflow)
         self.assertIn("build-tools;36.0.0", workflow)
         self.assertIn("platforms;android-36", workflow)
         self.assertIn("Verify final APK permissions and target SDK", workflow)

@@ -421,6 +421,14 @@ jobs:
           "$aapt2" dump permissions "$apk" | grep -q "android.permission.MANAGE_EXTERNAL_STORAGE"
           "$aapt2" dump permissions "$apk" | grep -q "android.permission.READ_MEDIA_VIDEO"
 
+      - name: Verify Compose compiled classes and APK DEX packaging
+        shell: bash
+        run: |
+          apk="${{ steps.apk.outputs.path }}"
+          classes_root="build/flutter/android/app/build"
+          test -d "$classes_root"
+          python scripts/verify_compose_packaging.py "$apk" --classes-root "$classes_root"
+
       - name: Verify Android host packaging
         shell: bash
         run: |

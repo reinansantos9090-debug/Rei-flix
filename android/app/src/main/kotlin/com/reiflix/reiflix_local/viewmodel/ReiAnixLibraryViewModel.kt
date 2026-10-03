@@ -5,6 +5,7 @@ import androidx.annotation.Keep
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import com.reiflix.reiflix_local.data.library.ReiAnixLibraryRepository
+import com.reiflix.reiflix_local.data.storage.ReiAnixNativeStorageActions
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,6 +30,7 @@ class ReiAnixLibraryViewModel(context: Context) :
     ReiAnixViewModel<ReiAnixLibraryUiState>() {
 
     private val repository = ReiAnixLibraryRepository(context)
+    private val storageActions = ReiAnixNativeStorageActions(context)
     override val uiState: StateFlow<ReiAnixLibraryUiState> = repository.state
 
     /**
@@ -192,6 +194,14 @@ class ReiAnixLibraryViewModel(context: Context) :
         repository.setEpisodeWatched(episodeId, watched)
 
     fun openEpisode(episodeId: Long) = repository.openEpisode(episodeId)
+
+    fun selectSafTree() = storageActions.selectSafTree()
+
+    fun requestMediaAccess() = storageActions.requestMediaAccess()
+
+    fun openBroadStorageSettings() = storageActions.openBroadStorageSettings()
+
+    fun checkStorageAccess() = storageActions.checkStorageAccess()
 
     override fun onCleared() {
         repository.close()

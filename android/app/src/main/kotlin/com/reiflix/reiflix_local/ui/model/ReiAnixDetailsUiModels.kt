@@ -24,6 +24,8 @@ data class ReiAnixDetailsAnimeUiModel(
     val episodeCount: Int?,
     val playbackTargetEpisodeId: Long?,
     val shouldContinue: Boolean,
+    val seasons: List<ReiAnixSeasonUiModel> = emptyList(),
+    val specials: List<ReiAnixEpisodeUiModel> = emptyList(),
 ) {
     val stableKey: String
         get() = "anime:" + id
@@ -62,6 +64,8 @@ object ReiAnixDetailsUiStateProjection {
                     episodeCount = anime.contentEpisodes.size.takeIf { it > 0 },
                     playbackTargetEpisodeId = anime.playbackTargetEpisodeId,
                     shouldContinue = target?.consumptionState == ReiAnixConsumptionState.IN_PROGRESS,
+                    seasons = anime.seasons,
+                    specials = anime.specials,
                 ),
                 sourceAvailable = state.sourceAvailable,
                 sourceState = state.sourceState,

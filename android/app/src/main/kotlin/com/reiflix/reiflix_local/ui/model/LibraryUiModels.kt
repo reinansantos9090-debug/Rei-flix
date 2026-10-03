@@ -83,9 +83,44 @@ data class ReiAnixEpisodeUiModel(
     val consumptionState: ReiAnixConsumptionState?,
     val artwork: ReiAnixArtworkUiModel?,
 ) {
+    /**
+     * Episode identity is the persisted SQLite primary key. It is global and
+     * remains stable across progress-only snapshot updates.
+     */
+    val stableKey: String
+        get() = "episode:" + id
+
     val isCompleted: Boolean
         get() = consumptionState == ReiAnixConsumptionState.COMPLETED ||
             consumptionState == ReiAnixConsumptionState.WATCHED
+
+    val isWatched: Boolean
+        get() = watched == true || isCompleted
+
+    /** Presentation-only progress fraction for the fixed progress slot in each card. */
+    val progressFraction: Float
+        get() {
+            val duration = durationSeconds?.takeIf { it.isFinite() && it > 0.0 } ?: return 0f
+            val progress = (progressSeconds ?: 0.0).coerceAtLeast(0.0)
+            return (progress / duration).coerceIn(0.0, 1.0).toFloat()
+        }
+
+    val progressPercent: Int?
+        get() = durationSeconds
+            ?.takeIf { it.isFinite() && it > 0.0 }
+            ?.let { (progressFraction * 100.0).toInt() }
+
+    /**
+     * Playback remains owned by the existing Python/Android bridge. This is
+     * only a presentation guard for obviously unavailable local media.
+     */
+    val isPlayable: Boolean
+        get() = !media.reference.isNullOrBlank() &&
+            media.availability !in setOf(
+                ReiAnixMediaAvailability.MISSING,
+                ReiAnixMediaAvailability.SCOPE_UNAVAILABLE,
+                ReiAnixMediaAvailability.VOLUME_UNAVAILABLE,
+            )
 
     val displayTitle: String
         get() = title?.takeIf { it.isNotBlank() } ?: fileName

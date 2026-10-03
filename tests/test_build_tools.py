@@ -27,6 +27,8 @@ DESCRIPTORS = (
     b"Lcom/reiflix/reiflix_local/VideoThumbnailExtractor;",
     b"Lcom/reiflix/reiflix_local/GoogleIdentity;",
     b"Lcom/reiflix/reiflix_local/ui/theme/ReiAnixComposeThemeKt;",
+    b"Lcom/reiflix/reiflix_local/ui/ReiAnixComposeRootKt;",
+    b"Lcom/reiflix/reiflix_local/viewmodel/ReiAnixViewModel;",
 )
 
 
@@ -49,6 +51,36 @@ class AndroidHostVerificationTests(unittest.TestCase):
                                 cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Verified native ReiAnix host", result.stdout)
+
+
+    def test_compose_packaging_verifier_requires_compiled_classes_and_dex(self):
+        script = ROOT / "scripts" / "verify_compose_packaging.py"
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            classes = root / "android-build"
+            for relative in (
+                "tmp/kotlin-classes/release/com/reiflix/reiflix_local/ui/theme/ReiAnixComposeThemeKt.class",
+                "tmp/kotlin-classes/release/com/reiflix/reiflix_local/ui/ReiAnixComposeRootKt.class",
+                "tmp/kotlin-classes/release/com/reiflix/reiflix_local/viewmodel/ReiAnixViewModel.class",
+            ):
+                path = classes / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"class")
+            apk = root / "app.apk"
+            with zipfile.ZipFile(apk, "w") as archive:
+                archive.writestr("AndroidManifest.xml", b"manifest")
+                archive.writestr("classes.dex", b"\\n".join((
+                    b"Lcom/reiflix/reiflix_local/ui/theme/ReiAnixComposeThemeKt;",
+                    b"Lcom/reiflix/reiflix_local/ui/ReiAnixComposeRootKt;",
+                    b"Lcom/reiflix/reiflix_local/viewmodel/ReiAnixViewModel;",
+                )))
+            result = subprocess.run(
+                [sys.executable, str(script), str(apk), "--classes-root", str(classes)],
+                cwd=ROOT, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("COMPOSE_COMPILED_CLASSES=PASS", result.stdout)
+            self.assertIn("COMPOSE_APK_DEX=PASS", result.stdout)
 
     def test_rejects_stock_apk_without_native_host_classes(self):
         result = subprocess.run([sys.executable, str(VERIFY), str(self._apk(DESCRIPTORS[:1]))],

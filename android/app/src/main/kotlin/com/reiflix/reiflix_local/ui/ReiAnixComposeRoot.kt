@@ -1,8 +1,10 @@
 package com.reiflix.reiflix_local.ui
 
+import androidx.annotation.Keep
 import androidx.compose.runtime.Composable
 import com.reiflix.reiflix_local.ui.theme.ReiAnixComposeTheme
 
+@Keep
 /**
  * Reversible Compose host boundary.
  *

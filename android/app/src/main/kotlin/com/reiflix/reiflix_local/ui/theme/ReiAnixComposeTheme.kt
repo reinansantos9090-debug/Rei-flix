@@ -1,8 +1,10 @@
 package com.reiflix.reiflix_local.ui.theme
 
+import androidx.annotation.Keep
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 
+@Keep
 /**
  * Shared Compose theme boundary for the native UI migration.
  *

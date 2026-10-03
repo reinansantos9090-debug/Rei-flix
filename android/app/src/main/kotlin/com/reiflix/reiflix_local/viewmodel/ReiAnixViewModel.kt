@@ -1,5 +1,6 @@
 package com.reiflix.reiflix_local.viewmodel
 
+import androidx.annotation.Keep
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.StateFlow
 
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
  * cancellable work. Prompt 01 deliberately does not create domain state or a
  * duplicate Kotlin data layer.
  */
+@Keep
 abstract class ReiAnixViewModel<State : Any> : ViewModel() {
     abstract val uiState: StateFlow<State>
 }

@@ -126,7 +126,7 @@ class ReiAnixNavigationInstrumentedTest {
     }
 
     @Test
-    fun tabStateIsRestoredAfterSwitchingTabs()
+    fun tabStateIsRestoredAfterSwitchingTabs() {
         clickTopLevel("Biblioteca")
         composeRule.onNodeWithText("Biblioteca counter=0").assertExists()
         composeRule.onNodeWithText("Increment Biblioteca").performClick()
@@ -136,6 +136,20 @@ class ReiAnixNavigationInstrumentedTest {
         clickTopLevel("Biblioteca")
 
         composeRule.onNodeWithText("Biblioteca counter=1").assertExists()
+    }
+
+    @Test
+    fun tabStateIsRestoredForSecondDestination() {
+        clickTopLevel("Buscar")
+        composeRule.onNodeWithText("Buscar counter=0").assertExists()
+        composeRule.onNodeWithText("Increment Buscar").performClick()
+        composeRule.onNodeWithText("Buscar counter=1").assertExists()
+
+        clickTopLevel("Ajustes")
+        clickTopLevel("Buscar")
+
+        composeRule.onNodeWithText("Buscar counter=1").assertExists()
+        composeRule.onNodeWithText("Buscar").assertIsSelected()
     }
 
     @Test

@@ -19,9 +19,7 @@ class ReiAnixMainActivityLibraryHostInstrumentedTest {
             Uri.parse(
                 "reiflix://native?action=open_library" +
                     "&request_id=prompt91-runtime" +
-                    "&protocol_version=2" +
-                    "&created_at=20990101010101" +
-                    "&created_monotonic_ns=1",
+                    "&protocol_version=2",
             ),
         )
 
@@ -41,9 +39,7 @@ class ReiAnixMainActivityLibraryHostInstrumentedTest {
             Uri.parse(
                 "reiflix://native?action=open_library" +
                     "&request_id=prompt91-runtime-back" +
-                    "&protocol_version=2" +
-                    "&created_at=20990101010102" +
-                    "&created_monotonic_ns=2",
+                    "&protocol_version=2",
             ),
         )
         composeRule.activity.onNewIntent(intent)

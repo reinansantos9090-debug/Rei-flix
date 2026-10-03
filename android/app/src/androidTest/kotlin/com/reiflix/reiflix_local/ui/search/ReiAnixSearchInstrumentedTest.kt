@@ -2,7 +2,9 @@ package com.reiflix.reiflix_local.ui.search
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import com.reiflix.reiflix_local.ui.model.ReiAnixAnimeUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
@@ -28,6 +30,60 @@ class ReiAnixSearchInstrumentedTest {
 
         composeRule.onNodeWithText("Pesquise na biblioteca").assertIsDisplayed()
         composeRule.onNodeWithText("1 título local disponível.").assertIsDisplayed()
+    }
+
+    @Test
+    fun loadingStateIsExplicit() {
+        composeRule.setContent {
+            ReiAnixSearchScreen(
+                libraryState = ReiAnixLibraryUiState(
+                    status = ReiAnixLibraryLoadStatus.LOADING,
+                    scanInProgress = true,
+                    scanState = "SCANNING",
+                ),
+                query = "",
+                results = emptyList(),
+                showBackButton = false,
+            )
+        }
+
+        composeRule.onNodeWithText("Carregando biblioteca enquanto a varredura continua…").assertIsDisplayed()
+    }
+
+    @Test
+    fun errorStateIsExplicit() {
+        composeRule.setContent {
+            ReiAnixSearchScreen(
+                libraryState = ReiAnixLibraryUiState(
+                    status = ReiAnixLibraryLoadStatus.ERROR,
+                    error = "Falha local",
+                ),
+                query = "Local",
+                results = emptyList(),
+                showBackButton = false,
+            )
+        }
+
+        composeRule.onNodeWithText("Não foi possível pesquisar").assertIsDisplayed()
+        composeRule.onNodeWithText("Falha local").assertIsDisplayed()
+    }
+
+    @Test
+    fun resultOpensByStableAnimeId() {
+        var openedId: Long? = null
+
+        composeRule.setContent {
+            ReiAnixSearchScreen(
+                libraryState = readyState(anime(42L, "Local Anime")),
+                query = "Local",
+                results = listOf(anime(42L, "Local Anime")),
+                showBackButton = false,
+                onOpenDetails = { openedId = it },
+            )
+        }
+
+        composeRule.onNodeWithContentDescription("Abrir Local Anime").performClick()
+        assert(openedId == 42L)
     }
 
     @Test

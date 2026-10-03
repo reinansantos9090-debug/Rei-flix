@@ -174,13 +174,21 @@ class ComposeLibraryBridge:
     def _storage_snapshot(self, folders: Any) -> dict[str, Any]:
         provider = self._storage_state_provider
         capabilities: dict[str, Any] = {}
+        saf_selection_pending = False
         if callable(provider):
             try:
                 snapshot = provider()
                 if isinstance(snapshot, StorageCapabilities):
                     capabilities = snapshot.as_mapping()
                 elif isinstance(snapshot, dict):
-                    capabilities = dict(snapshot)
+                    raw_capabilities = snapshot.get("capabilities")
+                    if isinstance(raw_capabilities, StorageCapabilities):
+                        capabilities = raw_capabilities.as_mapping()
+                    elif isinstance(raw_capabilities, dict):
+                        capabilities = dict(raw_capabilities)
+                    else:
+                        capabilities = dict(snapshot)
+                    saf_selection_pending = bool(snapshot.get("safSelectionPending"))
             except Exception:
                 capabilities = {}
 
@@ -220,6 +228,7 @@ class ComposeLibraryBridge:
         return {
             "capabilities": capabilities,
             "configuredSources": sources,
+            "safSelectionPending": saf_selection_pending,
         }
 
     @staticmethod

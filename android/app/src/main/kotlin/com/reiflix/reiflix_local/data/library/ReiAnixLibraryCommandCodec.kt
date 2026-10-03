@@ -30,5 +30,6 @@ internal object ReiAnixLibraryCommandCodec {
         SET_WATCHED("set_watched"),
         REFRESH("refresh"),
         OPEN_MEDIA("open_media"),
+        SELECT_SAF("select_saf"),
     }
 }

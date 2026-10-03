@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.stateIn
 import com.reiflix.reiflix_local.ui.model.ReiAnixHomeLibraryUiState
 import com.reiflix.reiflix_local.ui.model.ReiAnixContinueWatchingUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixGenreUiModel
+import com.reiflix.reiflix_local.ui.model.ReiAnixDetailsUiState
+import com.reiflix.reiflix_local.ui.model.ReiAnixDetailsUiStateProjection
 import com.reiflix.reiflix_local.ui.library.ReiAnixLibraryFilterEngine
 import com.reiflix.reiflix_local.ui.library.ReiAnixLibraryFilters
 @Keep
@@ -73,6 +75,21 @@ class ReiAnixLibraryViewModel(context: Context) :
             SharingStarted.Eagerly,
             ReiAnixLibraryFilterEngine.filter(uiState.value.animes, libraryFilters.value),
         )
+
+    /**
+     * Canonical Details header projection. The emitted state contains only fields
+     * consumed by the Details hero, so isolated progress ticks do not invalidate
+     * the entire Details tree.
+     */
+    fun detailsState(animeId: Long): StateFlow<ReiAnixDetailsUiState> =
+        uiState
+            .map { state -> ReiAnixDetailsUiStateProjection.from(state, animeId) }
+            .distinctUntilChanged()
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                ReiAnixDetailsUiStateProjection.from(uiState.value, animeId),
+            )
 
     /** The canonical Continue Watching projection; this is the only Home subtree that observes it. */
     val continueWatching: StateFlow<List<ReiAnixContinueWatchingUiModel>> = uiState

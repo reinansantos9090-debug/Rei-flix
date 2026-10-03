@@ -45,7 +45,8 @@ object LibraryUiMappers {
                 .flatMap { it.listOfMaps("episodes") }
                 .map { episode(it, id) },
             mediaFiles = source.listOfMaps("media_files").map { episode(it, id) },
-            playbackTargetEpisodeId = source.longOrNull("playback_target_episode_id")
+            playbackTargetEpisodeId = source.longOrNull("playback_target_episode_id"),
+            score = metadata.doubleOrNull("score") ?: source.doubleOrNull("score"),
         )
     }
 

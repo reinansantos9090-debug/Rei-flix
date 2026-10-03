@@ -31,6 +31,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navOptions
+import com.reiflix.reiflix_local.ui.details.ReiAnixDetailsRoute
 import com.reiflix.reiflix_local.ui.home.ReiAnixHomeRoute
 import com.reiflix.reiflix_local.ui.library.ReiAnixLibraryRoute
 import com.reiflix.reiflix_local.ui.library.rememberReiAnixLibraryViewModel
@@ -185,7 +186,14 @@ fun ReiAnixNavigationHost(
         },
         search = search,
         settings = settings,
-        details = details,
+        details = { args ->
+            ReiAnixDetailsRoute(
+                navController = navController,
+                viewModel = homeViewModel,
+                animeId = args.animeId,
+                origin = args.origin,
+            )
+        },
         player = player,
         modifier = modifier,
         navController = navController,

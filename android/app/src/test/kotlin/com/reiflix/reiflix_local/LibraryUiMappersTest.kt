@@ -2,6 +2,9 @@ package com.reiflix.reiflix_local
 
 import com.reiflix.reiflix_local.ui.mapper.LibraryUiMappers
 import com.reiflix.reiflix_local.ui.model.ReiAnixConsumptionState
+import com.reiflix.reiflix_local.ui.model.ReiAnixDetailsUiStateProjection
+import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
+import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
 import com.reiflix.reiflix_local.ui.model.ReiAnixMediaAvailability
 import com.reiflix.reiflix_local.ui.model.ReiAnixMetadataAvailability
 import org.junit.Assert.assertEquals
@@ -60,6 +63,86 @@ class LibraryUiMappersTest {
         assertEquals("identity-102", episodes[1].media.mediaIdentity)
         assertEquals("anime:10:season:1", model.seasons.single().stableKey)
     }
+
+    @Test
+    fun scoreIsMappedOnlyWhenPresentInTheRealMetadataProjection() {
+        val withScore = animeSource(
+            id = 12L,
+            meta = mapOf(
+                "year" to 2026,
+                "metadata_status" to "available",
+                "cover_cache" to null,
+                "score" to 86,
+            ),
+            seasons = emptyList(),
+        )
+
+        val withoutScore = animeSource(
+            id = 13L,
+            meta = mapOf(
+                "year" to 2026,
+                "metadata_status" to "unresolved",
+                "cover_cache" to null,
+            ),
+            seasons = emptyList(),
+        )
+
+        assertEquals(86.0, LibraryUiMappers.anime(withScore).score!!, 0.0)
+        assertNull(LibraryUiMappers.anime(withoutScore).score)
+    }
+
+    @Test
+    fun detailsProjectionIgnoresIsolatedEpisodeProgressTicks() {
+        val episode = episode(1201, 1, 18.0, 100.0, "in_progress")
+        val source = animeSource(
+            id = 120L,
+            seasons = listOf(
+                mapOf<String, Any?>(
+                    "season" to 1,
+                    "season_name" to "Temporada 1",
+                    "episodes" to listOf(episode),
+                ),
+            ),
+        ).toMutableMap().apply {
+            this["playback_target_episode_id"] = 1201L
+        }
+
+        val first = ReiAnixDetailsUiStateProjection.from(
+            readyDetailsLibraryState(LibraryUiMappers.anime(source)),
+            120L,
+        )
+
+        val progressed = episode.toMutableMap().apply { this["progress"] = 19.0 }
+        val progressedSource = animeSource(
+            id = 120L,
+            seasons = listOf(
+                mapOf<String, Any?>(
+                    "season" to 1,
+                    "season_name" to "Temporada 1",
+                    "episodes" to listOf(progressed),
+                ),
+            ),
+        ).toMutableMap().apply {
+            this["playback_target_episode_id"] = 1201L
+        }
+
+        val second = ReiAnixDetailsUiStateProjection.from(
+            readyDetailsLibraryState(LibraryUiMappers.anime(progressedSource)),
+            120L,
+        )
+
+        assertEquals(first, second)
+    }
+
+    private fun readyDetailsLibraryState(
+        anime: com.reiflix.reiflix_local.ui.model.ReiAnixAnimeUiModel,
+    ) = ReiAnixLibraryUiState(
+        status = ReiAnixLibraryLoadStatus.READY,
+        revision = 1L,
+        animes = listOf(anime),
+        sourceAvailable = true,
+        sourceState = "AVAILABLE",
+    )
 
     @Test
     fun availabilityStateAvailableMapsExactly() {

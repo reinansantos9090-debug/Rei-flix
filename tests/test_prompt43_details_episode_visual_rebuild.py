@@ -244,9 +244,10 @@ class DetailsEpisodeReconciliationTests(unittest.TestCase):
         render_end = source.index("        episode_column = ft.Column(", render_start)
         render_block = source[render_start:render_end]
         self.assertNotIn("page.update()", render_block)
+        self.assertNotIn("episode_column.update()", render_block)
         self.assertNotIn("controls.clear()", render_block)
         self.assertNotIn("controls.extend", render_block)
-        self.assertIn("episode_column.update()", render_block)
+        self.assertIn("episode_column.controls = build_episode_controls()", render_block)
 
     def test_details_catalog_changes_use_canonical_refresh_path(self):
         source = MAIN_SOURCE.read_text(encoding="utf-8")

@@ -158,6 +158,48 @@ class ReiAnixHomeInstrumentedTest {
     }
 
     @Test
+    fun continueWatchingCardOpensItsCanonicalEpisode() {
+        var selectedEpisodeId = -1L
+        var selectedAnimeId = -1L
+        composeRule.setContent {
+            ReiAnixComposeRoot {
+                ReiAnixHomeScreen(
+                    state = readyState(
+                        animes = listOf(anime(7L, "Example Anime", favorite = false)),
+                    ).copy(
+                        continueWatching = listOf(
+                            ReiAnixContinueWatchingUiModel(
+                                episodeId = 71L,
+                                animeId = 7L,
+                                animeTitle = "Example Anime",
+                                seasonNumber = 1,
+                                number = 7.0,
+                                title = "Episode 7",
+                                fileName = "Episode-7.mkv",
+                                progressSeconds = 180.0,
+                                durationSeconds = 1000.0,
+                                artwork = null,
+                            ),
+                        ),
+                    ),
+                    onSearch = {},
+                    onOpenDetails = {},
+                    onWatch = { episodeId, animeId ->
+                        selectedEpisodeId = episodeId
+                        selectedAnimeId = animeId
+                    },
+                    onToggleFavorite = {},
+                    onRefresh = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Episode 7").performClick()
+        assertEquals(71L, selectedEpisodeId)
+        assertEquals(7L, selectedAnimeId)
+    }
+
+    @Test
     fun errorStateIsRenderedWithRecoveryAction() {
         var refreshCount = 0
         composeRule.setContent {

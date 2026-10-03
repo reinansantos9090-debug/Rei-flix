@@ -18,6 +18,7 @@ echo "Using emulator serial: $serial"
 # recommends resetting the adb host when a connection is lost, so recovery
 # below restarts the host and then waits for the same emulator transport.
 ready=0
+offline_streak=0
 for attempt in $(seq 1 180); do
   if ! adb start-server >/dev/null 2>&1; then
     echo "adb start-server failed on readiness attempt $attempt; retrying."
@@ -28,9 +29,13 @@ for attempt in $(seq 1 180); do
   state="$(adb -s "$serial" get-state 2>/dev/null)" || state=""
 
   if [ "$state" = "offline" ]; then
-    echo "adb transport is offline on attempt $attempt; reconnecting."
+    offline_streak=$((offline_streak + 1))
+    echo "adb transport is offline on attempt $attempt (streak=$offline_streak); reconnecting."
     if ! adb reconnect offline >/dev/null 2>&1; then
-      echo "adb reconnect offline did not complete; resetting adb host."
+      echo "adb reconnect offline did not complete."
+    fi
+    if [ "$((offline_streak % 5))" -eq 0 ]; then
+      echo "Resetting adb host after $offline_streak consecutive offline checks."
       if ! adb kill-server >/dev/null 2>&1; then
         echo "adb kill-server returned non-zero during recovery."
       fi
@@ -43,6 +48,8 @@ for attempt in $(seq 1 180); do
     fi
     sleep 2
     state="$(adb -s "$serial" get-state 2>/dev/null)" || state=""
+  else
+    offline_streak=0
   fi
 
   if [ "$state" = "device" ]; then

@@ -21,7 +21,7 @@ that cannot be implemented by Python:
 | --- | --- |
 | Flet | `0.86.5` (`pyproject.toml`) |
 | Flutter required by installed Flet | `3.44.8` (`flet.version.flutter_version`) |
-| Android Gradle Plugin | `8.6.1` |
+| Android Gradle Plugin | `8.9.1` |
 | Kotlin | `2.0.21` |
 | Java toolchain | 17 |
 | compile / target SDK | 36 / 36 |

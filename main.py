@@ -22,8 +22,7 @@ from core.storage_access import (
     storage_source_states,
     dedupe_saf_roots,
     saf_source_identity,
-    library_saf_roots,
-    configured_library_saf_roots,
+        configured_library_saf_roots,
 )
 from core.diagnostics import DiagnosticTimeline
 from core.performance import get_performance_monitor

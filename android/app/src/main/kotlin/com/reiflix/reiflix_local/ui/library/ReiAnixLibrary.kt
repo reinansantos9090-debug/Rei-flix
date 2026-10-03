@@ -50,8 +50,8 @@ import com.reiflix.reiflix_local.ui.model.ReiAnixAnimeUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixGenreUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
-import com.reiflix.reiflix_local.ui.navigation.navigateToDetails
 import com.reiflix.reiflix_local.ui.navigation.ReiAnixRoutes
+import com.reiflix.reiflix_local.ui.navigation.navigateToDetails
 import com.reiflix.reiflix_local.ui.theme.ReiAnixTokens
 import com.reiflix.reiflix_local.viewmodel.ReiAnixLibraryViewModel
 

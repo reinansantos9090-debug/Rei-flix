@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -20,18 +21,34 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.roundToPx
+import androidx.compose.ui.platform.LocalDensity
 import com.reiflix.reiflix_local.ui.theme.ReiAnixTokens
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.InputStream
 import kotlin.math.max
+import kotlin.math.min
+
+private sealed interface LocalArtworkLoadState {
+    data object Loading : LocalArtworkLoadState
+    data class Ready(val bitmap: ImageBitmap) : LocalArtworkLoadState
+    data object Error : LocalArtworkLoadState
+}
 
 /**
  * Offline artwork renderer for Compose.
  *
  * The source is the existing local/cache path from the ReiAnix projection.
  * External URLs are deliberately not fetched by the Home UI.
+ *
+ * ArtworkEngine remains the owner of persistent artwork discovery/cache.
+ * This composable only decodes the already-resolved local/cache reference for
+ * the pixels actually needed by its measured layout; it does not introduce a
+ * second disk cache or a second artwork source of truth.
  */
 @Composable
 fun ReiAnixLocalArtwork(
@@ -43,40 +60,105 @@ fun ReiAnixLocalArtwork(
     maxDimensionPx: Int = 1024,
 ) {
     val context = LocalContext.current
-    val imageBitmap by produceState<ImageBitmap?>(
-        initialValue = null,
-        key1 = localPath,
-        key2 = maxDimensionPx,
-    ) {
-        value = withContext(Dispatchers.IO) {
-            decodeLocalArtwork(context, localPath, maxDimensionPx)
-        }
-    }
+    val density = LocalDensity.current
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .clip(MaterialTheme.shapes.medium)
             .background(ReiAnixTokens.Colors.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
-        val bitmap = imageBitmap
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap,
-                contentDescription = contentDescription,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = contentScale,
-            )
+        val measuredWidthPx = if (maxWidth != Dp.Infinity) {
+            with(density) { maxWidth.roundToPx() }
         } else {
-            Text(
-                text = placeholder,
-                style = MaterialTheme.typography.labelMedium,
-                color = ReiAnixTokens.Colors.textMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            0
+        }
+        val measuredHeightPx = if (maxHeight != Dp.Infinity) {
+            with(density) { maxHeight.roundToPx() }
+        } else {
+            0
+        }
+        val targetMaxDimensionPx = resolveTargetDimensionPx(
+            widthPx = measuredWidthPx,
+            heightPx = measuredHeightPx,
+            maxDimensionPx = maxDimensionPx,
+        )
+
+        val imageState by produceState<LocalArtworkLoadState>(
+            initialValue = if (localPath.isNullOrBlank() || targetMaxDimensionPx <= 0) {
+                LocalArtworkLoadState.Error
+            } else {
+                LocalArtworkLoadState.Loading
+            },
+            key1 = localPath,
+            key2 = targetMaxDimensionPx,
+        ) {
+            if (localPath.isNullOrBlank() || targetMaxDimensionPx <= 0) {
+                value = LocalArtworkLoadState.Error
+                return@produceState
+            }
+
+            val decoded = try {
+                withContext(Dispatchers.IO) {
+                    decodeLocalArtwork(context, localPath, targetMaxDimensionPx)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+
+            value = decoded?.let(LocalArtworkLoadState::Ready)
+                ?: LocalArtworkLoadState.Error
+        }
+
+        when (val state = imageState) {
+            LocalArtworkLoadState.Loading -> {
+                Text(
+                    text = placeholder,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ReiAnixTokens.Colors.textMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            is LocalArtworkLoadState.Ready -> {
+                Image(
+                    bitmap = state.bitmap,
+                    contentDescription = contentDescription,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = contentScale,
+                )
+            }
+
+            LocalArtworkLoadState.Error -> {
+                Text(
+                    text = placeholder,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ReiAnixTokens.Colors.textMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier,
+                )
+            }
         }
     }
+}
+
+/**
+ * Caps decoding by both the real measured layout and the existing caller
+ * safety limit. This preserves the historical 320 px thumbnail cap while
+ * avoiding unnecessary poster resolution when the actual slot is smaller.
+ */
+internal fun resolveTargetDimensionPx(
+    widthPx: Int,
+    heightPx: Int,
+    maxDimensionPx: Int,
+): Int {
+    if (maxDimensionPx <= 0) return 0
+    val measured = max(widthPx, heightPx)
+    return if (measured > 0) min(measured, maxDimensionPx) else maxDimensionPx
 }
 
 private fun decodeLocalArtwork(
@@ -106,10 +188,13 @@ private fun decodeLocalArtwork(
     }
 }
 
-private fun calculateSampleSize(width: Int, height: Int, maxDimensionPx: Int): Int {
+internal fun calculateSampleSize(width: Int, height: Int, maxDimensionPx: Int): Int {
+    if (width <= 0 || height <= 0 || maxDimensionPx <= 0) return 1
+
     var sample = 1
     val largest = max(width, height)
-    while (largest / (sample * 2) >= maxDimensionPx) {
+    while (largest / sample > maxDimensionPx) {
+        if (sample > Int.MAX_VALUE / 2) break
         sample *= 2
     }
     return sample

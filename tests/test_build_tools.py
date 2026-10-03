@@ -26,6 +26,7 @@ DESCRIPTORS = (
     b"Lcom/reiflix/reiflix_local/NativePlayerRequest;",
     b"Lcom/reiflix/reiflix_local/VideoThumbnailExtractor;",
     b"Lcom/reiflix/reiflix_local/GoogleIdentity;",
+    b"Lcom/reiflix/reiflix_local/ui/theme/ReiAnixComposeThemeKt;",
 )
 
 

@@ -5,14 +5,12 @@ import androidx.annotation.Keep
 import com.reiflix.reiflix_local.data.library.ReiAnixLibraryRepository
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-
 @Keep
 class ReiAnixLibraryViewModel(context: Context) :
     ReiAnixViewModel<ReiAnixLibraryUiState>() {
 
     private val repository = ReiAnixLibraryRepository(context)
-    override val uiState: StateFlow<ReiAnixLibraryUiState> = repository.state.asStateFlow()
+    override val uiState: StateFlow<ReiAnixLibraryUiState> = repository.state
 
     fun refresh() = repository.refresh()
 

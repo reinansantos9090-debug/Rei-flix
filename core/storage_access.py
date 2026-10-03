@@ -212,8 +212,53 @@ def dedupe_saf_roots(values) -> tuple[str, ...]:
 
 
 def library_saf_roots(values, *, scope_ref: str | None = None) -> tuple[str, ...]:
-    """Resolve the explicit SAF roots that are eligible to be library sources."""
+    """Resolve persisted SAF roots that are eligible for the requested library scope."""
     roots = dedupe_saf_roots(values)
+    if scope_ref is None or not str(scope_ref).strip():
+        return roots
+    requested = saf_source_identity(scope_ref)
+    if requested is None:
+        return ()
+    return tuple(uri for uri in roots if saf_source_identity(uri) == requested)
+
+
+def configured_library_saf_roots(
+    persisted_values,
+    configured_folders,
+    *,
+    scope_ref: str | None = None,
+) -> tuple[str, ...]:
+    """Intersect current persisted SAF grants with explicitly configured library sources.
+
+    A persisted Android grant is an authorization capability, not by itself a
+    library-source selection. Only SAF folders explicitly configured in the
+    existing LibraryStore and still marked authorized are eligible.
+    """
+    persisted_by_identity = {
+        identity: uri
+        for uri in dedupe_saf_roots(persisted_values)
+        if (identity := saf_source_identity(uri))
+    }
+    configured_ids = set()
+    for folder in configured_folders or ():
+        if not isinstance(folder, dict):
+            continue
+        if str(folder.get("kind") or "").strip().casefold() != "saf":
+            continue
+        if str(folder.get("authorization") or "").strip().casefold() != "granted":
+            continue
+        reference = str(folder.get("path") or "").strip()
+        identity = (
+            str(folder.get("saf_identity") or "").strip()
+            or saf_source_identity(reference)
+        )
+        if identity:
+            configured_ids.add(identity)
+
+    roots = tuple(
+        persisted_by_identity[identity]
+        for identity in sorted(configured_ids & persisted_by_identity.keys())
+    )
     if scope_ref is None or not str(scope_ref).strip():
         return roots
     requested = saf_source_identity(scope_ref)

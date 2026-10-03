@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -30,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -81,6 +83,7 @@ fun ReiAnixLibraryRoute(
                 origin = ReiAnixRoutes.LIBRARY,
             )
         },
+        onToggleFavorite = viewModel::toggleFavorite,
     )
 }
 
@@ -107,6 +110,7 @@ fun ReiAnixLibraryRoute(
         onClearFilters = viewModel::clearLibraryFilters,
         onRefresh = viewModel::refresh,
         onOpenDetails = onOpenDetails,
+        onToggleFavorite = viewModel::toggleFavorite,
     )
 }
 
@@ -124,6 +128,7 @@ fun ReiAnixLibraryScreen(
     onClearFilters: () -> Unit,
     onRefresh: () -> Unit,
     onOpenDetails: (Long) -> Unit,
+    onToggleFavorite: (Long) -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -167,6 +172,7 @@ fun ReiAnixLibraryScreen(
                 onToggleCompleted = onToggleCompleted,
                 onClearFilters = onClearFilters,
                 onOpenDetails = onOpenDetails,
+                onToggleFavorite = onToggleFavorite,
             )
         }
     }
@@ -224,6 +230,7 @@ private fun LibraryReadyContent(
     onToggleCompleted: () -> Unit,
     onClearFilters: () -> Unit,
     onOpenDetails: (Long) -> Unit,
+    onToggleFavorite: (Long) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -325,6 +332,7 @@ private fun LibraryReadyContent(
                     LibraryAnimeCard(
                         anime = anime,
                         onClick = { onOpenDetails(anime.id) },
+                        onToggleFavorite = { onToggleFavorite(anime.id) },
                     )
                 }
             }
@@ -367,6 +375,7 @@ private fun LibraryFilterChip(
 private fun LibraryAnimeCard(
     anime: ReiAnixAnimeUiModel,
     onClick: () -> Unit,
+    onToggleFavorite: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -389,28 +398,98 @@ private fun LibraryAnimeCard(
             placeholder = "Sem arte",
             maxDimensionPx = 512,
         )
-        Column(
-            modifier = Modifier.padding(
-                horizontal = ReiAnixTokens.Spacing.xs,
-                vertical = ReiAnixTokens.Spacing.sm,
-            ),
-            verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.xs),
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = ReiAnixTokens.Spacing.xs,
+                    top = ReiAnixTokens.Spacing.sm,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = anime.title,
-                style = MaterialTheme.typography.titleMedium,
-                color = ReiAnixTokens.Colors.text,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = anime.episodeCountLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = ReiAnixTokens.Colors.textMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.xs),
+            ) {
+                Text(
+                    text = anime.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = ReiAnixTokens.Colors.text,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = anime.episodeCountLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ReiAnixTokens.Colors.textMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            IconButton(
+                onClick = onToggleFavorite,
+                modifier = Modifier.semantics {
+                    contentDescription = if (anime.favorite) {
+                        "Remover da Minha Lista"
+                    } else {
+                        "Adicionar à Minha Lista"
+                    }
+                },
+            ) {
+                Icon(
+                    imageVector = if (anime.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                    contentDescription = null,
+                    tint = if (anime.favorite) {
+                        ReiAnixTokens.Colors.warning
+                    } else {
+                        ReiAnixTokens.Colors.textMuted
+                    },
+                )
+            }
         }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = ReiAnixTokens.Spacing.xs,
+                    top = ReiAnixTokens.Spacing.xs,
+                    end = ReiAnixTokens.Spacing.xs,
+                ),
+            horizontalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.xs),
+        ) {
+            if (anime.isWatching) {
+                LibraryStateBadge("Assistindo")
+            }
+            if (anime.isCompleted) {
+                LibraryStateBadge("Concluído")
+            }
+            if (anime.favorite) {
+                LibraryStateBadge("Na lista")
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryStateBadge(
+    text: String,
+) {
+    Surface(
+        shape = ReiAnixTokens.Shapes.chip,
+        color = ReiAnixTokens.Colors.surfaceVariant,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = ReiAnixTokens.Colors.text,
+            modifier = Modifier.padding(
+                horizontal = ReiAnixTokens.Spacing.sm,
+                vertical = ReiAnixTokens.Spacing.xs,
+            ),
+        )
     }
 }
 

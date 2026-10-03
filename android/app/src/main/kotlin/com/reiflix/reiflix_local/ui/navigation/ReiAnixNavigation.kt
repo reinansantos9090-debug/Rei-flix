@@ -1,0 +1,252 @@
+package com.reiflix.reiflix_local.ui.navigation
+
+import android.net.Uri
+import androidx.annotation.Keep
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import androidx.navigation.navOptions
+
+/**
+ * Native Navigation Compose contract for ReiAnix.
+ *
+ * This is intentionally a navigation boundary rather than a replacement for
+ * the existing Flet screens. MainActivity remains the current visual host
+ * until a later migration step attaches the real screen slots.
+ */
+@Keep
+object ReiAnixRoutes {
+    const val HOME = "home"
+    const val LIBRARY = "library"
+    const val SEARCH = "search"
+    const val SETTINGS = "settings"
+
+    const val DETAILS = "details/{animeId}?origin={origin}"
+    const val PLAYER = "player/{episodeId}?animeId={animeId}&origin={origin}"
+
+    const val ARG_ANIME_ID = "animeId"
+    const val ARG_EPISODE_ID = "episodeId"
+    const val ARG_ORIGIN = "origin"
+
+    private fun encode(value: String): String =
+        Uri.encode(requireArgument(value))
+
+    private fun requireArgument(value: String): String =
+        value.trim().also { require(it.isNotEmpty()) { "Navigation arguments must not be blank" } }
+
+    fun details(animeId: String, origin: String): String =
+        "details/" + encode(animeId) + "?origin=" + encode(origin)
+
+    fun player(episodeId: String, animeId: String, origin: String): String =
+        "player/" + encode(episodeId) + "?animeId=" + encode(animeId) + "&origin=" + encode(origin)
+}
+
+@Keep
+data class ReiAnixDetailsArgs(
+    val animeId: String,
+    val origin: String,
+)
+
+@Keep
+data class ReiAnixPlayerArgs(
+    val episodeId: String,
+    val animeId: String,
+    val origin: String,
+)
+
+private data class TopLevelDestination(
+    val route: String,
+    val label: String,
+)
+
+private val topLevelDestinations = listOf(
+    TopLevelDestination(ReiAnixRoutes.HOME, "Início"),
+    TopLevelDestination(ReiAnixRoutes.LIBRARY, "Biblioteca"),
+    TopLevelDestination(ReiAnixRoutes.SEARCH, "Buscar"),
+    TopLevelDestination(ReiAnixRoutes.SETTINGS, "Ajustes"),
+)
+
+/**
+ * Navigate between main tabs without accumulating duplicate copies and while
+ * asking Navigation Compose to retain/save each destination UI state.
+ */
+fun NavHostController.navigateToTopLevel(route: String) {
+    require(topLevelDestinations.any { it.route == route }) {
+        "Unknown ReiAnix top-level route: " + route
+    }
+
+    navigate(
+        route,
+        navOptions {
+            launchSingleTop = true
+            restoreState = true
+            popUpTo(graph.findStartDestination().id) {
+                saveState = true
+            }
+        },
+    )
+}
+
+fun NavHostController.navigateToDetails(
+    animeId: String,
+    origin: String,
+) {
+    navigate(
+        ReiAnixRoutes.details(animeId, origin),
+        navOptions {
+            launchSingleTop = true
+        },
+    )
+}
+
+fun NavHostController.navigateToPlayer(
+    episodeId: String,
+    animeId: String,
+    origin: String,
+) {
+    navigate(
+        ReiAnixRoutes.player(episodeId, animeId, origin),
+        navOptions {
+            launchSingleTop = true
+        },
+    )
+}
+
+/**
+ * Native route graph with the real ReiAnix navigation surfaces:
+ * Home, Library, Search, Settings, Details and Player.
+ *
+ * Screen implementations are injected as slots so this layer does not invent
+ * domain data or duplicate SQLite/scanner/player business rules.
+ */
+@Composable
+fun ReiAnixNavigationHost(
+    home: @Composable () -> Unit,
+    library: @Composable () -> Unit,
+    search: @Composable () -> Unit,
+    settings: @Composable () -> Unit,
+    details: @Composable (ReiAnixDetailsArgs) -> Unit,
+    player: @Composable (ReiAnixPlayerArgs) -> Unit,
+    modifier: Modifier = Modifier,
+    navController: NavHostController = rememberNavController(),
+) {
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        bottomBar = {
+            if (topLevelDestinations.any { it.route == currentRoute }) {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ) {
+                    topLevelDestinations.forEach { destination ->
+                        NavigationBarItem(
+                            selected = currentRoute == destination.route,
+                            onClick = { navController.navigateToTopLevel(destination.route) },
+                            icon = {},
+                            label = { Text(destination.label) },
+                        )
+                    }
+                }
+            }
+        },
+    ) { innerPadding ->
+        NavHost(
+            navController = navController,
+            startDestination = ReiAnixRoutes.HOME,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+        ) {
+            composable(ReiAnixRoutes.HOME) {
+                home()
+            }
+            composable(ReiAnixRoutes.LIBRARY) {
+                library()
+            }
+            composable(ReiAnixRoutes.SEARCH) {
+                search()
+            }
+            composable(ReiAnixRoutes.SETTINGS) {
+                settings()
+            }
+            composable(
+                route = ReiAnixRoutes.DETAILS,
+                arguments = listOf(
+                    navArgument(ReiAnixRoutes.ARG_ANIME_ID) {
+                        type = NavType.StringType
+                    },
+                    navArgument(ReiAnixRoutes.ARG_ORIGIN) {
+                        type = NavType.StringType
+                        defaultValue = ReiAnixRoutes.HOME
+                    },
+                ),
+            ) { entry ->
+                val animeId = entry.arguments?.getString(ReiAnixRoutes.ARG_ANIME_ID)
+                    ?.trim()
+                    .orEmpty()
+                val origin = entry.arguments?.getString(ReiAnixRoutes.ARG_ORIGIN)
+                    ?.trim()
+                    .orEmpty()
+                    .ifBlank { ReiAnixRoutes.HOME }
+
+                details(
+                    ReiAnixDetailsArgs(
+                        animeId = animeId,
+                        origin = origin,
+                    ),
+                )
+            }
+            composable(
+                route = ReiAnixRoutes.PLAYER,
+                arguments = listOf(
+                    navArgument(ReiAnixRoutes.ARG_EPISODE_ID) {
+                        type = NavType.StringType
+                    },
+                    navArgument(ReiAnixRoutes.ARG_ANIME_ID) {
+                        type = NavType.StringType
+                    },
+                    navArgument(ReiAnixRoutes.ARG_ORIGIN) {
+                        type = NavType.StringType
+                        defaultValue = ReiAnixRoutes.DETAILS
+                    },
+                ),
+            ) { entry ->
+                val episodeId = entry.arguments?.getString(ReiAnixRoutes.ARG_EPISODE_ID)
+                    ?.trim()
+                    .orEmpty()
+                val animeId = entry.arguments?.getString(ReiAnixRoutes.ARG_ANIME_ID)
+                    ?.trim()
+                    .orEmpty()
+                val origin = entry.arguments?.getString(ReiAnixRoutes.ARG_ORIGIN)
+                    ?.trim()
+                    .orEmpty()
+                    .ifBlank { ReiAnixRoutes.DETAILS }
+
+                player(
+                    ReiAnixPlayerArgs(
+                        episodeId = episodeId,
+                        animeId = animeId,
+                        origin = origin,
+                    ),
+                )
+            }
+        }
+    }
+}

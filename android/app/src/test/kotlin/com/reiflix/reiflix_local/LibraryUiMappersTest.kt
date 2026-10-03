@@ -101,6 +101,7 @@ class LibraryUiMappersTest {
         assertNull(model.year)
         assertTrue(model.genres.isEmpty())
         assertEquals("Episode-1.mkv", model.seasons.single().episodes.single().displayTitle)
+        assertNull(model.seasons.single().episodes.single().artwork)
         assertNull(model.seasons.single().episodes.single().media.uri)
     }
 

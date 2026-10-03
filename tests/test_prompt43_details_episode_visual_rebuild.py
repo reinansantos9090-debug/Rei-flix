@@ -263,8 +263,10 @@ class DetailsEpisodeReconciliationTests(unittest.TestCase):
         block = source[start:end]
 
         details_start = block.index('if navigation.current == "details":')
-        details_return = block.index("            return", details_start)
-        details_block = block[details_start:details_return + len("            return")]
+        details_block = block[details_start:block.index(
+            '        _drop_screen_cache(navigation.current)',
+            details_start,
+        )]
         self.assertIn("if not refresh_details:", details_block)
         self.assertIn("page.run_task(refresh_current_details)", details_block)
         self.assertNotIn('render_current(reason="catalog_changed")', details_block)

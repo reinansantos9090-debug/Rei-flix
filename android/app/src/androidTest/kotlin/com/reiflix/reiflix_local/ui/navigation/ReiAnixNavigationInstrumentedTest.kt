@@ -15,6 +15,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNode
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.navigation.compose.ComposeNavigator
 import androidx.navigation.testing.TestNavHostController
@@ -69,26 +72,61 @@ class ReiAnixNavigationInstrumentedTest {
     }
 
     @Test
-    fun topLevelNavigationDoesNotDuplicateAndBackReturnsToHome() {
-        clickTopLevel("Biblioteca")
-        clickTopLevel("Biblioteca")
+    fun topLevelNavigationDoesNotDuplicateAnyDestination() {
+        listOf(
+            "Início" to ReiAnixRoutes.HOME,
+            "Biblioteca" to ReiAnixRoutes.LIBRARY,
+            "Buscar" to ReiAnixRoutes.SEARCH,
+            "Ajustes" to ReiAnixRoutes.SETTINGS,
+        ).forEach { (label, route) ->
+            clickTopLevel(label)
+            clickTopLevel(label)
+            clickTopLevel(label)
 
-        assertEquals(
-            ReiAnixRoutes.LIBRARY,
-            navController.currentBackStackEntry?.destination?.route,
-        )
-
-        composeRule.activity.onBackPressedDispatcher.onBackPressed()
-        composeRule.waitForIdle()
-
-        assertEquals(
-            ReiAnixRoutes.HOME,
-            navController.currentBackStackEntry?.destination?.route,
-        )
+            assertEquals(route, navController.currentBackStackEntry?.destination?.route)
+            if (route == ReiAnixRoutes.HOME) {
+                assertTrue(navController.previousBackStackEntry == null)
+            } else {
+                assertEquals(
+                    ReiAnixRoutes.HOME,
+                    navController.previousBackStackEntry?.destination?.route,
+                )
+            }
+        }
     }
 
     @Test
-    fun tabStateIsRestoredAfterSwitchingTabs() {
+    fun selectedStateIsExposedForEachTopLevelDestination() {
+        listOf("Início", "Biblioteca", "Buscar", "Ajustes").forEach { label ->
+            clickTopLevel(label)
+            composeRule.onNodeWithText(label).assertIsSelected()
+        }
+    }
+
+    @Test
+    fun bottomNavigationOnlyExistsOnTopLevelDestinations() {
+        composeRule.onNodeWithContentDescription(ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION)
+            .assertIsDisplayed()
+
+        navController.navigateToDetails("42", ReiAnixRoutes.HOME)
+        composeRule.waitForIdle()
+        composeRule.onNodeWithContentDescription(ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION)
+            .assertDoesNotExist()
+
+        composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithContentDescription(ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION)
+            .assertIsDisplayed()
+
+        navController.navigateToDetails("42", ReiAnixRoutes.HOME)
+        navController.navigateToPlayer("episode-7", "42", ReiAnixRoutes.DETAILS_ORIGIN)
+        composeRule.waitForIdle()
+        composeRule.onNodeWithContentDescription(ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION)
+            .assertDoesNotExist()
+    }
+
+    @Test
+    fun tabStateIsRestoredAfterSwitchingTabs()
         clickTopLevel("Biblioteca")
         composeRule.onNodeWithText("Biblioteca counter=0").assertExists()
         composeRule.onNodeWithText("Increment Biblioteca").performClick()
@@ -130,9 +168,30 @@ class ReiAnixNavigationInstrumentedTest {
         composeRule.waitForIdle()
 
         assertEquals(
-            ReiAnixRoutes.HOME,
+            ReiAnixRoutes.SEARCH,
             navController.currentBackStackEntry?.destination?.route,
         )
+    }
+
+    @Test
+    fun detailsFromLibraryPreservesOriginAndBackReturnsToLibrary() {
+        navController.navigateToTopLevel(ReiAnixRoutes.LIBRARY)
+        navController.navigateToDetails("anime-library-42", ReiAnixRoutes.LIBRARY)
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithText("animeId=anime-library-42").assertExists()
+        composeRule.onNodeWithText("origin=" + ReiAnixRoutes.LIBRARY).assertExists()
+        composeRule.onNodeWithContentDescription(ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION)
+            .assertDoesNotExist()
+
+        composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        composeRule.waitForIdle()
+
+        assertEquals(
+            ReiAnixRoutes.LIBRARY,
+            navController.currentBackStackEntry?.destination?.route,
+        )
+        composeRule.onNodeWithText("Biblioteca").assertIsSelected()
     }
 
     @Test
@@ -140,6 +199,11 @@ class ReiAnixNavigationInstrumentedTest {
         navController.navigateToDetails("42", ReiAnixRoutes.HOME)
         navController.navigateToDetails("42", ReiAnixRoutes.HOME)
         composeRule.waitForIdle()
+
+        assertEquals(
+            ReiAnixRoutes.HOME,
+            navController.previousBackStackEntry?.destination?.route,
+        )
 
         composeRule.activity.onBackPressedDispatcher.onBackPressed()
         composeRule.waitForIdle()
@@ -152,8 +216,9 @@ class ReiAnixNavigationInstrumentedTest {
 
     @Test
     fun playerBackReturnsToDetailsWithStableIds() {
+        navController.navigateToTopLevel(ReiAnixRoutes.LIBRARY)
         navController.navigateToDetails("42", ReiAnixRoutes.LIBRARY)
-        navController.navigateToPlayer("episode-7", "42", ReiAnixRoutes.DETAILS)
+        navController.navigateToPlayer("episode-7", "42", ReiAnixRoutes.DETAILS_ORIGIN)
         composeRule.waitForIdle()
 
         composeRule.onNodeWithText("episodeId=episode-7").assertExists()
@@ -167,6 +232,64 @@ class ReiAnixNavigationInstrumentedTest {
             ReiAnixRoutes.DETAILS,
             navController.currentBackStackEntry?.destination?.route,
         )
+        composeRule.onNodeWithText("animeId=42").assertExists()
+        composeRule.onNodeWithText("origin=" + ReiAnixRoutes.LIBRARY).assertExists()
+
+        composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        composeRule.waitForIdle()
+
+        assertEquals(
+            ReiAnixRoutes.LIBRARY,
+            navController.currentBackStackEntry?.destination?.route,
+        )
+    }
+
+    @Test
+    fun encodedArgumentsRoundTripThroughNavBackStackEntry() {
+        val animeId = "anime / 07 § especial"
+        val episodeId = "episode/ 07?& especial"
+        val origin = "details/search source"
+
+        navController.navigateToDetails(animeId, origin)
+        composeRule.waitForIdle()
+
+        assertEquals(
+            animeId,
+            navController.currentBackStackEntry?.arguments?.getString(ReiAnixRoutes.ARG_ANIME_ID),
+        )
+        assertEquals(
+            origin,
+            navController.currentBackStackEntry?.arguments?.getString(ReiAnixRoutes.ARG_ORIGIN),
+        )
+
+        navController.navigateToPlayer(episodeId, animeId, origin)
+        composeRule.waitForIdle()
+
+        assertEquals(
+            episodeId,
+            navController.currentBackStackEntry?.arguments?.getString(ReiAnixRoutes.ARG_EPISODE_ID),
+        )
+        assertEquals(
+            animeId,
+            navController.currentBackStackEntry?.arguments?.getString(ReiAnixRoutes.ARG_ANIME_ID),
+        )
+        assertEquals(
+            origin,
+            navController.currentBackStackEntry?.arguments?.getString(ReiAnixRoutes.ARG_ORIGIN),
+        )
+    }
+
+    @Test
+    fun blankNavigationArgumentsAreRejected() {
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            ReiAnixRoutes.details("  ", ReiAnixRoutes.HOME)
+        }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            ReiAnixRoutes.player("episode-7", "  ", ReiAnixRoutes.DETAILS_ORIGIN)
+        }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            ReiAnixRoutes.player("  ", "anime-7", ReiAnixRoutes.DETAILS_ORIGIN)
+        }
     }
 
     @Test

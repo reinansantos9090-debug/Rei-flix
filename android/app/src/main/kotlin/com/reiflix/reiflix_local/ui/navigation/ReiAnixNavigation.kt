@@ -4,7 +4,13 @@ import android.net.Uri
 import androidx.annotation.Keep
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -12,6 +18,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -42,6 +50,8 @@ object ReiAnixRoutes {
     const val ARG_ANIME_ID = "animeId"
     const val ARG_EPISODE_ID = "episodeId"
     const val ARG_ORIGIN = "origin"
+    const val DETAILS_ORIGIN = "details"
+    const val BOTTOM_NAV_CONTENT_DESCRIPTION = "ReiAnixBottomNavigation"
 
     private fun encode(value: String): String =
         Uri.encode(requireArgument(value))
@@ -72,13 +82,14 @@ data class ReiAnixPlayerArgs(
 private data class TopLevelDestination(
     val route: String,
     val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
 )
 
 private val topLevelDestinations = listOf(
-    TopLevelDestination(ReiAnixRoutes.HOME, "Início"),
-    TopLevelDestination(ReiAnixRoutes.LIBRARY, "Biblioteca"),
-    TopLevelDestination(ReiAnixRoutes.SEARCH, "Buscar"),
-    TopLevelDestination(ReiAnixRoutes.SETTINGS, "Ajustes"),
+    TopLevelDestination(ReiAnixRoutes.HOME, "Início", Icons.Filled.Home),
+    TopLevelDestination(ReiAnixRoutes.LIBRARY, "Biblioteca", Icons.Filled.VideoLibrary),
+    TopLevelDestination(ReiAnixRoutes.SEARCH, "Buscar", Icons.Filled.Search),
+    TopLevelDestination(ReiAnixRoutes.SETTINGS, "Ajustes", Icons.Filled.Settings),
 )
 
 /**
@@ -153,13 +164,21 @@ fun ReiAnixNavigationHost(
         bottomBar = {
             if (topLevelDestinations.any { it.route == currentRoute }) {
                 NavigationBar(
+                    modifier = Modifier.semantics {
+                        contentDescription = ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION
+                    },
                     containerColor = MaterialTheme.colorScheme.surface,
                 ) {
                     topLevelDestinations.forEach { destination ->
                         NavigationBarItem(
                             selected = currentRoute == destination.route,
                             onClick = { navController.navigateToTopLevel(destination.route) },
-                            icon = {},
+                            icon = {
+                                Icon(
+                                    imageVector = destination.icon,
+                                    contentDescription = null,
+                                )
+                            },
                             label = { Text(destination.label) },
                         )
                     }
@@ -224,7 +243,7 @@ fun ReiAnixNavigationHost(
                     },
                     navArgument(ReiAnixRoutes.ARG_ORIGIN) {
                         type = NavType.StringType
-                        defaultValue = ReiAnixRoutes.DETAILS
+                        defaultValue = ReiAnixRoutes.DETAILS_ORIGIN
                     },
                 ),
             ) { entry ->
@@ -237,7 +256,7 @@ fun ReiAnixNavigationHost(
                 val origin = entry.arguments?.getString(ReiAnixRoutes.ARG_ORIGIN)
                     ?.trim()
                     .orEmpty()
-                    .ifBlank { ReiAnixRoutes.DETAILS }
+                    .ifBlank { ReiAnixRoutes.DETAILS_ORIGIN }
 
                 player(
                     ReiAnixPlayerArgs(

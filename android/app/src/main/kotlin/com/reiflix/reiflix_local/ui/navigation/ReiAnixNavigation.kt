@@ -2,6 +2,7 @@ package com.reiflix.reiflix_local.ui.navigation
 
 import android.net.Uri
 import androidx.annotation.Keep
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -13,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,6 +31,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navOptions
+import com.reiflix.reiflix_local.ui.theme.ReiAnixTokens
 
 /**
  * Native Navigation Compose contract for ReiAnix.
@@ -173,6 +176,12 @@ fun ReiAnixNavigationHost(
                         NavigationBarItem(
                             selected = currentRoute == destination.route,
                             onClick = { navController.navigateToTopLevel(destination.route) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = ReiAnixTokens.Colors.primary,
+                                selectedTextColor = ReiAnixTokens.Colors.primary,
+                                unselectedIconColor = ReiAnixTokens.Colors.textMuted,
+                                unselectedTextColor = ReiAnixTokens.Colors.textMuted,
+                            ),
                             icon = {
                                 Icon(
                                     imageVector = destination.icon,
@@ -191,7 +200,8 @@ fun ReiAnixNavigationHost(
             startDestination = ReiAnixRoutes.HOME,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .consumeWindowInsets(innerPadding),
         ) {
             composable(ReiAnixRoutes.HOME) {
                 home()

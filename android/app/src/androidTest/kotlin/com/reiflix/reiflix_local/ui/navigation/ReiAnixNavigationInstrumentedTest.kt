@@ -2,13 +2,24 @@ package com.reiflix.reiflix_local.ui.navigation
 
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertDoesNotExist
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.assertIsDisplayed
@@ -22,6 +33,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
+import kotlinx.coroutines.launch
 import org.junit.Test
 
 class ReiAnixNavigationInstrumentedTest {
@@ -42,7 +54,7 @@ class ReiAnixNavigationInstrumentedTest {
                 ReiAnixNavigationHost(
                     navController = navController,
                     home = { NavigationTestScreen("Início") },
-                    library = { NavigationTestScreen("Biblioteca") },
+                    library = { NavigationTestScreen("Biblioteca", includeScroll = true) },
                     search = { NavigationTestScreen("Buscar") },
                     settings = { NavigationTestScreen("Ajustes") },
                     details = { args ->
@@ -106,12 +118,8 @@ class ReiAnixNavigationInstrumentedTest {
 
         navController.navigateToDetails("42", ReiAnixRoutes.HOME)
         composeRule.waitForIdle()
-        assertTrue(
-            composeRule
-                .onAllNodesWithContentDescription(ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION)
-                .fetchSemanticsNodes()
-                .isEmpty(),
-        )
+        composeRule.onNodeWithContentDescription(ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION)
+            .assertDoesNotExist()
 
         composeRule.activity.onBackPressedDispatcher.onBackPressed()
         composeRule.waitForIdle()
@@ -150,6 +158,72 @@ class ReiAnixNavigationInstrumentedTest {
 
         composeRule.onNodeWithText("Buscar counter=1").assertExists()
         composeRule.onNodeWithText("Buscar").assertIsSelected()
+    }
+
+    @Test
+    fun tabScrollPositionIsRestoredAndContentStaysAboveBottomNavigation() {
+        clickTopLevel("Biblioteca")
+
+        composeRule.onNodeWithText("Jump Biblioteca to item 18").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Biblioteca item=29").assertIsDisplayed()
+
+        val finalItemBottom =
+            composeRule
+                .onNodeWithText("Biblioteca item=29")
+                .getUnclippedBoundsInRoot()
+                .bottom
+        val bottomNavigationTop =
+            composeRule
+                .onNodeWithContentDescription(ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION)
+                .getUnclippedBoundsInRoot()
+                .top
+
+        assertTrue(
+            "Scrollable content overlaps the bottom navigation: itemBottom=$finalItemBottom, " +
+                "navigationTop=$bottomNavigationTop",
+            finalItemBottom <= bottomNavigationTop,
+        )
+
+        clickTopLevel("Início")
+        clickTopLevel("Biblioteca")
+
+        composeRule.onNodeWithText("Biblioteca item=29").assertIsDisplayed()
+    }
+
+    @Test
+    fun detailsFromEveryTopLevelDestinationPreservesOriginAndBackReturnsToSource() {
+        listOf(
+            ReiAnixRoutes.HOME,
+            ReiAnixRoutes.LIBRARY,
+            ReiAnixRoutes.SEARCH,
+            ReiAnixRoutes.SETTINGS,
+        ).forEach { origin ->
+            navController.navigateToTopLevel(origin)
+            navController.navigateToDetails("anime-$origin", origin)
+            composeRule.waitForIdle()
+
+            composeRule.onNodeWithText("animeId=anime-$origin").assertExists()
+            composeRule.onNodeWithText("origin=$origin").assertExists()
+            composeRule.onNodeWithContentDescription(ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION)
+                .assertDoesNotExist()
+
+            composeRule.activity.onBackPressedDispatcher.onBackPressed()
+            composeRule.waitForIdle()
+
+            assertEquals(
+                origin,
+                navController.currentBackStackEntry?.destination?.route,
+            )
+            composeRule.onNodeWithText(
+                when (origin) {
+                    ReiAnixRoutes.HOME -> "Início"
+                    ReiAnixRoutes.LIBRARY -> "Biblioteca"
+                    ReiAnixRoutes.SEARCH -> "Buscar"
+                    else -> "Ajustes"
+                },
+            ).assertIsSelected()
+        }
     }
 
     @Test
@@ -348,12 +422,52 @@ class ReiAnixNavigationInstrumentedTest {
     }
 
     @Composable
-    private fun NavigationTestScreen(label: String) {
+    private fun NavigationTestScreen(
+        label: String,
+        includeScroll: Boolean = false,
+    ) {
         var counter by rememberSaveable { mutableIntStateOf(0) }
-        Column {
+        val listState = rememberLazyListState()
+        val scope = rememberCoroutineScope()
+
+        if (!includeScroll) {
+            Column {
+                Text(label + " counter=" + counter)
+                Button(onClick = { counter += 1 }) {
+                    Text("Increment " + label)
+                }
+            }
+            return
+        }
+
+        Column(modifier = Modifier.fillMaxSize()) {
             Text(label + " counter=" + counter)
             Button(onClick = { counter += 1 }) {
                 Text("Increment " + label)
+            }
+            Button(
+                onClick = {
+                    scope.launch {
+                        listState.scrollToItem(18)
+                    }
+                },
+            ) {
+                Text("Jump " + label + " to item 18")
+            }
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp),
+                state = listState,
+            ) {
+                items(30) { index ->
+                    Text(
+                        text = label + " item=" + index,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp),
+                    )
+                }
             }
         }
     }

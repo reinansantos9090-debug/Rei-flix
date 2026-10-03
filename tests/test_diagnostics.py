@@ -33,14 +33,14 @@ class DiagnosticTimelineTests(unittest.TestCase):
             request_id="scan-1",
             source="button",
             result="COMPLETED",
-            refreshId="refresh-1",
-            durationMs=123,
+            refresh_id="refresh-1",
+            duration_ms=123,
         )
 
         self.assertEqual("scan-1", event.request_id)
         self.assertEqual("button", event.source)
         self.assertEqual("COMPLETED", event.result)
-        self.assertEqual({"refreshId": "refresh-1", "durationMs": 123}, event.extra)
+        self.assertEqual({"refresh_id": "refresh-1", "duration_ms": 123}, event.extra)
 
     def test_extra_values_are_json_safe(self):
         timeline = DiagnosticTimeline()

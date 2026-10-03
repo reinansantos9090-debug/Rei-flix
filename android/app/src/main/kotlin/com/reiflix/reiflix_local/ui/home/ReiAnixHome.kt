@@ -31,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,15 +42,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.reiflix.reiflix_local.ui.ReiAnixPrimaryButton
 import com.reiflix.reiflix_local.ui.ReiAnixProgressIndicator
 import com.reiflix.reiflix_local.ui.ReiAnixSecondaryButton
 import com.reiflix.reiflix_local.ui.ReiAnixSectionTitle
 import com.reiflix.reiflix_local.ui.artwork.ReiAnixLocalArtwork
-import com.reiflix.reiflix_local.ui.library.ReiAnixLibraryRoute
 import com.reiflix.reiflix_local.ui.library.rememberReiAnixLibraryViewModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixAnimeUiModel
+import com.reiflix.reiflix_local.ui.model.ReiAnixHomeLibraryUiState
 import com.reiflix.reiflix_local.ui.model.ReiAnixContinueWatchingUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
@@ -66,27 +68,152 @@ fun ReiAnixHomeRoute(
     navController: NavHostController,
     viewModel: ReiAnixLibraryViewModel = rememberReiAnixLibraryViewModel(),
 ) {
-    ReiAnixLibraryRoute(viewModel) { state ->
-        ReiAnixHomeScreen(
-            state = state,
-            onSearch = {
-                navController.navigateToTopLevel(ReiAnixRoutes.SEARCH)
-            },
-            onOpenDetails = { animeId ->
-                navController.navigateToDetails(
-                    animeId = animeId.toString(),
-                    origin = ReiAnixRoutes.HOME,
+    // Home deliberately observes two independent projections. Playback progress
+    // can therefore invalidate only the Continue Watching subtree; catalog,
+    // hero, and favorites do not observe episode-level progress changes.
+    val state by viewModel.homeState.collectAsStateWithLifecycle()
+    val hasContinueWatching by viewModel.hasContinueWatching.collectAsStateWithLifecycle()
+
+    ReiAnixHomeObservedScreen(
+        state = state,
+        showContinueWatching = hasContinueWatching,
+        viewModel = viewModel,
+        onSearch = {
+            navController.navigateToTopLevel(ReiAnixRoutes.SEARCH)
+        },
+        onOpenDetails = { animeId ->
+            navController.navigateToDetails(
+                animeId = animeId.toString(),
+                origin = ReiAnixRoutes.HOME,
+            )
+        },
+        onWatch = { episodeId, animeId ->
+            navController.navigateToPlayer(
+                episodeId = episodeId.toString(),
+                animeId = animeId.toString(),
+                origin = ReiAnixRoutes.HOME,
+            )
+        },
+        onToggleFavorite = viewModel::toggleFavorite,
+        onRefresh = viewModel::refresh,
+    )
+}
+
+@Composable
+private fun ReiAnixHomeObservedScreen(
+    state: ReiAnixHomeLibraryUiState,
+    showContinueWatching: Boolean,
+    viewModel: ReiAnixLibraryViewModel,
+    onSearch: () -> Unit,
+    onOpenDetails: (Long) -> Unit,
+    onWatch: (episodeId: Long, animeId: Long) -> Unit,
+    onToggleFavorite: (Long) -> Unit,
+    onRefresh: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ReiAnixTokens.Colors.background)
+            .safeDrawingPadding(),
+    ) {
+        HomeHeader(
+            onSearch = onSearch,
+            onRefresh = onRefresh,
+        )
+
+        when (state.status) {
+            ReiAnixLibraryLoadStatus.LOADING -> HomeLoading()
+            ReiAnixLibraryLoadStatus.ERROR -> HomeError(
+                message = state.error ?: "Não foi possível carregar a biblioteca local.",
+                onRefresh = onRefresh,
+            )
+            ReiAnixLibraryLoadStatus.SOURCE_UNAVAILABLE -> HomeMessage(
+                title = "Biblioteca local indisponível",
+                message = "A fonte local configurada não está disponível agora.",
+                onRefresh = onRefresh,
+            )
+            ReiAnixLibraryLoadStatus.EMPTY -> HomeMessage(
+                title = "Biblioteca vazia",
+                message = "Nenhum conteúdo local disponível.",
+                onRefresh = onRefresh,
+            )
+            ReiAnixLibraryLoadStatus.READY -> HomeObservedContent(
+                state = state,
+                showContinueWatching = showContinueWatching,
+                viewModel = viewModel,
+                onOpenDetails = onOpenDetails,
+                onWatch = onWatch,
+                onToggleFavorite = onToggleFavorite,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeObservedContent(
+    state: ReiAnixHomeLibraryUiState,
+    showContinueWatching: Boolean,
+    viewModel: ReiAnixLibraryViewModel,
+    onOpenDetails: (Long) -> Unit,
+    onWatch: (Long, Long) -> Unit,
+    onToggleFavorite: (Long) -> Unit,
+) {
+    val featured = state.animes.firstOrNull()
+    val favorites = state.animes.filter(ReiAnixAnimeUiModel::favorite)
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = ReiAnixTokens.Dimensions.screenHorizontalPadding,
+            end = ReiAnixTokens.Dimensions.screenHorizontalPadding,
+            top = ReiAnixTokens.Spacing.sm,
+            bottom = ReiAnixTokens.Spacing.huge,
+        ),
+        verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Dimensions.sectionGap),
+    ) {
+        featured?.let { anime ->
+            item(key = "home-hero") {
+                HomeHero(
+                    anime = anime,
+                    onWatch = onWatch,
+                    onOpenDetails = onOpenDetails,
+                    onToggleFavorite = onToggleFavorite,
                 )
-            },
-            onWatch = { episodeId, animeId ->
-                navController.navigateToPlayer(
-                    episodeId = episodeId.toString(),
-                    animeId = animeId.toString(),
-                    origin = ReiAnixRoutes.HOME,
+            }
+        }
+
+        // The parent observes only whether the section exists. The child observes
+        // the actual episode list, so normal progress updates stay localized.
+        if (showContinueWatching) {
+            item(key = "home-section-continue") {
+                HomeContinueWatchingObserved(
+                    viewModel = viewModel,
+                    onWatch = onWatch,
                 )
-            },
-            onToggleFavorite = viewModel::toggleFavorite,
-            onRefresh = viewModel::refresh,
+            }
+        }
+
+        if (favorites.isNotEmpty()) {
+            item(key = "home-section-my-list") {
+                HomeAnimeSection(
+                    items = favorites,
+                    onOpenDetails = onOpenDetails,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeContinueWatchingObserved(
+    viewModel: ReiAnixLibraryViewModel,
+    onWatch: (Long, Long) -> Unit,
+) {
+    val items by viewModel.continueWatching.collectAsStateWithLifecycle()
+    if (items.isNotEmpty()) {
+        HomeContinueSection(
+            items = items,
+            onWatch = onWatch,
         )
     }
 }

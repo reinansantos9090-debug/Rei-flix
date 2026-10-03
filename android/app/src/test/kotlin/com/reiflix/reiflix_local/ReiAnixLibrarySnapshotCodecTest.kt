@@ -20,6 +20,11 @@ class ReiAnixLibrarySnapshotCodecTest {
               "sourceState":"AVAILABLE",
               "sourceAvailable":true,
               "error":null,
+              "continue_watching":[
+                {"episode_id":72,"anime_id":7,"anime_title":"Example","season":2,"number":2,
+                 "episode_title":"E02","file_name":"E02.mkv","progress":10.0,"duration":100.0,
+                 "artwork_local_path":"/cache/continue.jpg","artwork_external_url":"https://example.invalid/continue.jpg"}
+              ],
               "animes":[
                 {
                   "id":7,
@@ -30,6 +35,7 @@ class ReiAnixLibrarySnapshotCodecTest {
                   "genres":["Action","Drama"],
                   "genre_ids":["action","drama"],
                   "meta":{"year":2026,"metadata_status":"available","cover_cache":"/cache/poster.jpg"},
+                  "playback_target_episode_id":72,
                   "seasons":[
                     {"season":2,"season_name":"Season 2","episodes":[
                       {"id":72,"anime_id":7,"season":2,"number":2,"episode_title":"E02",
@@ -60,6 +66,9 @@ class ReiAnixLibrarySnapshotCodecTest {
         assertEquals("content://media/72", state.animes.single().seasons[0].episodes.single().media.uri)
         assertEquals("identity-72", state.animes.single().seasons[0].episodes.single().media.mediaIdentity)
         assertEquals(10.0, state.animes.single().seasons[0].episodes.single().progressSeconds!!, 0.0)
+        assertEquals(72L, state.animes.single().playbackTargetEpisodeId)
+        assertEquals(listOf(72L), state.continueWatching.map { it.episodeId })
+        assertEquals("/cache/continue.jpg", state.continueWatching.single().artwork?.localPath)
         assertEquals(ReiAnixConsumptionState.IN_PROGRESS, state.animes.single().seasons[0].episodes.single().consumptionState)
         assertEquals("/storage/emulated/0/E01.mkv", state.animes.single().seasons[1].episodes.single().media.path)
         assertEquals("identity-71", state.animes.single().seasons[1].episodes.single().media.mediaIdentity)

@@ -34,6 +34,16 @@ internal object ReiAnixLibrarySnapshotCodec {
             }
         }
 
+        val rawContinueWatching = root.optJSONArray("continue_watching") ?: JSONArray()
+        val continueWatching = buildList(rawContinueWatching.length()) {
+            for (index in 0 until rawContinueWatching.length()) {
+                val item = rawContinueWatching.optJSONObject(index)
+                    ?: error("Malformed continue-watching item at snapshot index=$index")
+                @Suppress("UNCHECKED_CAST")
+                add(LibraryUiMappers.continueWatching(item.toMap()))
+            }
+        }
+
         val status = when {
             snapshotStatus == "ERROR" -> ReiAnixLibraryLoadStatus.ERROR
             sourceState == "UNAVAILABLE" -> ReiAnixLibraryLoadStatus.SOURCE_UNAVAILABLE
@@ -45,6 +55,7 @@ internal object ReiAnixLibrarySnapshotCodec {
             status = status,
             revision = revision,
             animes = animes,
+            continueWatching = continueWatching,
             sourceAvailable = sourceAvailable,
             sourceState = sourceState,
             error = error,

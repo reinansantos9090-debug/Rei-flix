@@ -33,6 +33,7 @@ class LibraryUiMappersTest {
 
         assertEquals(10L, model.id)
         assertEquals("Example Anime", model.title)
+        assertEquals(101L, model.playbackTargetEpisodeId)
         assertEquals(2026, model.year)
         assertTrue(model.favorite)
         assertEquals(ReiAnixMetadataAvailability.AVAILABLE, model.metadataAvailability)

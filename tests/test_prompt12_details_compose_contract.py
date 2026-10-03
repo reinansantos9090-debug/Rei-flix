@@ -14,6 +14,7 @@ class Prompt12DetailsComposeContractTests(unittest.TestCase):
         self.assertIn("LazyColumn(", source)
         self.assertIn("LazyRow(", source)
         self.assertIn("key = { episode -> episode.stableKey }", source)
+        self.assertIn("viewModel::setEpisodeWatched", source)
         self.assertNotIn("verticalScroll(", source)
         self.assertNotIn(".controls.clear()", source)
         self.assertNotIn(".controls.extend", source)

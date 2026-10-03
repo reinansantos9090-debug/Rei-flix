@@ -80,6 +80,34 @@ class ReiAnixDetailsInstrumentedTest {
     }
 
     @Test
+    fun episodeMenuDispatchesPersistedEpisodeIdAndWatchedState() {
+        var dispatchedEpisodeId: Long? = null
+        var dispatchedWatched: Boolean? = null
+
+        composeRule.setContent {
+            ReiAnixComposeRoot {
+                ReiAnixDetailsScreen(
+                    state = detailsStateWithEpisodes(1),
+                    onBack = {},
+                    onRetry = {},
+                    onWatch = {},
+                    onToggleFavorite = {},
+                    onSetEpisodeWatched = { id, watched ->
+                        dispatchedEpisodeId = id
+                        dispatchedWatched = watched
+                    },
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Ações do episódio Episode 1").performClick()
+        composeRule.onNodeWithText("Marcar como visto").performClick()
+
+        assertEquals(1L, dispatchedEpisodeId)
+        assertEquals(true, dispatchedWatched)
+    }
+
+    @Test
     fun episodeListKeepsEpisodeIdentityWhenProgressChanges() {
         val state = mutableStateOf(detailsStateWithEpisodes(10))
 

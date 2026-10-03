@@ -1,6 +1,7 @@
 package com.reiflix.reiflix_local.ui.details
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -92,6 +93,7 @@ fun ReiAnixDetailsRoute(
         onRetry = viewModel::refresh,
         onWatch = viewModel::openEpisode,
         onToggleFavorite = viewModel::toggleFavorite,
+        onSetEpisodeWatched = viewModel::setEpisodeWatched,
     )
 }
 
@@ -341,7 +343,8 @@ private fun ReiAnixDetailsReady(
                     color = ReiAnixTokens.Colors.text,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(
-                        horizontal = ReiAnixTokens.Dimensions.screenHorizontalPadding,
+                        start = ReiAnixTokens.Dimensions.screenHorizontalPadding,
+                        end = ReiAnixTokens.Dimensions.screenHorizontalPadding,
                         top = ReiAnixTokens.Spacing.lg,
                         bottom = ReiAnixTokens.Spacing.sm,
                     ),

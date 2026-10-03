@@ -92,7 +92,7 @@ class LibraryUiMappersTest {
     }
 
     @Test
-    fun detailsProjectionIgnoresIsolatedEpisodeProgressTicks() {
+    fun detailsProjectionPreservesEpisodeIdentityAcrossProgressTicks() {
         val episode = episode(1201, 1, 18.0, 100.0, "in_progress")
         val source = animeSource(
             id = 120L,
@@ -131,7 +131,14 @@ class LibraryUiMappersTest {
             120L,
         )
 
-        assertEquals(first, second)
+        val firstEpisode = first.anime!!.seasons.single().episodes.single()
+        val secondEpisode = second.anime!!.seasons.single().episodes.single()
+
+        assertEquals(firstEpisode.id, secondEpisode.id)
+        assertEquals(firstEpisode.stableKey, secondEpisode.stableKey)
+        assertEquals(18.0, firstEpisode.progressSeconds!!, 0.0)
+        assertEquals(19.0, secondEpisode.progressSeconds!!, 0.0)
+        assertEquals(first.anime!!.playbackTargetEpisodeId, second.anime!!.playbackTargetEpisodeId)
     }
 
     private fun readyDetailsLibraryState(

@@ -77,9 +77,8 @@ class ReiAnixLibraryViewModel(context: Context) :
         )
 
     /**
-     * Canonical Details header projection. The emitted state contains only fields
-     * consumed by the Details hero, so isolated progress ticks do not invalidate
-     * the entire Details tree.
+     * Canonical Details projection. Episode state is included so progress and
+     * watched changes are reflected by the same real-library snapshot.
      */
     fun detailsState(animeId: Long): StateFlow<ReiAnixDetailsUiState> =
         uiState

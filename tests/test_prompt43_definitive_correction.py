@@ -724,7 +724,9 @@ class Prompt43DefinitiveCorrectionTests(unittest.TestCase):
         self.assertIn("settings_generation_provider", self.read("views/settings_view.py"))
         self.assertIn("register_settings_task", self.read("views/settings_view.py"))
         self.assertIn("selected.get(\"episodes\", [])", details_source)
-        self.assertIn("episode_column.controls.extend(episode_item(item) for item in visible_regular)", details_source)
+        self.assertIn("visible_regular = season_items[:visible_episode_count[0]]", details_source)
+        self.assertIn("new_controls.extend(", details_source)
+        self.assertIn("episode_item(item, scope=\"episode\")", details_source)
         self.assertIn("library.browse_catalog_page", home_source)
 
     def test_home_metadata_hydration_uses_the_canonical_artwork_resolver(self):

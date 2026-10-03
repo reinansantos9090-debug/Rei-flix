@@ -372,7 +372,8 @@ private fun ReiAnixDetailsReady(
                     color = ReiAnixTokens.Colors.text,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(
-                        horizontal = ReiAnixTokens.Dimensions.screenHorizontalPadding,
+                        start = ReiAnixTokens.Dimensions.screenHorizontalPadding,
+                        end = ReiAnixTokens.Dimensions.screenHorizontalPadding,
                         top = ReiAnixTokens.Spacing.lg,
                         bottom = ReiAnixTokens.Spacing.sm,
                     ),

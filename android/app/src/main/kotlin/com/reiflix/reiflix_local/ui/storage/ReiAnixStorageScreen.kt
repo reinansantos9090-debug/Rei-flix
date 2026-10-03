@@ -47,15 +47,19 @@ import com.reiflix.reiflix_local.viewmodel.ReiAnixLibraryViewModel
 fun ReiAnixStorageRoute(
     viewModel: ReiAnixLibraryViewModel,
     onBack: () -> Unit,
+    onSelectSaf: () -> Boolean,
+    onRequestMediaAccess: () -> Boolean,
+    onOpenBroadSettings: () -> Boolean,
+    onCheckAccess: () -> Boolean,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     ReiAnixStorageScreen(
         state = state,
         onBack = onBack,
-        onSelectSaf = viewModel::selectSafTree,
-        onRequestMediaAccess = viewModel::requestMediaAccess,
-        onOpenBroadSettings = viewModel::openBroadStorageSettings,
-        onCheckAccess = viewModel::checkStorageAccess,
+        onSelectSaf = onSelectSaf,
+        onRequestMediaAccess = onRequestMediaAccess,
+        onOpenBroadSettings = onOpenBroadSettings,
+        onCheckAccess = onCheckAccess,
         onRefreshLibrary = viewModel::refresh,
     )
 }

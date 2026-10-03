@@ -239,7 +239,11 @@ class LibraryUiMappersTest {
             seasons = listOf(
                 mapOf<String, Any?>(
                     "season" to 1,
-                    "episodes" to listOf(episode(111, 1, 0.0, 0.0, "unwatched")),
+                    "episodes" to listOf(
+                        episode(111, 1, 0.0, 0.0, "unwatched")
+                            .toMutableMap()
+                            .also { it.remove("episode_title") },
+                    ),
                 ),
             ),
         )

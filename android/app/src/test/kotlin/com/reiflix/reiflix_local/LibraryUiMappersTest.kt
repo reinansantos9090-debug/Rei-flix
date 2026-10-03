@@ -152,6 +152,73 @@ class LibraryUiMappersTest {
     )
 
     @Test
+    fun detailsProjectionDropsStaleOrUnavailablePlaybackTarget() {
+        val staleEpisode = episode(
+            id = 209,
+            number = 9,
+            progress = 90.0,
+            duration = 100.0,
+            state = "in_progress",
+            path = "/storage/emulated/0/stale-209.mkv",
+            missing = true,
+            availabilityState = "missing",
+        )
+        val source = animeSource(
+            id = 209L,
+            seasons = listOf(
+                mapOf<String, Any?>(
+                    "season" to 1,
+                    "season_name" to "Temporada 1",
+                    "episodes" to listOf(staleEpisode),
+                ),
+            ),
+        ).toMutableMap().apply {
+            this["playback_target_episode_id"] = 209L
+        }
+
+        val details = ReiAnixDetailsUiStateProjection.from(
+            readyDetailsLibraryState(LibraryUiMappers.anime(source)),
+            209L,
+        )
+
+        assertNull(details.anime?.playbackTargetEpisodeId)
+        assertFalse(details.anime?.shouldContinue ?: true)
+    }
+
+    @Test
+    fun detailsProjectionKeepsCanonicalPlayableTarget() {
+        val special = episode(
+            id = 310,
+            number = 1,
+            progress = 0.0,
+            duration = 100.0,
+            state = "unwatched",
+            availabilityState = "available",
+        )
+        val source = animeSource(
+            id = 310L,
+            seasons = emptyList(),
+        ).toMutableMap().apply {
+            this["specials"] = listOf(
+                mapOf<String, Any?>(
+                    "season" to null,
+                    "season_name" to "Especiais",
+                    "episodes" to listOf(special),
+                ),
+            )
+            this["playback_target_episode_id"] = 310L
+        }
+
+        val details = ReiAnixDetailsUiStateProjection.from(
+            readyDetailsLibraryState(LibraryUiMappers.anime(source)),
+            310L,
+        )
+
+        assertEquals(310L, details.anime?.playbackTargetEpisodeId)
+        assertFalse(details.anime?.shouldContinue ?: true)
+    }
+
+    @Test
     fun availabilityStateAvailableMapsExactly() {
         val model = LibraryUiMappers.episode(
             episode(201, 1, 0.0, 100.0, "unwatched", availabilityState = "available"),

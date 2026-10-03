@@ -50,6 +50,9 @@ object ReiAnixDetailsUiStateProjection {
             val target = anime.playbackTargetEpisodeId?.let { targetId ->
                 anime.contentEpisodes.firstOrNull { it.id == targetId }
             }
+            // Snapshots can briefly lag a scan or file-access reconciliation.
+            // Never expose a stale/unplayable target as the primary action.
+            val playableTarget = target?.takeIf { it.isPlayable }
 
             return ReiAnixDetailsUiState(
                 status = ReiAnixDetailsLoadStatus.READY,
@@ -62,8 +65,8 @@ object ReiAnixDetailsUiStateProjection {
                     favorite = anime.favorite,
                     artwork = anime.artwork,
                     episodeCount = anime.contentEpisodes.size.takeIf { it > 0 },
-                    playbackTargetEpisodeId = anime.playbackTargetEpisodeId,
-                    shouldContinue = target?.consumptionState == ReiAnixConsumptionState.IN_PROGRESS,
+                    playbackTargetEpisodeId = playableTarget?.id,
+                    shouldContinue = playableTarget?.consumptionState == ReiAnixConsumptionState.IN_PROGRESS,
                     seasons = anime.seasons,
                     specials = anime.specials,
                 ),

@@ -12,6 +12,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.reiflix.reiflix_local.ui.ReiAnixComposeRoot
 import com.reiflix.reiflix_local.ui.model.ReiAnixAnimeUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixArtworkUiModel
+import com.reiflix.reiflix_local.ui.model.ReiAnixContinueWatchingUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
 import com.reiflix.reiflix_local.ui.model.ReiAnixMediaKind
@@ -110,6 +111,67 @@ class ReiAnixHomeInstrumentedTest {
         assertEquals(7L, selectedAnimeId)
         assertEquals(71L, selectedEpisodeId)
         assertEquals(7L, selectedEpisodeAnimeId)
+    }
+
+    @Test
+    fun continueWatchingRendersRealEpisodeProgress() {
+        composeRule.setContent {
+            ReiAnixComposeRoot {
+                ReiAnixHomeScreen(
+                    state = readyState(
+                        animes = listOf(anime(7L, "Example Anime", favorite = false)),
+                    ).copy(
+                        continueWatching = listOf(
+                            ReiAnixContinueWatchingUiModel(
+                                episodeId = 71L,
+                                animeId = 7L,
+                                animeTitle = "Example Anime",
+                                seasonNumber = 1,
+                                number = 7.0,
+                                title = "Episode 7",
+                                fileName = "Episode-7.mkv",
+                                progressSeconds = 180.0,
+                                durationSeconds = 1000.0,
+                                artwork = null,
+                            ),
+                        ),
+                    ),
+                    onSearch = {},
+                    onOpenDetails = {},
+                    onWatch = { _, _ -> },
+                    onToggleFavorite = {},
+                    onRefresh = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("CONTINUAR ASSISTINDO").assertIsDisplayed()
+        composeRule.onNodeWithText("T1 • EP 7").assertIsDisplayed()
+        composeRule.onNodeWithText("Episode 7").assertIsDisplayed()
+    }
+
+    @Test
+    fun errorStateIsRenderedWithRecoveryAction() {
+        var refreshCount = 0
+        composeRule.setContent {
+            ReiAnixComposeRoot {
+                ReiAnixHomeScreen(
+                    state = ReiAnixLibraryUiState(
+                        status = ReiAnixLibraryLoadStatus.ERROR,
+                        error = "Falha de leitura",
+                    ),
+                    onSearch = {},
+                    onOpenDetails = {},
+                    onWatch = { _, _ -> },
+                    onToggleFavorite = {},
+                    onRefresh = { refreshCount++ },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Falha de leitura").assertIsDisplayed()
+        composeRule.onNodeWithText("Tentar novamente").performClick()
+        assertEquals(1, refreshCount)
     }
 
     @Test

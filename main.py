@@ -162,11 +162,15 @@ async def main(page: ft.Page):
         if previous != normalized:
             diagnostics.record(
                 "HOME_REFRESH_PHASE_CHANGED",
-                refreshId=home_refresh_context.get("refresh_id"),
-                requestId=request_id if request_id is not None else home_refresh_context.get("request_id"),
-                previous=previous,
-                state=normalized,
-                reason=reason or "",
+                request_id=request_id if request_id is not None else home_refresh_context.get("request_id"),
+                source=reason or None,
+                result=normalized,
+                extra={
+                    "refresh_id": home_refresh_context.get("refresh_id"),
+                    "previous_phase": previous,
+                    "phase": normalized,
+                    "transition_reason": reason or None,
+                },
             )
 
     def _handle_page_disconnect(_event=None):

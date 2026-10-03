@@ -56,10 +56,14 @@ class Prompt91ComposeHostTests(unittest.TestCase):
             ROOT
             / "android/app/src/main/kotlin/com/reiflix/reiflix_local/ui/library/ReiAnixLibrary.kt"
         ).read_text(encoding="utf-8")
+        models = (
+            ROOT
+            / "android/app/src/main/kotlin/com/reiflix/reiflix_local/ui/model/LibraryUiModels.kt"
+        ).read_text(encoding="utf-8")
         self.assertIn("ReiAnixLibraryRoute(", host)
         self.assertIn("anime.stableKey", library)
-        self.assertIn("val stableKey: String", library)
-        self.assertIn('get() = "anime:" + id', library)
+        self.assertIn("val stableKey: String", models)
+        self.assertIn('get() = "anime:" + id', models)
 
     def test_main_activity_does_not_replace_flutter_host(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")

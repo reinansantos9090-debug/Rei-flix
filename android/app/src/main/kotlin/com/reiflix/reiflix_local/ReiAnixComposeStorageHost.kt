@@ -69,7 +69,7 @@ class ReiAnixComposeStorageHost(
         }
 
         val factory = ReiAnixLibraryViewModelFactory(activity.applicationContext)
-        val viewModel = ViewModelProvider(activity, factory)[ReiAnixLibraryViewModel::class.java]
+        val viewModel = ViewModelProvider(activity, factory).get(ReiAnixLibraryViewModel::class.java)
         view.setContent {
             ReiAnixComposeRoot {
                 ReiAnixStorageRoute(

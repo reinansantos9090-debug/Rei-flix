@@ -8,7 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -87,7 +87,7 @@ private data class TopLevelDestination(
 
 private val topLevelDestinations = listOf(
     TopLevelDestination(ReiAnixRoutes.HOME, "Início", Icons.Filled.Home),
-    TopLevelDestination(ReiAnixRoutes.LIBRARY, "Biblioteca", Icons.Filled.VideoLibrary),
+    TopLevelDestination(ReiAnixRoutes.LIBRARY, "Biblioteca", Icons.AutoMirrored.Filled.List),
     TopLevelDestination(ReiAnixRoutes.SEARCH, "Buscar", Icons.Filled.Search),
     TopLevelDestination(ReiAnixRoutes.SETTINGS, "Ajustes", Icons.Filled.Settings),
 )

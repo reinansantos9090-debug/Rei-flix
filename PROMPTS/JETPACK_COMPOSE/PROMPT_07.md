@@ -1,20 +1,24 @@
-# HOME ESTRUTURA
+# 07 — HOME ESTRUTURA
 
+## CONTRATO
+ReiAnix é biblioteca/reprodutor LOCAL. Não criar catálogo remoto ou dados fictícios. Preserve infraestrutura e a correção do episódio desaparecido. Leia o código real e use IDs estáveis.
 
-Construir a Home em Jetpack Compose conforme os screenshots.
+## OBJETIVO
+Construir Home em Compose conforme os screenshots, usando dados reais.
 
-Estrutura:
-- cabeçalho com ReiAnix;
-- busca;
-- hero/destaque;
-- botão Assistir;
-- botão Detalhes ou Minha Lista quando aplicável;
-- indicadores do carrossel quando houver mais de um destaque;
-- Continuar assistindo;
-- seções por gênero/categoria que tenham conteúdo real;
-- Ver tudo quando houver uma lista maior;
-- cards horizontais/verticais conforme referência.
+## IMPLEMENTAÇÃO
+Criar cabeçalho com ReiAnix, busca, hero/destaque quando houver conteúdo, ação Assistir, Details/Minha Lista quando aplicável, Continuar assistindo e seções horizontais apenas quando houver conteúdo real. Usar LazyRow/LazyColumn com keys estáveis. O hero deve ser determinístico e baseado na biblioteca, sem rede. Para biblioteca vazia, mostrar estado apropriado. Para uma única obra, não criar carrossel vazio.
 
-Não inventar dados. Todas as listas devem vir da biblioteca real.
+Garantir que ações usem Navigation Compose e IDs canônicos. Artwork deve usar cache existente. Evitar recompor toda Home por mudanças pequenas.
 
-Como o app é local, não depender de internet para exibir a biblioteca.
+## NÃO FAZER
+Não criar cinco seções vazias só para copiar screenshot. Não criar dados de exemplo em produção. Não adicionar funções remotas.
+
+## ACEITAÇÃO
+[ ] Home usa dados reais; [ ] artwork funciona; [ ] keys estáveis; [ ] scroll funciona; [ ] ações navegam; [ ] loading/vazio/erro tratados.
+
+## VALIDAÇÃO
+Testar biblioteca vazia, uma obra, múltiplas obras, scroll e abertura de Details. Executar build/testes.
+
+## RELATÓRIO
+Informar diff, componentes reutilizados, testes e limitações.

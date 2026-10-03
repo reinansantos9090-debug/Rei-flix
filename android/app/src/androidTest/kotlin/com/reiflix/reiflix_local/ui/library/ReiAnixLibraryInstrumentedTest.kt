@@ -21,6 +21,7 @@ import com.reiflix.reiflix_local.ui.model.ReiAnixMediaKind
 import com.reiflix.reiflix_local.ui.model.ReiAnixMetadataAvailability
 import com.reiflix.reiflix_local.ui.model.ReiAnixSeasonUiModel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -189,6 +190,33 @@ class ReiAnixLibraryInstrumentedTest {
         composeRule.onNodeWithText("Na lista").assertIsDisplayed()
         composeRule.onNodeWithText("Assistindo").assertDoesNotExist()
         composeRule.onNodeWithText("Concluído").assertDoesNotExist()
+    }
+
+    @Test
+    fun searchButtonUsesProvidedNavigationAction() {
+        var opened = false
+        composeRule.setContent {
+            ReiAnixComposeRoot {
+                ReiAnixLibraryScreen(
+                    state = readyState(),
+                    filters = ReiAnixLibraryFilters(),
+                    visibleAnimes = emptyList(),
+                    genres = emptyList(),
+                    onQueryChange = {},
+                    onGenreSelected = {},
+                    onToggleFavorites = {},
+                    onToggleWatching = {},
+                    onToggleCompleted = {},
+                    onClearFilters = {},
+                    onRefresh = {},
+                    onOpenDetails = {},
+                    onSearch = { opened = true },
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Pesquisar na biblioteca").performClick()
+        assertTrue(opened)
     }
 
     @Test

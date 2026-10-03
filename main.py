@@ -3036,9 +3036,14 @@ async def main(page: ft.Page):
                                         reason='compose_refresh',
                                         request_id=command_request_id or None,
                                     )
-                                    if transition.kind not in {'accepted', 'queued', 'running', 'completed'}:
+                                    if transition.kind == 'blocked':
+                                        command_status = 'BLOCKED'
+                                        command_error = str(transition.message or transition.kind)
+                                    elif not transition.accepted or transition.kind in {'failed', 'error'}:
                                         command_status = 'FAILED'
                                         command_error = str(transition.message or transition.kind)
+                                    else:
+                                        command_status = 'QUEUED'
                                 elif action == 'open_media':
                                     episode_id = int(payload.get('episodeId') or 0)
                                     if episode_id <= 0:

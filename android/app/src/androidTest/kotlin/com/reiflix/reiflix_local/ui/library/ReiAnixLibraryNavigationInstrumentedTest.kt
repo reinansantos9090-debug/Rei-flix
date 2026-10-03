@@ -3,6 +3,7 @@ package com.reiflix.reiflix_local.ui.library
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.reiflix.reiflix_local.ui.ReiAnixComposeRoot
@@ -24,8 +25,6 @@ import com.reiflix.reiflix_local.ui.model.ReiAnixSeasonUiModel
 import com.reiflix.reiflix_local.ui.navigation.ReiAnixNavigationHost
 import com.reiflix.reiflix_local.ui.navigation.ReiAnixRoutes
 import com.reiflix.reiflix_local.ui.navigation.navigateToDetails
-import com.reiflix.reiflix_local.ui.navigation.navigateToDetails
-import androidx.activity.ComponentActivity
 import androidx.activity.ComponentActivity
 import androidx.navigation.compose.ComposeNavigator
 import androidx.navigation.testing.TestNavHostController
@@ -86,8 +85,8 @@ class ReiAnixLibraryNavigationInstrumentedTest {
                     },
                     details = { args ->
                         ReiAnixDetailsScreen(
-                            state = com.reiflix.reiflix_local.ui.model.ReiAnixDetailsUiState(
-                                status = com.reiflix.reiflix_local.ui.model.ReiAnixDetailsLoadStatus.READY,
+                            state = ReiAnixDetailsUiState(
+                                status = ReiAnixDetailsLoadStatus.READY,
                                 sourceAvailable = true,
                                 sourceState = "AVAILABLE",
                                 anime = ReiAnixDetailsAnimeUiModel(

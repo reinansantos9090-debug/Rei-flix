@@ -77,11 +77,17 @@ fi
 
 cd "$GITHUB_WORKSPACE/build/flutter/android"
 
-# The rendered Flet Android Gradle project requires the staged Python site-packages path.
-# Keep this scoped to the rendered test project so instrumented builds are reproducible.
-site_packages="$GITHUB_WORKSPACE/build/flutter/site-packages"
-test -d "$site_packages"
+# flet build stages Python dependencies at the repository-level build/site-packages.
+# The instrumented jobs restore this directory together with build/flutter so
+# Gradle receives the same Serious Python dependency tree used by the build.
+site_packages="$GITHUB_WORKSPACE/build/site-packages"
+if [ ! -d "$site_packages" ]; then
+  echo "Missing staged Serious Python site-packages: $site_packages"
+  echo "The rendered-project cache must include build/site-packages."
+  exit 1
+fi
 export SERIOUS_PYTHON_SITE_PACKAGES="$site_packages"
+echo "Using Serious Python site-packages: $site_packages"
 
 chmod +x gradlew
 

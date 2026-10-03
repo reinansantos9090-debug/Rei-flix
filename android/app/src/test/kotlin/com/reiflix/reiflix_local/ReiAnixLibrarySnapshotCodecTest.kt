@@ -144,7 +144,6 @@ class ReiAnixLibrarySnapshotCodecTest {
     }
 
     @Test
-    @Test
     fun scanStateDefaultsToIdleWhenSnapshotOmitsOptionalFields() {
         val state = ReiAnixLibrarySnapshotCodec.decode(
             """{"schemaVersion":1,"revision":1,"status":"EMPTY","sourceState":"NOT_CONFIGURED","sourceAvailable":false,"animes":[]}"""

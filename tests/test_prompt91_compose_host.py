@@ -54,6 +54,10 @@ class Prompt91ComposeHostTests(unittest.TestCase):
 
     def test_library_route_uses_canonical_compose_path_without_list_positions(self):
         host = HOST.read_text(encoding="utf-8")
+        navigation = (
+            ROOT
+            / "android/app/src/main/kotlin/com/reiflix/reiflix_local/ui/navigation/ReiAnixNavigation.kt"
+        ).read_text(encoding="utf-8")
         library = (
             ROOT
             / "android/app/src/main/kotlin/com/reiflix/reiflix_local/ui/library/ReiAnixLibrary.kt"
@@ -62,10 +66,25 @@ class Prompt91ComposeHostTests(unittest.TestCase):
             ROOT
             / "android/app/src/main/kotlin/com/reiflix/reiflix_local/ui/model/LibraryUiModels.kt"
         ).read_text(encoding="utf-8")
-        self.assertIn("ReiAnixLibraryRoute(", host)
+
+        # The host delegates to Navigation Compose; it does not own the Library
+        # route directly.
+        self.assertIn("ReiAnixNavigationHost", host)
+        self.assertIn("startDestination = ReiAnixRoutes.LIBRARY", host)
+
+        # Navigation Compose owns the LIBRARY route and mounts the real Library.
+        self.assertIn("composable(ReiAnixRoutes.LIBRARY)", navigation)
+        self.assertIn("ReiAnixLibraryRoute(", navigation)
+        self.assertIn("composable(", navigation)
+        self.assertIn("ReiAnixRoutes.DETAILS", navigation)
+
+        # The Library owns card identity and sends the canonical anime ID into
+        # the real Details navigation route.
         self.assertIn("anime.stableKey", library)
         self.assertIn("navController.navigateToDetails", library)
         self.assertIn('origin = ReiAnixRoutes.LIBRARY', library)
+
+        # The stable key is derived only from the canonical database ID.
         self.assertIn("val stableKey: String", models)
         self.assertIn('get() = "anime:" + id', models)
 
@@ -81,7 +100,11 @@ class Prompt91ComposeHostTests(unittest.TestCase):
         self.assertIn('const val DETAILS = "details/{animeId}?origin={origin}"', navigation_host)
         self.assertIn("ReiAnixDetailsRoute(", navigation_host)
         self.assertIn("animeId = args.animeId", navigation_host)
-        self.assertIn("viewModel.detailsState(animeId)", details)
+        # Details keeps the current implementation's remembered state flow;
+        # assert the semantic contract without depending on one-line formatting.
+        self.assertIn("val detailsStateFlow = remember(viewModel, canonicalId)", details)
+        self.assertIn("viewModel.detailsState(canonicalId)", details)
+        self.assertIn("detailsState(", details)
         self.assertIn("viewModel::openEpisode", details)
         self.assertIn("viewModel::toggleFavorite", details)
 

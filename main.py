@@ -3007,9 +3007,10 @@ async def main(page: ft.Page):
                                     anime_id = int(payload.get('animeId') or 0)
                                     if anime_id <= 0:
                                         raise ValueError('animeId inválido.')
-                                    updated = await asyncio.to_thread(store.toggle_favorite, anime_id)
-                                    if not updated:
+                                    existing = await asyncio.to_thread(store.catalog, anime_ids=[anime_id])
+                                    if not existing:
                                         raise ValueError('Anime não encontrado.')
+                                    await asyncio.to_thread(store.toggle_favorite, anime_id)
                                     compose_library_bridge.request_publish('compose_toggle_favorite')
                                     on_catalog_changed(refresh_details=False)
                                 elif action == 'set_watched':

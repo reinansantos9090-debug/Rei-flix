@@ -2,17 +2,38 @@
 
 ## Scope
 
-Prompt 01 establishes only the Kotlin + Jetpack Compose foundation. It does not migrate Home,
-Biblioteca, Buscar, Details, Ajustes, player UI, or navigation routes.
+Prompt 01 established the Kotlin + Jetpack Compose foundation. Prompt 02 extends that foundation into a
+shared Material 3 visual design system without migrating any complete application screen.
 
 ## Current entry boundary
 
 MainActivity remains the existing FlutterFragmentActivity entry used by the Flet-generated Android
-host. Compose is enabled in the same Android module but is not attached to that launcher in this
-step. The foundation is therefore reversible and does not change the current user-visible UI.
+host. Compose is enabled in the same Android module but is not attached to that launcher in these
+foundation steps. The current Flet UI therefore remains reversible and unchanged.
 
-NativePlayerActivity remains a View-based ComponentActivity using Media3. No player migration is
+NativePlayerActivity remains a View-based ComponentActivity using Media3. No player UI migration is
 performed here.
+
+## Design-system boundary
+
+Prompt 02 introduces presentation-only Compose infrastructure:
+
+- `ReiAnixTokens` is the single source of truth for colors, spacing, dimensions, shapes, elevations
+  and typography.
+- `ReiAnixComposeTheme` supplies those tokens through Material 3's ColorScheme, Typography and Shapes.
+- `ReiAnixComponents` contains reusable card, chip, primary/secondary button, section-title, artwork,
+  progress and screen-layout primitives.
+- `ReiAnixScreen` exposes safe horizontal sizing conventions without embedding domain behavior.
+
+The design language is dark-first: near-black backgrounds, deep navy surfaces, electric blue primary
+states, light text, rounded containers and large touch targets. No remote/streaming/catalog behavior was
+added.
+
+## System UI and insets
+
+The existing Android `SystemUiController` and transparent application/player system-bar resources remain
+the authoritative system-bar policy. Compose primitives use `WindowInsets`/safe-drawing compatibility
+through the screen-level layout boundary rather than introducing a second system-bar controller.
 
 ## Data and domain boundary
 
@@ -25,15 +46,15 @@ rather than embedding scan, persistence, playback, or storage business rules ins
 
 ## Navigation boundary
 
-Navigation Compose 2.9.8 is available in the module, but Prompt 01 creates no route graph and no
-artificial destinations. Destination IDs and arguments will be defined only when the corresponding
+Navigation Compose 2.9.8 is available in the module, but these foundation prompts create no route graph
+and no artificial destinations. Destination IDs and arguments will be defined only when the corresponding
 screen migration is implemented.
 
 ## Coroutine/lifecycle boundary
 
-Future screen ViewModels should expose immutable StateFlow and use viewModelScope for cancellable
-work. Flow collection in Composables must be lifecycle-aware. Existing Flet callbacks, NativeMailbox
-events, scanner tasks, and Media3 lifecycle remain unchanged.
+Future screen ViewModels should expose immutable StateFlow and use viewModelScope for cancellable work. Flow
+collection in Composables must be lifecycle-aware. Existing Flet callbacks, NativeMailbox events, scanner
+tasks, and Media3 lifecycle remain unchanged.
 
 ## Toolchain contract
 
@@ -47,13 +68,11 @@ Activity Compose: 1.13.0
 compileSdk/targetSdk: 36
 AGP: 8.9.1
 
-Compose 1.12.x requires compileSdk 37 and AGP 9.1.2+, so Prompt 01 intentionally stays on the
-2026.06.00 BOM rather than upgrading the application's Android toolchain.
-
+Compose 1.12.x requires compileSdk 37 and AGP 9.1.2+, so the project remains on the existing
+Compose BOM/toolchain instead of upgrading unrelated Android build tooling.
 
 ## Official packaging gate
 
-The official APK workflow runs `scripts/verify_compose_packaging.py` after the real Flet/Gradle APK build. It verifies that the three Prompt 01 Compose Kotlin classes were actually generated under the rendered Android module and that their descriptors survived into the final APK DEX. The existing `scripts/verify_android_host.py` then verifies the complete native host contract.
-
-
-The packaging gate deliberately scans the complete rendered Flet project (`build/flutter`) for the expected compiled Compose class files, because Gradle's intermediate output path is implementation-specific. It then inspects the final APK DEX.
+The official APK workflow runs `scripts/verify_compose_packaging.py` after the real Flet/Gradle APK build.
+It verifies the Compose foundation classes in the rendered Android project and final APK DEX. The existing
+`scripts/verify_android_host.py` then verifies the complete native host contract.

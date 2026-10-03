@@ -89,6 +89,25 @@ class ComposeLibraryBridge:
             continue_method = getattr(self.library, "continue_watching", None)
             continue_rows = continue_method(limit=12) if callable(continue_method) else []
             status = "READY" if catalog else "EMPTY"
+
+            # Details must consume the existing canonical playback_target()
+            # policy. Normal catalog rows already expose current_episode, so
+            # only the special-only fallback needs the extra canonical lookup.
+            playback_target_method = getattr(self.library, "playback_target", None)
+            projected_animes = []
+            for item in catalog:
+                projected = item
+                if callable(playback_target_method) and not isinstance(
+                    item.get("current_episode"), dict
+                ):
+                    anime_id = item.get("id")
+                    if anime_id is not None:
+                        target = playback_target_method(anime_id)
+                        if isinstance(target, dict):
+                            projected = dict(item)
+                            projected["playback_target_episode"] = target
+                projected_animes.append(self._project_anime(projected))
+
             payload = {
                 "schemaVersion": self.SCHEMA_VERSION,
                 "revision": int(revision),
@@ -100,7 +119,7 @@ class ComposeLibraryBridge:
                 "scanInProgress": scan_snapshot["in_progress"],
                 "scanState": scan_snapshot["state"],
                 "error": None,
-                "animes": [self._project_anime(item) for item in catalog],
+                "animes": projected_animes,
                 "continue_watching": [
                     self._project_continue_watching(item)
                     for item in (continue_rows or [])
@@ -170,9 +189,13 @@ class ComposeLibraryBridge:
             "media_kind": source.get("media_kind") or meta.get("media_kind"),
             "year": source.get("year"),
             "playback_target_episode_id": (
-                (source.get("current_episode") or {}).get("id")
-                if isinstance(source.get("current_episode"), dict)
-                else None
+                (source.get("playback_target_episode") or {}).get("id")
+                if isinstance(source.get("playback_target_episode"), dict)
+                else (
+                    (source.get("current_episode") or {}).get("id")
+                    if isinstance(source.get("current_episode"), dict)
+                    else None
+                )
             ),
             "genres": list(source.get("genres") or []),
             "genre_ids": list(source.get("genre_ids") or []),

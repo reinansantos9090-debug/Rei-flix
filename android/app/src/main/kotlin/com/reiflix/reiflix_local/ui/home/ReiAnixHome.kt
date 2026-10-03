@@ -1,0 +1,598 @@
+package com.reiflix.reiflix_local.ui.home
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavHostController
+import com.reiflix.reiflix_local.ui.ReiAnixPrimaryButton
+import com.reiflix.reiflix_local.ui.ReiAnixProgressIndicator
+import com.reiflix.reiflix_local.ui.ReiAnixSecondaryButton
+import com.reiflix.reiflix_local.ui.ReiAnixSectionTitle
+import com.reiflix.reiflix_local.ui.artwork.ReiAnixLocalArtwork
+import com.reiflix.reiflix_local.ui.library.ReiAnixLibraryRoute
+import com.reiflix.reiflix_local.ui.library.rememberReiAnixLibraryViewModel
+import com.reiflix.reiflix_local.ui.model.ReiAnixAnimeUiModel
+import com.reiflix.reiflix_local.ui.model.ReiAnixContinueWatchingUiModel
+import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
+import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
+import com.reiflix.reiflix_local.ui.model.ReiAnixMediaAvailability
+import com.reiflix.reiflix_local.ui.navigation.ReiAnixRoutes
+import com.reiflix.reiflix_local.ui.navigation.navigateToDetails
+import com.reiflix.reiflix_local.ui.navigation.navigateToPlayer
+import com.reiflix.reiflix_local.ui.navigation.navigateToTopLevel
+import com.reiflix.reiflix_local.ui.theme.ReiAnixTokens
+import com.reiflix.reiflix_local.viewmodel.ReiAnixLibraryViewModel
+
+@Composable
+fun ReiAnixHomeRoute(
+    navController: NavHostController,
+    viewModel: ReiAnixLibraryViewModel = rememberReiAnixLibraryViewModel(),
+) {
+    ReiAnixLibraryRoute(viewModel) { state ->
+        ReiAnixHomeScreen(
+            state = state,
+            onSearch = {
+                navController.navigateToTopLevel(ReiAnixRoutes.SEARCH)
+            },
+            onOpenDetails = { animeId ->
+                navController.navigateToDetails(
+                    animeId = animeId.toString(),
+                    origin = ReiAnixRoutes.HOME,
+                )
+            },
+            onWatch = { episodeId, animeId ->
+                navController.navigateToPlayer(
+                    episodeId = episodeId.toString(),
+                    animeId = animeId.toString(),
+                    origin = ReiAnixRoutes.HOME,
+                )
+            },
+            onToggleFavorite = viewModel::toggleFavorite,
+            onRefresh = viewModel::refresh,
+        )
+    }
+}
+
+@Composable
+fun ReiAnixHomeScreen(
+    state: ReiAnixLibraryUiState,
+    onSearch: () -> Unit,
+    onOpenDetails: (Long) -> Unit,
+    onWatch: (episodeId: Long, animeId: Long) -> Unit,
+    onToggleFavorite: (Long) -> Unit,
+    onRefresh: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ReiAnixTokens.Colors.background)
+            .safeDrawingPadding(),
+    ) {
+        HomeHeader(
+            onSearch = onSearch,
+            onRefresh = onRefresh,
+        )
+
+        when (state.status) {
+            ReiAnixLibraryLoadStatus.LOADING -> HomeLoading()
+            ReiAnixLibraryLoadStatus.ERROR -> HomeError(
+                message = state.error ?: "Não foi possível carregar a biblioteca local.",
+                onRefresh = onRefresh,
+            )
+            ReiAnixLibraryLoadStatus.SOURCE_UNAVAILABLE -> HomeMessage(
+                title = "Biblioteca local indisponível",
+                message = "A fonte local configurada não está disponível agora.",
+                onRefresh = onRefresh,
+            )
+            ReiAnixLibraryLoadStatus.EMPTY -> HomeMessage(
+                title = "Biblioteca vazia",
+                message = "Nenhum conteúdo local disponível.",
+                onRefresh = onRefresh,
+            )
+            ReiAnixLibraryLoadStatus.READY -> HomeContent(
+                state = state,
+                onOpenDetails = onOpenDetails,
+                onWatch = onWatch,
+                onToggleFavorite = onToggleFavorite,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeHeader(
+    onSearch: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = ReiAnixTokens.Dimensions.screenHorizontalPadding,
+                vertical = ReiAnixTokens.Spacing.sm,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = "ReiAnix",
+            style = MaterialTheme.typography.headlineSmall,
+            color = ReiAnixTokens.Colors.text,
+            fontWeight = FontWeight.Bold,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = onSearch,
+                modifier = Modifier.semantics {
+                    contentDescription = "Pesquisar na biblioteca"
+                },
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = null,
+                    tint = ReiAnixTokens.Colors.text,
+                )
+            }
+            IconButton(
+                onClick = onRefresh,
+                modifier = Modifier.semantics {
+                    contentDescription = "Atualizar biblioteca local"
+                },
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Refresh,
+                    contentDescription = null,
+                    tint = ReiAnixTokens.Colors.text,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeContent(
+    state: ReiAnixLibraryUiState,
+    onOpenDetails: (Long) -> Unit,
+    onWatch: (Long, Long) -> Unit,
+    onToggleFavorite: (Long) -> Unit,
+) {
+    val featured = state.animes.firstOrNull()
+    val favorites = state.animes.filter(ReiAnixAnimeUiModel::favorite)
+    val continueWatching = state.continueWatching
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = ReiAnixTokens.Dimensions.screenHorizontalPadding,
+            end = ReiAnixTokens.Dimensions.screenHorizontalPadding,
+            top = ReiAnixTokens.Spacing.sm,
+            bottom = ReiAnixTokens.Spacing.huge,
+        ),
+        verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Dimensions.sectionGap),
+    ) {
+        featured?.let { anime ->
+            item(key = "home-hero") {
+                HomeHero(
+                    anime = anime,
+                    onWatch = onWatch,
+                    onOpenDetails = onOpenDetails,
+                    onToggleFavorite = onToggleFavorite,
+                )
+            }
+        }
+
+        if (continueWatching.isNotEmpty()) {
+            item(key = "home-section-continue") {
+                HomeContinueSection(
+                    items = continueWatching,
+                    onWatch = onWatch,
+                )
+            }
+        }
+
+        if (favorites.isNotEmpty()) {
+            item(key = "home-section-my-list") {
+                HomeAnimeSection(
+                    items = favorites,
+                    onOpenDetails = onOpenDetails,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeHero(
+    anime: ReiAnixAnimeUiModel,
+    onWatch: (Long, Long) -> Unit,
+    onOpenDetails: (Long) -> Unit,
+    onToggleFavorite: (Long) -> Unit,
+) {
+    val artworkPath = anime.artwork?.localPath
+    val playbackEpisodeId = anime.playbackTargetEpisodeId
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(320.dp)
+            .clip(ReiAnixTokens.Shapes.large),
+    ) {
+        ReiAnixLocalArtwork(
+            localPath = artworkPath,
+            contentDescription = anime.title,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            placeholder = "Sem capa",
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to androidx.compose.ui.graphics.Color.Transparent,
+                        0.45f to ReiAnixTokens.Colors.overlay.copy(alpha = 0.14f),
+                        1f to ReiAnixTokens.Colors.background.copy(alpha = 0.98f),
+                    ),
+                ),
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(ReiAnixTokens.Spacing.xl),
+            verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.sm),
+        ) {
+            Text(
+                text = anime.title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = ReiAnixTokens.Colors.text,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val heroMeta = listOfNotNull(
+                anime.year?.toString(),
+                availableContentCount(anime).takeIf { it > 0 }?.let { "$it episódios" },
+                anime.genres.firstOrNull()?.name,
+            )
+            if (heroMeta.isNotEmpty()) {
+                Text(
+                    text = heroMeta.joinToString(" • "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = ReiAnixTokens.Colors.textMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.sm),
+            ) {
+                if (playbackEpisodeId != null) {
+                    ReiAnixPrimaryButton(
+                        text = "Assistir",
+                        onClick = { onWatch(playbackEpisodeId, anime.id) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                ReiAnixSecondaryButton(
+                    text = "Detalhes",
+                    onClick = { onOpenDetails(anime.id) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            ReiAnixSecondaryButton(
+                text = if (anime.favorite) "Na Minha Lista" else "Minha Lista",
+                onClick = { onToggleFavorite(anime.id) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeContinueSection(
+    items: List<ReiAnixContinueWatchingUiModel>,
+    onWatch: (Long, Long) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.sm)) {
+        ReiAnixSectionTitle(title = "CONTINUAR ASSISTINDO")
+        LazyRow(
+            modifier = Modifier.semantics {
+                contentDescription = "Home Continuar Assistindo"
+            },
+            horizontalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.md),
+        ) {
+            items(
+                items = items,
+                key = { it.stableKey },
+            ) { item ->
+                HomeContinueCard(item = item, onWatch = onWatch)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeContinueCard(
+    item: ReiAnixContinueWatchingUiModel,
+    onWatch: (Long, Long) -> Unit,
+) {
+    val progress = progressFraction(item.progressSeconds, item.durationSeconds)
+    Card(
+        modifier = Modifier
+            .width(250.dp)
+            .clickable { onWatch(item.episodeId, item.animeId) },
+        shape = ReiAnixTokens.Shapes.card,
+        colors = CardDefaults.cardColors(containerColor = ReiAnixTokens.Colors.surface),
+    ) {
+        Row(
+            modifier = Modifier.padding(ReiAnixTokens.Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ReiAnixLocalArtwork(
+                localPath = item.artwork?.localPath,
+                contentDescription = item.animeTitle,
+                modifier = Modifier.size(width = 76.dp, height = 108.dp),
+                placeholder = "Sem arte",
+            )
+            Spacer(modifier = Modifier.width(ReiAnixTokens.Spacing.sm))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.xs),
+            ) {
+                Text(
+                    text = item.animeTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = ReiAnixTokens.Colors.text,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = episodeLabel(item.seasonNumber, item.number),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ReiAnixTokens.Colors.textMuted,
+                )
+                Text(
+                    text = item.displayTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ReiAnixTokens.Colors.textMuted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                progress?.let { value ->
+                    ReiAnixProgressIndicator(progress = value)
+                }
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    tint = ReiAnixTokens.Colors.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeAnimeSection(
+    items: List<ReiAnixAnimeUiModel>,
+    onOpenDetails: (Long) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.sm)) {
+        ReiAnixSectionTitle(title = "MINHA LISTA")
+        LazyRow(
+            modifier = Modifier.semantics {
+                contentDescription = "Home Minha Lista"
+            },
+            horizontalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.md),
+        ) {
+            items(
+                items = items,
+                key = { it.stableKey },
+            ) { anime ->
+                HomeAnimeCard(
+                    title = anime.title,
+                    year = anime.year,
+                    artworkPath = anime.artwork?.localPath,
+                    episodeCount = availableContentCount(anime),
+                    onClick = { onOpenDetails(anime.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeAnimeCard(
+    title: String,
+    year: Int?,
+    artworkPath: String?,
+    episodeCount: Int,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .width(154.dp)
+            .clickable(onClick = onClick),
+        shape = ReiAnixTokens.Shapes.card,
+        colors = CardDefaults.cardColors(containerColor = ReiAnixTokens.Colors.surface),
+    ) {
+        Column {
+            ReiAnixLocalArtwork(
+                localPath = artworkPath,
+                contentDescription = title,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp),
+                placeholder = "Sem capa",
+            )
+            Column(
+                modifier = Modifier.padding(ReiAnixTokens.Spacing.sm),
+                verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.xs),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = ReiAnixTokens.Colors.text,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val metadata = listOfNotNull(
+                    year?.toString(),
+                    episodeCount.takeIf { it > 0 }?.let { "$it episódios" },
+                )
+                if (metadata.isNotEmpty()) {
+                    Text(
+                        text = metadata.joinToString(" • "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ReiAnixTokens.Colors.textMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeLoading() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator(color = ReiAnixTokens.Colors.primary)
+    }
+}
+
+@Composable
+private fun HomeError(
+    message: String,
+    onRefresh: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(ReiAnixTokens.Spacing.xxl),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.md),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Info,
+                contentDescription = null,
+                tint = ReiAnixTokens.Colors.error,
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = ReiAnixTokens.Colors.text,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+            ReiAnixSecondaryButton(
+                text = "Tentar novamente",
+                onClick = onRefresh,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeMessage(
+    title: String,
+    message: String,
+    onRefresh: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(ReiAnixTokens.Spacing.xxl),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.sm),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = ReiAnixTokens.Colors.text,
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = ReiAnixTokens.Colors.textMuted,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            ReiAnixSecondaryButton(
+                text = "Atualizar",
+                onClick = onRefresh,
+            )
+        }
+    }
+}
+
+private fun progressFraction(progress: Double?, duration: Double?): Float? {
+    val value = progress ?: return null
+    val total = duration ?: return null
+    if (total <= 0.0) return null
+    return (value / total).toFloat().coerceIn(0f, 1f)
+}
+
+private fun episodeLabel(seasonNumber: Int?, number: Double?): String {
+    val season = seasonNumber?.let { "T$it" }
+    val episode = number?.let { formatEpisode(it) }?.let { "EP $it" }
+    return listOfNotNull(season, episode).joinToString(" • ").ifBlank { "Episódio" }
+}
+
+private fun formatEpisode(value: Double): String =
+    if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
+
+private fun availableContentCount(anime: ReiAnixAnimeUiModel): Int =
+    anime.seasons.sumOf { season ->
+        season.episodes.count { it.media.availability != ReiAnixMediaAvailability.MISSING }
+    } +
+        anime.specials.count { it.media.availability != ReiAnixMediaAvailability.MISSING } +
+        anime.mediaFiles.count { it.media.availability != ReiAnixMediaAvailability.MISSING }

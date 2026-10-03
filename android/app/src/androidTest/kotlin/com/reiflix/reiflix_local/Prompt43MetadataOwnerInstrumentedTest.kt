@@ -109,7 +109,7 @@ class Prompt43MetadataOwnerInstrumentedTest {
             assertTrue("Unable to create Flet data directory", dataDir.mkdirs() || dataDir.isDirectory)
         }
         databaseFile.delete()
-        target.assets.open("prompt43_library.sqlite3").use { input ->
+        InstrumentationRegistry.getInstrumentation().context.assets.open("prompt43_library.sqlite3").use { input ->
             databaseFile.outputStream().use { output -> input.copyTo(output) }
         }
         assertTrue("Prompt 43 SQLite fixture must exist", databaseFile.isFile)

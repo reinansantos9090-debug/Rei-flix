@@ -108,7 +108,10 @@ fun ReiAnixLibraryScreen(
         LibraryHeader(onRefresh = onRefresh)
 
         when (state.status) {
-            ReiAnixLibraryLoadStatus.LOADING -> LibraryLoading(state.scanInProgress)
+            ReiAnixLibraryLoadStatus.LOADING -> LibraryLoading(
+                scanInProgress = state.scanInProgress,
+                scanState = state.scanState,
+            )
             ReiAnixLibraryLoadStatus.ERROR -> LibraryMessageState(
                 title = "Erro na biblioteca",
                 message = state.error ?: "Não foi possível carregar a biblioteca local.",
@@ -426,12 +429,16 @@ private fun LibraryScanBanner(
 }
 
 @Composable
-private fun LibraryLoading(scanInProgress: Boolean) {
+private fun LibraryLoading(
+    scanInProgress: Boolean,
+    scanState: String,
+) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
         Column(
+            modifier = Modifier.padding(ReiAnixTokens.Dimensions.screenHorizontalPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.md),
         ) {
@@ -444,6 +451,13 @@ private fun LibraryLoading(scanInProgress: Boolean) {
                 },
                 color = ReiAnixTokens.Colors.textMuted,
             )
+            if (scanInProgress) {
+                Text(
+                    text = "Varredura em andamento" + scanState.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty(),
+                    color = ReiAnixTokens.Colors.textMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
     }
 }

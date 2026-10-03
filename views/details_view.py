@@ -779,10 +779,12 @@ class DetailView:
         def load_more_episodes(_event=None):
             visible_episode_count[0] += 48
             render_episodes()
+            page.update()
 
         def load_more_specials(_event=None):
             visible_special_count[0] += 48
             render_episodes()
+            page.update()
 
         def build_episode_controls():
             """Build the Details episode projection without mutating the mounted tree."""
@@ -889,11 +891,9 @@ class DetailView:
 
         def render_episodes():
             # Rebuilds after the initial mount replace the collection atomically.
-            # Keep the mounted-tree update at page level; direct control.update()
-            # can fail for controls that are not attached to a Page in tests.
+            # The caller owns the page-level update because this function is also
+            # exercised against unmounted controls by the Python regression suite.
             episode_column.controls = build_episode_controls()
-            if getattr(episode_column, "page", None) is not None:
-                page.update()
 
         episode_column = ft.Column(
             controls=build_episode_controls(),
@@ -906,6 +906,7 @@ class DetailView:
             if seasons:
                 season_picker.helper_text = season_progress_text(seasons[selected_season[0]])
             render_episodes()
+            page.update()
 
         season_picker = ft.Dropdown(
             value="0", options=[

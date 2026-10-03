@@ -31,3 +31,24 @@ data class ReiAnixLibraryUiState(
     val isAvailable: Boolean
         get() = sourceAvailable && status != ReiAnixLibraryLoadStatus.ERROR
 }
+
+
+@Keep
+data class ReiAnixHomeLibraryUiState(
+    val status: ReiAnixLibraryLoadStatus = ReiAnixLibraryLoadStatus.LOADING,
+    val animes: List<ReiAnixAnimeUiModel> = emptyList(),
+    val sourceAvailable: Boolean = false,
+    val sourceState: String = "UNKNOWN",
+    val error: String? = null,
+) {
+    companion object {
+        fun from(state: ReiAnixLibraryUiState): ReiAnixHomeLibraryUiState =
+            ReiAnixHomeLibraryUiState(
+                status = state.status,
+                animes = state.animes,
+                sourceAvailable = state.sourceAvailable,
+                sourceState = state.sourceState,
+                error = state.error,
+            )
+    }
+}

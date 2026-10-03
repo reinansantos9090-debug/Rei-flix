@@ -9,12 +9,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.test.hasClickAction
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNode
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -110,8 +106,12 @@ class ReiAnixNavigationInstrumentedTest {
 
         navController.navigateToDetails("42", ReiAnixRoutes.HOME)
         composeRule.waitForIdle()
-        composeRule.onNodeWithContentDescription(ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION)
-            .assertDoesNotExist()
+        assertTrue(
+            composeRule
+                .onAllNodesWithContentDescription(ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION)
+                .fetchSemanticsNodes()
+                .isEmpty(),
+        )
 
         composeRule.activity.onBackPressedDispatcher.onBackPressed()
         composeRule.waitForIdle()
@@ -343,10 +343,7 @@ class ReiAnixNavigationInstrumentedTest {
     }
 
     private fun clickTopLevel(label: String) {
-        composeRule.onNode(
-            hasText(label) and hasClickAction(),
-            useUnmergedTree = true,
-        ).performClick()
+        composeRule.onNodeWithText(label, useUnmergedTree = true).performClick()
         composeRule.waitForIdle()
     }
 

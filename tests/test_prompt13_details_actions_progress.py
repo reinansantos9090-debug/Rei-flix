@@ -69,8 +69,12 @@ class Prompt13DetailsActionsProgressTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             library = FakeLibrary()
             bridge = ComposeLibraryBridge(directory, library, FakeStore())
-            bridge.request_publish("prompt13")
-            asyncio.run(bridge.wait_for_idle())
+
+            async def publish():
+                bridge.request_publish("prompt13")
+                await bridge.wait_for_idle()
+
+            asyncio.run(publish())
 
             payload = json.loads(
                 (Path(directory) / "reianix-compose" / "library.json").read_text(

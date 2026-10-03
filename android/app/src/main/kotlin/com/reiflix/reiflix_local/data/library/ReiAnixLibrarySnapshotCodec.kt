@@ -21,6 +21,11 @@ internal object ReiAnixLibrarySnapshotCodec {
 
         val sourceState = root.optString("sourceState").trim().ifEmpty { "UNKNOWN" }
         val sourceAvailable = root.optBoolean("sourceAvailable", sourceState == "AVAILABLE")
+        val scanState = root.optString("scanState").trim().uppercase().ifEmpty { "IDLE" }
+        val scanInProgress = root.optBoolean(
+            "scanInProgress",
+            scanState in setOf("CHECKING", "SCANNING", "WAITING_FOR_MEDIASTORE"),
+        )
         val snapshotStatus = root.optString("status").trim().uppercase()
         val error = root.optString("error").trim().takeIf { it.isNotEmpty() && it != "null" }
 
@@ -58,6 +63,8 @@ internal object ReiAnixLibrarySnapshotCodec {
             continueWatching = continueWatching,
             sourceAvailable = sourceAvailable,
             sourceState = sourceState,
+            scanInProgress = scanInProgress,
+            scanState = scanState,
             error = error,
         )
     }

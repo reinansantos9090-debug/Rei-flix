@@ -42,7 +42,10 @@ enum class ReiAnixMetadataAvailability {
 data class ReiAnixGenreUiModel(
     val id: String?,
     val name: String,
-)
+) {
+    val stableKey: String
+        get() = id?.takeIf { it.isNotBlank() } ?: "name:" + name.trim().lowercase()
+}
 
 data class ReiAnixArtworkUiModel(
     val localPath: String?,
@@ -135,6 +138,36 @@ data class ReiAnixAnimeUiModel(
 ) {
     val stableKey: String
         get() = "anime:" + id
+
+    val contentEpisodes: List<ReiAnixEpisodeUiModel>
+        get() = buildList {
+            seasons.forEach { season -> addAll(season.episodes) }
+            addAll(specials)
+            addAll(mediaFiles)
+        }
+
+    val availableContentCount: Int
+        get() = contentEpisodes.size
+
+    val episodeCountLabel: String
+        get() = when (availableContentCount) {
+            1 -> "1 episódio"
+            else -> "$availableContentCount episódios"
+        }
+
+    val isWatching: Boolean
+        get() = contentEpisodes.any {
+            it.consumptionState == ReiAnixConsumptionState.IN_PROGRESS
+        }
+
+    val isCompleted: Boolean
+        get() = contentEpisodes.isNotEmpty() &&
+            contentEpisodes.all { episode ->
+                episode.media.availability != ReiAnixMediaAvailability.MISSING &&
+                    episode.media.availability != ReiAnixMediaAvailability.SCOPE_UNAVAILABLE &&
+                    episode.media.availability != ReiAnixMediaAvailability.VOLUME_UNAVAILABLE &&
+                    episode.isCompleted
+            }
 }
 
 data class ReiAnixHomeAnimeUiModel(

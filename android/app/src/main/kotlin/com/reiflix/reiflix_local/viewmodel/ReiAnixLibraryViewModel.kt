@@ -5,13 +5,19 @@ import androidx.annotation.Keep
 import androidx.lifecycle.viewModelScope
 import com.reiflix.reiflix_local.data.library.ReiAnixLibraryRepository
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import com.reiflix.reiflix_local.ui.model.ReiAnixHomeLibraryUiState
 import com.reiflix.reiflix_local.ui.model.ReiAnixContinueWatchingUiModel
+import com.reiflix.reiflix_local.ui.model.ReiAnixGenreUiModel
+import com.reiflix.reiflix_local.ui.library.ReiAnixLibraryFilterEngine
+import com.reiflix.reiflix_local.ui.library.ReiAnixLibraryFilters
 @Keep
 class ReiAnixLibraryViewModel(context: Context) :
     ReiAnixViewModel<ReiAnixLibraryUiState>() {
@@ -35,6 +41,39 @@ class ReiAnixLibraryViewModel(context: Context) :
             ReiAnixHomeLibraryUiState.from(uiState.value),
         )
 
+    private val _libraryFilters = MutableStateFlow(ReiAnixLibraryFilters())
+
+    val libraryFilters: StateFlow<ReiAnixLibraryFilters> = _libraryFilters.asStateFlow()
+
+    val libraryGenres: StateFlow<List<ReiAnixGenreUiModel>> = uiState
+        .map { state ->
+            state.animes
+                .flatMap { anime -> anime.genres }
+                .distinctBy(ReiAnixGenreUiModel::stableKey)
+                .sortedBy { it.name.lowercase() }
+        }
+        .distinctUntilChanged()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            uiState.value.animes
+                .flatMap { anime -> anime.genres }
+                .distinctBy(ReiAnixGenreUiModel::stableKey)
+                .sortedBy { it.name.lowercase() },
+        )
+
+    val filteredLibraryAnimes: StateFlow<List<com.reiflix.reiflix_local.ui.model.ReiAnixAnimeUiModel>> =
+        combine(
+            uiState.map { it.animes },
+            libraryFilters,
+        ) { animes, filters ->
+            ReiAnixLibraryFilterEngine.filter(animes, filters)
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            ReiAnixLibraryFilterEngine.filter(uiState.value.animes, libraryFilters.value),
+        )
+
     /** The canonical Continue Watching projection; this is the only Home subtree that observes it. */
     val continueWatching: StateFlow<List<ReiAnixContinueWatchingUiModel>> = uiState
         .map { it.continueWatching }
@@ -56,6 +95,36 @@ class ReiAnixLibraryViewModel(context: Context) :
         )
 
     fun refresh() = repository.refresh()
+
+    fun setLibrarySearchQuery(value: String) {
+        _libraryFilters.value = _libraryFilters.value.copy(query = value)
+    }
+
+    fun setLibraryGenreFilter(key: String?) {
+        _libraryFilters.value = _libraryFilters.value.copy(selectedGenreKey = key)
+    }
+
+    fun toggleLibraryFavoritesFilter() {
+        _libraryFilters.value = _libraryFilters.value.copy(
+            favoritesOnly = !_libraryFilters.value.favoritesOnly,
+        )
+    }
+
+    fun toggleLibraryWatchingFilter() {
+        _libraryFilters.value = _libraryFilters.value.copy(
+            watchingOnly = !_libraryFilters.value.watchingOnly,
+        )
+    }
+
+    fun toggleLibraryCompletedFilter() {
+        _libraryFilters.value = _libraryFilters.value.copy(
+            completedOnly = !_libraryFilters.value.completedOnly,
+        )
+    }
+
+    fun clearLibraryFilters() {
+        _libraryFilters.value = ReiAnixLibraryFilters()
+    }
 
     fun toggleFavorite(animeId: Long) = repository.toggleFavorite(animeId)
 

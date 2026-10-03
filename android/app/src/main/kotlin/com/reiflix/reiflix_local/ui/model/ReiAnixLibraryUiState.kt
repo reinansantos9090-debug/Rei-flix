@@ -19,6 +19,8 @@ data class ReiAnixLibraryUiState(
     val continueWatching: List<ReiAnixContinueWatchingUiModel> = emptyList(),
     val sourceAvailable: Boolean = false,
     val sourceState: String = "UNKNOWN",
+    val scanInProgress: Boolean = false,
+    val scanState: String = "IDLE",
     val error: String? = null,
     val lastCommandId: String? = null,
     val lastCommandAction: String? = null,

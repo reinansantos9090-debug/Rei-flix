@@ -3,6 +3,7 @@ package com.reiflix.reiflix_local.viewmodel
 import android.content.Context
 import androidx.annotation.Keep
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import com.reiflix.reiflix_local.data.library.ReiAnixLibraryRepository
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -119,10 +120,11 @@ class ReiAnixLibraryViewModel(context: Context) :
      */
     private val searchIndex: StateFlow<com.reiflix.reiflix_local.ui.search.ReiAnixSearchIndex> = uiState
         .map { state -> ReiAnixSearchEngine.buildIndex(state.animes) }
+        .flowOn(Dispatchers.Default)
         .stateIn(
             viewModelScope,
             SharingStarted.Eagerly,
-            ReiAnixSearchEngine.buildIndex(uiState.value.animes),
+            ReiAnixSearchEngine.buildIndex(emptyList()),
         )
 
     private val _searchQuery = MutableStateFlow("")
@@ -136,6 +138,7 @@ class ReiAnixLibraryViewModel(context: Context) :
             results = index.search(query),
         )
     }
+        .flowOn(Dispatchers.Default)
         .distinctUntilChanged()
         .stateIn(
             viewModelScope,

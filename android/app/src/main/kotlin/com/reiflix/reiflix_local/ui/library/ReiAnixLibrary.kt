@@ -85,6 +85,32 @@ fun ReiAnixLibraryRoute(
 }
 
 @Composable
+fun ReiAnixLibraryRoute(
+    viewModel: ReiAnixLibraryViewModel,
+    onOpenDetails: (Long) -> Unit,
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val filters by viewModel.libraryFilters.collectAsStateWithLifecycle()
+    val visibleAnimes by viewModel.filteredLibraryAnimes.collectAsStateWithLifecycle()
+    val genres by viewModel.libraryGenres.collectAsStateWithLifecycle()
+
+    ReiAnixLibraryScreen(
+        state = state,
+        filters = filters,
+        visibleAnimes = visibleAnimes,
+        genres = genres,
+        onQueryChange = viewModel::setLibrarySearchQuery,
+        onGenreSelected = viewModel::setLibraryGenreFilter,
+        onToggleFavorites = viewModel::toggleLibraryFavoritesFilter,
+        onToggleWatching = viewModel::toggleLibraryWatchingFilter,
+        onToggleCompleted = viewModel::toggleLibraryCompletedFilter,
+        onClearFilters = viewModel::clearLibraryFilters,
+        onRefresh = viewModel::refresh,
+        onOpenDetails = onOpenDetails,
+    )
+}
+
+@Composable
 fun ReiAnixLibraryScreen(
     state: ReiAnixLibraryUiState,
     filters: ReiAnixLibraryFilters,

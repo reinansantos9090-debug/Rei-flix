@@ -276,21 +276,20 @@ private fun ReiAnixDetailsReady(
             Spacer(modifier = Modifier.height(ReiAnixTokens.Spacing.lg))
 
             val targetId = anime.playbackTargetEpisodeId
-            ReiAnixPrimaryButton(
-                text = if (anime.shouldContinue) "Continuar" else "Assistir",
-                enabled = targetId != null,
-                onClick = {
-                    targetId?.let(onWatch)
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            if (targetId == null) {
-                Spacer(modifier = Modifier.height(ReiAnixTokens.Spacing.sm))
+            if (targetId != null) {
+                ReiAnixPrimaryButton(
+                    text = if (anime.shouldContinue) "Continuar" else "Assistir",
+                    onClick = {
+                        onWatch(targetId)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
                 Text(
                     text = "Nenhuma mídia local disponível para reprodução.",
                     style = MaterialTheme.typography.bodySmall,
                     color = ReiAnixTokens.Colors.textMuted,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }

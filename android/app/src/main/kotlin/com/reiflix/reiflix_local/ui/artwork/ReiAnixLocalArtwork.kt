@@ -24,7 +24,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.roundToPx
 import androidx.compose.ui.platform.LocalDensity
 import com.reiflix.reiflix_local.ui.theme.ReiAnixTokens
 import kotlinx.coroutines.CancellationException
@@ -34,6 +33,7 @@ import java.io.File
 import java.io.InputStream
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 private sealed interface LocalArtworkLoadState {
     data object Loading : LocalArtworkLoadState
@@ -71,12 +71,12 @@ fun ReiAnixLocalArtwork(
         contentAlignment = Alignment.Center,
     ) {
         val measuredWidthPx = if (maxWidth != Dp.Infinity) {
-            with(density) { maxWidth.roundToPx() }
+            with(density) { maxWidth.toPx().roundToInt() }
         } else {
             0
         }
         val measuredHeightPx = if (maxHeight != Dp.Infinity) {
-            with(density) { maxHeight.roundToPx() }
+            with(density) { maxHeight.toPx().roundToInt() }
         } else {
             0
         }
@@ -123,7 +123,7 @@ fun ReiAnixLocalArtwork(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.semantics {
-                        contentDescription = "Carregando " + placeholder
+                        this.contentDescription = "Carregando " + placeholder
                     },
                 )
             }
@@ -145,7 +145,7 @@ fun ReiAnixLocalArtwork(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.semantics {
-                        contentDescription = "Falha ao carregar " + (contentDescription ?: placeholder)
+                        this.contentDescription = "Falha ao carregar " + (contentDescription ?: placeholder)
                     },
                 )
             }

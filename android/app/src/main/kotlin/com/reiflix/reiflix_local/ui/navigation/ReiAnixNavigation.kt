@@ -170,6 +170,8 @@ fun ReiAnixNavigationHost(
     details: @Composable (ReiAnixDetailsArgs) -> Unit = {},
     player: @Composable (ReiAnixPlayerArgs) -> Unit = {},
     modifier: Modifier = Modifier,
+    startDestination: String = ReiAnixRoutes.HOME,
+    showBottomNavigation: Boolean = true,
 ) {
     ReiAnixNavigationHost(
         home = {
@@ -197,6 +199,8 @@ fun ReiAnixNavigationHost(
         player = player,
         modifier = modifier,
         navController = navController,
+        startDestination = startDestination,
+        showBottomNavigation = showBottomNavigation,
     )
 }
 
@@ -210,6 +214,8 @@ fun ReiAnixNavigationHost(
     player: @Composable (ReiAnixPlayerArgs) -> Unit,
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
+    startDestination: String = ReiAnixRoutes.HOME,
+    showBottomNavigation: Boolean = true,
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -217,7 +223,7 @@ fun ReiAnixNavigationHost(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         bottomBar = {
-            if (topLevelDestinations.any { it.route == currentRoute }) {
+            if (showBottomNavigation && topLevelDestinations.any { it.route == currentRoute }) {
                 NavigationBar(
                     modifier = Modifier.semantics {
                         contentDescription = ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION
@@ -249,7 +255,7 @@ fun ReiAnixNavigationHost(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = ReiAnixRoutes.HOME,
+            startDestination = startDestination,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)

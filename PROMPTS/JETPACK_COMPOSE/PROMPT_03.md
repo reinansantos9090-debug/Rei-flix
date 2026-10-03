@@ -1,25 +1,24 @@
-# NAVEGAÇÃO NATIVA
+# 03 — NAVEGAÇÃO NATIVA
 
+## CONTRATO
+ReiAnix continua sendo biblioteca/reprodutor LOCAL. Preserve SQLite, scanner, SAF, MediaStore, permissões, artwork/cache, progresso e Media3. Não criar streaming, download, catálogo remoto ou banco paralelo. Leia a estrutura real antes de alterar e preserve o bugfix do episódio desaparecido.
 
-Substituir a navegação visual baseada em Flet por uma navegação Android nativa em Jetpack Compose.
+## OBJETIVO
+Implantar Navigation Compose e rotas que representem somente funções reais do ReiAnix.
 
-Criar rotas para as telas que realmente fazem sentido no ReiAnix:
-- Início;
-- Biblioteca;
-- Buscar;
-- Ajustes;
-- Details;
-- Player quando necessário.
+## IMPLEMENTAÇÃO
+Criar destinos principais para Início, Biblioteca, Buscar e Ajustes, além de Details e Player quando necessários. Definir argumentos estáveis, preferindo IDs canônicos para Details/Player em vez de posições, índices ou objetos serializados grandes. Implementar back stack previsível, retorno do botão voltar do sistema, restauração do estado das abas e retorno do Player para a origem. A bottom navigation deve aparecer somente nos destinos principais.
 
-Implementar:
-- Navigation Compose;
-- back stack correto;
-- botão voltar do sistema;
-- preservação de estado das abas principais;
-- barra inferior persistente nas telas principais;
-- abertura de Details sem perder a aba anterior;
-- retorno correto do Player.
+Garantir que navegação repetida não acumule cópias desnecessárias da mesma aba. Avaliar launchSingleTop, restoreState e popUpTo conforme a arquitetura real. Não perder estado de scroll sem motivo. Details deve saber de qual origem veio quando isso afetar o retorno.
 
-Não criar abas artificiais. Downloads somente deverá existir se houver funcionalidade real correspondente no projeto.
+## NÃO FAZER
+Não criar aba Downloads só porque aparece em referências externas. Só criar um destino se houver funcionalidade real. Não manter duas navegações concorrentes sem uma estratégia clara de transição.
 
-Preservar integração com o player e dados existentes.
+## ACEITAÇÃO
+[ ] rotas estáveis; [ ] Details preserva origem; [ ] back funciona; [ ] Player retorna corretamente; [ ] estado das abas é preservado; [ ] navegação compila em Android real.
+
+## VALIDAÇÃO
+Testar navegação entre todas as rotas, back do sistema, abertura repetida de Details e retorno do Player. Executar testes e build.
+
+## RELATÓRIO
+Descrever diff, testes, estruturas reutilizadas e limitações.

@@ -77,6 +77,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var interactionProfileFingerprint: String? = null
     private val nativeRequestState = NativeRequestState()
     private lateinit var composeLibraryHost: ReiAnixComposeLibraryHost
+    private lateinit var composeStorageHost: ReiAnixComposeStorageHost
 
     private val playerActivityLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
@@ -762,6 +763,7 @@ class MainActivity : FlutterFragmentActivity() {
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
         composeLibraryHost = ReiAnixComposeLibraryHost(this)
+        composeStorageHost = ReiAnixComposeStorageHost(this)
         // Flet owns the visual theme/system-overlay appearance; the native host
         // owns edge-to-edge + normal system-bar visibility.
         systemUiController.applyApplicationPolicy(useContextAppearance = false)
@@ -965,6 +967,7 @@ class MainActivity : FlutterFragmentActivity() {
         PerformanceDiagnostics.sampleMemory(this, "main_on_destroy")
         PerformanceDiagnostics.detach()
         cancelSafPickerWatchdog()
+        if (::composeStorageHost.isInitialized) composeStorageHost.dispose()
         if (::composeLibraryHost.isInitialized) composeLibraryHost.dispose()
         googleSignInJob?.cancel()
         googleSignInJob = null
@@ -1021,6 +1024,12 @@ class MainActivity : FlutterFragmentActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    if (::composeStorageHost.isInitialized && composeStorageHost.isVisible) {
+                        if (composeStorageHost.handleBack()) {
+                            Log.i(tag, "BACK_COMPOSE_STORAGE_DISMISSED")
+                            return
+                        }
+                    }
                     if (::composeLibraryHost.isInitialized && composeLibraryHost.isVisible) {
                         if (composeLibraryHost.handleBack()) {
                             Log.i(tag, "BACK_COMPOSE_DETAILS_POPPED")
@@ -1189,6 +1198,30 @@ class MainActivity : FlutterFragmentActivity() {
             error = code,
         )
     }
+    /**
+     * Existing UI/service boundary for native storage actions. Compose never
+     * touches Android permissions or scanners directly.
+     */
+    fun requestNativeStorageAction(action: String): Boolean {
+        val normalized = action.trim()
+        val allowed = setOf(
+            "select_tree",
+            "request_media_access",
+            "open_broad_storage_settings",
+            "check_storage_access",
+        )
+        if (normalized !in allowed) return false
+        val requestId = UUID.randomUUID().toString()
+        val uri = Uri.parse(
+            "reiflix://native?action=" + Uri.encode(normalized) +
+                "&request_id=" + Uri.encode(requestId) +
+                "&protocol_version=" + BRIDGE_PROTOCOL_VERSION +
+                "&created_at=" + System.currentTimeMillis(),
+        )
+        handleNativeIntent(Intent(Intent.ACTION_VIEW, uri))
+        return true
+    }
+
     private fun handleNativeIntent(intent: Intent?) {
         val data = intent?.data ?: return
         if (data.scheme != "reiflix" || data.host != "native") {
@@ -1258,6 +1291,12 @@ class MainActivity : FlutterFragmentActivity() {
                 "hide_library" -> {
                     nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
                     composeLibraryHost.hide()
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.COMPLETED)
+                    publishNativeDiagnostic("OPERATION_COMPLETED", requestId, action, NativeRequestState.OperationState.COMPLETED.name)
+                }
+                "open_storage_settings" -> {
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    composeStorageHost.show()
                     nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.COMPLETED)
                     publishNativeDiagnostic("OPERATION_COMPLETED", requestId, action, NativeRequestState.OperationState.COMPLETED.name)
                 }

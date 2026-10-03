@@ -15,6 +15,7 @@ from pathlib import Path
 
 REQUIRED_CLASSES = (
     "MainActivity",
+    "ReiAnixComposeLibraryHost",
     "NativeMailbox",
     "NativeRequestState",
     "SafScanner",

@@ -137,7 +137,6 @@ data class ReiAnixAnimeUiModel(
         get() = "anime:" + id
 }
 
-@Keep
 data class ReiAnixHomeAnimeUiModel(
     val id: Long,
     val title: String,

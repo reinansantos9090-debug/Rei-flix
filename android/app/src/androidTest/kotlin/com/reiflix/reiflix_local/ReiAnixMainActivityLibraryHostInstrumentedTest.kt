@@ -19,7 +19,7 @@ class ReiAnixMainActivityLibraryHostInstrumentedTest {
             Uri.parse(
                 "reiflix://native?action=open_library" +
                     "&request_id=prompt91-runtime" +
-                    "&protocol_version=2",
+                    "",
             ),
         )
 

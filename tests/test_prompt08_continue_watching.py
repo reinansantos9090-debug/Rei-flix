@@ -81,7 +81,7 @@ class Prompt08ContinueWatchingTests(unittest.TestCase):
 
     def test_progress_change_does_not_create_a_second_persistence_source(self):
         bridge = (ROOT / "core/compose_library_bridge.py").read_text(encoding="utf-8")
-        self.assertIn("self.library.continue_watching", bridge)
+        self.assertIn('getattr(self.library, "continue_watching", None)', bridge)
         self.assertNotIn("CREATE TABLE", bridge)
         self.assertNotIn("sqlite3.connect", bridge)
 

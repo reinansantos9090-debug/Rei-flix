@@ -88,6 +88,25 @@ data class ReiAnixEpisodeUiModel(
         get() = title?.takeIf { it.isNotBlank() } ?: fileName
 }
 
+data class ReiAnixContinueWatchingUiModel(
+    val episodeId: Long,
+    val animeId: Long,
+    val animeTitle: String,
+    val seasonNumber: Int?,
+    val number: Double?,
+    val title: String?,
+    val fileName: String,
+    val progressSeconds: Double?,
+    val durationSeconds: Double?,
+    val artwork: ReiAnixArtworkUiModel?,
+) {
+    val stableKey: String
+        get() = "episode:" + episodeId
+
+    val displayTitle: String
+        get() = title?.takeIf { it.isNotBlank() } ?: fileName
+}
+
 data class ReiAnixSeasonUiModel(
     /** Seasons have no independent SQLite ID in the current source projection. */
     val animeId: Long,
@@ -112,6 +131,7 @@ data class ReiAnixAnimeUiModel(
     val seasons: List<ReiAnixSeasonUiModel>,
     val specials: List<ReiAnixEpisodeUiModel>,
     val mediaFiles: List<ReiAnixEpisodeUiModel>,
+    val playbackTargetEpisodeId: Long?,
 ) {
     val stableKey: String
         get() = "anime:" + id

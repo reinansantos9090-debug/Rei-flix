@@ -16,6 +16,7 @@ data class ReiAnixLibraryUiState(
     val status: ReiAnixLibraryLoadStatus = ReiAnixLibraryLoadStatus.LOADING,
     val revision: Long = 0L,
     val animes: List<ReiAnixAnimeUiModel> = emptyList(),
+    val continueWatching: List<ReiAnixContinueWatchingUiModel> = emptyList(),
     val sourceAvailable: Boolean = false,
     val sourceState: String = "UNKNOWN",
     val error: String? = null,

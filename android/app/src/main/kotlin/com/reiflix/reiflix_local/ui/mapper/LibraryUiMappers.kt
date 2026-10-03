@@ -1,6 +1,7 @@
 package com.reiflix.reiflix_local.ui.mapper
 
 import com.reiflix.reiflix_local.ui.model.ReiAnixAnimeUiModel
+import com.reiflix.reiflix_local.ui.model.ReiAnixContinueWatchingUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixArtworkUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixConsumptionState
 import com.reiflix.reiflix_local.ui.model.ReiAnixEpisodeUiModel
@@ -44,6 +45,23 @@ object LibraryUiMappers {
                 .flatMap { it.listOfMaps("episodes") }
                 .map { episode(it, id) },
             mediaFiles = source.listOfMaps("media_files").map { episode(it, id) },
+            playbackTargetEpisodeId = source.mapValue("current_episode").longOrNull("id"),
+        )
+    }
+
+    fun continueWatching(source: Map<String, Any?>): ReiAnixContinueWatchingUiModel {
+        val episodeId = source.longOrNull("episode_id") ?: source.requiredLong("id")
+        return ReiAnixContinueWatchingUiModel(
+            episodeId = episodeId,
+            animeId = source.requiredLong("anime_id"),
+            animeTitle = source.requiredString("anime_title"),
+            seasonNumber = source.intOrNull("season"),
+            number = source.doubleOrNull("number"),
+            title = source.stringOrNull("episode_title"),
+            fileName = source.requiredString("file_name", fallback = "title"),
+            progressSeconds = source.doubleOrNull("progress"),
+            durationSeconds = source.doubleOrNull("duration"),
+            artwork = artwork(source),
         )
     }
 

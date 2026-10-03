@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Favorite
@@ -52,6 +53,8 @@ import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
 import com.reiflix.reiflix_local.ui.navigation.ReiAnixRoutes
 import com.reiflix.reiflix_local.ui.navigation.navigateToDetails
+import com.reiflix.reiflix_local.ui.navigation.ReiAnixRoutes
+import com.reiflix.reiflix_local.ui.navigation.navigateToTopLevel
 import com.reiflix.reiflix_local.ui.theme.ReiAnixTokens
 import com.reiflix.reiflix_local.viewmodel.ReiAnixLibraryViewModel
 

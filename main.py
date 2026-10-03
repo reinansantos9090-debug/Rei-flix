@@ -23,6 +23,7 @@ from core.storage_access import (
     dedupe_saf_roots,
     saf_source_identity,
     library_saf_roots,
+    configured_library_saf_roots,
 )
 from core.diagnostics import DiagnosticTimeline
 from core.performance import get_performance_monitor
@@ -389,7 +390,6 @@ async def main(page: ft.Page):
             return []
 
         raw_roots = tuple(caps.saf_roots)
-        roots = library_saf_roots(raw_roots, scope_ref=scope_ref)
         invalid_count = sum(
             1 for value in raw_roots
             if str(value or "").strip() and not saf_source_identity(value)
@@ -397,16 +397,16 @@ async def main(page: ft.Page):
         if invalid_count:
             logger.warning("[LIBRARY_SOURCE] LIBRARY_SOURCE_INVALID count=%d", invalid_count)
 
-        current_ids = {
-            identity
-            for identity in (saf_source_identity(uri) for uri in roots)
-            if identity
-        }
         configured_folders = [
             folder for folder in store.folders()
             if str(folder.get("kind") or "").casefold() == "saf"
             and str(folder.get("path") or "").strip()
         ]
+        roots = configured_library_saf_roots(
+            raw_roots,
+            configured_folders,
+            scope_ref=scope_ref,
+        )
         persisted_ids = {
             identity
             for identity in (saf_source_identity(uri) for uri in raw_roots)

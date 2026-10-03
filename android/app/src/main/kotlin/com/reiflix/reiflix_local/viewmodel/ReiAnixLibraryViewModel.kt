@@ -156,6 +156,8 @@ class ReiAnixLibraryViewModel(context: Context) :
 
     fun refresh() = repository.refresh()
 
+    fun selectSafTree() = repository.selectSafTree()
+
     fun setLibrarySearchQuery(value: String) {
         _libraryFilters.value = _libraryFilters.value.copy(query = value)
     }

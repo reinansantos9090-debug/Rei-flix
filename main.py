@@ -369,6 +369,9 @@ async def main(page: ft.Page):
     # startup-time UnboundLocalError before the storage UI could render.
     storage_onboarding = {"dismissed": False, "dialog_open": False, "waiting_for_result": False}
     storage_capabilities = [StorageCapabilities.unknown()]
+    if compose_library_bridge.enabled:
+        compose_library_bridge.set_storage_state_provider(lambda: storage_capabilities[0])
+        compose_library_bridge.request_publish("storage_startup")
 
     def _authorized_scan_targets(source=None, scope_ref=None):
         normalized = ScanCoordinator.normalize_source(source)
@@ -2278,6 +2281,10 @@ async def main(page: ft.Page):
                 diagnostics.record("PERMISSION_CHECK", source="android")
                 page.run_task(bridge.check_storage_access)
     def navigate_settings_category(label):
+        if str(label or "").strip() == "Armazenamento" and bridge.available:
+            logger.info("[COMPOSE_STORAGE] opening native storage settings")
+            page.run_task(bridge.open_storage_settings)
+            return
         previous = navigation.current
         with performance.interaction("settings_category", source=previous, target="settings",
                                       metadata={"category": label}):
@@ -2689,6 +2696,8 @@ async def main(page: ft.Page):
             storage_capabilities[0] = StorageCapabilities.from_native(raw)
         elif isinstance(payload, dict) and ("mediaReadState" in payload or "broadStorageState" in payload):
             storage_capabilities[0] = StorageCapabilities.from_native(payload)
+        if compose_library_bridge.enabled:
+            compose_library_bridge.request_publish("storage_capabilities_changed")
 
     def update_saf_capabilities(current_uris):
         current = storage_capabilities[0]
@@ -2708,6 +2717,8 @@ async def main(page: ft.Page):
             lifecycle_state=current.lifecycle_state,
             api=current.api,
         )
+        if compose_library_bridge.enabled:
+            compose_library_bridge.request_publish("saf_inventory_changed")
 
     def maybe_show_storage_onboarding():
         """Ask for an explicit library folder, independent of media/broad grants."""
@@ -3815,6 +3826,8 @@ async def main(page: ft.Page):
                             else:
                                 store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento não concedido.')
                                 store.mark_source_unavailable('broad-storage', 'broad_access_revoked')
+                            if compose_library_bridge.enabled:
+                                compose_library_bridge.request_publish("storage_event")
                             refresh_settings_if_active()
                             maybe_show_storage_onboarding()
                         elif event_type == 'broad_storage_permission':
@@ -3834,6 +3847,8 @@ async def main(page: ft.Page):
                                 store.update_folder_status('broad-storage', 'revoked', 'Acesso amplo ao armazenamento ainda não foi concedido.')
                                 store.mark_source_unavailable('broad-storage', 'broad_access_denied')
 
+                            if compose_library_bridge.enabled:
+                                compose_library_bridge.request_publish("storage_event")
                             refresh_settings_if_active()
                             maybe_show_storage_onboarding()
                         elif event_type == 'broad_storage_error':
@@ -3847,6 +3862,8 @@ async def main(page: ft.Page):
                                 store.update_folder_status('broad-storage', 'unavailable', message)
                                 store.mark_source_unavailable('broad-storage', 'broad_scan_failed')
                             page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar o armazenamento local.'))); page.snack_bar.open = True; safe_update()
+                            if compose_library_bridge.enabled:
+                                compose_library_bridge.request_publish("storage_event")
                             refresh_settings_if_active()
                         elif event_type == 'mediastore_scan_progress':
                             files = int(payload.get('files') or 0)
@@ -3907,6 +3924,8 @@ async def main(page: ft.Page):
                             else:
                                 store.update_folder_status(source, 'revoked', 'A permissão para vídeos do dispositivo foi removida.')
                                 store.mark_source_unavailable(source, 'media_permission_revoked')
+                            if compose_library_bridge.enabled:
+                                compose_library_bridge.request_publish("storage_event")
                             refresh_settings_if_active()
                             maybe_show_storage_onboarding()
                         elif event_type == 'mediastore_error':
@@ -3923,6 +3942,8 @@ async def main(page: ft.Page):
                             page.snack_bar = ft.SnackBar(ft.Text(event.get('message', 'Não foi possível acessar os vídeos do dispositivo.')))
                             page.snack_bar.open = True
                             safe_update()
+                            if compose_library_bridge.enabled:
+                                compose_library_bridge.request_publish("storage_event")
                             refresh_settings_if_active()
                         elif event_type == 'thumbnail_ready':
                             uri = str(payload.get('uri') or '').strip()
@@ -5255,13 +5276,17 @@ async def main(page: ft.Page):
                                 else:
                                     store.update_folder_status(tree_uri, 'revoked', 'A permissão desta pasta foi removida.')
                                     store.mark_source_unavailable(tree_uri, 'saf_permission_revoked')
-                                refresh_settings_if_active()
+                                if compose_library_bridge.enabled:
+                                compose_library_bridge.request_publish("storage_event")
+                            refresh_settings_if_active()
                         elif event_type == 'saf_released':
                             tree_uri = payload.get('treeUri')
                             if tree_uri and tree_uri in pending_folder_removals:
                                 pending_folder_removals.discard(tree_uri)
                                 store.remove_folder(tree_uri)
                                 on_catalog_changed()
+                                if compose_library_bridge.enabled:
+                                    compose_library_bridge.request_publish("storage_event")
                                 page.snack_bar=ft.SnackBar(ft.Text('Pasta removida da biblioteca.')); page.snack_bar.open=True; safe_update()
                         elif event_type == 'google_cancelled':
                             account_state[0] = 'disconnected'

@@ -55,6 +55,8 @@ import com.reiflix.reiflix_local.ui.model.ReiAnixHomeLibraryUiState
 import com.reiflix.reiflix_local.ui.model.ReiAnixContinueWatchingUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
+import com.reiflix.reiflix_local.ui.model.ReiAnixHomeAnimeUiModel
+import com.reiflix.reiflix_local.ui.model.ReiAnixHomeLibraryUiState
 import com.reiflix.reiflix_local.ui.model.ReiAnixMediaAvailability
 import com.reiflix.reiflix_local.ui.navigation.ReiAnixRoutes
 import com.reiflix.reiflix_local.ui.navigation.navigateToDetails
@@ -158,8 +160,9 @@ private fun HomeObservedContent(
     onWatch: (Long, Long) -> Unit,
     onToggleFavorite: (Long) -> Unit,
 ) {
-    val featured = state.animes.firstOrNull()
-    val favorites = state.animes.filter(ReiAnixAnimeUiModel::favorite)
+    val renderAnimes = state.animes.map(ReiAnixHomeAnimeUiModel::toHomeRenderData)
+    val featured = renderAnimes.firstOrNull()
+    val favorites = renderAnimes.filter(HomeAnimeRenderData::favorite)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -321,8 +324,9 @@ private fun HomeContent(
     onWatch: (Long, Long) -> Unit,
     onToggleFavorite: (Long) -> Unit,
 ) {
-    val featured = state.animes.firstOrNull()
-    val favorites = state.animes.filter(ReiAnixAnimeUiModel::favorite)
+    val renderAnimes = state.animes.map(ReiAnixAnimeUiModel::toHomeRenderData)
+    val featured = renderAnimes.firstOrNull()
+    val favorites = renderAnimes.filter(HomeAnimeRenderData::favorite)
     val continueWatching = state.continueWatching
 
     LazyColumn(
@@ -366,15 +370,50 @@ private fun HomeContent(
     }
 }
 
+private data class HomeAnimeRenderData(
+    val id: Long,
+    val title: String,
+    val year: Int?,
+    val genres: List<com.reiflix.reiflix_local.ui.model.ReiAnixGenreUiModel>,
+    val favorite: Boolean,
+    val artworkPath: String?,
+    val playbackEpisodeId: Long?,
+    val availableContentCount: Int,
+)
+
+private fun ReiAnixAnimeUiModel.toHomeRenderData(): HomeAnimeRenderData =
+    HomeAnimeRenderData(
+        id = id,
+        title = title,
+        year = year,
+        genres = genres,
+        favorite = favorite,
+        artworkPath = artwork?.localPath,
+        playbackEpisodeId = playbackTargetEpisodeId,
+        availableContentCount = availableContentCount(this),
+    )
+
+private fun ReiAnixHomeAnimeUiModel.toHomeRenderData(): HomeAnimeRenderData =
+    HomeAnimeRenderData(
+        id = id,
+        title = title,
+        year = year,
+        genres = genres,
+        favorite = favorite,
+        artworkPath = artwork?.localPath,
+        playbackEpisodeId = playbackTargetEpisodeId,
+        availableContentCount = availableContentCount,
+    )
+
 @Composable
 private fun HomeHero(
-    anime: ReiAnixAnimeUiModel,
+    anime: HomeAnimeRenderData,
     onWatch: (Long, Long) -> Unit,
     onOpenDetails: (Long) -> Unit,
     onToggleFavorite: (Long) -> Unit,
 ) {
-    val artworkPath = anime.artwork?.localPath
-    val playbackEpisodeId = anime.playbackTargetEpisodeId
+    val artworkPath = anime.artworkPath
+    val playbackEpisodeId = anime.playbackEpisodeId
 
     Box(
         modifier = Modifier
@@ -416,7 +455,7 @@ private fun HomeHero(
             )
             val heroMeta = listOfNotNull(
                 anime.year?.toString(),
-                availableContentCount(anime).takeIf { it > 0 }?.let { "$it episódios" },
+                anime.availableContentCount.takeIf { it > 0 }?.let { "$it episódios" },
                 anime.genres.firstOrNull()?.name,
             )
             if (heroMeta.isNotEmpty()) {
@@ -540,7 +579,7 @@ private fun HomeContinueCard(
 
 @Composable
 private fun HomeAnimeSection(
-    items: List<ReiAnixAnimeUiModel>,
+    items: List<HomeAnimeRenderData>,
     onOpenDetails: (Long) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(ReiAnixTokens.Spacing.sm)) {
@@ -558,8 +597,8 @@ private fun HomeAnimeSection(
                 HomeAnimeCard(
                     title = anime.title,
                     year = anime.year,
-                    artworkPath = anime.artwork?.localPath,
-                    episodeCount = availableContentCount(anime),
+                    artworkPath = anime.artworkPath,
+                    episodeCount = anime.availableContentCount,
                     onClick = { onOpenDetails(anime.id) },
                 )
             }

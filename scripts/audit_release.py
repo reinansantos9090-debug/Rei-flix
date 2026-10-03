@@ -231,12 +231,16 @@ def audit_architecture(root: Path, failures: list[str]) -> None:
     instrumented_workflow = read(root, ".github/workflows/android_instrumented.yml")
     instrumented_script = read(root, "scripts/run_android_instrumented.sh")
     for token in (
-        "push:",
-        "api: [30, 36]",
+        "workflow_dispatch:",
+        "name: Android API 36",
+        "api-level: 36",
         "reactivecircus/android-emulator-runner@v2",
     ):
         if token not in instrumented_workflow:
             failures.append(f"instrumented runtime workflow missing: {token}")
+    for forbidden in ("push:", "pull_request:", "matrix:", "api: [30, 36]", "Android TV API 36"):
+        if forbidden in instrumented_workflow:
+            failures.append(f"instrumented runtime workflow still contains legacy contract: {forbidden}")
     if ":app:connectedDebugAndroidTest" not in instrumented_workflow and ":app:connectedDebugAndroidTest" not in instrumented_script:
         failures.append("instrumented runtime command missing from workflow/script")
     if "name: ReiAnix Android No-Emulator Contract Checks" in instrumented_workflow:
@@ -293,7 +297,7 @@ def main() -> int:
         f"versionCode={version_code} versionName={version_name} targetSdk=36"
     )
     print("player_view.py=ABSENT")
-    print("instrumented_runtime_matrix=API30,API36")
+    print("instrumented_runtime=MANUAL_API36")
     return 0
 
 

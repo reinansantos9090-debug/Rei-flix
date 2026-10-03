@@ -1,5 +1,11 @@
 package com.reiflix.reiflix_local.ui.home
 
+import android.graphics.Bitmap
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
+
 import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -8,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
+import com.reiflix.reiflix_local.ui.artwork.ReiAnixLocalArtwork
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.reiflix.reiflix_local.ui.ReiAnixComposeRoot
 import com.reiflix.reiflix_local.ui.model.ReiAnixAnimeUiModel
@@ -172,6 +179,32 @@ class ReiAnixHomeInstrumentedTest {
         composeRule.onNodeWithText("Falha de leitura").assertIsDisplayed()
         composeRule.onNodeWithText("Tentar novamente").performClick()
         assertEquals(1, refreshCount)
+    }
+
+    @Test
+    fun cachedArtworkFileIsDecodedByCompose() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val artworkFile = File(context.cacheDir, "reianix-home-artwork-test.png")
+        val bitmap = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
+        artworkFile.outputStream().use { output ->
+            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
+        }
+        bitmap.recycle()
+
+        try {
+            composeRule.setContent {
+                ReiAnixComposeRoot {
+                    ReiAnixLocalArtwork(
+                        localPath = artworkFile.absolutePath,
+                        contentDescription = "Cached artwork",
+                        modifier = Modifier.size(100.dp),
+                    )
+                }
+            }
+            composeRule.onNodeWithContentDescription("Cached artwork").assertIsDisplayed()
+        } finally {
+            artworkFile.delete()
+        }
     }
 
     @Test

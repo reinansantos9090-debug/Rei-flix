@@ -19,7 +19,8 @@ class Prompt1RegressionTests(unittest.TestCase):
         self.assertNotIn("autofocus=bool(primary_target)", DETAILS)
         self.assertIn("palette_changed = (", DETAILS)
         self.assertIn("home_state.get('_update_thumbnail')", MAIN)
-        self.assertIn("if navigation.current == \"details\" and not refresh_details:", MAIN)
+        self.assertIn('if navigation.current == "details":', MAIN)
+        self.assertIn("if not refresh_details:", MAIN)
 
     def test_next_accepts_file_uri_for_absolute_path_episode(self):
         with tempfile.TemporaryDirectory() as directory:

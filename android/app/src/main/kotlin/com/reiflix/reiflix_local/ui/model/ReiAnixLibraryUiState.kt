@@ -36,7 +36,7 @@ data class ReiAnixLibraryUiState(
 @Keep
 data class ReiAnixHomeLibraryUiState(
     val status: ReiAnixLibraryLoadStatus = ReiAnixLibraryLoadStatus.LOADING,
-    val animes: List<ReiAnixAnimeUiModel> = emptyList(),
+    val animes: List<ReiAnixHomeAnimeUiModel> = emptyList(),
     val sourceAvailable: Boolean = false,
     val sourceState: String = "UNKNOWN",
     val error: String? = null,
@@ -45,7 +45,29 @@ data class ReiAnixHomeLibraryUiState(
         fun from(state: ReiAnixLibraryUiState): ReiAnixHomeLibraryUiState =
             ReiAnixHomeLibraryUiState(
                 status = state.status,
-                animes = state.animes,
+                animes = state.animes.map { anime ->
+                    ReiAnixHomeAnimeUiModel(
+                        id = anime.id,
+                        title = anime.title,
+                        year = anime.year,
+                        genres = anime.genres,
+                        favorite = anime.favorite,
+                        mediaKind = anime.mediaKind,
+                        artwork = anime.artwork,
+                        playbackTargetEpisodeId = anime.playbackTargetEpisodeId,
+                        availableContentCount = anime.seasons.sumOf { season ->
+                            season.episodes.count { episode ->
+                                episode.media.availability != ReiAnixMediaAvailability.MISSING
+                            }
+                        } +
+                            anime.specials.count { episode ->
+                                episode.media.availability != ReiAnixMediaAvailability.MISSING
+                            } +
+                            anime.mediaFiles.count { episode ->
+                                episode.media.availability != ReiAnixMediaAvailability.MISSING
+                            },
+                    )
+                },
                 sourceAvailable = state.sourceAvailable,
                 sourceState = state.sourceState,
                 error = state.error,

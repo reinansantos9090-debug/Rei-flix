@@ -20,11 +20,17 @@ class Prompt3CertificationTests(unittest.TestCase):
 
     def test_runtime_matrix_executes_real_connected_instrumentation(self):
         workflow = (ROOT / ".github/workflows/android_instrumented.yml").read_text(encoding="utf-8")
-        self.assertIn("api: [30, 36]", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("name: Android API 36", workflow)
+        self.assertIn("api-level: 36", workflow)
         self.assertIn("reactivecircus/android-emulator-runner@v2", workflow)
         script = (ROOT / "scripts" / "run_android_instrumented.sh").read_text(encoding="utf-8")
         self.assertIn(":app:connectedDebugAndroidTest", script)
-        self.assertIn("push:", workflow)
+        self.assertNotIn("push:", workflow)
+        self.assertNotIn("pull_request:", workflow)
+        self.assertNotIn("matrix:", workflow)
+        self.assertNotIn("api: [30, 36]", workflow)
+        self.assertNotIn("Android TV API 36", workflow)
         self.assertNotIn("No-Emulator Contract Checks", workflow)
 
     def test_shell_diagnostics_do_not_use_true_success_suppression(self):

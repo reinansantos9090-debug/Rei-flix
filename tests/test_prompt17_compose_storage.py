@@ -48,7 +48,8 @@ class Prompt17ComposeStorageBridgeTest(unittest.TestCase):
                 directory,
                 FakeLibrary(),
                 FakeStore(),
-                storage_state_provider=lambda: StorageCapabilities(
+                storage_state_provider=lambda: {
+                    "capabilities": StorageCapabilities(
                     media_read_state="full",
                     broad_storage_state="available",
                     saf_roots=("content://com.example/tree/primary%3AAnime",),
@@ -56,7 +57,9 @@ class Prompt17ComposeStorageBridgeTest(unittest.TestCase):
                     reconciliation_capabilities=frozenset({"saf", "mediastore"}),
                     lifecycle_state="revalidated",
                     api=36,
-                ),
+                    ),
+                    "safSelectionPending": True,
+                },
             )
             bridge.request_publish("prompt17")
             asyncio.run(bridge.wait_for_idle())
@@ -68,6 +71,7 @@ class Prompt17ComposeStorageBridgeTest(unittest.TestCase):
             storage = payload["storage"]
             self.assertEqual("full", storage["capabilities"]["mediaReadState"])
             self.assertEqual("available", storage["capabilities"]["broadStorageState"])
+            self.assertTrue(storage["safSelectionPending"])
             self.assertEqual(
                 ["saf:com.example:primary:Anime"],
                 storage["capabilities"]["safRootIdentities"],

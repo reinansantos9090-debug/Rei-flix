@@ -52,6 +52,7 @@ import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
 import com.reiflix.reiflix_local.ui.navigation.ReiAnixRoutes
 import com.reiflix.reiflix_local.ui.navigation.navigateToDetails
+import com.reiflix.reiflix_local.ui.navigation.navigateToTopLevel
 import com.reiflix.reiflix_local.ui.theme.ReiAnixTokens
 import com.reiflix.reiflix_local.viewmodel.ReiAnixLibraryViewModel
 
@@ -77,6 +78,9 @@ fun ReiAnixLibraryRoute(
         onToggleCompleted = viewModel::toggleLibraryCompletedFilter,
         onClearFilters = viewModel::clearLibraryFilters,
         onRefresh = viewModel::refresh,
+        onSearch = {
+            navController.navigateToTopLevel(ReiAnixRoutes.SEARCH)
+        },
         onOpenDetails = { animeId ->
             navController.navigateToDetails(
                 animeId = animeId.toString(),
@@ -129,13 +133,17 @@ fun ReiAnixLibraryScreen(
     onRefresh: () -> Unit,
     onOpenDetails: (Long) -> Unit,
     onToggleFavorite: (Long) -> Unit = {},
+    onSearch: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(ReiAnixTokens.Colors.background),
     ) {
-        LibraryHeader(onRefresh = onRefresh)
+        LibraryHeader(
+            onRefresh = onRefresh,
+            onSearch = onSearch,
+        )
 
         when (state.status) {
             ReiAnixLibraryLoadStatus.LOADING -> LibraryLoading(
@@ -179,7 +187,10 @@ fun ReiAnixLibraryScreen(
 }
 
 @Composable
-private fun LibraryHeader(onRefresh: () -> Unit) {
+private fun LibraryHeader(
+    onRefresh: () -> Unit,
+    onSearch: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -202,6 +213,18 @@ private fun LibraryHeader(onRefresh: () -> Unit) {
                 color = ReiAnixTokens.Colors.textMuted,
             )
         }
+        IconButton(
+            onClick = onSearch,
+            modifier = Modifier.semantics {
+                contentDescription = "Pesquisar na biblioteca"
+            },
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Search,
+                contentDescription = null,
+            )
+        }
+
         IconButton(
             onClick = onRefresh,
             modifier = Modifier.semantics {

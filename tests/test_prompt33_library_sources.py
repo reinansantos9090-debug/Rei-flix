@@ -4,7 +4,13 @@ from pathlib import Path
 
 from core.library_store import LibraryStore
 from core.scan_coordinator import ScanCoordinator, ScanOrigin, ScanState, ScanTarget
-from core.storage_access import StorageCapabilities, dedupe_saf_roots, library_saf_roots, saf_source_identity
+from core.storage_access import (
+    StorageCapabilities,
+    configured_library_saf_roots,
+    dedupe_saf_roots,
+    library_saf_roots,
+    saf_source_identity,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "main.py"
@@ -64,6 +70,36 @@ class Prompt33SourceIdentityTests(unittest.TestCase):
         caps = StorageCapabilities.from_native({"safRoots": [self.URI_A, self.URI_DUPLICATE_ENCODING], "api": 35})
         self.assertEqual((self.URI_A, self.URI_DUPLICATE_ENCODING), caps.saf_roots)
         self.assertEqual((self.URI_A,), dedupe_saf_roots(caps.saf_roots))
+
+    def test_persisted_but_unconfigured_saf_grant_is_not_a_library_source(self):
+        other = self.URI_OTHER
+        configured = [{"path": self.URI_A, "kind": "saf", "authorization": "granted"}]
+        self.assertEqual(
+            (self.URI_A,),
+            configured_library_saf_roots([self.URI_A, other], configured),
+        )
+
+    def test_revoked_configured_saf_grant_is_not_a_library_source(self):
+        configured = [{"path": self.URI_A, "kind": "saf", "authorization": "revoked"}]
+        self.assertEqual(
+            (),
+            configured_library_saf_roots([self.URI_A], configured),
+        )
+
+    def test_configured_saf_scope_filter_remains_stable(self):
+        configured = [
+            {"path": self.URI_A, "kind": "saf", "authorization": "granted"},
+            {"path": self.URI_OTHER, "kind": "saf", "authorization": "granted"},
+        ]
+        self.assertEqual(
+            (self.URI_A,),
+            configured_library_saf_roots(
+                [self.URI_A, self.URI_OTHER],
+                configured,
+                scope_ref=self.URI_DUPLICATE_ENCODING,
+            ),
+        )
+
 
 
 class Prompt33CoordinatorTests(unittest.IsolatedAsyncioTestCase):

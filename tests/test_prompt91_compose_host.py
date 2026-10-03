@@ -58,7 +58,7 @@ class Prompt91ComposeHostTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("ReiAnixLibraryRoute(", host)
         self.assertIn("anime.stableKey", library)
-        self.assertIn('anime:<id>', library + host)
+        self.assertIn('"anime:" + id', library)
 
     def test_main_activity_does_not_replace_flutter_host(self):
         source = MAIN_ACTIVITY.read_text(encoding="utf-8")

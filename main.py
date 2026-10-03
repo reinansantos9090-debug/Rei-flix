@@ -165,12 +165,10 @@ async def main(page: ft.Page):
                 request_id=request_id if request_id is not None else home_refresh_context.get("request_id"),
                 source=reason or None,
                 result=normalized,
-                extra={
-                    "refresh_id": home_refresh_context.get("refresh_id"),
-                    "previous_phase": previous,
-                    "phase": normalized,
-                    "transition_reason": reason or None,
-                },
+                refresh_id=home_refresh_context.get("refresh_id"),
+                previous_phase=previous,
+                phase=normalized,
+                transition_reason=reason or None,
             )
 
     def _handle_page_disconnect(_event=None):

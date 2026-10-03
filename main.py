@@ -3124,6 +3124,16 @@ async def main(page: ft.Page):
                                         raise ValueError('Episódio não encontrado ou referência local incompatível.')
                                     compose_library_bridge.request_publish('compose_set_watched')
                                     on_catalog_changed(refresh_details=False)
+                                elif action == 'select_saf':
+                                    started = await add_folder()
+                                    if not started:
+                                        command_status = 'BLOCKED'
+                                        command_error = (
+                                            'A seleção de pasta já está em andamento ou a biblioteca '
+                                            'está sendo atualizada.'
+                                        )
+                                    else:
+                                        command_status = 'QUEUED'
                                 elif action == 'refresh':
                                     source = str(payload.get('source') or '').strip() or None
                                     transition = await scan_coordinator.request(

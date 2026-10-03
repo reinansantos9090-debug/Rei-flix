@@ -113,16 +113,13 @@ object LibraryUiMappers {
         val reference = source.stringOrNull("path") ?: source.stringOrNull("uri")
         val isContentUri = reference?.startsWith("content://", ignoreCase = true) == true
         val sourceAvailabilityState = source.stringOrNull("availability_state")
-        val availability = when {
-            source.booleanOrNull("missing") == true -> ReiAnixMediaAvailability.MISSING
-            sourceAvailabilityState.equals("available", ignoreCase = true) ->
-                ReiAnixMediaAvailability.AVAILABLE
-            sourceAvailabilityState.equals("unavailable", ignoreCase = true) ->
-                ReiAnixMediaAvailability.UNAVAILABLE
-            sourceAvailabilityState.isNullOrBlank() ->
-                ReiAnixMediaAvailability.UNKNOWN
-            else ->
-                ReiAnixMediaAvailability.UNKNOWN
+        val availability = when (sourceAvailabilityState?.lowercase()) {
+            "available" -> ReiAnixMediaAvailability.AVAILABLE
+            "missing" -> ReiAnixMediaAvailability.MISSING
+            "scope_unavailable" -> ReiAnixMediaAvailability.SCOPE_UNAVAILABLE
+            "volume_unavailable" -> ReiAnixMediaAvailability.VOLUME_UNAVAILABLE
+            null, "" -> ReiAnixMediaAvailability.UNKNOWN
+            else -> ReiAnixMediaAvailability.UNKNOWN
         }
         return ReiAnixLocalMediaUiModel(
             reference = reference,

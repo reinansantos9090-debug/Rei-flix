@@ -24,7 +24,8 @@ enum class ReiAnixConsumptionState {
 enum class ReiAnixMediaAvailability {
     AVAILABLE,
     MISSING,
-    UNAVAILABLE,
+    SCOPE_UNAVAILABLE,
+    VOLUME_UNAVAILABLE,
     UNKNOWN,
 }
 

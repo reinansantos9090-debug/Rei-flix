@@ -88,11 +88,15 @@ class DeviceCompatibilityContractTests(unittest.TestCase):
         workflow = INSTRUMENTED_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("ReiAnix Android Instrumented Runtime Matrix", workflow)
         self.assertIn("workflow_dispatch:", workflow)
-        self.assertIn("push:", workflow)
-        self.assertIn("matrix:", workflow)
-        self.assertIn("api: [30, 36]", workflow)
+        self.assertIn("name: Android API 36", workflow)
+        self.assertIn("api-level: 36", workflow)
         self.assertIn("reactivecircus/android-emulator-runner@v2", workflow)
         self.assertIn("connectedDebugAndroidTest", workflow)
+        self.assertNotIn("push:", workflow)
+        self.assertNotIn("pull_request:", workflow)
+        self.assertNotIn("matrix:", workflow)
+        self.assertNotIn("api: [30, 36]", workflow)
+        self.assertNotIn("Android TV API 36", workflow)
         self.assertNotIn("ReiAnix Android No-Emulator Contract Checks", workflow)
 
     def test_predictive_back_uses_androidx_dispatcher_without_fake_gesture_implementation(self):

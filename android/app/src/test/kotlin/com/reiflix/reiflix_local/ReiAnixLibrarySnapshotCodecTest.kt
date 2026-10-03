@@ -21,6 +21,8 @@ class ReiAnixLibrarySnapshotCodecTest {
               "status":"READY",
               "sourceState":"AVAILABLE",
               "sourceAvailable":true,
+              "scanInProgress":true,
+              "scanState":"SCANNING",
               "error":null,
               "continue_watching":[
                 {"episode_id":72,"anime_id":7,"anime_title":"Example","season":2,"number":2,
@@ -63,6 +65,8 @@ class ReiAnixLibrarySnapshotCodecTest {
 
         assertEquals(ReiAnixLibraryLoadStatus.READY, state.status)
         assertEquals(4L, state.revision)
+        assertEquals(true, state.scanInProgress)
+        assertEquals("SCANNING", state.scanState)
         assertEquals(listOf(2, 1), state.animes.single().seasons.map { it.number })
         assertEquals(listOf(72L), state.animes.single().seasons[0].episodes.map { it.id })
         assertEquals("content://media/72", state.animes.single().seasons[0].episodes.single().media.uri)
@@ -137,6 +141,17 @@ class ReiAnixLibrarySnapshotCodecTest {
         )
 
         assertEquals(firstHome, secondHome)
+    }
+
+    @Test
+    @Test
+    fun scanStateDefaultsToIdleWhenSnapshotOmitsOptionalFields() {
+        val state = ReiAnixLibrarySnapshotCodec.decode(
+            """{"schemaVersion":1,"revision":1,"status":"EMPTY","sourceState":"NOT_CONFIGURED","sourceAvailable":false,"animes":[]}"""
+        )
+
+        assertEquals(false, state.scanInProgress)
+        assertEquals("IDLE", state.scanState)
     }
 
     @Test

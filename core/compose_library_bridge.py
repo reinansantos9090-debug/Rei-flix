@@ -22,7 +22,15 @@ class ComposeLibraryBridge:
     COMMAND_RESULT_DIR_NAME = "command-results"
     SCHEMA_VERSION = 1
 
-    def __init__(self, data_dir: str, library, store, *, enabled: bool = True):
+    def __init__(
+        self,
+        data_dir: str,
+        library,
+        store,
+        *,
+        enabled: bool = True,
+        scan_state_provider: Callable[[], dict[str, Any]] | None = None,
+    ):
         self.data_dir = Path(data_dir)
         self.library = library
         self.store = store
@@ -34,9 +42,16 @@ class ComposeLibraryBridge:
         self._publish_task: asyncio.Task[Any] | None = None
         self._last_published_revision = 0
         self._pending_reason_text = "unknown"
+        self._scan_state_provider = scan_state_provider
         if self.enabled:
             self.snapshot_dir.mkdir(parents=True, exist_ok=True)
             self.command_result_dir.mkdir(parents=True, exist_ok=True)
+
+    def set_scan_state_provider(
+        self,
+        provider: Callable[[], dict[str, Any]] | None,
+    ) -> None:
+        self._scan_state_provider = provider
 
     def request_publish(self, reason: str = "unknown") -> None:
         """Coalesce projection requests onto one cancellable asyncio worker."""
@@ -70,6 +85,7 @@ class ComposeLibraryBridge:
             catalog = self.library.catalog()
             folders = self.store.folders()
             source_state = self._source_state(folders)
+            scan_snapshot = self._scan_snapshot()
             continue_method = getattr(self.library, "continue_watching", None)
             continue_rows = continue_method(limit=12) if callable(continue_method) else []
             status = "READY" if catalog else "EMPTY"
@@ -81,6 +97,8 @@ class ComposeLibraryBridge:
                 "status": status,
                 "sourceState": source_state,
                 "sourceAvailable": source_state == "AVAILABLE",
+                "scanInProgress": scan_snapshot["in_progress"],
+                "scanState": scan_snapshot["state"],
                 "error": None,
                 "animes": [self._project_anime(item) for item in catalog],
                 "continue_watching": [
@@ -98,11 +116,28 @@ class ComposeLibraryBridge:
                 "status": "ERROR",
                 "sourceState": "UNKNOWN",
                 "sourceAvailable": False,
+                "scanInProgress": False,
+                "scanState": "UNKNOWN",
                 "error": str(exc)[:500],
                 "animes": [],
                 "continue_watching": [],
             }
         self._atomic_write_json(self.snapshot_path, payload)
+
+    def _scan_snapshot(self) -> dict[str, Any]:
+        provider = self._scan_state_provider
+        if not callable(provider):
+            return {"in_progress": False, "state": "IDLE"}
+        try:
+            snapshot = provider() or {}
+            state = str(snapshot.get("state") or "IDLE").strip().upper()
+        except Exception:
+            return {"in_progress": False, "state": "UNKNOWN"}
+
+        return {
+            "in_progress": state in {"CHECKING", "SCANNING", "WAITING_FOR_MEDIASTORE"},
+            "state": state,
+        }
 
     @staticmethod
     def _source_state(folders: Any) -> str:

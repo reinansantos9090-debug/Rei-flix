@@ -12,6 +12,22 @@ if [ -z "$serial" ]; then
   serial="emulator-${EMULATOR_PORT:-5554}"
 fi
 echo "Using emulator serial: $serial"
+# Keep the headless emulator awake for the entire instrumentation run.
+# Recent Android Emulator versions use a finite screen-off timeout; when the
+# display sleeps, MainActivity is moved behind the launcher and foreground
+# assertions become false even though the app itself has not crashed.
+# Android's emulator documentation uses the same high timeout value for CI.
+screen_off_timeout_ms=214783647
+if ! adb -s "$serial" shell settings put system screen_off_timeout "$screen_off_timeout_ms"; then
+  echo "Failed to disable the emulator screen-off timeout."
+  exit 1
+fi
+configured_timeout="$(adb -s "$serial" shell settings get system screen_off_timeout 2>/dev/null | tr -d '\r')" || configured_timeout=""
+if [ "$configured_timeout" != "$screen_off_timeout_ms" ]; then
+  echo "Unexpected emulator screen-off timeout: ${configured_timeout:-<empty>}"
+  exit 1
+fi
+echo "Emulator screen-off timeout configured: $configured_timeout ms"
 
 # android-emulator-runner can expose the emulator as offline during the
 # transition from boot to a usable adb transport. Android's adb guidance
@@ -102,13 +118,21 @@ if [ "$status" -ne 0 ]; then
   echo "===== ANDROID RUNTIME FAILURE DIAGNOSTICS ====="
   {
     echo "--- adb devices ---"
-    adb devices -l || true
+    if ! adb devices -l; then
+      echo "DIAGNOSTIC_COMMAND_FAILED=adb_devices"
+    fi
     echo "--- foreground activity ---"
-    adb -s "$serial" shell dumpsys activity activities | grep -E "mResumedActivity|mCurrentFocus|mFocusedApp" | tail -n 20 || true
+    if ! adb -s "$serial" shell dumpsys activity activities | grep -E "mResumedActivity|mCurrentFocus|mFocusedApp" | tail -n 20; then
+      echo "DIAGNOSTIC_COMMAND_FAILED=foreground_activity"
+    fi
     echo "--- package state ---"
-    adb -s "$serial" shell dumpsys package com.reiflix.reiflix_local | grep -E "versionName|versionCode|enabled=|stopped=|pkgFlags" | head -n 40 || true
+    if ! adb -s "$serial" shell dumpsys package com.reiflix.reiflix_local | grep -E "versionName|versionCode|enabled=|stopped=|pkgFlags" | head -n 40; then
+      echo "DIAGNOSTIC_COMMAND_FAILED=package_state"
+    fi
     echo "--- logcat errors ---"
-    adb -s "$serial" logcat -d -v threadtime -t 1200 | grep -E "FATAL EXCEPTION|AndroidRuntime|ANR in|Application Not Responding|com.reiflix.reiflix_local|serious_python|flutter" | tail -n 240 || true
+    if ! adb -s "$serial" logcat -d -v threadtime -t 1200 | grep -E "FATAL EXCEPTION|AndroidRuntime|ANR in|Application Not Responding|com.reiflix.reiflix_local|serious_python|flutter" | tail -n 240; then
+      echo "DIAGNOSTIC_COMMAND_FAILED=logcat_errors"
+    fi
   } | tee "$output_dir/runtime-failure-diagnostics.txt"
   exit "$status"
 fi

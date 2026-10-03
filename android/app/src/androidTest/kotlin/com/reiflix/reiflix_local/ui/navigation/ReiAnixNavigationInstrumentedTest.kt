@@ -14,6 +14,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNode
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.performClick
 import androidx.navigation.compose.ComposeNavigator
 import androidx.navigation.testing.TestNavHostController
@@ -100,13 +101,30 @@ class ReiAnixNavigationInstrumentedTest {
     }
 
     @Test
+    fun allTopLevelRoutesAreReachable() {
+        val destinations = listOf(
+            "Biblioteca" to ReiAnixRoutes.LIBRARY,
+            "Buscar" to ReiAnixRoutes.SEARCH,
+            "Ajustes" to ReiAnixRoutes.SETTINGS,
+            "Início" to ReiAnixRoutes.HOME,
+        )
+
+        destinations.forEach { (label, route) ->
+            clickTopLevel(label)
+            assertEquals(route, navController.currentBackStackEntry?.destination?.route)
+        }
+    }
+
+    @Test
     fun detailsPreservesOriginAndBackReturnsToSource() {
+        navController.navigateToTopLevel(ReiAnixRoutes.SEARCH)
         navController.navigateToDetails("42", ReiAnixRoutes.SEARCH)
         composeRule.waitForIdle()
 
         composeRule.onNodeWithText("animeId=42").assertExists()
         composeRule.onNodeWithText("origin=" + ReiAnixRoutes.SEARCH).assertExists()
         assertTrue(navController.currentBackStackEntry?.destination?.route == ReiAnixRoutes.DETAILS)
+        composeRule.onNodeWithText("Biblioteca").assertDoesNotExist()
 
         composeRule.activity.onBackPressedDispatcher.onBackPressed()
         composeRule.waitForIdle()
@@ -140,6 +158,7 @@ class ReiAnixNavigationInstrumentedTest {
 
         composeRule.onNodeWithText("episodeId=episode-7").assertExists()
         composeRule.onNodeWithText("animeId=42").assertExists()
+        composeRule.onNodeWithText("Biblioteca").assertDoesNotExist()
 
         composeRule.activity.onBackPressedDispatcher.onBackPressed()
         composeRule.waitForIdle()

@@ -64,8 +64,6 @@ class Prompt08ContinueWatchingTests(unittest.TestCase):
             )
             before = store.continue_watching(limit=10)
             self.assertEqual([episode["id"]], [item["id"] for item in before])
-            store.close()
-
             reopened = LibraryStore(directory)
             after = reopened.continue_watching(limit=10)
             self.assertEqual([episode["id"]], [item["id"] for item in after])

@@ -4,6 +4,8 @@ import com.reiflix.reiflix_local.ui.mapper.LibraryUiMappers
 import com.reiflix.reiflix_local.ui.model.ReiAnixAnimeUiModel
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryLoadStatus
 import com.reiflix.reiflix_local.ui.model.ReiAnixLibraryUiState
+import com.reiflix.reiflix_local.ui.model.ReiAnixStorageSourceUiModel
+import com.reiflix.reiflix_local.ui.model.ReiAnixStorageUiState
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -39,6 +41,8 @@ internal object ReiAnixLibrarySnapshotCodec {
             }
         }
 
+        val storage = decodeStorage(root.optJSONObject("storage"))
+
         val rawContinueWatching = root.optJSONArray("continue_watching") ?: JSONArray()
         val continueWatching = buildList(rawContinueWatching.length()) {
             for (index in 0 until rawContinueWatching.length()) {
@@ -58,6 +62,7 @@ internal object ReiAnixLibrarySnapshotCodec {
 
         return ReiAnixLibraryUiState(
             status = status,
+            storage = storage,
             revision = revision,
             animes = animes,
             continueWatching = continueWatching,
@@ -66,6 +71,41 @@ internal object ReiAnixLibrarySnapshotCodec {
             scanInProgress = scanInProgress,
             scanState = scanState,
             error = error,
+        )
+    }
+
+    private fun decodeStorage(raw: JSONObject?): ReiAnixStorageUiState {
+        if (raw == null) return ReiAnixStorageUiState()
+        val capabilities = raw.optJSONObject("capabilities") ?: JSONObject()
+        val configured = raw.optJSONArray("configuredSources") ?: JSONArray()
+        val sources = buildList(configured.length()) {
+            for (index in 0 until configured.length()) {
+                val item = configured.optJSONObject(index) ?: continue
+                add(
+                    ReiAnixStorageSourceUiModel(
+                        reference = item.optString("reference").trim(),
+                        name = item.optString("name").trim(),
+                        kind = item.optString("kind").trim(),
+                        authorization = item.optString("authorization").trim(),
+                        status = item.optString("status").trim(),
+                        safIdentity = item.optString("saf_identity").trim().takeIf { it.isNotEmpty() },
+                        safVolumeId = item.optString("saf_volume_id").trim().takeIf { it.isNotEmpty() },
+                        safDocumentId = item.optString("saf_document_id").trim().takeIf { it.isNotEmpty() },
+                    ),
+                )
+            }
+        }.sortedBy { it.stableKey }
+
+        return ReiAnixStorageUiState(
+            mediaReadState = capabilities.optString("mediaReadState", "denied").trim().lowercase(),
+            broadStorageState = capabilities.optString("broadStorageState", "unavailable").trim().lowercase(),
+            safRoots = capabilities.stringList("safRoots"),
+            removableVolumes = capabilities.stringList("removableVolumes"),
+            scannerCapabilities = capabilities.stringList("scannerCapabilities").sorted(),
+            reconciliationCapabilities = capabilities.stringList("reconciliationCapabilities").sorted(),
+            lifecycleState = capabilities.optString("lifecycleState", "unknown").trim().lowercase(),
+            api = capabilities.optIntOrNull("api"),
+            configuredSources = sources,
         )
     }
 
@@ -106,3 +146,16 @@ private fun jsonValueToKotlin(value: Any?): Any? = when (value) {
     is JSONArray -> value.toListValue()
     else -> value
 }
+
+private fun JSONObject.stringList(key: String): List<String> {
+    val array = optJSONArray(key) ?: return emptyList()
+    return buildList(array.length()) {
+        for (index in 0 until array.length()) {
+            val value = array.opt(index)?.toString()?.trim().orEmpty()
+            if (value.isNotEmpty() && value != "null") add(value)
+        }
+    }.distinct()
+}
+
+private fun JSONObject.optIntOrNull(key: String): Int? =
+    if (!has(key) || isNull(key)) null else optInt(key)

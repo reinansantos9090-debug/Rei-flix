@@ -352,7 +352,7 @@ private fun LibraryFilterChip(
         leadingIcon = if (selected) {
             {
                 Icon(
-                    imageVector = Icons.Filled.Star,
+                    imageVector = Icons.Filled.Favorite,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
                 )

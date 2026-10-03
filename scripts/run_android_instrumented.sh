@@ -99,6 +99,17 @@ set -e
 
 if [ "$status" -ne 0 ]; then
   echo "connectedDebugAndroidTest failed for API $api_level with exit=$status"
+  echo "===== ANDROID RUNTIME FAILURE DIAGNOSTICS ====="
+  {
+    echo "--- adb devices ---"
+    adb devices -l || true
+    echo "--- foreground activity ---"
+    adb -s "$serial" shell dumpsys activity activities | grep -E "mResumedActivity|mCurrentFocus|mFocusedApp" | tail -n 20 || true
+    echo "--- package state ---"
+    adb -s "$serial" shell dumpsys package com.reiflix.reiflix_local | grep -E "versionName|versionCode|enabled=|stopped=|pkgFlags" | head -n 40 || true
+    echo "--- logcat errors ---"
+    adb -s "$serial" logcat -d -v threadtime -t 1200 | grep -E "FATAL EXCEPTION|AndroidRuntime|ANR in|Application Not Responding|com.reiflix.reiflix_local|serious_python|flutter" | tail -n 240 || true
+  } | tee "$output_dir/runtime-failure-diagnostics.txt"
   exit "$status"
 fi
 

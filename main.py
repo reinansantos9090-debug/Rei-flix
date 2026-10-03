@@ -282,17 +282,17 @@ async def main(page: ft.Page):
                 )
                 diagnostics.record(
                     "HOME_REFRESH_STARTED",
-                    refreshId=home_refresh_context["refresh_id"],
-                    requestId=snapshot.request_id,
+                    refresh_id=home_refresh_context["refresh_id"],
+                    request_id=snapshot.request_id,
                     source=refresh_source,
-                    scanSource=snapshot.source or "all",
+                    scan_source=snapshot.source or "all",
                 )
                 diagnostics.record(
                     "HOME_REFRESH_SCAN_STARTED",
-                    refreshId=home_refresh_context["refresh_id"],
-                    requestId=snapshot.request_id,
+                    refresh_id=home_refresh_context["refresh_id"],
+                    request_id=snapshot.request_id,
                     source=refresh_source,
-                    scanSource=snapshot.source or "all",
+                    scan_source=snapshot.source or "all",
                 )
                 performance.counter("home.refresh.started")
             if state == ScanState.BLOCKED and not home_refresh_context["scan_terminal"]:
@@ -307,11 +307,11 @@ async def main(page: ft.Page):
                 home_refresh_context["request_id"] = None
                 diagnostics.record(
                     "HOME_REFRESH_FAILED",
-                    refreshId=home_refresh_context["refresh_id"],
-                    requestId=snapshot.request_id,
+                    refresh_id=home_refresh_context["refresh_id"],
+                    request_id=snapshot.request_id,
                     source=refresh_source,
-                    scanSource=snapshot.source or "all",
-                    reason="no_authorized_scan_source",
+                    scan_source=snapshot.source or "all",
+                    transition_reason="no_authorized_scan_source",
                 )
                 performance.counter("home.refresh.failed")
                 _publish_home_refresh_state("ERROR")
@@ -336,12 +336,12 @@ async def main(page: ft.Page):
                 scan_started = home_refresh_context.get("scan_started_at")
                 diagnostics.record(
                     "HOME_REFRESH_SCAN_COMPLETED" if terminal_success else "HOME_REFRESH_FAILED",
-                    refreshId=home_refresh_context["refresh_id"],
-                    requestId=snapshot.request_id,
+                    refresh_id=home_refresh_context["refresh_id"],
+                    request_id=snapshot.request_id,
                     status=state.value,
                     source=refresh_source,
-                    scanSource=snapshot.source or "all",
-                    durationMs=int((time.monotonic() - scan_started) * 1000) if scan_started else None,
+                    scan_source=snapshot.source or "all",
+                    duration_ms=int((time.monotonic() - scan_started) * 1000) if scan_started else None,
                 )
                 performance.counter("home.refresh.scan_completed" if terminal_success else "home.refresh.failed")
                 if not terminal_success:
@@ -457,11 +457,11 @@ async def main(page: ft.Page):
         refresh_source = home_refresh_context.get("source") or "button"
         diagnostics.record(
             "HOME_REFRESH_FAILED",
-            refreshId=refresh_id,
-            requestId=request_id,
+            refresh_id=refresh_id,
+            request_id=request_id,
             source=refresh_source,
-            operationSource=source,
-            reason=str(reason),
+            operation_source=source,
+            transition_reason=str(reason),
         )
         performance.counter("home.refresh.failed")
         _set_home_refresh_phase("ERROR", request_id=request_id, reason=str(reason))
@@ -484,8 +484,8 @@ async def main(page: ft.Page):
         _set_home_refresh_phase("UI_COMMIT", request_id=request_id, reason="home_ui_updated")
         total_started = home_refresh_context.get("started_at") or time.monotonic()
         duration_ms = int((time.monotonic() - total_started) * 1000)
-        diagnostics.record("HOME_REFRESH_UI_UPDATED", refreshId=refresh_id, durationMs=duration_ms)
-        diagnostics.record("HOME_REFRESH_COMPLETED", refreshId=refresh_id, durationMs=duration_ms)
+        diagnostics.record("HOME_REFRESH_UI_UPDATED", refresh_id=refresh_id, duration_ms=duration_ms)
+        diagnostics.record("HOME_REFRESH_COMPLETED", refresh_id=refresh_id, duration_ms=duration_ms)
         performance.counter("home.refresh.ui_updated")
         performance.event("home.refresh", duration_ms=(time.monotonic() - total_started) * 1000.0, screen="home", metadata={"refresh_id": refresh_id, "rebuild": False, "db_updated": True})
         _set_home_refresh_phase("SUCCESS", request_id=request_id, reason="ui_commit_complete")
@@ -2017,8 +2017,8 @@ async def main(page: ft.Page):
             )
             diagnostics.record(
                 "HOME_REFRESH_DB_UPDATED",
-                refreshId=refresh_id,
-                requestId=refresh_request_id,
+                refresh_id=refresh_id,
+                request_id=refresh_request_id,
                 source=refresh_source,
                 screen=navigation.current,
             )
@@ -2763,9 +2763,9 @@ async def main(page: ft.Page):
         if home_refresh_context["active"]:
             diagnostics.record(
                 "HOME_REFRESH_REJECTED",
-                refreshId=home_refresh_context.get("refresh_id"),
+                refresh_id=home_refresh_context.get("refresh_id"),
                 source=refresh_source,
-                reason="already_refreshing",
+                transition_reason="already_refreshing",
             )
             performance.counter("home.refresh.rejected")
             return "Uma atualização da biblioteca já está em andamento.", True
@@ -2790,7 +2790,7 @@ async def main(page: ft.Page):
             request_id=None,
             reason=refresh_source,
         )
-        diagnostics.record("HOME_REFRESH_REQUESTED", refreshId=refresh_id, source=refresh_source)
+        diagnostics.record("HOME_REFRESH_REQUESTED", refresh_id=refresh_id, source=refresh_source)
         performance.counter("home.refresh.requested")
         try:
             message, waiting = await refresh_library(_home_refresh_context=home_refresh_context)
@@ -2801,9 +2801,9 @@ async def main(page: ft.Page):
         if waiting:
             diagnostics.record(
                 "HOME_REFRESH_ACCEPTED",
-                refreshId=refresh_id,
+                refresh_id=refresh_id,
                 source=refresh_source,
-                reason="scan_coordinator_acceptance",
+                transition_reason="scan_coordinator_acceptance",
             )
             performance.counter("home.refresh.accepted")
             snapshot = scan_coordinator.snapshot
@@ -2817,25 +2817,25 @@ async def main(page: ft.Page):
                 home_refresh_context["scan_started_at"] = time.monotonic()
                 diagnostics.record(
                     "HOME_REFRESH_STARTED",
-                    refreshId=refresh_id,
-                    requestId=snapshot.request_id,
+                    refresh_id=refresh_id,
+                    request_id=snapshot.request_id,
                     source=refresh_source,
-                    scanSource=snapshot.source or "all",
+                    scan_source=snapshot.source or "all",
                 )
                 diagnostics.record(
                     "HOME_REFRESH_SCAN_STARTED",
-                    refreshId=refresh_id,
-                    requestId=snapshot.request_id,
+                    refresh_id=refresh_id,
+                    request_id=snapshot.request_id,
                     source=refresh_source,
-                    scanSource=snapshot.source or "all",
+                    scan_source=snapshot.source or "all",
                 )
                 performance.counter("home.refresh.started")
             return message, True
         diagnostics.record(
             "HOME_REFRESH_REJECTED",
-            refreshId=refresh_id,
+            refresh_id=refresh_id,
             source=refresh_source,
-            reason=message or "coordinator_rejected",
+            transition_reason=message or "coordinator_rejected",
         )
         performance.counter("home.refresh.rejected")
         _set_home_refresh_phase(

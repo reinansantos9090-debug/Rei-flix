@@ -20,6 +20,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.roundToPx
@@ -120,6 +122,9 @@ fun ReiAnixLocalArtwork(
                     color = ReiAnixTokens.Colors.textMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Carregando " + placeholder
+                    },
                 )
             }
 
@@ -139,7 +144,9 @@ fun ReiAnixLocalArtwork(
                     color = ReiAnixTokens.Colors.textMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Falha ao carregar " + (contentDescription ?: placeholder)
+                    },
                 )
             }
         }

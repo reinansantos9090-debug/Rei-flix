@@ -125,6 +125,8 @@ async def main(page: ft.Page):
         "error": None,
         "timestamp": None,
     }]
+    compose_library_bridge.set_scan_state_provider(lambda: scan_state[0])
+    compose_library_bridge.request_publish("startup_scan_state")
     ui_alive = [True]
     native_poll_task = [None]
     player_transition_task = {"task": None}
@@ -267,6 +269,8 @@ async def main(page: ft.Page):
             scan_id=snapshot.request_id,
             error=snapshot.last_result if state in {ScanState.FAILED, ScanState.PARTIAL} else None,
         )
+        if compose_library_bridge.enabled:
+            compose_library_bridge.request_publish("scan_state_changed")
         if home_refresh_context["active"] and (
             home_refresh_context.get("request_id") is None
             or snapshot.request_id == home_refresh_context.get("request_id")

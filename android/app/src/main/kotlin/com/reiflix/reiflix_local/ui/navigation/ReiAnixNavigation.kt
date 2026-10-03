@@ -31,7 +31,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navOptions
+import com.reiflix.reiflix_local.ui.home.ReiAnixHomeRoute
+import com.reiflix.reiflix_local.ui.library.rememberReiAnixLibraryViewModel
 import com.reiflix.reiflix_local.ui.theme.ReiAnixTokens
+import com.reiflix.reiflix_local.viewmodel.ReiAnixLibraryViewModel
 
 /**
  * Native Navigation Compose contract for ReiAnix.
@@ -148,6 +151,41 @@ fun NavHostController.navigateToPlayer(
  * Screen implementations are injected as slots so this layer does not invent
  * domain data or duplicate SQLite/scanner/player business rules.
  */
+/**
+ * Production Compose entry point for the incremental migration.
+ *
+ * This overload wires only the Home route to the real library ViewModel.
+ * Other surfaces remain injectable so the existing Flet host can remain
+ * untouched until their own migration steps are explicitly authorized.
+ */
+@Composable
+fun ReiAnixNavigationHost(
+    navController: NavHostController = rememberNavController(),
+    homeViewModel: ReiAnixLibraryViewModel = rememberReiAnixLibraryViewModel(),
+    library: @Composable () -> Unit = {},
+    search: @Composable () -> Unit = {},
+    settings: @Composable () -> Unit = {},
+    details: @Composable (ReiAnixDetailsArgs) -> Unit = {},
+    player: @Composable (ReiAnixPlayerArgs) -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    ReiAnixNavigationHost(
+        home = {
+            ReiAnixHomeRoute(
+                navController = navController,
+                viewModel = homeViewModel,
+            )
+        },
+        library = library,
+        search = search,
+        settings = settings,
+        details = details,
+        player = player,
+        modifier = modifier,
+        navController = navController,
+    )
+}
+
 @Composable
 fun ReiAnixNavigationHost(
     home: @Composable () -> Unit,

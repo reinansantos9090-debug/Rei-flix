@@ -80,6 +80,28 @@ class ReiAnixNavigationInstrumentedTest {
     }
 
     @Test
+    fun defaultHomeHostRendersRealHomeRoute() {
+        composeRule.setContent {
+            ReiAnixComposeRoot {
+                ReiAnixNavigationHost(
+                    navController = navController,
+                    library = { NavigationTestScreen("Biblioteca") },
+                    search = { NavigationTestScreen("Buscar") },
+                    settings = { NavigationTestScreen("Ajustes") },
+                    details = { NavigationTestScreen("Detalhes") },
+                    player = { NavigationTestScreen("Player") },
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithText("ReiAnix").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Pesquisar na biblioteca").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription(ReiAnixRoutes.BOTTOM_NAV_CONTENT_DESCRIPTION)
+            .assertIsDisplayed()
+    }
+
+    @Test
     fun topLevelNavigationDoesNotDuplicateAnyDestination() {
         listOf(
             "Início" to ReiAnixRoutes.HOME,

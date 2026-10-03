@@ -32,6 +32,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navOptions
 import com.reiflix.reiflix_local.ui.home.ReiAnixHomeRoute
+import com.reiflix.reiflix_local.ui.library.ReiAnixLibraryRoute
 import com.reiflix.reiflix_local.ui.library.rememberReiAnixLibraryViewModel
 import com.reiflix.reiflix_local.ui.theme.ReiAnixTokens
 import com.reiflix.reiflix_local.viewmodel.ReiAnixLibraryViewModel
@@ -154,9 +155,9 @@ fun NavHostController.navigateToPlayer(
 /**
  * Production Compose entry point for the incremental migration.
  *
- * This overload wires only the Home route to the real library ViewModel.
- * Other surfaces remain injectable so the existing Flet host can remain
- * untouched until their own migration steps are explicitly authorized.
+ * This overload wires the Home and Library routes to the same real library
+ * ViewModel. Other surfaces remain injectable so the existing Flet host can
+ * remain untouched until their own migration steps are explicitly authorized.
  */
 @Composable
 fun ReiAnixNavigationHost(
@@ -176,7 +177,12 @@ fun ReiAnixNavigationHost(
                 viewModel = homeViewModel,
             )
         },
-        library = library,
+        library = {
+            ReiAnixLibraryRoute(
+                navController = navController,
+                viewModel = homeViewModel,
+            )
+        },
         search = search,
         settings = settings,
         details = details,

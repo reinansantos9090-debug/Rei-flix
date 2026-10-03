@@ -60,6 +60,8 @@ data class ReiAnixLocalMediaUiModel(
     val path: String?,
     /** Persisted/stable media identity from the source, when available. */
     val mediaIdentity: String?,
+    /** Exact source availability_state, retained so unknown values are not discarded. */
+    val sourceAvailabilityState: String?,
     val availability: ReiAnixMediaAvailability,
 )
 

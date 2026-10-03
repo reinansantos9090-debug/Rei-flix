@@ -66,7 +66,7 @@ class DetailView:
         visible_special_count = [48]
         episode_artwork = {}
         episode_thumbnail_bindings = {}
-        expanded_description = [False]
+        # Every episode card registers its stable progress bar here.\n        progress_bars = []\n        expanded_description = [False]
         current = anime_group.get("current_episode") or {}
         duration_warning = None
         try:
@@ -458,7 +458,6 @@ class DetailView:
             ),
         )
 
-        episode_column = ft.Column(spacing=8)
 
         def edit_identification(episode):
             if not on_set_episode_identification:
@@ -600,7 +599,20 @@ class DetailView:
                         except Exception:
                             DetailView._logger.debug("Episode thumbnail request scheduling failed", exc_info=True)
 
-        def episode_item(episode):
+        def _episode_control_key(episode, scope):
+            episode_id = episode.get("id")
+            if episode_id is not None:
+                identity = str(episode_id)
+            else:
+                # Catalog rows normally have a real id. Keep a stable media
+                # identity fallback for legacy rows without one; never use
+                # position, title, progress, or ordering for control identity.
+                identity = str(episode.get("media_identity") or episode.get("path") or "").strip()
+            if not identity:
+                return None
+            return ft.ValueKey(f"{scope}:{identity}")
+
+        def episode_item(episode, *, scope="episode"):
             episode_ratio = ratio(episode)
             number = episode.get("number")
             episode_type = str(episode.get("episode_type") or "regular").casefold()
@@ -678,10 +690,25 @@ class DetailView:
                         visible=episode.get("absolute_number") is not None and not is_movie),
                 ft.Text(identification, size=10, color=theme.text_muted, visible=not is_movie),
             ], spacing=4, expand=True)
-            if episode_ratio is not None and episode_ratio > 0 and not episode.get("missing") and state.value == "in_progress":
-                progress_bar = ft.ProgressBar(value=episode_ratio, color=contextual_accent[0], bgcolor=theme.surface_variant, bar_height=4)
-                progress_bars.append(progress_bar)
-                details.controls.append(progress_bar)
+            # Keep the card tree structurally stable across 0% -> in-progress
+            # transitions. The progress bar always exists at the same position;
+            # only its value/visibility changes.
+            progress_value = episode_ratio if episode_ratio is not None else 0
+            show_progress = (
+                episode_ratio is not None
+                and episode_ratio > 0
+                and not episode.get("missing")
+                and state.value == "in_progress"
+            )
+            progress_bar = ft.ProgressBar(
+                value=progress_value,
+                color=contextual_accent[0],
+                bgcolor=theme.surface_variant,
+                bar_height=4,
+                visible=show_progress,
+            )
+            progress_bars.append(progress_bar)
+            details.controls.append(progress_bar)
             is_missing = bool(episode.get("missing"))
             clickable = None if is_missing else lambda _, item=episode: play(item)
             content = (ft.Row([thumb, details], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -697,8 +724,16 @@ class DetailView:
                     on_click=clickable,
                     style=focus_button_style(theme=theme, background=SURFACE),
                 )
+            episode_key = _episode_control_key(episode, scope)
             if edit_button is not None:
-                return ft.Row([episode_button, edit_button], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                return ft.Row(
+                    [episode_button, edit_button],
+                    spacing=4,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    key=episode_key,
+                )
+            if episode_key is not None:
+                episode_button.key = episode_key
             return episode_button
 
         def update_thumbnail_in_place(uri, thumbnail_path, media_identity=None):
@@ -747,69 +782,121 @@ class DetailView:
             visible_special_count[0] += 48
             render_episodes()
 
-        def render_episodes():
-            episode_column.controls.clear()
+        def build_episode_controls():
+            """Build the Details episode projection without mutating the mounted tree."""
             episode_artwork.clear()
             episode_thumbnail_bindings.clear()
+            new_controls = []
+
             if is_movie:
                 visible_movies = movie_episodes[:visible_episode_count[0]]
                 _prepare_episode_artwork(visible_movies)
                 if visible_movies:
-                    episode_column.controls.extend(episode_item(item) for item in visible_movies)
+                    new_controls.extend(
+                        episode_item(item, scope="movie")
+                        for item in visible_movies
+                    )
                     if len(movie_episodes) > len(visible_movies):
-                        episode_column.controls.append(
+                        new_controls.append(
                             ft.OutlinedButton(
                                 f"Carregar mais • {len(movie_episodes) - len(visible_movies)} restantes",
                                 on_click=load_more_episodes,
                             )
                         )
                 else:
-                    episode_column.controls.append(ft.Text("Nenhum arquivo de filme foi indexado.", color=theme.text_muted, size=13))
-                page.update()
-                return
+                    new_controls.append(
+                        ft.Text(
+                            "Nenhum arquivo de filme foi indexado.",
+                            color=theme.text_muted,
+                            size=13,
+                        )
+                    )
+                return new_controls
 
             if not seasons and not special_episodes:
-                episode_column.controls.append(ft.Container(
-                    content=ft.Text("Nenhum episódio foi indexado para este anime.", color=theme.text_muted, size=13),
-                    padding=14, bgcolor=SURFACE, border_radius=RADIUS,
-                ))
-            else:
-                visible_regular = []
-                if seasons:
-                    selected = seasons[min(selected_season[0], len(seasons) - 1)]
-                    if resolve_artwork:
-                        season_number = selected.get("season")
-                        if season_number is not None:
-                            resolved_season = resolve_artwork("season", f"{anime_group['id']}:season:{season_number}", "season_poster", allow_network=False)
-                            if resolved_season:
-                                season_path = resolved_season.get("local_path") or resolved_season.get("external_url")
-                                if season_path:
-                                    episode_column.controls.append(media_artwork(season_path, 150, width=100, icon_size=24))
-                    season_items = selected.get("episodes", [])
-                    visible_regular = season_items[:visible_episode_count[0]]
-                    _prepare_episode_artwork(visible_regular)
-                    episode_column.controls.extend(episode_item(item) for item in visible_regular)
-                    if len(season_items) > len(visible_regular):
-                        episode_column.controls.append(
-                            ft.OutlinedButton(
-                                f"Carregar mais • {len(season_items) - len(visible_regular)} episódios restantes",
-                                on_click=load_more_episodes,
-                            )
-                        )
+                new_controls.append(
+                    ft.Container(
+                        content=ft.Text(
+                            "Nenhum episódio foi indexado para este anime.",
+                            color=theme.text_muted,
+                            size=13,
+                        ),
+                        padding=14,
+                        bgcolor=SURFACE,
+                        border_radius=RADIUS,
+                    )
+                )
+                return new_controls
 
-                if special_episodes:
-                    episode_column.controls.append(section_title("Especiais", ft.Icons.STAR_OUTLINE))
-                    visible_special = special_episodes[:visible_special_count[0]]
-                    _prepare_episode_artwork(visible_special)
-                    episode_column.controls.extend(episode_item(item) for item in visible_special)
-                    if len(special_episodes) > len(visible_special):
-                        episode_column.controls.append(
-                            ft.OutlinedButton(
-                                f"Carregar mais especiais • {len(special_episodes) - len(visible_special)} restantes",
-                                on_click=load_more_specials,
-                            )
+            if seasons:
+                selected = seasons[min(selected_season[0], len(seasons) - 1)]
+                if resolve_artwork:
+                    season_number = selected.get("season")
+                    if season_number is not None:
+                        resolved_season = resolve_artwork(
+                            "season",
+                            f"{anime_group['id']}:season:{season_number}",
+                            "season_poster",
+                            allow_network=False,
                         )
-            page.update()
+                        if resolved_season:
+                            season_path = (
+                                resolved_season.get("local_path")
+                                or resolved_season.get("external_url")
+                            )
+                            if season_path:
+                                new_controls.append(
+                                    media_artwork(
+                                        season_path,
+                                        150,
+                                        width=100,
+                                        icon_size=24,
+                                    )
+                                )
+                season_items = selected.get("episodes", [])
+                visible_regular = season_items[:visible_episode_count[0]]
+                _prepare_episode_artwork(visible_regular)
+                new_controls.extend(
+                    episode_item(item, scope="episode")
+                    for item in visible_regular
+                )
+                if len(season_items) > len(visible_regular):
+                    new_controls.append(
+                        ft.OutlinedButton(
+                            f"Carregar mais • {len(season_items) - len(visible_regular)} episódios restantes",
+                            on_click=load_more_episodes,
+                        )
+                    )
+
+            if special_episodes:
+                new_controls.append(section_title("Especiais", ft.Icons.STAR_OUTLINE))
+                visible_special = special_episodes[:visible_special_count[0]]
+                _prepare_episode_artwork(visible_special)
+                new_controls.extend(
+                    episode_item(item, scope="special")
+                    for item in visible_special
+                )
+                if len(special_episodes) > len(visible_special):
+                    new_controls.append(
+                        ft.OutlinedButton(
+                            f"Carregar mais especiais • {len(special_episodes) - len(visible_special)} restantes",
+                            on_click=load_more_specials,
+                        )
+                    )
+            return new_controls
+
+        def render_episodes():
+            # Rebuilds after the initial mount replace the collection atomically.
+            # There is intentionally no controls.clear()/extend() + page.update()
+            # sequence here.
+            episode_column.controls = build_episode_controls()
+            if getattr(episode_column, "page", None) is not None:
+                episode_column.update()
+
+        episode_column = ft.Column(
+            controls=build_episode_controls(),
+            spacing=8,
+        )
 
         def change_season(event):
             selected_season[0] = int(event.control.value)
@@ -843,7 +930,6 @@ class DetailView:
         season_picker.helper_text = season_progress_text(seasons[0]) if seasons else None
         season_picker.on_select = change_season
 
-        progress_bars = []
         progress_section = []
         # current_episode also represents the next unwatched episode.  Only an
         # actual in-progress episode is a valid "CONTINUAR" projection.

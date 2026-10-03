@@ -378,7 +378,10 @@ private data class HomeAnimeRenderData(
     val artworkPath: String?,
     val playbackEpisodeId: Long?,
     val availableContentCount: Int,
-)
+) {
+    val stableKey: String
+        get() = "anime:" + id
+}
 
 private fun ReiAnixAnimeUiModel.toHomeRenderData(): HomeAnimeRenderData =
     HomeAnimeRenderData(

@@ -35,6 +35,7 @@ import com.reiflix.reiflix_local.ui.details.ReiAnixDetailsRoute
 import com.reiflix.reiflix_local.ui.home.ReiAnixHomeRoute
 import com.reiflix.reiflix_local.ui.library.ReiAnixLibraryRoute
 import com.reiflix.reiflix_local.ui.library.rememberReiAnixLibraryViewModel
+import com.reiflix.reiflix_local.ui.search.ReiAnixSearchRoute
 import com.reiflix.reiflix_local.ui.theme.ReiAnixTokens
 import com.reiflix.reiflix_local.viewmodel.ReiAnixLibraryViewModel
 
@@ -186,7 +187,12 @@ fun ReiAnixNavigationHost(
                 viewModel = homeViewModel,
             )
         },
-        search = search,
+        search = {
+            ReiAnixSearchRoute(
+                navController = navController,
+                viewModel = homeViewModel,
+            )
+        },
         settings = settings,
         details = { args ->
             ReiAnixDetailsRoute(

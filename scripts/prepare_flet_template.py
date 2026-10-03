@@ -235,7 +235,7 @@ for candidate in (android_root / "settings.gradle.kts", android_root / "settings
             if "plugins {" in updated:
                 updated = updated.replace("plugins {", "plugins {\n" + plugin_line, 1)
             else:
-                updated = plugin_line + "\n" + updated)
+                updated = plugin_line + "\n" + updated
         if updated != source:
             candidate.write_text(updated, encoding="utf-8")
 

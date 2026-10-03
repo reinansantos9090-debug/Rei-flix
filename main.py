@@ -370,7 +370,7 @@ async def main(page: ft.Page):
     storage_onboarding = {"dismissed": False, "dialog_open": False, "waiting_for_result": False}
     storage_capabilities = [StorageCapabilities.unknown()]
     if compose_library_bridge.enabled:
-        compose_library_bridge.set_storage_state_provider(lambda: storage_capabilities[0])
+        compose_library_bridge.set_storage_state_provider(lambda: {"capabilities": storage_capabilities[0], "safSelectionPending": saf_selection.pending})
         compose_library_bridge.request_publish("storage_startup")
 
     def _authorized_scan_targets(source=None, scope_ref=None):
@@ -2416,6 +2416,8 @@ async def main(page: ft.Page):
             return False
         if not saf_selection.begin():
             return False
+        if compose_library_bridge.enabled:
+            compose_library_bridge.request_publish("saf_selection_started")
         try:
             await bridge.select_tree()
             return True
@@ -3713,6 +3715,8 @@ async def main(page: ft.Page):
                         elif event_type == 'saf_scan':
                             try:
                                 saf_selection.finish()
+                                if compose_library_bridge.enabled:
+                                    compose_library_bridge.request_publish("saf_selection_finished")
                                 stats = payload.get('stats') or {}
                                 tree_uri = payload.get('treeUri', '')
                                 if not tree_uri:
@@ -5241,6 +5245,8 @@ async def main(page: ft.Page):
                             maybe_show_storage_onboarding()
                         elif event_type == 'saf_cancelled':
                             saf_selection.finish()
+                            if compose_library_bridge.enabled:
+                                compose_library_bridge.request_publish("saf_selection_finished")
                             storage_onboarding["waiting_for_result"] = False
                             set_scan_state(ScanUiState.CANCELLED, source="saf", error=None, timestamp=event.get('createdAt'))
                             page.snack_bar=ft.SnackBar(ft.Text('Seleção de pasta cancelada.')); page.snack_bar.open=True; safe_update()
@@ -5308,6 +5314,8 @@ async def main(page: ft.Page):
                                     timestamp=event.get('createdAt'),
                                 )
                                 saf_selection.finish()
+                                if compose_library_bridge.enabled:
+                                    compose_library_bridge.request_publish("saf_selection_finished")
                                 tree_uri = payload.get('treeUri')
                                 error_message = event.get('message') or 'Não foi possível abrir o seletor de pastas do Android. Tente novamente.'
                                 logger.error(

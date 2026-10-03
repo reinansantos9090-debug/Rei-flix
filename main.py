@@ -3059,6 +3059,7 @@ async def main(page: ft.Page):
                                         progress_seconds = float(fresh_episode.get('progress') or 0.0)
                                     except (TypeError, ValueError):
                                         progress_seconds = 0.0
+                                    command_status = 'QUEUED'
                                     play_episode(
                                         path_ref,
                                         title,

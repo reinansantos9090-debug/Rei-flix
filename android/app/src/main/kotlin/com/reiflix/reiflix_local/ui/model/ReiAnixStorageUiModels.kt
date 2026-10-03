@@ -22,6 +22,7 @@ data class ReiAnixStorageUiState(
     val mediaReadState: String = "denied",
     val broadStorageState: String = "unavailable",
     val safRoots: List<String> = emptyList(),
+    val safRootIdentities: List<String> = emptyList(),
     val removableVolumes: List<String> = emptyList(),
     val scannerCapabilities: List<String> = emptyList(),
     val reconciliationCapabilities: List<String> = emptyList(),
@@ -37,8 +38,7 @@ data class ReiAnixStorageUiState(
             "saf" -> {
                 val identity = source.safIdentity?.takeIf { it.isNotBlank() }
                 val authorized = when {
-                    identity != null -> source.reference in safRoots ||
-                        safRoots.any { root -> root.contains(identity) }
+                    identity != null -> identity in safRootIdentities
                     else -> source.reference in safRoots
                 }
                 if (authorized) "available" else "revoked"

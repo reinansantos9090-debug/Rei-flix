@@ -27,7 +27,9 @@ class LibraryUiMappersTest {
                     "episodes" to listOf(first, partial, completed, watched),
                 ),
             ),
-        )
+        ).toMutableMap().apply {
+            this["current_episode"] = mapOf<String, Any?>("id" to first["id"])
+        }
 
         val model = LibraryUiMappers.anime(source)
 

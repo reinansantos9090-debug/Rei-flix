@@ -33,7 +33,7 @@ class ComposeLibraryBridge:
         self._requested_revision = 0
         self._publish_task: asyncio.Task[Any] | None = None
         self._last_published_revision = 0
-        self._pending_reason = "unknown"
+        self._pending_reason_text = "unknown"
         if self.enabled:
             self.snapshot_dir.mkdir(parents=True, exist_ok=True)
             self.command_result_dir.mkdir(parents=True, exist_ok=True)
@@ -43,7 +43,7 @@ class ComposeLibraryBridge:
         if not self.enabled:
             return
         self._requested_revision += 1
-        self._pending_reason = str(reason or "unknown")
+        self._pending_reason_text = str(reason or "unknown")
         if self._publish_task is None or self._publish_task.done():
             self._publish_task = asyncio.create_task(self._publish_loop())
 
@@ -62,10 +62,7 @@ class ComposeLibraryBridge:
                 return
 
     def _pending_reason(self) -> str:
-        return self._pending_reason_value()
-
-    def _pending_reason_value(self) -> str:
-        return self.__dict__.get("_pending_reason", "unknown")
+        return self._pending_reason_text
 
     def _build_and_write_snapshot(self, revision: int, reason: str) -> None:
         generated_at = int(time.time() * 1000)

@@ -199,7 +199,7 @@ private fun ReiAnixDetailsTopBar(
                 tint = if (favorite) {
                     ReiAnixTokens.Colors.warning
                 } else {
-                    ReiAnixTokens.Colors.text,
+                    ReiAnixTokens.Colors.text
                 },
             )
         }

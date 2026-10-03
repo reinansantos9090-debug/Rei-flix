@@ -171,7 +171,7 @@ class Prompt33ContractTests(unittest.TestCase):
         start = source.index("    def _authorized_scan_targets(source=None, scope_ref=None):")
         end = source.index("    scan_coordinator = ScanCoordinator(", start)
         block = source[start:end]
-        self.assertIn("library_saf_roots", block)
+        self.assertIn("configured_library_saf_roots", block)
         self.assertIn('ScanTarget("saf", uri)', block)
         self.assertNotIn('ScanTarget("mediastore")', block)
         self.assertNotIn('ScanTarget("broad_storage")', block)

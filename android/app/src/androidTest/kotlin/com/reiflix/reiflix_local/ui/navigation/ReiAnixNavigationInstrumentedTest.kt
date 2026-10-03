@@ -307,6 +307,26 @@ class ReiAnixNavigationInstrumentedTest {
     }
 
     @Test
+    fun routeArgumentDefaultsUseSemanticOrigins() {
+        navController.navigate("details/42")
+        composeRule.waitForIdle()
+        assertEquals(
+            ReiAnixRoutes.HOME,
+            navController.currentBackStackEntry?.arguments?.getString(ReiAnixRoutes.ARG_ORIGIN),
+        )
+
+        composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        composeRule.waitForIdle()
+
+        navController.navigate("player/episode-7?animeId=42")
+        composeRule.waitForIdle()
+        assertEquals(
+            ReiAnixRoutes.DETAILS_ORIGIN,
+            navController.currentBackStackEntry?.arguments?.getString(ReiAnixRoutes.ARG_ORIGIN),
+        )
+    }
+
+    @Test
     fun routeBuildersUseStableEncodedArguments() {
         assertEquals(
             "details/anime%2F42?origin=library",

@@ -889,10 +889,11 @@ class DetailView:
 
         def render_episodes():
             # Rebuilds after the initial mount replace the collection atomically.
-            # There is intentionally no controls.clear()/extend() sequence here.
+            # Keep the mounted-tree update at page level; direct control.update()
+            # can fail for controls that are not attached to a Page in tests.
             episode_column.controls = build_episode_controls()
             if getattr(episode_column, "page", None) is not None:
-                episode_column.update()
+                page.update()
 
         episode_column = ft.Column(
             controls=build_episode_controls(),

@@ -14,6 +14,7 @@ enum class ReiAnixLibraryLoadStatus {
 @Keep
 data class ReiAnixLibraryUiState(
     val status: ReiAnixLibraryLoadStatus = ReiAnixLibraryLoadStatus.LOADING,
+    val storage: ReiAnixStorageUiState = ReiAnixStorageUiState(),
     val revision: Long = 0L,
     val animes: List<ReiAnixAnimeUiModel> = emptyList(),
     val continueWatching: List<ReiAnixContinueWatchingUiModel> = emptyList(),

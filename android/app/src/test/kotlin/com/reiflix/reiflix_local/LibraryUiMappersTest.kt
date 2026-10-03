@@ -106,6 +106,18 @@ class LibraryUiMappersTest {
     }
 
     @Test
+    fun unknownAvailabilityStateRemainsUnknownAndPreservesSourceValue() {
+        val source = episode(107, 7, 0.0, 1200.0, "unwatched").toMutableMap()
+        source["availability_state"] = "future_library_state"
+        source.remove("missing")
+
+        val model = LibraryUiMappers.episode(source)
+
+        assertEquals(ReiAnixMediaAvailability.UNKNOWN, model.media.availability)
+        assertEquals("future_library_state", model.media.sourceAvailabilityState)
+    }
+
+    @Test
     fun unknownConsumptionStateDoesNotGetDerivedFromProgress() {
         val source = episode(106, 6, 5.0, 1200.0, "future_state").toMutableMap()
         source.remove("watched")

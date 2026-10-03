@@ -11,12 +11,10 @@ class DiagnosticTimelineTests(unittest.TestCase):
             request_id="scan-1",
             source="scan_started",
             result="RUNNING",
-            extra={
-                "refresh_id": "refresh-1",
-                "previous_phase": "REQUESTED",
-                "phase": "RUNNING",
-                "transition_reason": "scan_started",
-            },
+            refresh_id="refresh-1",
+            previous_phase="REQUESTED",
+            phase="RUNNING",
+            transition_reason="scan_started",
         )
 
         self.assertEqual("HOME_REFRESH_PHASE_CHANGED", event.name)

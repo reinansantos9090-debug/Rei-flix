@@ -76,6 +76,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var lastObservedBroadAccess: Boolean? = null
     private var interactionProfileFingerprint: String? = null
     private val nativeRequestState = NativeRequestState()
+    private lateinit var composeLibraryHost: ReiAnixComposeLibraryHost
 
     private val playerActivityLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
@@ -760,6 +761,15 @@ class MainActivity : FlutterFragmentActivity() {
         logLifecycle("onCreate", intent)
         NativeMailbox.write(this, JSONObject().put("type", "diagnostic").put("payload", JSONObject().put("event", "APP_START").put("lifecycle", "onCreate")))
         systemUiController = SystemUiController(window)
+        composeLibraryHost = ReiAnixComposeLibraryHost(this) { animeId ->
+            composeLibraryHost.hide()
+            NativeMailbox.writeBestEffort(
+                this,
+                JSONObject()
+                    .put("type", "compose_library_navigation")
+                    .put("payload", JSONObject().put("destination", "details").put("animeId", animeId)),
+            )
+        }
         // Flet owns the visual theme/system-overlay appearance; the native host
         // owns edge-to-edge + normal system-bar visibility.
         systemUiController.applyApplicationPolicy(useContextAppearance = false)
@@ -963,6 +973,7 @@ class MainActivity : FlutterFragmentActivity() {
         PerformanceDiagnostics.sampleMemory(this, "main_on_destroy")
         PerformanceDiagnostics.detach()
         cancelSafPickerWatchdog()
+        if (::composeLibraryHost.isInitialized) composeLibraryHost.dispose()
         googleSignInJob?.cancel()
         googleSignInJob = null
         logLifecycle("onDestroy")
@@ -1018,6 +1029,17 @@ class MainActivity : FlutterFragmentActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    if (::composeLibraryHost.isInitialized && composeLibraryHost.isVisible) {
+                        composeLibraryHost.hide()
+                        NativeMailbox.writeBestEffort(
+                            this@MainActivity,
+                            JSONObject()
+                                .put("type", "compose_library_navigation")
+                                .put("payload", JSONObject().put("destination", "back")),
+                        )
+                        Log.i(tag, "BACK_COMPOSE_LIBRARY_DISMISSED")
+                        return
+                    }
                     systemBackEventCount += 1
                     val backId = systemBackEventCount
                     Log.i(tag, "BACK_PHYSICAL_RECEIVED id=" + backId)
@@ -1231,6 +1253,18 @@ class MainActivity : FlutterFragmentActivity() {
 
         try {
             when (action) {
+                "open_library" -> {
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    composeLibraryHost.show()
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.COMPLETED)
+                    publishNativeDiagnostic("OPERATION_COMPLETED", requestId, action, NativeRequestState.OperationState.COMPLETED.name)
+                }
+                "hide_library" -> {
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.RUNNING)
+                    composeLibraryHost.hide()
+                    nativeRequestState.markOperationState(requestId, action, NativeRequestState.OperationState.COMPLETED)
+                    publishNativeDiagnostic("OPERATION_COMPLETED", requestId, action, NativeRequestState.OperationState.COMPLETED.name)
+                }
                 "select_tree" -> {
                     if (!activityResumed) {
                         if (nativeRequestState.queueLifecycleAction("select_tree", requestId)) {

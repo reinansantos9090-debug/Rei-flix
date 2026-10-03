@@ -21,7 +21,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -439,7 +439,7 @@ private fun LibraryAnimeCard(
                 },
             ) {
                 Icon(
-                    imageVector = if (anime.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                    imageVector = if (anime.favorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
                     contentDescription = null,
                     tint = if (anime.favorite) {
                         ReiAnixTokens.Colors.warning

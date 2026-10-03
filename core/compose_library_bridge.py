@@ -15,6 +15,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from core.storage_access import StorageCapabilities, saf_source_identity
+
 
 class ComposeLibraryBridge:
     SNAPSHOT_DIR_NAME = "reianix-compose"
@@ -30,6 +32,7 @@ class ComposeLibraryBridge:
         *,
         enabled: bool = True,
         scan_state_provider: Callable[[], dict[str, Any]] | None = None,
+        storage_state_provider: Callable[[], StorageCapabilities | dict[str, Any]] | None = None,
     ):
         self.data_dir = Path(data_dir)
         self.library = library
@@ -43,6 +46,7 @@ class ComposeLibraryBridge:
         self._last_published_revision = 0
         self._pending_reason_text = "unknown"
         self._scan_state_provider = scan_state_provider
+        self._storage_state_provider = storage_state_provider
         if self.enabled:
             self.snapshot_dir.mkdir(parents=True, exist_ok=True)
             self.command_result_dir.mkdir(parents=True, exist_ok=True)
@@ -52,6 +56,12 @@ class ComposeLibraryBridge:
         provider: Callable[[], dict[str, Any]] | None,
     ) -> None:
         self._scan_state_provider = provider
+
+    def set_storage_state_provider(
+        self,
+        provider: Callable[[], StorageCapabilities | dict[str, Any]] | None,
+    ) -> None:
+        self._storage_state_provider = provider
 
     def request_publish(self, reason: str = "unknown") -> None:
         """Coalesce projection requests onto one cancellable asyncio worker."""
@@ -86,6 +96,7 @@ class ComposeLibraryBridge:
             folders = self.store.folders()
             source_state = self._source_state(folders)
             scan_snapshot = self._scan_snapshot()
+            storage_snapshot = self._storage_snapshot(folders)
             continue_method = getattr(self.library, "continue_watching", None)
             continue_rows = continue_method(limit=12) if callable(continue_method) else []
             status = "READY" if catalog else "EMPTY"
@@ -118,6 +129,7 @@ class ComposeLibraryBridge:
                 "sourceAvailable": source_state == "AVAILABLE",
                 "scanInProgress": scan_snapshot["in_progress"],
                 "scanState": scan_snapshot["state"],
+                "storage": storage_snapshot,
                 "error": None,
                 "animes": projected_animes,
                 "continue_watching": [
@@ -137,6 +149,7 @@ class ComposeLibraryBridge:
                 "sourceAvailable": False,
                 "scanInProgress": False,
                 "scanState": "UNKNOWN",
+                "storage": self._storage_snapshot([]),
                 "error": str(exc)[:500],
                 "animes": [],
                 "continue_watching": [],
@@ -156,6 +169,57 @@ class ComposeLibraryBridge:
         return {
             "in_progress": state in {"CHECKING", "SCANNING", "WAITING_FOR_MEDIASTORE"},
             "state": state,
+        }
+
+    def _storage_snapshot(self, folders: Any) -> dict[str, Any]:
+        provider = self._storage_state_provider
+        capabilities: dict[str, Any] = {}
+        if callable(provider):
+            try:
+                snapshot = provider()
+                if isinstance(snapshot, StorageCapabilities):
+                    capabilities = snapshot.as_mapping()
+                elif isinstance(snapshot, dict):
+                    capabilities = dict(snapshot)
+            except Exception:
+                capabilities = {}
+
+        roots = capabilities.get("safRoots") or []
+        capabilities["safRoots"] = list(dict.fromkeys(
+            str(value).strip() for value in roots if str(value).strip()
+        ))
+        capabilities["safRootIdentities"] = sorted({
+            identity
+            for identity in (saf_source_identity(value) for value in capabilities["safRoots"])
+            if identity
+        })
+
+        sources = []
+        for folder in folders or []:
+            if not isinstance(folder, dict):
+                continue
+            reference = str(folder.get("path") or "").strip()
+            name = str(folder.get("name") or reference).strip()
+            kind = str(folder.get("kind") or "").strip().lower()
+            if not reference and not name:
+                continue
+            sources.append({
+                "reference": reference,
+                "name": name,
+                "kind": kind,
+                "authorization": str(folder.get("authorization") or "").strip().lower(),
+                "status": str(folder.get("status") or "").strip().lower(),
+                "saf_identity": str(folder.get("saf_identity") or "").strip() or None,
+                "saf_volume_id": str(folder.get("saf_volume_id") or "").strip() or None,
+                "saf_document_id": str(folder.get("saf_document_id") or "").strip() or None,
+            })
+        sources.sort(key=lambda item: (
+            str(item.get("saf_identity") or item.get("reference") or item.get("name") or "").lower(),
+            str(item.get("name") or "").lower(),
+        ))
+        return {
+            "capabilities": capabilities,
+            "configuredSources": sources,
         }
 
     @staticmethod

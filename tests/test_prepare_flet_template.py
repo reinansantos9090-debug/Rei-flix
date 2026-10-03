@@ -119,6 +119,7 @@ class FletTemplateManifestTests(unittest.TestCase):
             self.assertIn("ReiAnix Compose Compiler Gradle plugin", generated_gradle)
             self.assertIn("compose = true", generated_gradle)
             self.assertIn("androidx.compose:compose-bom:2026.06.00", generated_gradle)
+            self.assertIn("androidx.compose.material:material-icons-core", generated_gradle)
             self.assertIn("androidx.navigation:navigation-compose:2.9.8", generated_gradle)
             self.assertIn("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0", generated_gradle)
 

@@ -14,6 +14,14 @@ class FletTemplateManifestTests(unittest.TestCase):
             project = root / "rendered"
             overlay = root / "overlay-app"
             (project / "android/app/src/main").mkdir(parents=True)
+            (project / "android").mkdir(parents=True, exist_ok=True)
+            (project / "android/build.gradle.kts").write_text(
+                'plugins {\n'
+                '    id("com.android.application") version "8.6.1" apply false\n'
+                '    id("org.jetbrains.kotlin.android") version "2.0.21" apply false\n'
+                '}\n',
+                encoding="utf-8",
+            )
             (project / "android/app/src/main/kotlin").mkdir(parents=True)
             (project / "android/app/src/main/res/values").mkdir(parents=True)
             (project / "android/app/build.gradle.kts").write_text(
@@ -105,6 +113,14 @@ class FletTemplateManifestTests(unittest.TestCase):
                 'android:launchMode="singleTop"',
                 (project / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8"),
             )
+            generated_root_gradle = (project / "android/build.gradle.kts").read_text(encoding="utf-8")
+            self.assertIn('id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false', generated_root_gradle)
+            self.assertIn('id("org.jetbrains.kotlin.plugin.compose")', generated_gradle)
+            self.assertIn("compose = true", generated_gradle)
+            self.assertIn("androidx.compose:compose-bom:2026.06.00", generated_gradle)
+            self.assertIn("androidx.navigation:navigation-compose:2.9.8", generated_gradle)
+            self.assertIn("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0", generated_gradle)
+
 
 
 if __name__ == "__main__":

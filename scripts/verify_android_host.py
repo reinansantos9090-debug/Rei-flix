@@ -24,6 +24,7 @@ REQUIRED_CLASSES = (
     b"Lcom/reiflix/reiflix_local/NativePlayerActivity;",
     b"Lcom/reiflix/reiflix_local/NativePlayerRequest;",
     b"Lcom/reiflix/reiflix_local/GoogleIdentity;",
+    b"Lcom/reiflix/reiflix_local/ui/theme/ReiAnixComposeThemeKt;",
 )
 
 

@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -9,6 +10,7 @@ android {
 
     buildFeatures {
         buildConfig = true
+        compose = true
     }
 
     defaultConfig {
@@ -40,6 +42,20 @@ kotlin { jvmToolchain(17) }
 dependencies {
     // These are merged into the Flet Flutter host by the custom Android template.
     implementation("androidx.activity:activity-ktx:1.13.0")
+    // Compose line compatible with the existing compileSdk 36 / AGP 8.9.1 toolchain.
+    implementation(platform("androidx.compose:compose-bom:2026.06.00"))
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
+    implementation("androidx.navigation:navigation-compose:2.9.8")
+    debugImplementation(platform("androidx.compose:compose-bom:2026.06.00"))
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.06.00"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.compose.ui:ui-test")
+    androidTestImplementation("androidx.navigation:navigation-testing:2.9.8")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("androidx.media3:media3-exoplayer:1.11.1")

@@ -76,3 +76,21 @@ Os testes de carga Python de escalabilidade simulam 10.000, 50.000 e 100.000
 documentos alimentando `LibraryService.ingest_documents_batch()` em blocos
 de 250, verificando que nenhum lote ultrapassa esse limite e que cada lote
 atualiza o progresso persistido.
+
+
+## Jetpack Compose foundation
+
+Prompt 01 adds the Kotlin Compose compiler plugin and native Compose/Material 3/Navigation
+dependencies without replacing the Flet launcher or migrating an existing screen. MainActivity
+remains the Flet/Flutter entry point, while NativePlayerActivity and Media3 remain untouched.
+
+The project targets compileSdk 36 with AGP 8.9.1. Compose 1.12.x requires API 37 and AGP 9.1.2+,
+so the foundation intentionally uses Compose BOM 2026.06.00 instead of forcing a toolchain upgrade
+outside Prompt 01.
+
+Kotlin 2.0+ uses the Compose Compiler Gradle plugin. ReiAnix keeps Kotlin 2.0.21 and applies
+org.jetbrains.kotlin.plugin.compose at the same version.
+
+Navigation Compose 2.9.8 and Lifecycle ViewModel Compose 2.10.0 are prepared as dependencies;
+Prompt 01 creates no navigation graph or migrated screen. Existing SQLite, scanner, SAF, MediaStore,
+artwork, progress, mailbox and Media3 remain the source of truth.

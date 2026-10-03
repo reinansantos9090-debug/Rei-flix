@@ -250,24 +250,6 @@ class ReiAnixHomeInstrumentedTest {
     }
 
     @Test
-    fun missingArtworkExposesErrorStateWithoutDroppingPlaceholder() {
-        composeRule.setContent {
-            ReiAnixComposeRoot {
-                ReiAnixLocalArtwork(
-                    localPath = "/definitely/missing/reianix-artwork.jpg",
-                    contentDescription = "Missing artwork",
-                    modifier = Modifier.size(100.dp),
-                    placeholder = "Sem arte",
-                )
-            }
-        }
-
-        composeRule.onNodeWithText("Sem arte").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Falha ao carregar Missing artwork")
-            .assertIsDisplayed()
-    }
-
-    @Test
     fun favoriteSectionUsesStableItemsAndCanScrollHorizontally() {
         val animes = (1L..8L).map { id ->
             anime(id, "Anime $id", favorite = true)

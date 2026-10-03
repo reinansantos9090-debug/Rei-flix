@@ -14,6 +14,16 @@ Este é um projeto existente e em estabilização. Trabalhe sobre o código atua
 - Não remova testes existentes para fazer a suíte passar.
 - Não desative validações, tratamento de erros, concorrência, lifecycle, cache, armazenamento, player ou proteções existentes sem evidência técnica de que são incorretos e sem preservar o comportamento necessário.
 
+
+## Proibição absoluta de testes/emuladores adicionados pelo agente
+- É PROIBIDO adicionar ao repositório qualquer workflow, script, job, etapa de CI ou infraestrutura que crie, inicialize ou execute um emulator Android especificamente para validar uma tarefa, Prompt ou alteração.
+- NÃO adicionar testes de emulator ao repositório em hipótese alguma.
+- NÃO criar workflows temporários ou permanentes de validação que usem emulator Android.
+- NÃO adicionar etapas como `Run ... instrumentation test on Android ...`, `android-emulator-runner`, matrizes de APIs/emuladores, Android TV emulator ou qualquer mecanismo equivalente.
+- NÃO adicionar upload de artifacts específico de uma validação com emulator.
+- Se uma validação em emulator for necessária, ela deve ser tratada fora do repositório e sem adicionar infraestrutura de emulator ao projeto.
+- Os workflows e testes permanentes existentes devem ser preservados conforme já definidos; esta regra impede que o agente adicione nova infraestrutura de emulator, não autoriza remover infraestrutura existente sem justificativa e sem escopo explícito.
+
 ## Fluxos críticos
 Trate como áreas de alto risco:
 - seleção e persistência de pasta/permissão;

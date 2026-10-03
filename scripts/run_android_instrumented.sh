@@ -9,43 +9,64 @@ mkdir -p "$output_dir"
 echo "Waiting for adb/emulator readiness (API $api_level)..."
 serial="${ANDROID_SERIAL:-}"
 if [ -z "$serial" ]; then
-  serial="$(adb devices | awk '$1 ~ /^emulator-[0-9]+$/ { print $1; exit }')"
+  serial="emulator-${EMULATOR_PORT:-5554}"
 fi
-serial="${serial:-emulator-5554}"
 echo "Using emulator serial: $serial"
 
-# The emulator runner can briefly expose the transport as offline even after
-# the emulator itself has booted. Reset the host-side connection and then wait
-# for the selected transport to become operational.
-adb start-server >/dev/null 2>&1 || true
-adb reconnect offline >/dev/null 2>&1 || true
-
+# android-emulator-runner can expose the emulator as offline during the
+# transition from boot to a usable adb transport. Android's adb guidance
+# recommends resetting the adb host when a connection is lost, so recovery
+# below restarts the host and then waits for the same emulator transport.
 ready=0
-for attempt in $(seq 1 120); do
-  state="$(adb -s "$serial" get-state 2>/dev/null)" || state=""
-  if [ "$state" = "offline" ]; then
-    adb reconnect offline >/dev/null 2>&1 || true
+for attempt in $(seq 1 180); do
+  if ! adb start-server >/dev/null 2>&1; then
+    echo "adb start-server failed on readiness attempt $attempt; retrying."
+    sleep 2
+    continue
   fi
-  boot="$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" || boot=""
-  if [ "$state" = "device" ] && [ "$boot" = "1" ]; then
-    ready=1
-    break
+
+  state="$(adb -s "$serial" get-state 2>/dev/null)" || state=""
+
+  if [ "$state" = "offline" ]; then
+    echo "adb transport is offline on attempt $attempt; reconnecting."
+    if ! adb reconnect offline >/dev/null 2>&1; then
+      echo "adb reconnect offline did not complete; resetting adb host."
+      if ! adb kill-server >/dev/null 2>&1; then
+        echo "adb kill-server returned non-zero during recovery."
+      fi
+      sleep 2
+      if ! adb start-server >/dev/null 2>&1; then
+        echo "adb start-server failed after host reset."
+        sleep 2
+        continue
+      fi
+    fi
+    sleep 2
+    state="$(adb -s "$serial" get-state 2>/dev/null)" || state=""
+  fi
+
+  if [ "$state" = "device" ]; then
+    boot="$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" || boot=""
+    if [ "$boot" = "1" ]; then
+      ready=1
+      break
+    fi
+  fi
+
+  if [ "$((attempt % 15))" -eq 0 ]; then
+    echo "ADB readiness attempt $attempt/180"
+    adb devices -l || echo "adb devices diagnostic failed."
   fi
   sleep 2
 done
 
 if [ "$ready" -ne 1 ]; then
   echo "ADB did not become ready after the post-boot readiness window."
-  adb devices -l || adb_status=$?
+  if ! adb devices -l; then
+    echo "adb devices diagnostic failed."
+  fi
   exit 1
 fi
-
-adb -s "$serial" shell settings put global window_animation_scale 0.0
-adb -s "$serial" shell settings put global transition_animation_scale 0.0
-adb -s "$serial" shell settings put global animator_duration_scale 0.0
-adb -s "$serial" shell settings get global window_animation_scale
-adb -s "$serial" shell settings get global transition_animation_scale
-adb -s "$serial" shell settings get global animator_duration_scale
 
 cd "$GITHUB_WORKSPACE/build/flutter/android"
 

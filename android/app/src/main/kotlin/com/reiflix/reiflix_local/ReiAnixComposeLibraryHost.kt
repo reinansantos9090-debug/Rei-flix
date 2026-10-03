@@ -33,6 +33,11 @@ class ReiAnixComposeLibraryHost(
         get() = composeView?.visibility == View.VISIBLE
 
     fun show() {
+        composeNavController?.let { controller ->
+            if (controller.currentDestination?.route != ReiAnixRoutes.LIBRARY) {
+                controller.popBackStack(ReiAnixRoutes.LIBRARY, false)
+            }
+        }
         val view = ensureAttached()
         view.visibility = View.VISIBLE
         if (view.tag != CONTENT_TAG) {

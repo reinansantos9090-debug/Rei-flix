@@ -76,6 +76,38 @@ class ReiAnixLibrarySnapshotCodecTest {
     }
 
     @Test
+    fun homeProjectionIgnoresContinueWatchingProgressChanges() {
+        val base = ReiAnixLibraryUiState(
+            status = ReiAnixLibraryLoadStatus.READY,
+            revision = 1L,
+            continueWatching = listOf(
+                com.reiflix.reiflix_local.ui.model.ReiAnixContinueWatchingUiModel(
+                    episodeId = 72L,
+                    animeId = 7L,
+                    animeTitle = "Example",
+                    seasonNumber = 1,
+                    number = 7.0,
+                    title = "E07",
+                    fileName = "E07.mkv",
+                    progressSeconds = 100.0,
+                    durationSeconds = 1000.0,
+                    artwork = null,
+                ),
+            ),
+        )
+        val advanced = base.copy(
+            continueWatching = listOf(
+                base.continueWatching.single().copy(progressSeconds = 200.0),
+            ),
+        )
+
+        assertEquals(
+            ReiAnixHomeLibraryUiState.from(base),
+            ReiAnixHomeLibraryUiState.from(advanced),
+        )
+    }
+
+    @Test
     fun emptyAndUnavailableStatesRemainDistinct() {
         val empty = """
             {"schemaVersion":1,"revision":1,"status":"EMPTY","sourceState":"NOT_CONFIGURED","sourceAvailable":false,"animes":[]}

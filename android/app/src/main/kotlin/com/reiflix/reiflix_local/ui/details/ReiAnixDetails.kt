@@ -16,7 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -194,7 +194,7 @@ private fun ReiAnixDetailsTopBar(
             },
         ) {
             Icon(
-                imageVector = if (favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                imageVector = if (favorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
                 contentDescription = null,
                 tint = if (favorite) {
                     ReiAnixTokens.Colors.warning

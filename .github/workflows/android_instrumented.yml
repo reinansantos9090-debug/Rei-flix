@@ -189,7 +189,9 @@ jobs:
       - name: Restore rendered Android test project
         uses: actions/cache/restore@v4
         with:
-          path: build/flutter
+          path: |
+            build/flutter
+            build/site-packages
           key: reianix-android-test-project-v4-${{ github.sha }}
       - name: Restore Flutter pub dependencies
         working-directory: build/flutter
@@ -284,7 +286,9 @@ jobs:
       - name: Restore rendered Android test project
         uses: actions/cache/restore@v4
         with:
-          path: build/flutter
+          path: |
+            build/flutter
+            build/site-packages
           key: reianix-android-test-project-v4-${{ github.sha }}
       - name: Restore Flutter pub dependencies
         working-directory: build/flutter

@@ -114,8 +114,9 @@ class FletTemplateManifestTests(unittest.TestCase):
                 (project / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8"),
             )
             generated_root_gradle = (project / "android/build.gradle.kts").read_text(encoding="utf-8")
-            self.assertIn('id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false', generated_root_gradle)
-            self.assertIn('id("org.jetbrains.kotlin.plugin.compose")', generated_gradle)
+            self.assertNotIn("org.jetbrains.kotlin.plugin.compose", generated_root_gradle)
+            self.assertIn('id("org.jetbrains.kotlin.plugin.compose") version "2.0.21"', generated_gradle)
+            self.assertIn("ReiAnix Compose Compiler Gradle plugin", generated_gradle)
             self.assertIn("compose = true", generated_gradle)
             self.assertIn("androidx.compose:compose-bom:2026.06.00", generated_gradle)
             self.assertIn("androidx.navigation:navigation-compose:2.9.8", generated_gradle)

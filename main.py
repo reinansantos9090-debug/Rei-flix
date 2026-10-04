@@ -5293,7 +5293,7 @@ async def main(page: ft.Page):
                                     store.update_folder_status(tree_uri, 'revoked', 'A permissão desta pasta foi removida.')
                                     store.mark_source_unavailable(tree_uri, 'saf_permission_revoked')
                                 if compose_library_bridge.enabled:
-                                compose_library_bridge.request_publish("storage_event")
+                                    compose_library_bridge.request_publish("storage_event")
                             refresh_settings_if_active()
                         elif event_type == 'saf_released':
                             tree_uri = payload.get('treeUri')

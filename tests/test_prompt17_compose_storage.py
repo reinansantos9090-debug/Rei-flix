@@ -77,8 +77,8 @@ class Prompt17ComposeStorageBridgeTest(unittest.TestCase):
             self.assertEqual("available", capabilities["broadStorageState"])
             self.assertEqual("revalidated", capabilities["lifecycleState"])
             self.assertEqual(36, capabilities["api"])
-            self.assertEqual(["saf", "mediastore"], sorted(capabilities["scannerCapabilities"]))
-            self.assertEqual(["saf", "mediastore"], sorted(capabilities["reconciliationCapabilities"]))
+            self.assertEqual({"saf", "mediastore"}, set(capabilities["scannerCapabilities"]))
+            self.assertEqual({"saf", "mediastore"}, set(capabilities["reconciliationCapabilities"]))
             self.assertTrue(storage["safSelectionPending"])
             self.assertEqual(
                 ["saf:com.example:primary:Anime"],

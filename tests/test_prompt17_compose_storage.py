@@ -73,15 +73,37 @@ class Prompt17ComposeStorageBridgeTest(unittest.TestCase):
 
             storage = payload["storage"]
             self.assertEqual("full", storage["capabilities"]["mediaReadState"])
-            self.assertEqual("available", storage["capabilities"]["broadStorageState"])
+            capabilities = storage["capabilities"]
+            self.assertEqual("available", capabilities["broadStorageState"])
+            self.assertEqual("revalidated", capabilities["lifecycleState"])
+            self.assertEqual(36, capabilities["api"])
+            self.assertEqual(["saf", "mediastore"], sorted(capabilities["scannerCapabilities"]))
+            self.assertEqual(["saf", "mediastore"], sorted(capabilities["reconciliationCapabilities"]))
             self.assertTrue(storage["safSelectionPending"])
             self.assertEqual(
                 ["saf:com.example:primary:Anime"],
-                storage["capabilities"]["safRootIdentities"],
+                capabilities["safRootIdentities"],
             )
-            self.assertEqual(2, len(storage["configuredSources"]))
-            self.assertEqual("Anime", storage["configuredSources"][0]["name"])
-            self.assertEqual("broad-storage", storage["configuredSources"][1]["kind"])
+
+            sources_by_kind = {
+                source["kind"]: source
+                for source in storage["configuredSources"]
+            }
+            self.assertEqual(2, len(sources_by_kind))
+
+            saf = sources_by_kind["saf"]
+            self.assertEqual("Anime", saf["name"])
+            self.assertEqual("content://com.example/tree/primary%3AAnime", saf["reference"])
+            self.assertEqual("granted", saf["authorization"])
+            self.assertEqual("granted", saf["status"])
+            self.assertEqual("saf:com.example:primary:Anime", saf["saf_identity"])
+            self.assertEqual("primary", saf["saf_volume_id"])
+            self.assertEqual("primary:Anime", saf["saf_document_id"])
+
+            broad = sources_by_kind["broad-storage"]
+            self.assertEqual("Armazenamento amplo", broad["name"])
+            self.assertEqual("granted", broad["authorization"])
+            self.assertEqual("available", broad["status"])
 
 
 if __name__ == "__main__":

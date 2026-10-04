@@ -61,8 +61,11 @@ class Prompt17ComposeStorageBridgeTest(unittest.TestCase):
                     "safSelectionPending": True,
                 },
             )
-            bridge.request_publish("prompt17")
-            asyncio.run(bridge.wait_for_idle())
+            async def publish():
+                bridge.request_publish("prompt17")
+                await bridge.wait_for_idle()
+
+            asyncio.run(publish())
 
             payload = json.loads(
                 (Path(directory) / "reianix-compose" / "library.json").read_text(encoding="utf-8")
